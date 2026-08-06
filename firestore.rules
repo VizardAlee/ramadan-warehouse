@@ -1,0 +1,61 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() { return request.auth != null; }
+    function userPath() { return /databases/$(database)/documents/users/$(request.auth.uid); }
+    function hasProfile() { return signedIn() && exists(userPath()); }
+    function profile() { return get(userPath()).data; }
+    function active() { return hasProfile() && profile().status == "active"; }
+    function sameOrganization(data) { return active() && data.organizationId == profile().organizationId; }
+    function hasRole(role) { return active() && role in profile().roleIds; }
+    function canManageFoundation() { return hasRole("system_administrator"); }
+    function canAudit() { return hasRole("auditor"); }
+
+    match /users/{userId} {
+      allow get: if signedIn() && (request.auth.uid == userId || (canManageFoundation() && sameOrganization(resource.data)));
+      allow list: if canManageFoundation();
+      allow create, update, delete: if false;
+    }
+
+    match /organizations/{organizationId} {
+      allow get: if active() && organizationId == profile().organizationId;
+      allow list: if false;
+      allow create, update, delete: if false;
+    }
+
+    match /branches/{documentId} {
+      allow read: if sameOrganization(resource.data) && (canManageFoundation() || documentId in profile().branchIds);
+      allow create, update, delete: if false;
+    }
+
+    match /warehouses/{documentId} {
+      allow read: if sameOrganization(resource.data) && (canManageFoundation() || documentId in profile().warehouseIds);
+      allow create, update, delete: if false;
+    }
+
+    match /inventoryLocations/{documentId} {
+      allow read: if sameOrganization(resource.data) && (
+        canManageFoundation() ||
+        (resource.data.branchId != null && resource.data.branchId in profile().branchIds) ||
+        (resource.data.warehouseId != null && resource.data.warehouseId in profile().warehouseIds)
+      );
+      allow create, update, delete: if false;
+    }
+
+    match /roles/{documentId} {
+      allow read: if sameOrganization(resource.data) && canManageFoundation();
+      allow create, update, delete: if false;
+    }
+
+    match /auditLogs/{documentId} {
+      allow read: if sameOrganization(resource.data) && canAudit();
+      allow create, update, delete: if false;
+    }
+
+    // Sensitive and future collections are intentionally covered only by this deny rule.
+    // Their mutations will be opened narrowly as server-authoritative phases are added.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

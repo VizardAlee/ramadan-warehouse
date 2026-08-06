@@ -1,0 +1,17 @@
+@import "tailwindcss";
+
+:root {
+  --background: #f4f7f5;
+  --foreground: #16221c;
+  --surface: #ffffff;
+  --muted: #68776f;
+  --border: #dce5df;
+  --brand: #116149;
+  --brand-dark: #0a4936;
+  --accent: #e7aa2d;
+}
+
+* { border-color: var(--border); }
+body { background: var(--background); color: var(--foreground); font-family: Arial, Helvetica, sans-serif; }
+button, a { -webkit-tap-highlight-color: transparent; }
+button:focus-visible, a:focus-visible, input:focus-visible { outline: 3px solid color-mix(in srgb, var(--brand) 30%, transparent); outline-offset: 2px; }
