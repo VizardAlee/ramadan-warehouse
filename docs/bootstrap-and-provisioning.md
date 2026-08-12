@@ -4,7 +4,9 @@
 
 `bootstrapOrganization` is the only organization-creation path in Phase 1. It requires a signed-in Firebase Auth account and is callable without an existing warehouse profile only while `system/bootstrap` does not exist. A Firestore transaction reads the bootstrap state, organizations, trusted administrators, and caller profile before atomically creating the organization, caller profile, bootstrap state, and audit event. Concurrent calls contend on the same state document, so only one can commit.
 
-The function runs without a secret only in the Emulator Suite. A later production run must configure the Cloud Functions secret `WAREHOUSE_BOOTSTRAP_SECRET` and invoke the callable from a trusted administrator procedure that supplies the matching value. The secret must never be stored in `NEXT_PUBLIC_*`, source control, logs, or audit records. Production bootstrap has not been performed.
+The function runs without a secret only in the Emulator Suite. Production configures the Cloud Functions secret `WAREHOUSE_BOOTSTRAP_SECRET`; it must never be stored in `NEXT_PUBLIC_*`, source control, logs, or audit records.
+
+Production bootstrap completed on 2026-08-12 for `AB Ramadan Ltd.` (`ABR`) through a trusted authenticated GCP administrative procedure because the owner intentionally had no Firestore profile from which to invoke the App-Check-protected callable. The procedure enforced the same empty-state and sole-verified-owner preconditions, atomically created the organization/profile/bootstrap/audit records, assigned matching administrator claims, and verified the result. This was a one-time bootstrap operation, not an alternative ongoing organization-creation path.
 
 The authenticated caller becomes the first `system_administrator`; an arbitrary UID is never accepted. After completion, broad custom claims are set and the caller must refresh their token or sign in again.
 

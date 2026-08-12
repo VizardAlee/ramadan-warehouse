@@ -4,9 +4,9 @@
 
 Immutable Firebase project ID `ramadan-warehouse-staging` is now the approved production project. The sole cloud alias is `production`; there is no cloud `staging` alias. The project display name, web-app label, monitoring policies, uptime check, and deployed Functions runtime were converted to production after the representative-data recovery gate passed. The existing App Hosting backend remains healthy at its immutable generated URL.
 
-The full production predeploy gate passed before deployment. Firestore rules, Storage rules, indexes, and all 98 Functions are deployed. All Functions are ACTIVE on Node 22 and report `APP_ENV=production`, callable App Check enabled, bootstrap enabled, scheduled functions enabled, and `noop` notification/integration adapters. The controlled reset then removed only the allowlisted synthetic application data and nine synthetic Auth users. The verified owner account remains enabled with claims cleared and sessions revoked; Firestore is empty and ready for real organization bootstrap.
+The full production predeploy gate passed before deployment. Firestore rules, Storage rules, indexes, and all 98 Functions are deployed. All Functions are ACTIVE on Node 22 and report `APP_ENV=production`, callable App Check enabled, bootstrap enabled, scheduled functions enabled, and `noop` notification/integration adapters. The controlled reset removed only the allowlisted synthetic application data and nine synthetic Auth users. Production bootstrap subsequently created `AB Ramadan Ltd.` (`ABR`) and the verified owner's active `system_administrator` profile and claims; no operational master or inventory data was inferred.
 
-Use `production-conversion.md` for the recovery evidence, reset scope, and remaining bootstrap inputs. Never recreate a cloud `staging` alias for this project.
+Use `production-conversion.md` for the recovery, reset, and completed bootstrap evidence. Never recreate a cloud `staging` alias for this project.
 
 ## Historical staging checkpoint (2026-08-12)
 

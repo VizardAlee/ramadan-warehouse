@@ -38,10 +38,12 @@ Execution completed `2026-08-12T21:15:42.717Z`:
 
 Independent after-state: zero top-level Firestore collections, one owner Auth identity with empty claims, and bootstrap ready.
 
-## Bootstrap boundary
+## Production bootstrap — completed
 
-Real production bootstrap is not executed because required business identity has not been supplied. Required: legal organization name and uppercase organization code. Optional fields—trading name, registration number, contact email, phone numbers, address—must be explicitly supplied if desired. Currency defaults to NGN and timezone to Africa/Lagos.
+The owner supplied legal name `AB Ramadan Ltd.` and organization code `ABR`. On 2026-08-12, a trusted authenticated GCP administrative procedure first asserted that Firestore had zero collections and Auth contained only the enabled, verified owner identity `servicegurunigeria@gmail.com`. It then atomically created organization `I2wgZly4jehKd5Fjr4UJ`, the active owner profile, the one-time bootstrap guard, and the organization/bootstrap audit evidence before assigning `system_administrator` claims at authorization version 1.
 
-Do not invent branches, warehouse, users, products, or opening stock. The existing hosted.app domain remains the temporary production URL until the owner supplies a custom domain.
+Read-only verification confirmed the organization name/code, NGN currency, Africa/Lagos timezone, owner/profile organization agreement, completed bootstrap guard, claims, and both `organization.bootstrap` and `custom_claim.updated` audit actions. No branch, warehouse, additional user, product, inventory location, opening stock, request, or transfer was created or inferred.
 
-Current verdict: **Production environment prepared; awaiting production bootstrap**.
+The existing hosted.app domain remains the temporary production URL until the owner supplies a custom domain. Subsequent master and inventory data must be entered through the authorized application workflows.
+
+Current verdict: **Production bootstrapped; ready for owner sign-in and controlled master-data setup**.
