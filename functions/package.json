@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "main": "lib/index.js",
-  "engines": { "node": "20" },
+  "engines": { "node": "22" },
   "scripts": { "build": "tsc", "lint": "eslint src --max-warnings=0" },
   "dependencies": {
     "firebase-admin": "13.10.0",

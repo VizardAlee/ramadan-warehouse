@@ -15,12 +15,14 @@ export interface AuditEvent {
 
 export function writeAuditLog(transaction: Transaction, actor: AccessProfile, event: AuditEvent): string {
   const reference = db.collection("auditLogs").doc();
-  transaction.create(reference, {
+  const record: Record<string, unknown> = {
     organizationId: actor.organizationId,
     actorUserId: actor.userId,
-    actorRoleIds: actor.roleIds,
+    actorRoleId: actor.roleId,
     ...event,
     createdAt: FieldValue.serverTimestamp(),
-  });
+  };
+  for (const [key, value] of Object.entries(record)) if (value === undefined) delete record[key];
+  transaction.create(reference, record);
   return reference.id;
 }

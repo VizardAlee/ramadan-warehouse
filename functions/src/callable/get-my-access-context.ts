@@ -6,8 +6,9 @@ export const getMyAccessContext = onCall({ enforceAppCheck }, async (request) =>
   const profile = await requireAccess(request);
   return {
     organizationId: profile.organizationId,
-    roleIds: profile.roleIds,
+    roleId: profile.roleId,
     branchIds: profile.branchIds,
     warehouseIds: profile.warehouseIds,
+    authorizationVersion: profile.authorizationVersion,
   };
 });

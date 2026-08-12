@@ -1,0 +1,5 @@
+# Dependency and supply-chain security
+
+Use `npm ci` with the committed lockfile, Node 20, high-severity audit gate, Dependabot/renovation review, and secret scanning. Pin direct dependencies and review lockfile integrity changes. Firebase, Next.js, React, Zod, Vitest, and rules testing versions are explicit; no CSV/upload/barcode dependency was added.
+
+The 2026-08-09 audit initially found a critical Vitest development-server advisory; Vitest was upgraded to 3.2.7 and the critical finding cleared. The remaining 12 findings are moderate transitive Firebase/Google toolchain advisories in `@opentelemetry/core` and `uuid`. The audit proposes a forced, breaking Firebase Tools downgrade, so it was not applied. Mitigation is to keep Firebase tooling outside the production runtime, avoid exposing development servers, review the lockfile, track upstream releases monthly, test upgrades in staging, and retain the high-severity release gate. An audit endpoint/network failure is not a clean result.

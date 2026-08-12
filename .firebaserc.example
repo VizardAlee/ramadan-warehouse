@@ -1,0 +1,7 @@
+{
+  "projects": {
+    "default": "demo-ramadan-warehouse",
+    "staging": "replace-with-staging-project-id",
+    "production": "replace-with-production-project-id"
+  }
+}

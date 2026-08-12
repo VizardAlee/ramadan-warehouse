@@ -1,0 +1,5 @@
+import { Building2, MapPin, Shield, Users, Warehouse } from "lucide-react";
+import Link from "next/link";
+
+const cards = [["users", "Users", "Provision accounts and manage assignments", Users], ["branches", "Branches", "Manage organization branches", Building2], ["warehouses", "Warehouses", "Manage storage facilities", Warehouse], ["locations", "Inventory locations", "Manage physical and virtual locations", MapPin], ["roles", "Roles & permissions", "Review centrally controlled access", Shield]] as const;
+export default function AdministrationPage() { return <div><h1 className="text-3xl font-semibold">Administration</h1><p className="mt-1 text-[var(--muted)]">Secure organization configuration and access management.</p><div className="mt-7 grid gap-4 md:grid-cols-2 xl:grid-cols-3">{cards.map(([path, title, description, Icon]) => <Link key={path} href={`/administration/${path}`} className="rounded-xl border bg-white p-5 shadow-sm transition hover:border-emerald-300"><Icon className="mb-4 size-6 text-[var(--brand)]"/><h2 className="font-semibold">{title}</h2><p className="mt-1 text-sm text-[var(--muted)]">{description}</p></Link>)}</div></div>; }

@@ -1,0 +1,11 @@
+# Copy the alias placeholders into .firebaserc; this file is documentation only.
+FIREBASE_STAGING_ALIAS=staging
+FIREBASE_STAGING_PROJECT_ID=replace-with-staging-project-id
+FIREBASE_PRODUCTION_ALIAS=production
+FIREBASE_PRODUCTION_PROJECT_ID=replace-with-production-project-id
+
+# Server secrets are configured in Firebase Secret Manager, never in NEXT_PUBLIC_*.
+REQUIRED_SERVER_SECRETS=WAREHOUSE_BOOTSTRAP_SECRET
+FUTURE_PROVIDER_SECRET_NAMES=replace-with-provider-secret-names-if-enabled
+INTEGRATION_CREDENTIAL_SECRET_NAMES=replace-with-integration-secret-names-if-enabled
+SIGNING_KEY_SECRET_NAMES=replace-with-signing-key-secret-names-if-enabled

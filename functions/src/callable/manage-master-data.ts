@@ -1,0 +1,76 @@
+import { FieldValue } from "firebase-admin/firestore";
+import { logger } from "firebase-functions";
+import { HttpsError, onCall } from "firebase-functions/v2/https";
+import { db } from "../admin.js";
+import { requireAccess, requirePermission, type Permission } from "../auth/authorize.js";
+import { writeAuditLog } from "../audit/write-audit-log.js";
+import { enforceAppCheck } from "../config.js";
+import { branchInput, locationInput, updateOrganizationInput, warehouseInput } from "../validation/administration.js";
+import { correlationId, parseInput } from "../utils/callable.js";
+
+type MasterKind = "branch" | "warehouse" | "inventoryLocation";
+const configuration = {
+  branch: { collection: "branches", permission: "branch.manage" as Permission },
+  warehouse: { collection: "warehouses", permission: "warehouse.manage" as Permission },
+  inventoryLocation: { collection: "inventoryLocations", permission: "location.manage" as Permission },
+};
+
+async function validateManagerAssignments(kind: MasterKind, input: Record<string, unknown>, organizationId: string) {
+  const ids = kind === "branch" && typeof input.managerUserId === "string" ? [input.managerUserId] : kind === "warehouse" && Array.isArray(input.managerIds) ? input.managerIds as string[] : [];
+  if (ids.length === 0) return;
+  const profiles = await db.getAll(...ids.map((id) => db.collection("users").doc(id)));
+  const expectedRole = kind === "branch" ? "branch_manager" : "warehouse_manager";
+  if (profiles.some((profile) => !profile.exists || profile.get("organizationId") !== organizationId || profile.get("status") !== "active" || profile.get("roleId") !== expectedRole)) throw new HttpsError("failed-precondition", `Managers must be active ${expectedRole.replaceAll("_", " ")} users in this organization.`);
+}
+
+async function validateLocationOwner(kind: MasterKind, input: Record<string, unknown>, organizationId: string) {
+  if (kind !== "inventoryLocation") return;
+  const owner = typeof input.branchId === "string" ? { collection: "branches", id: input.branchId } : typeof input.warehouseId === "string" ? { collection: "warehouses", id: input.warehouseId } : undefined;
+  if (!owner) return;
+  const snapshot = await db.collection(owner.collection).doc(owner.id).get();
+  if (!snapshot.exists || snapshot.get("organizationId") !== organizationId) throw new HttpsError("failed-precondition", "The related branch or warehouse is not in this organization.");
+}
+
+async function saveMaster(kind: MasterKind, input: Record<string, unknown>, actor: Awaited<ReturnType<typeof requireAccess>>) {
+  const config = configuration[kind]; requirePermission(actor, config.permission);
+  const operation = db.collection("idempotencyKeys").doc(`${actor.organizationId}_save${kind}_${String(input.idempotencyKey)}`);
+  const prior = await operation.get();
+  if (prior.exists && prior.get("status") === "completed") return { id: prior.get("entityId") as string, saved: false };
+  await Promise.all([validateManagerAssignments(kind, input, actor.organizationId), validateLocationOwner(kind, input, actor.organizationId)]);
+  const id = typeof input.id === "string" ? input.id : db.collection(config.collection).doc().id;
+  const reference = db.collection(config.collection).doc(id); const code = String(input.code); const codeReference = db.collection("organizationCodes").doc(`${actor.organizationId}_${kind}_${code}`);
+  const requestId = correlationId();
+  let resultId = id; let saved = true;
+  await db.runTransaction(async (transaction) => {
+    const [current, codeOwner, previousOperation] = await Promise.all([transaction.get(reference), transaction.get(codeReference), transaction.get(operation)]);
+    if (previousOperation.exists) { resultId = previousOperation.get("entityId") as string; saved = false; return; }
+    if (codeOwner.exists && codeOwner.get("entityId") !== id) throw new HttpsError("already-exists", `${kind} code is already in use.`);
+    if (current.exists && current.get("organizationId") !== actor.organizationId) throw new HttpsError("permission-denied", "Cross-organization updates are not permitted.");
+    if (current.exists && current.get("systemManaged") === true && actor.roleId !== "system_administrator") throw new HttpsError("permission-denied", "This system-managed location cannot be edited.");
+    const now = FieldValue.serverTimestamp(); const values: Record<string, unknown> = { ...input, organizationId: actor.organizationId, updatedAt: now, updatedBy: actor.userId };
+    delete values.idempotencyKey; delete values.id;
+    if (current.exists) transaction.update(reference, values); else transaction.create(reference, { ...values, createdAt: now, createdBy: actor.userId });
+    const previousCode = current.exists ? String(current.get("code")) : undefined;
+    if (previousCode && previousCode !== code) transaction.delete(db.collection("organizationCodes").doc(`${actor.organizationId}_${kind}_${previousCode}`));
+    transaction.set(codeReference, { organizationId: actor.organizationId, kind, code, entityId: id, updatedAt: now });
+    transaction.create(operation, { organizationId: actor.organizationId, action: `save${kind}`, entityId: id, status: "completed", createdAt: now, createdBy: actor.userId });
+    writeAuditLog(transaction, actor, { action: `${kind}.${current.exists ? "updated" : "created"}`, entityType: kind, entityId: id, correlationId: requestId, sourceFunction: "saveAdministrativeMaster", before: current.exists ? { code: current.get("code"), status: current.get("status") } : undefined, after: { code, status: input.status } });
+  });
+  if (saved) logger.info("Administrative master saved", { organizationId: actor.organizationId, actorUserId: actor.userId, kind, entityId: resultId, correlationId: requestId });
+  return { id: resultId, saved };
+}
+
+export const saveBranch = onCall({ enforceAppCheck }, async (request) => saveMaster("branch", parseInput(branchInput, request.data), await requireAccess(request)));
+export const saveWarehouse = onCall({ enforceAppCheck }, async (request) => saveMaster("warehouse", parseInput(warehouseInput, request.data), await requireAccess(request)));
+export const saveInventoryLocation = onCall({ enforceAppCheck }, async (request) => saveMaster("inventoryLocation", parseInput(locationInput, request.data), await requireAccess(request)));
+
+export const updateOrganization = onCall({ enforceAppCheck }, async (request) => {
+  const actor = await requireAccess(request); requirePermission(actor, "organization.manage"); const input = parseInput(updateOrganizationInput, request.data);
+  const reference = db.collection("organizations").doc(actor.organizationId); const requestId = correlationId();
+  await db.runTransaction(async (transaction) => {
+    const current = await transaction.get(reference); if (!current.exists) throw new HttpsError("not-found", "Organization not found.");
+    const changes: Record<string, unknown> = { ...input, updatedAt: FieldValue.serverTimestamp(), updatedBy: actor.userId }; delete changes.reason;
+    transaction.update(reference, changes); writeAuditLog(transaction, actor, { action: "organization.updated", entityType: "organization", entityId: actor.organizationId, correlationId: requestId, sourceFunction: "updateOrganization", reason: input.reason, before: { legalName: current.get("legalName"), status: current.get("status") }, after: changes });
+  });
+  return { organizationId: actor.organizationId, updated: true };
+});

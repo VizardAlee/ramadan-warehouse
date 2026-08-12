@@ -1,0 +1,48 @@
+runConfig:
+  minInstances: 0
+  maxInstances: 10
+  concurrency: 80
+  cpu: 1
+  memoryMiB: 512
+
+env:
+  - variable: NEXT_PUBLIC_FIREBASE_API_KEY
+    secret: STAGING_FIREBASE_API_KEY
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN
+    secret: STAGING_FIREBASE_AUTH_DOMAIN
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: NEXT_PUBLIC_FIREBASE_PROJECT_ID
+    secret: STAGING_FIREBASE_PROJECT_ID
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET
+    secret: STAGING_FIREBASE_STORAGE_BUCKET
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID
+    secret: STAGING_FIREBASE_MESSAGING_SENDER_ID
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: NEXT_PUBLIC_FIREBASE_APP_ID
+    secret: STAGING_FIREBASE_APP_ID
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: NEXT_PUBLIC_FIREBASE_APP_CHECK_SITE_KEY
+    secret: STAGING_FIREBASE_APP_CHECK_SITE_KEY
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: NEXT_PUBLIC_USE_FIREBASE_EMULATORS
+    value: "false"
+    availability:
+      - BUILD
+      - RUNTIME

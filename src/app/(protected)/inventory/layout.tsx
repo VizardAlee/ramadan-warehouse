@@ -1,0 +1,3 @@
+import Link from "next/link";
+const links = [["/inventory", "Stock overview"], ["/inventory/receipts", "Receipts"], ["/inventory/opening-stock", "Opening stock"], ["/inventory/movements", "Internal movement"], ["/inventory/adjustments", "Adjustments"], ["/inventory/counts", "Stock counts"], ["/inventory/reconciliation", "Reconciliation"], ["/inventory/assets", "Serials & lots"]] as const;
+export default function InventoryLayout({ children }: { children: React.ReactNode }) { return <div className="space-y-6"><nav className="flex gap-2 overflow-x-auto rounded-xl border bg-white p-2">{links.map(([href, label]) => <Link key={href} href={href} className="whitespace-nowrap rounded-lg px-3 py-2 text-sm font-medium hover:bg-emerald-50">{label}</Link>)}</nav>{children}</div>; }

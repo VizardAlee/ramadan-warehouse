@@ -1,6 +1,6 @@
 "use client";
 
-import { onAuthStateChanged, signInWithEmailAndPassword, signOut, type User } from "firebase/auth";
+import { getIdTokenResult, onAuthStateChanged, signInWithEmailAndPassword, signOut, type User } from "firebase/auth";
 import { doc, getDoc } from "firebase/firestore";
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { getFirebaseServices } from "@/lib/firebase/client";
@@ -13,6 +13,7 @@ interface AuthContextValue {
   error: string | null;
   login(email: string, password: string): Promise<void>;
   logout(): Promise<void>;
+  refreshAuthorization(): Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -37,8 +38,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
         try {
           const snapshot = await getDoc(doc(db, "users", nextUser.uid));
-          if (!snapshot.exists()) throw new Error("Your account has not been provisioned for warehouse access.");
-          setProfile({ id: snapshot.id, ...snapshot.data() } as UserProfile);
+          if (!snapshot.exists()) {
+            await signOut(auth);
+            throw new Error("Warehouse access has been revoked. Contact an administrator.");
+          }
+          const nextProfile = { id: snapshot.id, ...snapshot.data() } as UserProfile;
+          if (nextProfile.status !== "active" || nextProfile.authDisabled) {
+            await signOut(auth);
+            throw new Error("Warehouse access has been disabled. Contact an administrator.");
+          }
+          const token = await getIdTokenResult(nextUser);
+          const tokenVersion = token.claims.authorizationVersion;
+          const tokenOrganization = token.claims.organizationId;
+          if (
+            (typeof tokenVersion === "number" && tokenVersion !== nextProfile.authorizationVersion) ||
+            (typeof tokenOrganization === "string" && tokenOrganization !== nextProfile.organizationId)
+          ) {
+            await nextUser.getIdToken(true);
+          }
+          setProfile(nextProfile);
         } catch (cause) {
           setProfile(null);
           setError(cause instanceof Error ? cause.message : "Unable to load your access profile.");
@@ -61,7 +79,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await signInWithEmailAndPassword(getFirebaseServices().auth, email, password);
   }, []);
   const logout = useCallback(() => signOut(getFirebaseServices().auth), []);
-  const value = useMemo(() => ({ user, profile, loading, error, login, logout }), [user, profile, loading, error, login, logout]);
+  const refreshAuthorization = useCallback(async () => {
+    const current = getFirebaseServices().auth.currentUser;
+    if (!current) return;
+    await current.getIdToken(true);
+    const snapshot = await getDoc(doc(getFirebaseServices().db, "users", current.uid));
+    if (!snapshot.exists()) {
+      await signOut(getFirebaseServices().auth);
+      setProfile(null);
+      setError("Warehouse access has been revoked. Contact an administrator.");
+      return;
+    }
+    const nextProfile = { id: snapshot.id, ...snapshot.data() } as UserProfile;
+    if (nextProfile.status !== "active" || nextProfile.authDisabled) {
+      await signOut(getFirebaseServices().auth);
+      setProfile(null);
+      setError("Warehouse access has been disabled. Contact an administrator.");
+      return;
+    }
+    setProfile(nextProfile);
+  }, []);
+  const value = useMemo(() => ({ user, profile, loading, error, login, logout, refreshAuthorization }), [user, profile, loading, error, login, logout, refreshAuthorization]);
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 

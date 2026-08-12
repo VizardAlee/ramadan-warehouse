@@ -1,0 +1,30 @@
+name: CI
+on:
+  pull_request:
+  push:
+    branches: [main]
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run test:rules
+      - run: npm run test:callables
+      - run: npm run test:transfer-concurrency
+      - run: npm run test:transfer-e2e
+      - run: npm run test:transfer-serial-e2e
+      - run: npm run test:transfer-lot-e2e
+      - run: npm run functions:build
+      - run: npm run build
+      - run: npm run validate:indexes
+      - run: git diff --check
+      - run: npm audit --omit=dev --audit-level=high

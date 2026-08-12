@@ -6,10 +6,15 @@ functions/lib/
 *.log
 .env
 .env.local
+.env.staging
+.env.production
 .env.*.local
+.runtimeconfig.json
+*service-account*.json
+firebase-export/
+emulator-data/
 .firebase/
 firebase-debug.log
 firestore-debug.log
 ui-debug.log
 *.tsbuildinfo
-

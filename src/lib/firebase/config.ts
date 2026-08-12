@@ -1,3 +1,5 @@
+import { z } from "zod";
+
 const firebaseEnvironment = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
   authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
@@ -7,10 +9,20 @@ const firebaseEnvironment = {
   appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
 };
 
+const browserEnvironmentSchema = z.object({
+  apiKey: z.string().trim().min(1),
+  authDomain: z.string().trim().min(1),
+  projectId: z.string().trim().min(1),
+  storageBucket: z.string().trim().min(1),
+  messagingSenderId: z.string().trim().min(1),
+  appId: z.string().trim().min(1),
+});
+
 export function getFirebaseConfig() {
-  const missing = Object.entries(firebaseEnvironment).filter(([, value]) => !value).map(([key]) => key);
-  if (missing.length > 0) throw new Error(`Missing Firebase browser configuration: ${missing.join(", ")}`);
-  return firebaseEnvironment as Record<keyof typeof firebaseEnvironment, string>;
+  const parsed = browserEnvironmentSchema.safeParse(firebaseEnvironment);
+  if (!parsed.success)
+    throw new Error(`Missing Firebase browser configuration: ${parsed.error.issues.map((issue) => issue.path.join(".")).join(", ")}`);
+  return parsed.data;
 }
 
 export const useFirebaseEmulators = process.env.NEXT_PUBLIC_USE_FIREBASE_EMULATORS === "true";

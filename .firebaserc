@@ -1,3 +1,8 @@
 {
-  "projects": { "default": "demo-ramadan-warehouse" }
+  "projects": {
+    "default": "demo-ramadan-warehouse",
+    "production": "ramadan-warehouse-staging"
+  },
+  "targets": {},
+  "etags": {}
 }
