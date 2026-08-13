@@ -18,6 +18,8 @@ An Auth identity by itself grants no application access. The signed-in identity 
 
 For branch setup, create the branch without a manager if necessary, invite a user with the `branch_manager` role and assign that branch, then edit the branch to select the accepted manager. Warehouse managers follow the equivalent warehouse workflow. Manager selectors show only active users with the required manager role.
 
+User phone numbers may be entered in the familiar Nigerian 11-digit format, for example `07032545288`. The server preserves that profile value and converts it to Firebase Authentication's required international form (`+2347032545288`) only at the Auth boundary. The phone field is optional.
+
 If an Auth account already owns the email, provisioning stops with `already-exists`; it is never silently attached. Recovery requires an operator to verify ownership and either remove the unused Auth account in the correct environment or implement a separately reviewed account-adoption procedure.
 
 `updateOrganizationUser` controls profile, role, assignment and status changes. `revokeUserSessions` revokes refresh tokens. Role/status changes also revoke sessions. The UI includes a refresh-authorization control; users should otherwise sign out and back in after an authorization change.

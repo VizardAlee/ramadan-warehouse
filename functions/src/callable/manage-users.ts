@@ -9,6 +9,7 @@ import { enforceAppCheck } from "../config.js";
 import { validateAssignments } from "../services/assignments.js";
 import { revokeSessionsInput, updateUserInput, userInput } from "../validation/administration.js";
 import { correlationId, parseInput } from "../utils/callable.js";
+import { toFirebasePhoneNumber } from "../utils/nigerian-phone.js";
 
 function operationRef(organizationId: string, action: string, key: string) { return db.collection("idempotencyKeys").doc(`${organizationId}_${action}_${key}`); }
 function emailRef(email: string) { return db.collection("userEmails").doc(encodeURIComponent(email)); }
@@ -23,7 +24,7 @@ export const createOrganizationUser = onCall({ enforceAppCheck }, async (request
   catch (error) { if (error instanceof HttpsError) throw error; const code = (error as { code?: string }).code; if (code !== "auth/user-not-found") throw new HttpsError("internal", "Unable to verify the account email."); }
 
   const temporaryPassword = randomBytes(48).toString("base64url");
-  const authUser = await adminAuth.createUser({ email: input.email, displayName: input.displayName, phoneNumber: input.phoneNumber, password: temporaryPassword, disabled: input.status !== "active", emailVerified: false });
+  const authUser = await adminAuth.createUser({ email: input.email, displayName: input.displayName, phoneNumber: toFirebasePhoneNumber(input.phoneNumber), password: temporaryPassword, disabled: input.status !== "active", emailVerified: false });
   const requestId = correlationId();
   try {
     await db.runTransaction(async (transaction) => {
@@ -73,7 +74,7 @@ export const updateOrganizationUser = onCall({ enforceAppCheck }, async (request
     if (JSON.stringify(warehouseIds) !== JSON.stringify(current.warehouseIds)) writeAuditLog(transaction, actor, { action: "user.warehouse_assignments_changed", entityType: "user", entityId: input.userId, correlationId: requestId, sourceFunction: "updateOrganizationUser", reason: input.reason, before: { warehouseIds: current.warehouseIds }, after: { warehouseIds } });
   });
   const updated = await targetRef.get(); const data = updated.data() as Record<string, unknown>;
-  await adminAuth.updateUser(input.userId, { disabled: data.authDisabled === true, displayName: typeof data.displayName === "string" ? data.displayName : undefined, phoneNumber: typeof data.phoneNumber === "string" ? data.phoneNumber : undefined });
+  await adminAuth.updateUser(input.userId, { disabled: data.authDisabled === true, displayName: typeof data.displayName === "string" ? data.displayName : undefined, phoneNumber: toFirebasePhoneNumber(typeof data.phoneNumber === "string" ? data.phoneNumber : undefined) });
   await adminAuth.setCustomUserClaims(input.userId, { organizationId: actor.organizationId, authorizationVersion: data.authorizationVersion });
   await db.runTransaction(async (transaction) => writeAuditLog(transaction, actor, { action: "custom_claim.updated", entityType: "user", entityId: input.userId, correlationId: requestId, sourceFunction: "updateOrganizationUser", after: { organizationId: actor.organizationId, authorizationVersion: data.authorizationVersion } }));
   if (data.authDisabled === true || input.roleId) await adminAuth.revokeRefreshTokens(input.userId);

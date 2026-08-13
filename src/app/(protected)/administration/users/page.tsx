@@ -22,7 +22,13 @@ import {
 const formSchema = z.object({
   email: z.string().email(),
   displayName: z.string().min(2),
-  phoneNumber: z.string().optional(),
+  phoneNumber: z
+    .union([
+      z.string().regex(/^0[789]\d{9}$/),
+      z.string().regex(/^\+234[789]\d{9}$/),
+      z.literal(""),
+    ])
+    .optional(),
   employeeReference: z.string().optional(),
   roleId: z.enum(roleIds),
   branchIds: z.array(z.string()),
@@ -129,9 +135,11 @@ export default function UsersPage() {
         );
       }
       setShowForm(false);
-    } catch {
+    } catch (cause) {
       setMessage(
-        "The secure user operation was rejected. Review assignments and your authority.",
+        cause instanceof Error
+          ? cause.message
+          : "The secure user operation was rejected. Review assignments and your authority.",
       );
     }
   });
@@ -363,9 +371,15 @@ export default function UsersPage() {
                 <input
                   type="tel"
                   inputMode="tel"
+                  placeholder="07032545288"
                   {...register("phoneNumber")}
                   className="mt-1 w-full rounded-lg border p-2.5"
                 />
+                {errors.phoneNumber && (
+                  <span className="text-xs text-red-700">
+                    Use 11 digits, for example 07032545288
+                  </span>
+                )}
               </label>
               <label className="text-sm">
                 Employee reference

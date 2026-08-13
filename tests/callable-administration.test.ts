@@ -45,11 +45,14 @@ describe("administration callables", () => {
     const bootstrap = await adminDb.doc("system/bootstrap").get(); const administratorUid = bootstrap.get("administratorUid") as string;
     const administratorEmail = (await adminAuth.getUser(administratorUid)).email!; const administrator = client("administrator"); await signInWithEmailAndPassword(administrator.auth, administratorEmail, "Password!234567");
     const key = crypto.randomUUID(); const create = httpsCallable(administrator.functions, "createOrganizationUser");
-    const payload = { email: "requester@example.test", displayName: "Branch Requester", roleId: "branch_requester", branchIds: [], warehouseIds: [], status: "active", idempotencyKey: key };
+    const payload = { email: "requester@example.test", displayName: "Branch Requester", phoneNumber: "07032545288", roleId: "branch_requester", branchIds: [], warehouseIds: [], status: "active", idempotencyKey: key };
     const initial = await create(payload); const duplicate = await create(payload);
     expect(initial.data).toMatchObject({ created: true, invitationLink: expect.any(String) }); expect((duplicate.data as { created: boolean }).created).toBe(false);
     const invited = client("invited-before-acceptance");
     await expect(signInWithEmailAndPassword(invited.auth, payload.email, "Password!234567")).rejects.toBeDefined();
+    const invitedAuthRecord = await adminAuth.getUserByEmail(payload.email);
+    expect(invitedAuthRecord.phoneNumber).toBe("+2347032545288");
+    expect((await adminDb.doc(`users/${invitedAuthRecord.uid}`).get()).get("phoneNumber")).toBe("07032545288");
 
     const organizationId = bootstrap.get("organizationId") as string;
     const opsRecord = await adminAuth.createUser({ email: "ops@example.test", password: "Password!234567", displayName: "Operations Admin" });
