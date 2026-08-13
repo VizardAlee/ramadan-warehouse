@@ -8,7 +8,6 @@ import {
   Gauge,
   History,
   LogOut,
-  Menu,
   MoreHorizontal,
   PackageCheck,
   ReceiptText,
@@ -39,6 +38,7 @@ const navigation = [
   ["/audit", "Audit", History],
 ] as const;
 const mobilePrimary = navigation.slice(0, 5);
+const secondaryNavigation = navigation.slice(5);
 const titleFromPath = (pathname: string) => {
   const section = pathname.split("/").filter(Boolean).at(-1) ?? "Dashboard";
   return section
@@ -53,7 +53,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const [open, setOpen] = useState(false);
-  const drawerRef = useDialogFocus<HTMLElement>(open, () => setOpen(false));
+  const moreSheetRef = useDialogFocus<HTMLElement>(open, () => setOpen(false));
   const { online } = useConnectivity();
   useEffect(() => {
     if (!loading && !user) router.replace("/login");
@@ -94,13 +94,12 @@ export function AppShell({ children }: { children: ReactNode }) {
   const active = (href: string) =>
     pathname === href ||
     (href !== "/dashboard" && pathname.startsWith(`${href}/`));
-  const nav = (
-    <nav aria-label="Primary navigation" className="space-y-1">
+  const desktopNav = (
+    <nav aria-label="Desktop navigation" className="space-y-1">
       {navigation.map(([href, label, Icon]) => (
         <Link
           key={href}
           href={href}
-          onClick={() => setOpen(false)}
           aria-current={active(href) ? "page" : undefined}
           className={cn(
             "flex min-h-11 items-center gap-3 rounded-lg px-3 text-sm text-emerald-50 transition-colors hover:bg-white/10",
@@ -108,76 +107,93 @@ export function AppShell({ children }: { children: ReactNode }) {
           )}
         >
           <Icon className="size-4 shrink-0" />
-          <span className="md:hidden xl:inline">{label}</span>
+          <span>{label}</span>
         </Link>
       ))}
     </nav>
   );
   return (
-    <div className="min-h-dvh md:grid md:grid-cols-[4.75rem_minmax(0,1fr)] xl:grid-cols-[16rem_minmax(0,1fr)]">
-      <aside className="fixed inset-y-0 left-0 z-40 hidden w-[4.75rem] bg-[#10291f] px-3 py-5 text-white md:block xl:w-64 xl:px-5">
+    <div className="min-h-dvh xl:grid xl:grid-cols-[16rem_minmax(0,1fr)]">
+      <aside className="fixed inset-y-0 left-0 z-40 hidden w-64 bg-[#10291f] px-5 py-5 text-white xl:block">
         <Link
           href="/dashboard"
-          className="mb-8 flex min-h-11 items-center justify-center gap-3 font-semibold xl:justify-start"
+          className="mb-8 flex min-h-11 items-center gap-3 font-semibold"
         >
           <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-amber-400 text-[#10291f]">
             <Boxes />
           </span>
-          <span className="hidden xl:block">
+          <span>
             AB Ramadan
             <small className="block text-xs font-normal text-emerald-200">
               Warehouse operations
             </small>
           </span>
         </Link>
-        {nav}
+        {desktopNav}
       </aside>
       {open && (
-        <div className="fixed inset-0 z-50 md:hidden">
+        <div className="fixed inset-0 z-50 xl:hidden">
           <button
             className="absolute inset-0 bg-black/50"
             onClick={() => setOpen(false)}
-            aria-label="Close navigation"
+            aria-label="Close more destinations"
           />
-          <aside
-            ref={drawerRef}
+          <section
+            ref={moreSheetRef}
             role="dialog"
             aria-modal="true"
-            aria-label="Application navigation"
-            className="safe-bottom absolute inset-y-0 left-0 w-[min(86vw,20rem)] overflow-y-auto bg-[#10291f] p-5 text-white shadow-2xl"
+            aria-labelledby="more-destinations-title"
+            className="safe-bottom absolute inset-x-0 bottom-0 mx-auto max-h-[min(80dvh,36rem)] w-full max-w-2xl overflow-y-auto rounded-t-2xl bg-white p-5 shadow-2xl sm:p-6"
           >
-            <div className="mb-7 flex items-center justify-between">
-              <span className="flex items-center gap-3 font-semibold">
-                <span className="grid size-10 place-items-center rounded-xl bg-amber-400 text-[#10291f]">
-                  <Boxes />
-                </span>
-                AB Ramadan
-              </span>
+            <div className="mb-5 flex items-center justify-between gap-4">
+              <div>
+                <h2
+                  id="more-destinations-title"
+                  className="text-xl font-semibold"
+                >
+                  More destinations
+                </h2>
+                <p className="mt-1 text-sm text-[var(--muted)]">
+                  Administration, reporting, costs, and audit history.
+                </p>
+              </div>
               <Button
                 size="icon"
-                variant="ghost"
-                className="text-white hover:bg-white/10"
+                variant="outline"
                 onClick={() => setOpen(false)}
-                aria-label="Close menu"
+                aria-label="Close more destinations"
               >
                 <X />
               </Button>
             </div>
-            {nav}
-          </aside>
+            <nav
+              aria-label="Secondary navigation"
+              className="grid gap-3 sm:grid-cols-2"
+            >
+              {secondaryNavigation.map(([href, label, Icon]) => (
+                <Link
+                  key={href}
+                  href={href}
+                  onClick={() => setOpen(false)}
+                  aria-current={active(href) ? "page" : undefined}
+                  className={cn(
+                    "flex min-h-14 items-center gap-3 rounded-xl border bg-white px-4 text-sm font-semibold text-slate-700",
+                    active(href) &&
+                      "border-emerald-300 bg-emerald-50 text-[var(--brand-dark)]",
+                  )}
+                >
+                  <span className="grid size-10 shrink-0 place-items-center rounded-lg bg-slate-100">
+                    <Icon className="size-5" />
+                  </span>
+                  {label}
+                </Link>
+              ))}
+            </nav>
+          </section>
         </div>
       )}
-      <div className="min-w-0 md:col-start-2">
+      <div className="min-w-0 xl:col-start-2">
         <header className="sticky top-0 z-30 flex min-h-16 items-center gap-3 border-b bg-white/95 px-[var(--page-gutter)] backdrop-blur">
-          <Button
-            size="icon"
-            variant="ghost"
-            className="md:hidden"
-            onClick={() => setOpen(true)}
-            aria-label="Open menu"
-          >
-            <Menu />
-          </Button>
           <div className="min-w-0">
             <p className="truncate text-sm font-semibold md:text-base">
               {titleFromPath(pathname)}
@@ -215,12 +231,12 @@ export function AppShell({ children }: { children: ReactNode }) {
             remain unavailable.
           </div>
         )}
-        <main className="min-w-0 px-[var(--page-gutter)] py-[clamp(1rem,2.4vw,2rem)] pb-[calc(5.5rem+env(safe-area-inset-bottom))] md:pb-8">
+        <main className="min-w-0 px-[var(--page-gutter)] py-[clamp(1rem,2.4vw,2rem)] pb-[calc(5.5rem+env(safe-area-inset-bottom))] xl:pb-8">
           {children}
         </main>
         <nav
-          aria-label="Mobile navigation"
-          className="safe-bottom fixed inset-x-0 bottom-0 z-30 grid grid-cols-6 border-t bg-white/97 px-1 pt-1 shadow-[0_-4px_16px_rgb(16_41_31_/_0.08)] backdrop-blur md:hidden"
+          aria-label="Mobile and tablet navigation"
+          className="safe-bottom fixed inset-x-0 bottom-0 z-30 grid grid-cols-6 border-t bg-white/97 px-1 pt-1 shadow-[0_-4px_16px_rgb(16_41_31_/_0.08)] backdrop-blur xl:hidden sm:px-[max(1rem,calc((100vw-48rem)/2))]"
         >
           {mobilePrimary.map(([href, label, Icon]) => (
             <Link

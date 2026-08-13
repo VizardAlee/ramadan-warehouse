@@ -10,7 +10,7 @@ The hardening pass preserves callable boundaries, permissions, workflow state ma
 
 - Page gutters and section gaps use fluid `clamp()` tokens. Operational pages may use all available content width; they are not constrained to a marketing-page column.
 - Cards, filters, and forms use intrinsic `auto-fit/minmax()` grids so intermediate widths remain balanced.
-- At 1280px and above the full persistent sidebar shows labels and organization context. From 768px to 1279px a compact icon sidebar preserves workspace access. Below 768px the shell provides an app header, a focus-trapped drawer for secondary navigation, and a safe-area-aware bottom bar for Dashboard, Products, Inventory, Requests, Transfers, and More.
+- At 1280px and above the full persistent sidebar shows labels and organization context. Below 1280px, both tablet and mobile use the same safe-area-aware bottom bar for Dashboard, Products, Inventory, Requests, Transfers, and More. More opens a focus-trapped bottom sheet for Costs, Reports, Administration, and Audit; there is no collapsible sidebar on touch layouts.
 - Navigation is never hover-only. Interactive controls target at least 44px, expose visible focus, and retain text or accessible labels.
 
 ## Typography, surfaces, and actions
@@ -49,4 +49,4 @@ The manifest identifies AB Ramadan Warehouse, uses standalone display, the produ
 
 ## Content-driven decisions
 
-The major navigation/table transition occurs below 768px because the operational tables become impractical before phone width, while the compact sidebar is still effective on portrait tablet. Intrinsic card/form grids provide the intermediate adaptations from 360px through wide desktop. Feature-specific horizontal tab strips are contained and touch-scrollable; they do not cause page-level overflow.
+Navigation changes from the persistent desktop sidebar to bottom navigation below 1280px, keeping both portrait and landscape tablets touch-first. Tables transform into record decks below 768px, where dense operational columns become impractical. Intrinsic card/form grids provide the intermediate adaptations from 360px through wide desktop. Feature-specific horizontal tab strips are contained and touch-scrollable; they do not cause page-level overflow.
