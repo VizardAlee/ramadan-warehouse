@@ -16,11 +16,10 @@ import { eligibleManagers } from "./manager-options";
 import { useOrganizationCollection } from "./use-organization-collection";
 
 const schema = z.object({
-  name: z.string().min(2),
-  code: z.string().regex(/^[A-Z0-9_-]{2,24}$/),
+  name: z.string().trim().min(2),
+  code: z.string().trim().toUpperCase().regex(/^[A-Z0-9_-]{2,24}$/),
   state: z.string().optional(),
   address: z.string().optional(),
-  contactEmail: z.union([z.string().email(), z.literal("")]).optional(),
   contactPhone: z.string().optional(),
   managerUserId: z.string().optional(),
   managerIds: z.array(z.string()),
@@ -49,7 +48,6 @@ const defaults: Values = {
   code: "",
   state: "",
   address: "",
-  contactEmail: "",
   contactPhone: "",
   managerUserId: "",
   managerIds: [],
@@ -100,7 +98,7 @@ export function MasterDataPage({
     handleSubmit,
     control,
     reset,
-    formState: { isSubmitting },
+    formState: { errors, isSubmitting },
   } = useForm<Values>({
     resolver: zodResolver(schema),
     defaultValues: defaults,
@@ -280,6 +278,11 @@ export function MasterDataPage({
                   {...register("name")}
                   className="mt-1 w-full rounded-lg border p-2.5"
                 />
+                {errors.name && (
+                  <span className="mt-1 block text-xs text-red-700">
+                    Enter a name of at least two characters.
+                  </span>
+                )}
               </label>
               <label className="text-sm">
                 Code
@@ -287,6 +290,11 @@ export function MasterDataPage({
                   {...register("code")}
                   className="mt-1 w-full rounded-lg border p-2.5 uppercase"
                 />
+                {errors.code && (
+                  <span className="mt-1 block text-xs text-red-700">
+                    Use 2–24 letters, numbers, underscores, or hyphens.
+                  </span>
+                )}
               </label>
               {collectionName !== "inventoryLocations" && (
                 <>
@@ -309,16 +317,7 @@ export function MasterDataPage({
               {collectionName === "branches" && (
                 <>
                   <label className="text-sm">
-                    Contact email
-                    <input
-                      type="email"
-                      inputMode="email"
-                      {...register("contactEmail")}
-                      className="mt-1 w-full rounded-lg border p-2.5"
-                    />
-                  </label>
-                  <label className="text-sm">
-                    Contact phone
+                    Contact phone (optional)
                     <input
                       type="tel"
                       inputMode="tel"

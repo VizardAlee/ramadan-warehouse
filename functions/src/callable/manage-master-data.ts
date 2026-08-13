@@ -47,8 +47,13 @@ async function saveMaster(kind: MasterKind, input: Record<string, unknown>, acto
     if (codeOwner.exists && codeOwner.get("entityId") !== id) throw new HttpsError("already-exists", `${kind} code is already in use.`);
     if (current.exists && current.get("organizationId") !== actor.organizationId) throw new HttpsError("permission-denied", "Cross-organization updates are not permitted.");
     if (current.exists && current.get("systemManaged") === true && actor.roleId !== "system_administrator") throw new HttpsError("permission-denied", "This system-managed location cannot be edited.");
-    const now = FieldValue.serverTimestamp(); const values: Record<string, unknown> = { ...input, organizationId: actor.organizationId, updatedAt: now, updatedBy: actor.userId };
-    delete values.idempotencyKey; delete values.id;
+    const now = FieldValue.serverTimestamp();
+    const values: Record<string, unknown> = Object.fromEntries(
+      Object.entries(input).filter(
+        ([key, value]) => key !== "idempotencyKey" && key !== "id" && value !== undefined,
+      ),
+    );
+    Object.assign(values, { organizationId: actor.organizationId, updatedAt: now, updatedBy: actor.userId });
     if (current.exists) transaction.update(reference, values); else transaction.create(reference, { ...values, createdAt: now, createdBy: actor.userId });
     const previousCode = current.exists ? String(current.get("code")) : undefined;
     if (previousCode && previousCode !== code) transaction.delete(db.collection("organizationCodes").doc(`${actor.organizationId}_${kind}_${previousCode}`));
