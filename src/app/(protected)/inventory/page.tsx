@@ -73,8 +73,8 @@ export default function InventoryPage() {
       {error && (
         <p className="rounded-lg bg-red-50 p-3 text-red-800">{error}</p>
       )}
-      <div className="overflow-x-auto rounded-xl border bg-white">
-        <table className="w-full text-left text-sm">
+      <div className="responsive-table-wrap">
+        <table className="responsive-table">
           <thead className="bg-slate-50">
             <tr>
               {[
@@ -103,16 +103,16 @@ export default function InventoryPage() {
             ) : (
               rows.map((row) => (
                 <tr key={row.id} className="border-t">
-                  <td className="px-4 py-3 font-mono">{row.sku}</td>
-                  <td className="px-4 font-mono text-xs">{row.locationId}</td>
-                  <td className="px-4">{row.onHandQuantity}</td>
-                  <td className="px-4">{row.reservedQuantity}</td>
-                  <td className="px-4">{row.availableQuantity}</td>
-                  <td className="px-4">
+                  <td data-label="SKU" data-primary="true" className="px-4 py-3 font-mono">{row.sku}</td>
+                  <td data-label="Location" className="px-4 font-mono text-xs">{row.locationId}</td>
+                  <td data-label="On hand" className="px-4">{row.onHandQuantity}</td>
+                  <td data-label="Reserved" className="px-4">{row.reservedQuantity}</td>
+                  <td data-label="Available" className="px-4 font-semibold">{row.availableQuantity}</td>
+                  <td data-label="Average cost" className="px-4">
                     {formatNaira(row.averageUnitCostMinor)}
                   </td>
-                  <td className="px-4">{formatNaira(row.totalValueMinor)}</td>
-                  <td className="px-4 text-xs">
+                  <td data-label="Value" className="px-4">{formatNaira(row.totalValueMinor)}</td>
+                  <td data-label="Last movement" className="px-4 text-xs">
                     {formatDateTime(row.lastMovementAt)}
                   </td>
                 </tr>

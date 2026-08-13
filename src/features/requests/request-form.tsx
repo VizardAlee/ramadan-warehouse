@@ -169,7 +169,7 @@ export function RequestForm() {
       {message && (
         <p className="rounded-lg bg-amber-50 p-3 text-sm">{message}</p>
       )}
-      <section className="grid gap-4 rounded-xl border bg-white p-6 md:grid-cols-2">
+      <section className="form-grid rounded-xl border bg-white p-[clamp(1rem,3vw,1.5rem)]">
         <label className="text-sm">
           Branch
           <select
@@ -280,7 +280,7 @@ export function RequestForm() {
         {lines.map((line, index) => (
           <div
             key={index}
-            className="grid gap-2 rounded-lg border p-3 md:grid-cols-[2fr_1fr_2fr_auto]"
+            className="grid gap-3 rounded-lg border p-3 [grid-template-columns:repeat(auto-fit,minmax(min(100%,11rem),1fr))]"
           >
             <select
               className="rounded-lg border p-2.5"

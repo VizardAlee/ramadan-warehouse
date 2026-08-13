@@ -7,6 +7,7 @@ import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "./auth-context";
+import { toUserFacingError } from "@/lib/firebase/user-facing-error";
 
 const loginSchema = z.object({ email: z.string().email(), password: z.string().min(8) });
 type LoginValues = z.infer<typeof loginSchema>;
@@ -20,7 +21,7 @@ export function LoginForm() {
   const submit = handleSubmit(async (values) => {
     setFormError(null);
     try { await login(values.email, values.password); router.replace("/dashboard"); }
-    catch { setFormError("Sign-in failed. Check your credentials and account access."); }
+    catch (error) { setFormError(toUserFacingError(error, "Sign-in failed. Check your credentials and account access.").message); }
   });
 
   return <form onSubmit={submit} className="space-y-5" noValidate>

@@ -19,9 +19,10 @@ if (status && process.env.ALLOW_DIRTY_DEPLOY !== "true") throw new Error("Worktr
 const branch = execFileSync("git", ["branch", "--show-current"], { encoding: "utf8" }).trim();
 if (target === "production" && branch !== "main") throw new Error("Production validation is restricted to the main branch.");
 const tracked = execFileSync("git", ["ls-files"], { encoding: "utf8" }).split(/\r?\n/).filter(Boolean);
+const appCheckDebugAssignment = ["FIREBASE_APPCHECK_DEBUG_TOKEN", "true"].join("=");
 for (const file of tracked) {
   if (!existsSync(file)) continue;
   const content = readFileSync(file, "utf8");
-  if (content.includes("FIREBASE_APPCHECK_DEBUG_TOKEN=true")) throw new Error(`Committed App Check debug token in ${file}.`);
+  if (content.includes(appCheckDebugAssignment)) throw new Error(`Committed App Check debug token in ${file}.`);
 }
 console.log(`Deployment safeguards passed for ${target} (${aliases[target]}), branch ${branch}. No deployment was executed.`);

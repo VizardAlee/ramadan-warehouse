@@ -1,6 +1,7 @@
 "use client";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
+import { useDialogFocus } from "@/components/ui/use-dialog-focus";
 import { callAdministration } from "@/features/administration/api";
 import { useOrganizationCollection } from "@/features/administration/use-organization-collection";
 import { useAuth } from "@/features/auth/auth-context";
@@ -34,6 +35,9 @@ export default function CountsPage() {
   } | null>(null);
   const [quantities, setQuantities] = useState<Record<string, string>>({});
   const [serialText, setSerialText] = useState<Record<string, string>>({});
+  const workspaceRef = useDialogFocus<HTMLElement>(Boolean(workspace), () =>
+    setWorkspace(null),
+  );
   const canCount = profile ? hasPermission(profile, "inventory.count") : false;
   const canReview = profile
     ? hasPermission(profile, "inventory.count_review")
@@ -155,8 +159,8 @@ export default function CountsPage() {
           </Button>
         </section>
       )}
-      <div className="overflow-x-auto rounded-xl border bg-white">
-        <table className="w-full text-left text-sm">
+      <div className="responsive-table-wrap">
+        <table className="responsive-table">
           <thead>
             <tr>
               {["Count", "Location", "Date", "Status", "Actions"].map(
@@ -171,14 +175,28 @@ export default function CountsPage() {
           <tbody>
             {counts.data.map((count) => (
               <tr key={count.id} className="border-t">
-                <td className="px-4 py-3 font-mono">{count.countNumber}</td>
-                <td className="px-4">
+                <td
+                  data-label="Count"
+                  data-primary="true"
+                  className="px-4 py-3 font-mono"
+                >
+                  {count.countNumber}
+                </td>
+                <td data-label="Location" className="px-4">
                   {locations.data.find((item) => item.id === count.locationId)
                     ?.name ?? count.locationId}
                 </td>
-                <td className="px-4">{count.countDate}</td>
-                <td className="px-4">{count.status}</td>
-                <td className="flex gap-1 px-4 py-2">
+                <td data-label="Date" className="px-4">
+                  {count.countDate}
+                </td>
+                <td data-label="Status" className="px-4 capitalize">
+                  {count.status.replaceAll("_", " ")}
+                </td>
+                <td
+                  data-label="Actions"
+                  data-actions="true"
+                  className="flex flex-wrap gap-1 px-4 py-2"
+                >
                   <Button
                     variant="ghost"
                     onClick={() => openWorkspace(count.id)}
@@ -216,9 +234,14 @@ export default function CountsPage() {
         </table>
       </div>
       {workspace && (
-        <div className="fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-black/50 p-4">
-          <section className="my-8 w-full max-w-3xl rounded-xl bg-white p-6">
-            <h2 className="text-xl font-semibold">
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center overflow-y-auto bg-black/50 sm:items-center sm:p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="stock-count-title"
+        >
+          <section ref={workspaceRef} className="safe-bottom max-h-[calc(100dvh-1rem)] w-full max-w-3xl overflow-y-auto rounded-t-2xl bg-white p-5 sm:my-8 sm:rounded-xl sm:p-6">
+            <h2 id="stock-count-title" className="text-xl font-semibold">
               {workspace.count.countNumber}
             </h2>
             <p className="text-sm text-[var(--muted)]">
@@ -227,8 +250,8 @@ export default function CountsPage() {
                 : "Visible expected quantities"}{" "}
               · {workspace.count.status}
             </p>
-            <div className="mt-4 max-h-[55vh] overflow-auto">
-              <table className="w-full text-left text-sm">
+            <div className="responsive-table-wrap mt-4 max-h-[55vh] overflow-auto">
+              <table className="responsive-table">
                 <thead>
                   <tr>
                     <th className="py-2">SKU</th>
@@ -243,11 +266,17 @@ export default function CountsPage() {
                 <tbody>
                   {workspace.items.map((item) => (
                     <tr key={item.id} className="border-t">
-                      <td className="py-2 font-mono">{item.sku}</td>
+                      <td
+                        data-label="SKU"
+                        data-primary="true"
+                        className="py-2 font-mono"
+                      >
+                        {item.sku}
+                      </td>
                       {item.expectedQuantity !== undefined && (
-                        <td>{item.expectedQuantity}</td>
+                        <td data-label="Expected">{item.expectedQuantity}</td>
                       )}
-                      <td>
+                      <td data-label="Counted">
                         <input
                           type="number"
                           min="0"
@@ -264,8 +293,8 @@ export default function CountsPage() {
                           className="w-24 rounded border p-2"
                         />
                       </td>
-                      <td>{item.variance ?? "—"}</td>
-                      <td>
+                      <td data-label="Variance">{item.variance ?? "—"}</td>
+                      <td data-label="Serial numbers" className="col-span-2">
                         {item.trackingType === "serial" ? (
                           <textarea
                             value={

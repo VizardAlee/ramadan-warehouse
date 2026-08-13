@@ -120,12 +120,12 @@ export function TransferDetail({ transferId }: { transferId: string }) {
   const totalKey = (label: (typeof quantityFields)[number]) =>
     `total${label}Quantity` as keyof WarehouseTransfer;
   return (
-    <div className="space-y-6">
+    <div className="min-w-0 space-y-6">
       <header className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <Link
             href="/transfers"
-            className="text-sm text-[var(--brand)] underline"
+            className="inline-flex min-h-11 items-center text-sm text-[var(--brand)] underline"
           >
             Transfers
           </Link>
@@ -205,11 +205,11 @@ export function TransferDetail({ transferId }: { transferId: string }) {
           </div>
         ))}
       </section>
-      <section className="grid gap-4 lg:grid-cols-3">
-        <div className="rounded-xl border bg-white p-5 lg:col-span-2">
+      <section className="grid min-w-0 gap-4 lg:grid-cols-3">
+        <div className="min-w-0 rounded-xl border bg-white p-5 lg:col-span-2">
           <h2 className="text-lg font-semibold">Transfer items</h2>
-          <div className="mt-4 overflow-x-auto">
-            <table className="w-full whitespace-nowrap text-left text-sm">
+          <div className="responsive-table-wrap mt-4">
+            <table className="responsive-table">
               <thead>
                 <tr>
                   {[
@@ -231,19 +231,19 @@ export function TransferDetail({ transferId }: { transferId: string }) {
               <tbody>
                 {result.items.map((item) => (
                   <tr key={item.id}>
-                    <td className="border-b px-3 py-3">
+                    <td data-label="Product" data-primary="true" className="border-b px-3 py-3">
                       <span className="font-medium">{item.sku}</span>
                       <span className="block text-xs text-[var(--muted)]">
                         {item.productName} · {item.trackingType}
                       </span>
                     </td>
-                    <td className="border-b px-3">{item.approvedQuantity}</td>
-                    <td className="border-b px-3">{item.reservedQuantity}</td>
-                    <td className="border-b px-3">{item.pickedQuantity}</td>
-                    <td className="border-b px-3">{item.packedQuantity}</td>
-                    <td className="border-b px-3">{item.dispatchedQuantity}</td>
-                    <td className="border-b px-3">{item.receivedQuantity}</td>
-                    <td className="border-b px-3">
+                    <td data-label="Approved" className="border-b px-3">{item.approvedQuantity}</td>
+                    <td data-label="Reserved" className="border-b px-3">{item.reservedQuantity}</td>
+                    <td data-label="Picked" className="border-b px-3">{item.pickedQuantity}</td>
+                    <td data-label="Packed" className="border-b px-3">{item.packedQuantity}</td>
+                    <td data-label="Dispatched" className="border-b px-3">{item.dispatchedQuantity}</td>
+                    <td data-label="Received" className="border-b px-3">{item.receivedQuantity}</td>
+                    <td data-label="Status" className="border-b px-3">
                       {item.itemStatus.replaceAll("_", " ")}
                     </td>
                   </tr>
@@ -252,7 +252,7 @@ export function TransferDetail({ transferId }: { transferId: string }) {
             </table>
           </div>
         </div>
-        <aside className="space-y-3 rounded-xl border bg-white p-5">
+        <aside className="min-w-0 space-y-3 rounded-xl border bg-white p-5">
           <h2 className="text-lg font-semibold">Control references</h2>
           <dl className="space-y-3 text-sm">
             <div>

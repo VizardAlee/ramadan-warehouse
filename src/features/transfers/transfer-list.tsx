@@ -175,12 +175,12 @@ export function TransferList({ view = "all" }: { view?: string }) {
           )}
         </div>
       </header>
-      <nav className="flex gap-2 overflow-x-auto pb-1">
+      <nav aria-label="Transfer queues" className="scroll-tabs pb-1">
         {Object.entries(labels).map(([key, label]) => (
           <Link
             key={key}
             href={`/transfers/${key}`}
-            className={`whitespace-nowrap rounded-lg border px-3 py-2 text-sm ${view === key ? "bg-emerald-950 text-white" : "bg-white"}`}
+            className={`inline-flex min-h-11 items-center whitespace-nowrap rounded-lg border px-3 text-sm ${view === key ? "bg-emerald-950 text-white" : "bg-white"}`}
           >
             {label}
           </Link>
@@ -222,8 +222,8 @@ export function TransferList({ view = "all" }: { view?: string }) {
       {message && (
         <p className="rounded-lg bg-amber-50 p-3 text-sm">{message}</p>
       )}
-      <div className="overflow-x-auto rounded-xl border bg-white">
-        <table className="w-full whitespace-nowrap text-left text-sm">
+      <div className="responsive-table-wrap">
+        <table className="responsive-table">
           <thead className="bg-slate-50">
             <tr>
               {[
@@ -246,7 +246,7 @@ export function TransferList({ view = "all" }: { view?: string }) {
           <tbody>
             {rows.map((row) => (
               <tr key={row.id} className="border-t">
-                <td className="px-4 py-3">
+                <td data-label="Transfer" data-primary="true" className="px-4 py-3">
                   <Link
                     href={`/transfers/${row.id}`}
                     className="font-semibold text-[var(--brand)] underline"
@@ -254,17 +254,17 @@ export function TransferList({ view = "all" }: { view?: string }) {
                     {row.transferNumber}
                   </Link>
                 </td>
-                <td className="px-4 py-3">
+                <td data-label="Source" className="px-4 py-3">
                   {row.sourceType.replaceAll("_", " ")}
                 </td>
-                <td className="px-4 py-3">
+                <td data-label="Route" className="px-4 py-3">
                   <span className="block">{row.originWarehouseId}</span>
                   <span className="text-xs text-[var(--muted)]">
                     to {row.destinationBranchId}
                   </span>
                 </td>
-                <td className="px-4 py-3">{row.priority}</td>
-                <td className="px-4 py-3">
+                <td data-label="Priority" className="px-4 py-3 capitalize">{row.priority}</td>
+                <td data-label="Status" className="px-4 py-3">
                   <StatusBadge
                     tone={
                       row.status === "closed" || row.status === "received"
@@ -277,10 +277,10 @@ export function TransferList({ view = "all" }: { view?: string }) {
                     {row.status.replaceAll("_", " ")}
                   </StatusBadge>
                 </td>
-                <td className="px-4 py-3">{row.totalApprovedQuantity}</td>
-                <td className="px-4 py-3">{row.totalDispatchedQuantity}</td>
-                <td className="px-4 py-3">{row.totalReceivedQuantity}</td>
-                <td className="px-4 py-3">{row.totalOutstandingQuantity}</td>
+                <td data-label="Approved" className="px-4 py-3">{row.totalApprovedQuantity}</td>
+                <td data-label="Dispatched" className="px-4 py-3">{row.totalDispatchedQuantity}</td>
+                <td data-label="Received" className="px-4 py-3">{row.totalReceivedQuantity}</td>
+                <td data-label="Outstanding" className="px-4 py-3 font-semibold">{row.totalOutstandingQuantity}</td>
               </tr>
             ))}
           </tbody>

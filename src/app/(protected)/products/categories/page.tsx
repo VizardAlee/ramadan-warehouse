@@ -6,6 +6,7 @@ import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { Button } from "@/components/ui/button";
 import { StatusBadge } from "@/components/ui/status-badge";
+import { useDialogFocus } from "@/components/ui/use-dialog-focus";
 import { callAdministration } from "@/features/administration/api";
 import { useOrganizationCollection } from "@/features/administration/use-organization-collection";
 import { useAuth } from "@/features/auth/auth-context";
@@ -25,6 +26,7 @@ export default function CategoriesPage() {
     useOrganizationCollection<ProductCategory>("productCategories");
   const [editing, setEditing] = useState<ProductCategory | null>(null);
   const [open, setOpen] = useState(false);
+  const dialogRef = useDialogFocus<HTMLFormElement>(open, () => setOpen(false));
   const [error, setError] = useState<string | null>(null);
   const form = useForm<Values>({
     resolver: zodResolver(schema),
@@ -112,10 +114,11 @@ export default function CategoriesPage() {
         </p>
       )}
       {open && (
-        <div className="fixed inset-0 z-50 grid place-items-center bg-black/50 p-4">
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 sm:items-center sm:p-4" role="dialog" aria-modal="true" aria-label="Product category editor">
           <form
+            ref={dialogRef}
             onSubmit={submit}
-            className="w-full max-w-lg space-y-4 rounded-2xl bg-white p-6"
+            className="safe-bottom max-h-[calc(100dvh-1rem)] w-full max-w-lg space-y-4 overflow-y-auto rounded-t-2xl bg-white p-5 sm:rounded-2xl sm:p-6"
           >
             <h2 className="text-xl font-semibold">
               {editing ? "Edit" : "Create"} category

@@ -7,6 +7,7 @@ import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { Button } from "@/components/ui/button";
 import { StatusBadge } from "@/components/ui/status-badge";
+import { useDialogFocus } from "@/components/ui/use-dialog-focus";
 import { callAdministration } from "@/features/administration/api";
 import { useOrganizationCollection } from "@/features/administration/use-organization-collection";
 import { useAuth } from "@/features/auth/auth-context";
@@ -54,6 +55,7 @@ export default function ProductsPage() {
   const [tracking, setTracking] = useState("");
   const [editing, setEditing] = useState<Product | null>(null);
   const [open, setOpen] = useState(false);
+  const dialogRef = useDialogFocus<HTMLFormElement>(open, () => setOpen(false));
   const [message, setMessage] = useState<string | null>(null);
   const canCreate = profile ? hasPermission(profile, "products.create") : false;
   const canUpdate = profile ? hasPermission(profile, "products.update") : false;
@@ -158,8 +160,8 @@ export default function ProductsPage() {
       {message && (
         <p className="rounded-lg bg-amber-50 p-3 text-sm">{message}</p>
       )}
-      <div className="overflow-x-auto rounded-xl border bg-white">
-        <table className="w-full text-left text-sm">
+      <div className="responsive-table-wrap">
+        <table className="responsive-table">
           <thead className="bg-slate-50">
             <tr>
               {[
@@ -193,7 +195,7 @@ export default function ProductsPage() {
             ) : (
               filtered.map((product) => (
                 <tr key={product.id} className="border-t">
-                  <td className="px-4 py-3">
+                  <td data-label="Product" data-primary="true" className="px-4 py-3">
                     <Link
                       href={`/products/${product.id}`}
                       className="font-semibold text-[var(--brand)]"
@@ -204,18 +206,18 @@ export default function ProductsPage() {
                       {product.brand} {product.model}
                     </span>
                   </td>
-                  <td className="px-4 font-mono">{product.sku}</td>
-                  <td className="px-4">{product.trackingType}</td>
-                  <td className="px-4">{product.unitOfMeasure}</td>
-                  <td className="px-4">
+                  <td data-label="SKU" className="px-4 font-mono">{product.sku}</td>
+                  <td data-label="Tracking" className="px-4 capitalize">{product.trackingType}</td>
+                  <td data-label="Unit" className="px-4">{product.unitOfMeasure}</td>
+                  <td data-label="Default cost" className="px-4">
                     {formatNaira(product.defaultUnitCostMinor)}
                   </td>
-                  <td className="px-4">
+                  <td data-label="Status" className="px-4">
                     <StatusBadge tone={product.active ? "success" : "warning"}>
                       {product.active ? "active" : "inactive"}
                     </StatusBadge>
                   </td>
-                  <td className="px-4">
+                  <td data-label="Actions" data-actions="true" className="px-4">
                     {canUpdate && (
                       <Button variant="ghost" onClick={() => edit(product)}>
                         Edit
@@ -229,15 +231,16 @@ export default function ProductsPage() {
         </table>
       </div>
       {open && (
-        <div className="fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-black/50 p-4">
+        <div className="fixed inset-0 z-50 flex items-end justify-center overflow-y-auto bg-black/50 sm:items-center sm:p-4" role="dialog" aria-modal="true" aria-label="Product editor">
           <form
+            ref={dialogRef}
             onSubmit={submit}
-            className="my-8 w-full max-w-2xl space-y-4 rounded-2xl bg-white p-6"
+            className="safe-bottom max-h-[calc(100dvh-1rem)] w-full max-w-2xl space-y-4 overflow-y-auto rounded-t-2xl bg-white p-5 sm:my-8 sm:rounded-2xl sm:p-6"
           >
             <h2 className="text-xl font-semibold">
               {editing ? "Edit product" : "Create product"}
             </h2>
-            <div className="grid gap-4 md:grid-cols-2">
+            <div className="form-grid">
               <label className="text-sm">
                 Name
                 <input

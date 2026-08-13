@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
+import { StatusBadge } from "@/components/ui/status-badge";
 import { callAdministration } from "@/features/administration/api";
 import { formatDateTime, formatNaira } from "@/features/inventory/format";
 import type { SerializedItem } from "@/types/domain";
@@ -28,8 +29,8 @@ export default function AssetsPage() {
       {error && (
         <p className="rounded-lg bg-red-50 p-3 text-red-800">{error}</p>
       )}
-      <div className="overflow-x-auto rounded-xl border bg-white">
-        <table className="w-full text-left text-sm">
+      <div className="responsive-table-wrap">
+        <table className="responsive-table">
           <thead>
             <tr>
               {[
@@ -56,14 +57,14 @@ export default function AssetsPage() {
             ) : (
               rows.map((row) => (
                 <tr key={row.id} className="border-t">
-                  <td className="px-4 py-3 font-mono">{row.sku}</td>
-                  <td className="px-4 font-mono">{row.serialNumber}</td>
-                  <td className="px-4">{row.status}</td>
-                  <td className="px-4">{row.currentLocationId}</td>
-                  <td className="px-4">
+                  <td data-label="SKU" data-primary="true" className="px-4 py-3 font-mono">{row.sku}</td>
+                  <td data-label="Serial / lot" className="px-4 font-mono">{row.serialNumber}</td>
+                  <td data-label="Status" className="px-4"><StatusBadge status={row.status}/></td>
+                  <td data-label="Location" className="px-4 record-id">{row.currentLocationId}</td>
+                  <td data-label="Cost" className="px-4">
                     {formatNaira(row.currentUnitCostMinor)}
                   </td>
-                  <td className="px-4">{formatDateTime(row.lastMovementAt)}</td>
+                  <td data-label="Last movement" className="px-4">{formatDateTime(row.lastMovementAt)}</td>
                 </tr>
               ))
             )}

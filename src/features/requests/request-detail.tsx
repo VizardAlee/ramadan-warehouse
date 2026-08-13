@@ -211,7 +211,7 @@ export function RequestDetail({ requestId }: { requestId: string }) {
       {message && (
         <p className="rounded-lg bg-amber-50 p-3 text-sm">{message}</p>
       )}
-      <section className="grid gap-4 rounded-xl border bg-white p-6 md:grid-cols-3">
+      <section className="card-grid rounded-xl border bg-white p-[clamp(1rem,3vw,1.5rem)]">
         <div>
           <span className="text-xs text-[var(--muted)]">Branch</span>
           <p className="font-medium">{record.branchId}</p>
@@ -256,7 +256,7 @@ export function RequestDetail({ requestId }: { requestId: string }) {
           {data.items.map((item) => (
             <div
               key={item.id}
-              className="grid gap-2 rounded-lg border p-3 md:grid-cols-[2fr_1fr_1fr_2fr]"
+              className="grid gap-3 rounded-lg border p-3 [grid-template-columns:repeat(auto-fit,minmax(min(100%,10rem),1fr))]"
             >
               <div>
                 <strong>{item.sku}</strong>
@@ -430,8 +430,8 @@ export function RequestDetail({ requestId }: { requestId: string }) {
 
 function ItemTable({ items }: { items: BranchRequestItem[] }) {
   return (
-    <section className="overflow-x-auto rounded-xl border bg-white">
-      <table className="w-full whitespace-nowrap text-left text-sm">
+    <section className="responsive-table-wrap">
+      <table className="responsive-table">
         <thead className="bg-slate-50">
           <tr>
             {[
@@ -452,20 +452,20 @@ function ItemTable({ items }: { items: BranchRequestItem[] }) {
         <tbody>
           {items.map((item) => (
             <tr key={item.id} className="border-t">
-              <td className="px-4 py-3">
+              <td data-label="Product" data-primary="true" className="px-4 py-3">
                 <strong>{item.sku}</strong>
                 <span className="block text-xs text-[var(--muted)]">
                   {item.productName} · {item.trackingType}
                 </span>
               </td>
-              <td className="px-4 py-3">
+              <td data-label="Requested" className="px-4 py-3">
                 {item.requestedQuantity} {item.unitOfMeasure}
               </td>
-              <td className="px-4 py-3">{item.approvedQuantity}</td>
-              <td className="px-4 py-3">{item.rejectedQuantity}</td>
-              <td className="px-4 py-3">{item.fulfilledQuantity}</td>
-              <td className="px-4 py-3">{item.outstandingQuantity}</td>
-              <td className="px-4 py-3">{item.itemStatus}</td>
+              <td data-label="Approved" className="px-4 py-3">{item.approvedQuantity}</td>
+              <td data-label="Rejected" className="px-4 py-3">{item.rejectedQuantity}</td>
+              <td data-label="Fulfilled" className="px-4 py-3">{item.fulfilledQuantity}</td>
+              <td data-label="Outstanding" className="px-4 py-3 font-semibold">{item.outstandingQuantity}</td>
+              <td data-label="Status" className="px-4 py-3">{item.itemStatus.replaceAll("_", " ")}</td>
             </tr>
           ))}
         </tbody>
@@ -481,7 +481,7 @@ function Availability({ result }: { result: AvailabilityResult }) {
         <AlertTriangle className="size-4" />
         {result.warning}
       </p>
-      <div className="mt-3 grid gap-3 md:grid-cols-2">
+      <div className="form-grid mt-3">
         {result.rows.map((row) => (
           <div
             key={String(row.requestItemId)}

@@ -105,8 +105,8 @@ export default function ProductDetailPage() {
       </section>
       <section className="rounded-xl border bg-white p-5">
         <h2 className="text-lg font-semibold">Stock by location</h2>
-        <div className="mt-4 overflow-x-auto">
-          <table className="w-full text-left text-sm">
+        <div className="responsive-table-wrap mt-4">
+          <table className="responsive-table">
             <thead>
               <tr>
                 {[
@@ -126,14 +126,14 @@ export default function ProductDetailPage() {
             <tbody>
               {summary.balances.map((balance) => (
                 <tr key={balance.id} className="border-t">
-                  <td className="py-2 font-mono text-xs">
+                  <td data-label="Location" data-primary="true" className="py-2 font-mono text-xs">
                     {balance.locationId}
                   </td>
-                  <td>{balance.onHandQuantity}</td>
-                  <td>{balance.reservedQuantity}</td>
-                  <td>{balance.availableQuantity}</td>
-                  <td>{formatNaira(balance.averageUnitCostMinor)}</td>
-                  <td>{formatNaira(balance.totalValueMinor)}</td>
+                  <td data-label="On hand">{balance.onHandQuantity}</td>
+                  <td data-label="Reserved">{balance.reservedQuantity}</td>
+                  <td data-label="Available" className="font-semibold">{balance.availableQuantity}</td>
+                  <td data-label="Average cost">{formatNaira(balance.averageUnitCostMinor)}</td>
+                  <td data-label="Value">{formatNaira(balance.totalValueMinor)}</td>
                 </tr>
               ))}
             </tbody>
@@ -142,8 +142,8 @@ export default function ProductDetailPage() {
       </section>
       <section className="rounded-xl border bg-white p-5">
         <h2 className="text-lg font-semibold">Movement history</h2>
-        <div className="mt-4 overflow-x-auto">
-          <table className="w-full text-left text-xs">
+        <div className="responsive-table-wrap mt-4">
+          <table className="responsive-table text-xs">
             <thead>
               <tr>
                 {[
@@ -166,19 +166,19 @@ export default function ProductDetailPage() {
             <tbody>
               {history.map((entry) => (
                 <tr key={entry.id} className="border-t">
-                  <td className="py-2 pr-4">
+                  <td data-label="Date" data-primary="true" className="py-2 pr-4">
                     {formatDateTime(entry.effectiveAt)}
                   </td>
-                  <td className="pr-4 font-mono">{entry.transactionNumber}</td>
-                  <td className="pr-4">{entry.transactionType}</td>
-                  <td className="pr-4">
+                  <td data-label="Transaction" className="pr-4 font-mono">{entry.transactionNumber}</td>
+                  <td data-label="Type" className="pr-4">{entry.transactionType}</td>
+                  <td data-label="Location" className="pr-4">
                     {entry.locationId ?? entry.externalAccount}
                   </td>
-                  <td className="pr-4">{entry.quantityDelta}</td>
-                  <td className="pr-4">{formatNaira(entry.unitCostMinor)}</td>
-                  <td className="pr-4">{formatNaira(entry.valueDeltaMinor)}</td>
-                  <td className="pr-4">{entry.balanceAfter}</td>
-                  <td>{entry.reason}</td>
+                  <td data-label="Quantity" className="pr-4">{entry.quantityDelta}</td>
+                  <td data-label="Unit cost" className="pr-4">{formatNaira(entry.unitCostMinor)}</td>
+                  <td data-label="Value" className="pr-4">{formatNaira(entry.valueDeltaMinor)}</td>
+                  <td data-label="Balance after" className="pr-4">{entry.balanceAfter}</td>
+                  <td data-label="Reason">{entry.reason}</td>
                 </tr>
               ))}
             </tbody>

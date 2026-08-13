@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="AB Ramadan Warehouse">
+  <rect width="512" height="512" rx="112" fill="#0a4936"/>
+  <path d="M96 220 256 112l160 108v188a24 24 0 0 1-24 24H120a24 24 0 0 1-24-24V220Z" fill="#fff"/>
+  <path d="M176 256h160v176H176z" fill="#e7aa2d"/>
+  <path d="M208 296h96v28h-96zm0 56h96v28h-96z" fill="#0a4936"/>
+</svg>

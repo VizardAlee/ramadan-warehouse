@@ -4,6 +4,7 @@ import { Download, Loader2, Plus } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { StatusBadge } from "@/components/ui/status-badge";
 import { callAdministration } from "@/features/administration/api";
 import { useAuth } from "@/features/auth/auth-context";
 import { hasPermission } from "@/lib/permissions/roles";
@@ -211,8 +212,8 @@ export function RequestList({
       {message && (
         <p className="rounded-lg bg-amber-50 p-3 text-sm">{message}</p>
       )}
-      <div className="overflow-x-auto rounded-xl border bg-white">
-        <table className="w-full whitespace-nowrap text-left text-sm">
+      <div className="responsive-table-wrap">
+        <table className="responsive-table">
           <thead className="bg-slate-50">
             <tr>
               {[
@@ -234,7 +235,7 @@ export function RequestList({
           <tbody>
             {rows.map((row) => (
               <tr key={row.id} className="border-t">
-                <td className="px-4 py-3 font-medium">
+                <td data-label="Request" data-primary="true" className="px-4 py-3 font-medium">
                   <Link
                     className="text-[var(--brand)] underline"
                     href={`/requests/${row.id}`}
@@ -245,13 +246,13 @@ export function RequestList({
                     {row.requestType.replaceAll("_", " ")}
                   </span>
                 </td>
-                <td className="px-4 py-3">{row.branchId}</td>
-                <td className="px-4 py-3">{row.priority}</td>
-                <td className="px-4 py-3">{row.status.replaceAll("_", " ")}</td>
-                <td className="px-4 py-3">{row.totalRequestedQuantity}</td>
-                <td className="px-4 py-3">{row.totalApprovedQuantity}</td>
-                <td className="px-4 py-3">{row.totalOutstandingQuantity}</td>
-                <td className="px-4 py-3">
+                <td data-label="Branch" className="px-4 py-3 record-id">{row.branchId}</td>
+                <td data-label="Priority" className="px-4 py-3 capitalize">{row.priority}</td>
+                <td data-label="Status" className="px-4 py-3"><StatusBadge status={row.status}/></td>
+                <td data-label="Requested" className="px-4 py-3">{row.totalRequestedQuantity}</td>
+                <td data-label="Approved" className="px-4 py-3">{row.totalApprovedQuantity}</td>
+                <td data-label="Outstanding" className="px-4 py-3 font-semibold">{row.totalOutstandingQuantity}</td>
+                <td data-label="Required" className="px-4 py-3">
                   {typeof row.requiredDate === "string"
                     ? row.requiredDate.slice(0, 10)
                     : "—"}

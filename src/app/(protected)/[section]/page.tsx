@@ -1,6 +1,8 @@
 import { Construction } from "lucide-react";
 import { notFound } from "next/navigation";
 import { EmptyState } from "@/components/ui/empty-state";
+import { AuditList } from "@/features/audit/audit-list";
+import { TransferList } from "@/features/transfers/transfer-list";
 
 const sections: Record<string, { title: string; description: string }> = {
   products: { title: "Products", description: "Product catalogue and SKU history begin in Phase 2." },
@@ -13,4 +15,4 @@ const sections: Record<string, { title: string; description: string }> = {
   audit: { title: "Audit history", description: "Append-only audit infrastructure is ready; sensitive operations in later phases will write entries server-side." },
 };
 
-export default async function SectionPage({ params }: { params: Promise<{ section: string }> }) { const { section } = await params; const value = sections[section]; if (!value) notFound(); return <div className="space-y-6"><div><h1 className="text-3xl font-semibold">{value.title}</h1><p className="mt-1 text-[var(--muted)]">Phase-scoped workspace</p></div><EmptyState icon={Construction} title="Foundation prepared" description={value.description}/></div>; }
+export default async function SectionPage({ params }: { params: Promise<{ section: string }> }) { const { section } = await params; if (section === "costs") return <TransferList view="costs"/>; if (section === "audit") return <AuditList/>; const value = sections[section]; if (!value) notFound(); return <div className="page-stack"><div><h1 className="page-title">{value.title}</h1><p className="page-description">Operational workspace</p></div><EmptyState icon={Construction} title="Workspace prepared" description={value.description}/></div>; }

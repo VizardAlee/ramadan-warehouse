@@ -178,7 +178,7 @@ export function PostingForm({ mode }: { mode: keyof typeof config }) {
       {message && (
         <p className="rounded-lg bg-amber-50 p-3 text-sm">{message}</p>
       )}
-      <div className="grid gap-4 rounded-xl border bg-white p-6 md:grid-cols-2">
+      <div className="form-grid rounded-xl border bg-white p-[clamp(1rem,3vw,1.5rem)]">
         <label className="text-sm">
           Product
           <select

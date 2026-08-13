@@ -168,7 +168,7 @@ export function TransferForm({ source }: { source: "request" | "direct" }) {
       {message && (
         <p className="rounded-lg bg-amber-50 p-3 text-sm">{message}</p>
       )}
-      <section className="grid gap-4 rounded-xl border bg-white p-5 md:grid-cols-2">
+      <section className="form-grid rounded-xl border bg-white p-[clamp(1rem,3vw,1.5rem)]">
         {source === "request" && (
           <label className="md:col-span-2">
             Approved request
@@ -336,7 +336,7 @@ export function TransferForm({ source }: { source: "request" | "direct" }) {
         {lines.map((line, index) => (
           <div
             key={`${line.sourceRequestItemId ?? "direct"}-${index}`}
-            className="grid gap-3 rounded-lg border p-3 md:grid-cols-[1fr_180px_auto]"
+            className="grid items-end gap-3 rounded-lg border p-3 [grid-template-columns:repeat(auto-fit,minmax(min(100%,11rem),1fr))]"
           >
             <select
               required

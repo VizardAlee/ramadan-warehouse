@@ -1,9 +1,13 @@
 {
-  "name": "Solar Warehouse",
-  "short_name": "Warehouse",
+  "name": "AB Ramadan Warehouse",
+  "short_name": "AB Warehouse",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#f4f7f5",
   "theme_color": "#116149",
-  "icons": []
+  "orientation": "any",
+  "scope": "/",
+  "icons": [
+    { "src": "/warehouse-icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
 }

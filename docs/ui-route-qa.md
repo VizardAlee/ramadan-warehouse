@@ -1,0 +1,41 @@
+# Production UI route QA
+
+Date: 2026-08-13
+
+Environment: local Next.js application with Firebase Auth, Firestore, and Functions emulators (`demo-ramadan-warehouse`)
+
+Data safety: emulator-only fixtures; no production reads or writes
+
+## Method
+
+The review combined route/source inventory, lint and type validation, authenticated browser traversal, automated viewport measurements, representative visual screenshots, and the repository functional suites. Automated checks measure document overflow, route identity, visible interactive target sizes, table/deck conversion, and navigation at 360, 375, 390, 430, 768, 820, 1024, 1280, and 1440px. Key dense screens are resized continuously from 360px through 1440px to detect in-between instability.
+
+Workflow mutations are validated by emulator callable/E2E tests rather than repeated manually in the browser, avoiding accidental persistence and providing deterministic authorization, ledger, request, transfer, serial, lot, and reconciliation coverage.
+
+## Route matrix
+
+| Area | Routes reviewed | UI result |
+| --- | --- | --- |
+| Entry/authentication | `/`, `/login` | Responsive branded entry, accessible form feedback, protected redirect |
+| Dashboard | `/dashboard` | Fluid KPI cards, operational links, bootstrap empty state, partial-load warning |
+| Administration | `/administration`, `/administration/organization`, `/administration/users`, `/administration/roles`, `/administration/branches`, `/administration/warehouses`, `/administration/locations` | Responsive overview/cards, filters, table decks, permission-aware actions, mobile sheets |
+| Products | `/products`, `/products/categories`, `/products/[product_id]` | Catalogue deck, category cards/sheet, responsive stock and movement history |
+| Inventory | `/inventory`, `/inventory/receipts`, `/inventory/opening-stock`, `/inventory/movements`, `/inventory/adjustments`, `/inventory/counts`, `/inventory/reconciliation`, `/inventory/assets` | Stock decks, fluid forms, contained count workspace, serial and reconciliation presentation |
+| Requests | `/requests`, `/requests/create`, `/requests/review`, `/requests/reports`, `/requests/[request_id]` | Fluid status summary, filters, request/item decks, responsive form/detail actions |
+| Transfers | `/transfers`, `/transfers/review`, `/transfers/reservations`, `/transfers/picking`, `/transfers/packing`, `/transfers/dispatch`, `/transfers/in-transit`, `/transfers/incoming`, `/transfers/discrepancies`, `/transfers/costs`, `/transfers/cost-approvals`, `/transfers/cost-reconciliation`, `/transfers/closed`, `/transfers/reconciliation`, `/transfers/create/direct`, `/transfers/create/from-request`, `/transfers/[transfer_id]` | Queue tabs remain reachable; lists/items/costs become structured decks; KPI/action forms stack cleanly |
+| Costs/reporting/audit | `/costs`, `/reports`, `/audit`, `/requests/reports` | Permission-scoped reports, CSV actions, responsive result decks, deliberate audit empty/loading states |
+
+## Responsive findings
+
+- No page-level horizontal overflow was found in the automated route/width matrix.
+- The transfer queue tabs initially produced sub-40px targets; they were raised to the shared 44px touch baseline.
+- Settled transfer detail content initially forced the tablet grid wider than the viewport from 768px through 880px. Explicit grid-item containment moved overflow back into the table wrapper; the repeated 256-check settled-content run reported zero overflow, route, loading, or small-target failures.
+- Desktop-wide tables were the dominant small-screen failure and were converted to labeled semantic record decks without hiding operational fields.
+- Large create/edit dialogs were converted to bottom sheets on phones and focus-contained dialogs on larger viewports.
+- Dashboard totals originally depended on nonexistent catalogue/discrepancy callables and could remain in a loading state. They now use the existing permission-scoped Firestore records and expose a bounded warning state on failure.
+- Representative authenticated visual inspection covered requests at 390px, products at 820px, dashboard at 1440px, and a disputed transfer detail at 360px. A second authenticated measurement pass exercised those four dense routes at every required fixed width and continuously in 20px increments from 360px through 1440px. Navigation, record hierarchy, quantities, status, and primary actions remained reachable.
+
+## Known limitations
+
+- The current frontend collection hook predates this pass and subscribes to organization collections without cursor pagination. Report and workflow registers that already use paginated callables preserve their server limits. A fully cursor-paginated administration/audit browser requires an existing trusted query endpoint or a separately approved backend change; this UI-only pass does not weaken rules or add a new callable.
+- Browser QA validates rendering and safe interaction surfaces with emulator fixtures. Hardware barcode scanners, mobile virtual-keyboard variations, and installed-PWA behavior still merit device acceptance testing before warehouse rollout.

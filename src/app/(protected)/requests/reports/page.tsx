@@ -144,8 +144,8 @@ export default function RequestReportsPage() {
       {message && (
         <p className="rounded-lg bg-amber-50 p-3 text-sm">{message}</p>
       )}
-      <div className="overflow-x-auto rounded-xl border bg-white">
-        <table className="w-full whitespace-nowrap text-left text-xs">
+      <div className="responsive-table-wrap">
+        <table className="responsive-table text-xs">
           <thead className="bg-slate-50">
             <tr>
               {columns.map((column) => (
@@ -159,7 +159,7 @@ export default function RequestReportsPage() {
             {rows.map((row, index) => (
               <tr key={String(row.id ?? index)} className="border-t">
                 {columns.map((column) => (
-                  <td key={column} className="max-w-72 truncate px-3 py-2">
+                  <td key={column} data-label={column.replaceAll("_", " ")} className="max-w-72 truncate px-3 py-2">
                     {typeof row[column] === "object"
                       ? JSON.stringify(row[column])
                       : String(row[column] ?? "")}
