@@ -1,6 +1,7 @@
 const messages: Record<string, string> = {
   "functions/unauthenticated": "Your session has expired. Sign in again.",
   "functions/permission-denied": "You do not have permission to perform this action.",
+  "functions/invalid-argument": "Some submitted information is invalid. Review the form and try again.",
   "functions/failed-precondition": "This action is not available in the record's current state. Refresh and review it.",
   "functions/aborted": "The record changed while you were working. Refresh and try again.",
   "functions/already-exists": "This record already exists.",

@@ -12,6 +12,7 @@ import { useAuth } from "@/features/auth/auth-context";
 import { hasPermission } from "@/lib/permissions/roles";
 import type { PermissionId, UserProfile } from "@/types/domain";
 import { callAdministration } from "./api";
+import { eligibleManagers } from "./manager-options";
 import { useOrganizationCollection } from "./use-organization-collection";
 
 const schema = z.object({
@@ -87,6 +88,8 @@ export function MasterDataPage({
   const branches = useOrganizationCollection<Row>("branches");
   const warehouses = useOrganizationCollection<Row>("warehouses");
   const users = useOrganizationCollection<UserProfile>("users");
+  const branchManagers = eligibleManagers(users.data, "branch_manager");
+  const warehouseManagers = eligibleManagers(users.data, "warehouse_manager");
   const canManage = profile ? hasPermission(profile, config.permission) : false;
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Row | null>(null);
@@ -141,8 +144,12 @@ export function MasterDataPage({
         idempotencyKey: crypto.randomUUID(),
       });
       setOpen(false);
-    } catch {
-      setError("The server rejected this configuration change.");
+    } catch (cause) {
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : "The server rejected this configuration change.",
+      );
     }
   });
   function relationship(row: Row) {
@@ -326,7 +333,7 @@ export function MasterDataPage({
                       className="mt-1 w-full rounded-lg border p-2.5"
                     >
                       <option value="">No manager</option>
-                      {users.data.map((user) => (
+                      {branchManagers.map((user) => (
                         <option key={user.id} value={user.id}>
                           {user.displayName}
                         </option>
@@ -343,7 +350,7 @@ export function MasterDataPage({
                     {...register("managerIds")}
                     className="mt-1 h-32 w-full rounded-lg border p-2.5"
                   >
-                    {users.data.map((user) => (
+                    {warehouseManagers.map((user) => (
                       <option key={user.id} value={user.id}>
                         {user.displayName}
                       </option>
