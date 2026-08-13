@@ -12,7 +12,11 @@ The authenticated caller becomes the first `system_administrator`; an arbitrary 
 
 ## Additional users
 
-Administrators use `createOrganizationUser`. The function resolves the actor, checks `user.manage`, validates the requested role and assignments, creates the Auth user using a random server-only password, creates the trusted profile, writes an email ownership record and idempotency result, sets minimal custom claims, and returns a password-reset invitation link once. The random password is never returned or stored.
+The application is invite-only. It exposes no public sign-up workflow. Administrators use the **Invite user** workflow, backed by `createOrganizationUser`, to invite every additional user—including branch and warehouse managers. The function resolves the actor, checks `user.manage`, validates the requested role and assignments, creates the Auth user using a random server-only password, creates the trusted profile, writes an email ownership record and idempotency result, sets minimal custom claims, and returns a one-time password-setup invitation link. The random password is never returned or stored, so the invited user cannot sign in with a password before completing the invitation.
+
+An Auth identity by itself grants no application access. The signed-in identity must also have an active, organization-scoped trusted user profile whose authorization version matches its claims. Accounts created outside the invitation workflow therefore cannot enter the protected application. The one-time bootstrap administrator is the sole documented exception to additional-user invitation because that identity establishes the first organization and its initial administrator.
+
+For branch setup, create the branch without a manager if necessary, invite a user with the `branch_manager` role and assign that branch, then edit the branch to select the accepted manager. Warehouse managers follow the equivalent warehouse workflow. Manager selectors show only active users with the required manager role.
 
 If an Auth account already owns the email, provisioning stops with `already-exists`; it is never silently attached. Recovery requires an operator to verify ownership and either remove the unused Auth account in the correct environment or implement a separately reviewed account-adoption procedure.
 

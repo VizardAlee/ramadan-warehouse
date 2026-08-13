@@ -47,7 +47,9 @@ describe("administration callables", () => {
     const key = crypto.randomUUID(); const create = httpsCallable(administrator.functions, "createOrganizationUser");
     const payload = { email: "requester@example.test", displayName: "Branch Requester", roleId: "branch_requester", branchIds: [], warehouseIds: [], status: "active", idempotencyKey: key };
     const initial = await create(payload); const duplicate = await create(payload);
-    expect((initial.data as { created: boolean }).created).toBe(true); expect((duplicate.data as { created: boolean }).created).toBe(false);
+    expect(initial.data).toMatchObject({ created: true, invitationLink: expect.any(String) }); expect((duplicate.data as { created: boolean }).created).toBe(false);
+    const invited = client("invited-before-acceptance");
+    await expect(signInWithEmailAndPassword(invited.auth, payload.email, "Password!234567")).rejects.toBeDefined();
 
     const organizationId = bootstrap.get("organizationId") as string;
     const opsRecord = await adminAuth.createUser({ email: "ops@example.test", password: "Password!234567", displayName: "Operations Admin" });
@@ -58,6 +60,9 @@ describe("administration callables", () => {
     await adminDb.doc(`users/${requesterRecord.uid}`).set({ uid: requesterRecord.uid, organizationId, email: "ordinary@example.test", displayName: "Ordinary User", roleId: "branch_requester", branchIds: [], warehouseIds: [], status: "active", authDisabled: false, authorizationVersion: 1 });
     const requester = client("ordinary"); await signInWithEmailAndPassword(requester.auth, "ordinary@example.test", "Password!234567");
     await expect(httpsCallable(requester.functions, "createOrganizationUser")({ ...payload, email: "unauthorized@example.test", idempotencyKey: crypto.randomUUID() })).rejects.toMatchObject({ code: "functions/permission-denied" });
+    const outsideRecord = await adminAuth.createUser({ email: "outside-invite@example.test", password: "Password!234567" });
+    const outside = client("outside-invite"); await signInWithEmailAndPassword(outside.auth, outsideRecord.email!, "Password!234567");
+    await expect(httpsCallable(outside.functions, "getMyAccessContext")({})).rejects.toMatchObject({ code: "functions/permission-denied" });
     await adminDb.doc(`users/${opsRecord.uid}`).update({ status: "inactive", authDisabled: true });
     await expect(httpsCallable(ops.functions, "getMyAccessContext")({})).rejects.toMatchObject({ code: "functions/permission-denied" });
   });

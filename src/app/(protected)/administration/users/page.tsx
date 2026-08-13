@@ -124,8 +124,8 @@ export default function UsersPage() {
         setInvitationLink(result.invitationLink);
         setMessage(
           result.invitationLink
-            ? "User created. Copy the invitation link below and send it through an approved channel."
-            : "User created; configure an email action handler to deliver invitations.",
+            ? "Invitation created. Send the one-time link below through an approved channel. The user cannot sign in until they set their password."
+            : "Invitation record created, but no invitation link was returned. The user cannot sign in until an administrator completes the approved invitation-delivery process.",
         );
       }
       setShowForm(false);
@@ -150,12 +150,12 @@ export default function UsersPage() {
         <div>
           <h1 className="page-title">Users</h1>
           <p className="page-description">
-            Provision accounts and control organization assignments.
+            Invite approved users and control their organization assignments.
           </p>
         </div>
         <Button onClick={() => open()}>
           <UserPlus className="size-4" />
-          Create user
+          Invite user
         </Button>
       </div>
       <div className="filter-grid rounded-xl border bg-white p-4">
@@ -326,10 +326,12 @@ export default function UsersPage() {
           >
             <div>
               <h2 id="user-dialog-title" className="text-xl font-semibold">
-                {editing ? "Edit user" : "Create user"}
+                {editing ? "Edit user" : "Invite user"}
               </h2>
               <p className="text-sm text-[var(--muted)]">
-                Assignments are revalidated by the server.
+                {editing
+                  ? "Assignments are revalidated by the server."
+                  : "The user receives access only after accepting the invitation and setting a password."}
               </p>
             </div>
             <div className="form-grid">
@@ -434,7 +436,11 @@ export default function UsersPage() {
                 Cancel
               </Button>
               <Button disabled={isSubmitting}>
-                {isSubmitting ? "Saving…" : "Save securely"}
+                {isSubmitting
+                  ? "Saving…"
+                  : editing
+                    ? "Save securely"
+                    : "Create invitation"}
               </Button>
             </div>
           </form>
