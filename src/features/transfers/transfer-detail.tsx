@@ -15,6 +15,10 @@ import {
 } from "@/features/inventory/format";
 import { hasPermission } from "@/lib/permissions/roles";
 import { sensitiveActionDisabled, useConnectivity } from "@/lib/connectivity";
+import {
+  isTransferSelfApprovalBlocked,
+  transferNextStepCopy,
+} from "@/features/transfers/transfer-guidance";
 import type {
   Branch,
   BranchRequest,
@@ -58,17 +62,6 @@ const statusProgress: Record<string, number> = {
   closed: 5,
 };
 
-function nextStepCopy(status: string) {
-  if (status === "draft") return "Review the route and items, then submit this transfer for approval.";
-  if (["submitted", "under_review"].includes(status)) return "This transfer is waiting for review and approval.";
-  if (["approved", "partially_reserved"].includes(status)) return "Reserve the approved stock so warehouse preparation can begin.";
-  if (["reserved", "picking", "picked", "packing", "packed", "ready_for_dispatch"].includes(status)) return "The warehouse should prepare and dispatch the approved stock.";
-  if (["partially_dispatched", "dispatched", "partially_received"].includes(status)) return "The destination store should confirm what was received.";
-  if (["received", "cost_reconciliation"].includes(status)) return "Validate the completed movement and close the transfer.";
-  if (status === "closed") return "This transfer is complete and closed.";
-  if (status === "cancelled") return "This transfer was cancelled; no further movement is expected.";
-  return "Review the transfer status and available actions below.";
-}
 export function TransferDetail({ transferId }: { transferId: string }) {
   const { profile } = useAuth();
   const { online } = useConnectivity();
@@ -133,9 +126,11 @@ export function TransferDetail({ transferId }: { transferId: string }) {
         idempotencyKey: crypto.randomUUID(),
       });
       await load();
-    } catch {
+    } catch (error) {
       setMessage(
-        "The operation was rejected because a workflow, permission, quantity, or maker-checker control was not satisfied.",
+        error instanceof Error
+          ? error.message
+          : "The transfer action could not be completed. Refresh and try again.",
       );
       setLoading(false);
     }
@@ -167,6 +162,11 @@ export function TransferDetail({ transferId }: { transferId: string }) {
   );
   const sourceRequest = requests.data.find(
     (item) => item.id === transfer.sourceRequestId,
+  );
+  const selfApprovalBlocked = isTransferSelfApprovalBlocked(
+    transfer.status,
+    transfer.createdBy,
+    profile.uid,
   );
   const currentProgress = statusProgress[transfer.status] ?? 0;
   const keyQuantities = [
@@ -249,7 +249,15 @@ export function TransferDetail({ transferId }: { transferId: string }) {
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
             <p className="text-xs font-semibold uppercase tracking-wide text-emerald-800">Next step</p>
-            <p className="mt-1 max-w-2xl font-medium text-emerald-950">{nextStepCopy(transfer.status)}</p>
+            <p className="mt-1 max-w-2xl font-medium text-emerald-950">
+              {transferNextStepCopy(transfer.status, selfApprovalBlocked)}
+            </p>
+            {selfApprovalBlocked && (
+              <p className="mt-2 max-w-2xl text-sm text-emerald-900">
+                This independent approval protects inventory records. Ask the
+                other assigned manager to open this transfer and approve it.
+              </p>
+            )}
           </div>
           <div className="flex flex-wrap gap-2">
         {transfer.status === "draft" &&
@@ -269,6 +277,7 @@ export function TransferDetail({ transferId }: { transferId: string }) {
             </Button>
           )}
         {["submitted", "under_review"].includes(transfer.status) &&
+          !selfApprovalBlocked &&
           hasPermission(profile, "transfers.approve") && (
             <Button disabled={sensitiveActionDisabled(online, loading)} onClick={() => void action("approveTransfer")}>
               Approve transfer
