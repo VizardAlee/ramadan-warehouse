@@ -7,9 +7,17 @@ import { Button } from "@/components/ui/button";
 import { callAdministration } from "@/features/administration/api";
 import { useOrganizationCollection } from "@/features/administration/use-organization-collection";
 import { useAuth } from "@/features/auth/auth-context";
+import { formatNaira } from "@/features/inventory/format";
 import { hasPermission } from "@/lib/permissions/roles";
+import { openingStockCostOverride } from "./posting-form-calculations";
 import { parseSerialText, SerialNumberInput } from "./serial-number-input";
 import type { InventoryLocation, PermissionId, Product } from "@/types/domain";
+
+interface ProductCost {
+  id: string;
+  productId: string;
+  defaultUnitCostMinor: number;
+}
 const schema = z.object({
   productId: z.string().min(1),
   sourceLocationId: z.string().optional(),
@@ -77,6 +85,7 @@ const config = {
 export function PostingForm({ mode }: { mode: keyof typeof config }) {
   const { profile } = useAuth();
   const products = useOrganizationCollection<Product>("products");
+  const productCosts = useOrganizationCollection<ProductCost>("productCosts");
   const locations =
     useOrganizationCollection<InventoryLocation>("inventoryLocations");
   const [message, setMessage] = useState<string | null>(null);
@@ -87,6 +96,9 @@ export function PostingForm({ mode }: { mode: keyof typeof config }) {
   const productId = useWatch({ control: form.control, name: "productId" });
   const quantity = useWatch({ control: form.control, name: "quantity" });
   const product = products.data.find((item) => item.id === productId);
+  const configuredUnitCostMinor = productCosts.data.find(
+    (item) => item.productId === productId || item.id === productId,
+  )?.defaultUnitCostMinor;
   const submit = form.handleSubmit(async (values) => {
     const serials = parseSerialText(values.serialText);
     if (
@@ -137,7 +149,13 @@ export function PostingForm({ mode }: { mode: keyof typeof config }) {
             : {
                 ...shared,
                 destinationLocationId: values.destinationLocationId,
-                unitCostMinor: values.unitCostMinor,
+                unitCostMinor:
+                  mode === "opening"
+                    ? openingStockCostOverride(
+                        configuredUnitCostMinor,
+                        values.unitCostMinor,
+                      )
+                    : values.unitCostMinor,
                 externalAccount: mode === "opening" ? "migration" : "supplier",
                 lot,
               };
@@ -265,9 +283,23 @@ export function PostingForm({ mode }: { mode: keyof typeof config }) {
             className="mt-1 w-full rounded-lg border p-2.5"
           />
         </label>
-        {mode !== "movement" && (
+        {mode === "opening" && configuredUnitCostMinor !== undefined ? (
+          <div className="rounded-lg border bg-slate-50 p-3 text-sm">
+            <span className="block text-[var(--muted)]">
+              Unit cost from product
+            </span>
+            <strong className="mt-1 block text-base">
+              {formatNaira(configuredUnitCostMinor)} per {product?.unitOfMeasure}
+            </strong>
+            <span className="mt-1 block text-xs text-[var(--muted)]">
+              Reused automatically; no re-entry required.
+            </span>
+          </div>
+        ) : mode !== "movement" ? (
           <label className="text-sm">
-            Unit cost (kobo)
+            {mode === "opening"
+              ? "Unit cost (kobo — no product default configured)"
+              : "Unit cost (kobo)"}
             <input
               type="number"
               {...form.register("unitCostMinor")}
@@ -278,7 +310,7 @@ export function PostingForm({ mode }: { mode: keyof typeof config }) {
               className="mt-1 w-full rounded-lg border p-2.5"
             />
           </label>
-        )}
+        ) : null}
         {mode === "adjustment" && (
           <>
             <label className="text-sm">
