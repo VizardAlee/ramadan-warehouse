@@ -50,16 +50,21 @@ export default function CategoriesPage() {
     setOpen(true);
   }
   const submit = form.handleSubmit(async (values) => {
+    setError(null);
     try {
       await callAdministration("saveProductCategory", {
         ...values,
         description: values.description || undefined,
-        id: editing?.id,
+        ...(editing ? { id: editing.id } : {}),
         idempotencyKey: crypto.randomUUID(),
       });
       setOpen(false);
-    } catch {
-      setError("Category save was rejected. Codes must be unique.");
+    } catch (cause) {
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : "The category could not be saved. Review the form and try again.",
+      );
     }
   });
   return (

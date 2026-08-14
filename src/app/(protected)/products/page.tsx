@@ -127,16 +127,21 @@ export default function ProductsPage() {
       );
       await callAdministration("saveProduct", {
         ...clean,
-        categoryId: existingCategory?.id,
-        categoryName: existingCategory ? undefined : categoryName || undefined,
-        id: editing?.id,
+        ...(existingCategory
+          ? { categoryId: existingCategory.id }
+          : categoryName
+            ? { categoryName }
+            : {}),
+        ...(editing ? { id: editing.id } : {}),
         idempotencyKey: crypto.randomUUID(),
       });
       setOpen(false);
       setMessage("Product saved securely.");
-    } catch {
+    } catch (cause) {
       setMessage(
-        "Product save was rejected. Check SKU uniqueness and tracking rules.",
+        cause instanceof Error
+          ? cause.message
+          : "The product could not be saved. Review the form and try again.",
       );
     }
   });
