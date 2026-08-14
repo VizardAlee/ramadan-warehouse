@@ -132,8 +132,8 @@ export function PostingForm({
   const locationOptions = locations.data.filter(
     (item) => item.status === "active",
   );
-  const openingLocationOptions = locationOptions.filter(
-    (item) => item.type === "warehouse" || item.type === "branch",
+  const openingWarehouseOptions = locationOptions.filter(
+    (item) => item.type === "warehouse",
   );
   const canManageLocations = profile
     ? hasPermission(profile, "location.manage")
@@ -142,7 +142,7 @@ export function PostingForm({
     ? warehouses.data.filter(
         (warehouse) =>
           warehouse.status === "active" &&
-          !openingLocationOptions.some(
+          !openingWarehouseOptions.some(
             (location) => location.warehouseId === warehouse.id,
           ),
       )
@@ -152,7 +152,9 @@ export function PostingForm({
       (candidate) => candidate.id === item.warehouseId,
     );
     const owner = warehouse?.name;
-    return `${owner ? `${owner} — ` : ""}${item.name} (${item.type === "warehouse" ? "warehouse" : "branch"})`;
+    return owner && owner !== item.name
+      ? `${owner} — ${item.name}`
+      : owner ?? item.name;
   };
 
   useEffect(() => {
@@ -166,12 +168,12 @@ export function PostingForm({
         products.data.find((item) => item.active)?.id ?? "",
       );
     if (mode !== "opening" || form.getValues("destinationLocationId")) return;
-    const onlyLocation = openingLocationOptions.length === 1
-      ? openingLocationOptions.at(0)
+    const onlyLocation = openingWarehouseOptions.length === 1
+      ? openingWarehouseOptions.at(0)
       : undefined;
     if (onlyLocation)
       form.setValue("destinationLocationId", onlyLocation.id);
-  }, [form, mode, openingLocationOptions, products.data]);
+  }, [form, mode, openingWarehouseOptions, products.data]);
   const submit = form.handleSubmit(async (values) => {
     setMessage(null);
     const destinationRequired = mode === "opening" || mode === "receipt";
@@ -343,7 +345,7 @@ export function PostingForm({
         </h1>
         <p className="text-[var(--muted)]">
           {mode === "opening"
-            ? "Choose the product and where it is stored, enter the quantity, then add it to inventory."
+            ? "Choose the product and warehouse, enter the quantity, then add it to inventory."
             : "Record the inventory movement securely."}
         </p>
       </div>
@@ -352,9 +354,10 @@ export function PostingForm({
       )}
       {mode === "opening" && (
         <aside className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-950">
-          <strong>Three quick steps:</strong> select a product, select its warehouse
-          stock location, and enter the quantity. Product cost and tracking settings
-          are reused automatically.
+          <strong>Three quick steps:</strong> select a product, select the
+          warehouse, and enter the quantity. Product cost and tracking settings
+          are reused automatically. Stock is sent to stores/branches later through
+          a transfer.
         </aside>
       )}
       <div className="form-grid rounded-xl border bg-white p-[clamp(1rem,3vw,1.5rem)]">
@@ -428,16 +431,16 @@ export function PostingForm({
         ) : (
           <label className="text-sm">
             {mode === "opening"
-              ? "2. Warehouse / stock location"
+              ? "2. Warehouse"
               : "Destination location"}
             <select
               {...form.register("destinationLocationId")}
               className="mt-1 w-full rounded-lg border p-2.5"
             >
               <option value="">
-                {mode === "opening" ? "Select where stock is stored…" : "Select…"}
+                {mode === "opening" ? "Select warehouse…" : "Select…"}
               </option>
-              {(mode === "opening" ? openingLocationOptions : locationOptions).map((item) => (
+              {(mode === "opening" ? openingWarehouseOptions : locationOptions).map((item) => (
                 <option key={item.id} value={item.id}>
                   {mode === "opening" ? locationLabel(item) : item.name}
                 </option>
@@ -462,10 +465,10 @@ export function PostingForm({
             )}
             {mode === "opening" &&
               !locations.loading &&
-              openingLocationOptions.length === 0 &&
+              openingWarehouseOptions.length === 0 &&
               warehousesWithoutLocations.length === 0 && (
               <span className="mt-2 block text-xs text-amber-800">
-                No available warehouse stock location was found.
+                No available warehouse was found.
                 {canManageLocations ? (
                   <>
                     {" "}
