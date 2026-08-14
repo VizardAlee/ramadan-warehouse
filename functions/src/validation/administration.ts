@@ -10,7 +10,7 @@ const optionalEmail = z.preprocess(
   z.string().trim().email().max(254).optional(),
 );
 const optionalId = z.preprocess(
-  (value) => typeof value === "string" && value.trim() === "" ? undefined : value,
+  (value) => value == null || (typeof value === "string" && value.trim() === "") ? undefined : value,
   id.optional(),
 );
 const userPhone = z.preprocess(
@@ -29,7 +29,7 @@ export const bootstrapInput = z.object({ organization: organizationInput, bootst
 export const userInput = z.object({ email: z.string().trim().toLowerCase().email().max(254), displayName: z.string().trim().min(2).max(120), phoneNumber: userPhone, employeeReference: text(80), roleId: z.enum(roles), branchIds: z.array(id).max(100).default([]), warehouseIds: z.array(id).max(100).default([]), status: z.enum(["active", "inactive", "suspended"]).default("active"), idempotencyKey: z.string().uuid() });
 export const updateUserInput = userInput.omit({ email: true, idempotencyKey: true }).partial().extend({ userId: id, reason: z.string().trim().min(3).max(500), idempotencyKey: z.string().uuid() });
 export const revokeSessionsInput = z.object({ userId: id, reason: z.string().trim().min(3).max(500) });
-const baseMaster = z.object({ id: id.optional(), name: z.string().trim().min(2).max(120), code, status: z.enum(["active", "inactive"]).default("active"), address: text(500), state: text(80) });
+const baseMaster = z.object({ id: optionalId, name: z.string().trim().min(2).max(120), code, status: z.enum(["active", "inactive"]).default("active"), address: text(500), state: text(80) });
 export const branchInput = baseMaster.extend({ contactEmail: optionalEmail, contactPhone: text(24), managerUserId: optionalId, idempotencyKey: z.string().uuid() });
 export const warehouseInput = baseMaster.extend({ managerIds: z.array(id).max(20).default([]), idempotencyKey: z.string().uuid() });
 export const locationInput = baseMaster.omit({ address: true, state: true }).extend({ type: z.enum(["warehouse", "branch", "goods_in_transit", "damaged", "quarantined", "returned"]), warehouseId: id.optional(), branchId: id.optional(), systemManaged: z.boolean().default(false), idempotencyKey: z.string().uuid() }).superRefine((value, context) => {

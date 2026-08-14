@@ -130,15 +130,15 @@ export function MasterDataPage({
         ),
       );
       const owner =
-        values.type === "branch"
+        values.type === "branch" && values.relatedId
           ? { branchId: values.relatedId }
-          : values.type === "warehouse"
+          : values.type === "warehouse" && values.relatedId
             ? { warehouseId: values.relatedId }
             : {};
       await callAdministration(config.callable, {
         ...sanitized,
         ...owner,
-        id: editing?.id,
+        ...(editing ? { id: editing.id } : {}),
         idempotencyKey: crypto.randomUUID(),
       });
       setOpen(false);
