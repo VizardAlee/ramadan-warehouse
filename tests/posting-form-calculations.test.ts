@@ -1,13 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { openingStockCostOverride } from "@/features/inventory/posting-form-calculations";
+import { openingStockUnitCost } from "@/features/inventory/posting-form-calculations";
 
 describe("opening stock form defaults", () => {
-  it("reuses a configured product cost instead of posting a duplicate override", () => {
-    expect(openingStockCostOverride(50_000, 0)).toBeUndefined();
-    expect(openingStockCostOverride(0, 12_000)).toBeUndefined();
+  it("sends the configured product cost without asking the user to re-enter it", () => {
+    expect(openingStockUnitCost(50_000, 0)).toBe(50_000);
+    expect(openingStockUnitCost(0, 12_000)).toBe(0);
   });
 
   it("uses the entered cost when the product has no configured default", () => {
-    expect(openingStockCostOverride(undefined, 50_000)).toBe(50_000);
+    expect(openingStockUnitCost(undefined, 50_000)).toBe(50_000);
   });
 });

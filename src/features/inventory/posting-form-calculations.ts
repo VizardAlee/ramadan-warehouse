@@ -1,8 +1,6 @@
-export function openingStockCostOverride(
+export function openingStockUnitCost(
   configuredUnitCostMinor: number | undefined,
   enteredUnitCostMinor: number | undefined,
 ): number | undefined {
-  return configuredUnitCostMinor === undefined
-    ? enteredUnitCostMinor
-    : undefined;
+  return configuredUnitCostMinor ?? enteredUnitCostMinor;
 }

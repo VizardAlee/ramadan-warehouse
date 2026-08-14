@@ -1,6 +1,7 @@
 "use client";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useState } from "react";
+import Link from "next/link";
+import { useEffect, useState } from "react";
 import { Controller, useForm, useWatch } from "react-hook-form";
 import { z } from "zod";
 import { Button } from "@/components/ui/button";
@@ -9,9 +10,14 @@ import { useOrganizationCollection } from "@/features/administration/use-organiz
 import { useAuth } from "@/features/auth/auth-context";
 import { formatNaira, nairaToKobo } from "@/features/inventory/format";
 import { hasPermission } from "@/lib/permissions/roles";
-import { openingStockCostOverride } from "./posting-form-calculations";
+import { openingStockUnitCost } from "./posting-form-calculations";
 import { parseSerialText, SerialNumberInput } from "./serial-number-input";
-import type { InventoryLocation, PermissionId, Product } from "@/types/domain";
+import type {
+  InventoryLocation,
+  PermissionId,
+  Product,
+  Warehouse,
+} from "@/types/domain";
 
 interface ProductCost {
   id: string;
@@ -19,11 +25,14 @@ interface ProductCost {
   defaultUnitCostMinor: number;
 }
 const schema = z.object({
-  productId: z.string().min(1),
+  productId: z.string().min(1, "Select a product."),
   sourceLocationId: z.string().optional(),
   destinationLocationId: z.string().optional(),
   locationId: z.string().optional(),
-  quantity: z.coerce.number().int().positive(),
+  quantity: z.coerce
+    .number()
+    .int("Enter a whole-number quantity.")
+    .positive("Quantity must be at least 1."),
   unitCostNaira: z
     .number()
     .nonnegative()
@@ -33,7 +42,7 @@ const schema = z.object({
     )
     .optional(),
   effectiveAt: z.string().min(1),
-  reason: z.string().min(3),
+  reason: z.string().min(3, "Enter a short reason."),
   referenceNumber: z.string().optional(),
   serialText: z.string(),
   lotNumber: z.string().optional(),
@@ -89,7 +98,13 @@ const config = {
   string,
   { title: string; callable: string; permission: PermissionId }
 >;
-export function PostingForm({ mode }: { mode: keyof typeof config }) {
+export function PostingForm({
+  mode,
+  initialProductId,
+}: {
+  mode: keyof typeof config;
+  initialProductId?: string;
+}) {
   const { profile } = useAuth();
   const products = useOrganizationCollection<Product>("products");
   const productCosts = useOrganizationCollection<ProductCost>(
@@ -98,18 +113,103 @@ export function PostingForm({ mode }: { mode: keyof typeof config }) {
   );
   const locations =
     useOrganizationCollection<InventoryLocation>("inventoryLocations");
+  const warehouses = useOrganizationCollection<Warehouse>("warehouses");
   const [message, setMessage] = useState<string | null>(null);
   const form = useForm<Values, unknown, ParsedValues>({
     resolver: zodResolver(schema),
-    defaultValues: defaults,
+    defaultValues: {
+      ...defaults,
+      productId: initialProductId ?? "",
+      reason: mode === "opening" ? "Initial stock setup" : "",
+    },
   });
   const productId = useWatch({ control: form.control, name: "productId" });
   const quantity = useWatch({ control: form.control, name: "quantity" });
   const product = products.data.find((item) => item.id === productId);
   const configuredUnitCostMinor = productCosts.data.find(
     (item) => item.productId === productId || item.id === productId,
-  )?.defaultUnitCostMinor;
+  )?.defaultUnitCostMinor ?? product?.defaultUnitCostMinor;
+  const locationOptions = locations.data.filter(
+    (item) => item.status === "active",
+  );
+  const openingLocationOptions = locationOptions.filter(
+    (item) => item.type === "warehouse" || item.type === "branch",
+  );
+  const canManageLocations = profile
+    ? hasPermission(profile, "location.manage")
+    : false;
+  const warehousesWithoutLocations = canManageLocations
+    ? warehouses.data.filter(
+        (warehouse) =>
+          warehouse.status === "active" &&
+          !openingLocationOptions.some(
+            (location) => location.warehouseId === warehouse.id,
+          ),
+      )
+    : [];
+  const locationLabel = (item: InventoryLocation) => {
+    const warehouse = warehouses.data.find(
+      (candidate) => candidate.id === item.warehouseId,
+    );
+    const owner = warehouse?.name;
+    return `${owner ? `${owner} — ` : ""}${item.name} (${item.type === "warehouse" ? "warehouse" : "branch"})`;
+  };
+
+  useEffect(() => {
+    if (
+      mode === "opening" &&
+      !form.getValues("productId") &&
+      products.data.filter((item) => item.active).length === 1
+    )
+      form.setValue(
+        "productId",
+        products.data.find((item) => item.active)?.id ?? "",
+      );
+    if (mode !== "opening" || form.getValues("destinationLocationId")) return;
+    const onlyLocation = openingLocationOptions.length === 1
+      ? openingLocationOptions.at(0)
+      : undefined;
+    if (onlyLocation)
+      form.setValue("destinationLocationId", onlyLocation.id);
+  }, [form, mode, openingLocationOptions, products.data]);
   const submit = form.handleSubmit(async (values) => {
+    setMessage(null);
+    const destinationRequired = mode === "opening" || mode === "receipt";
+    if (destinationRequired && !values.destinationLocationId) {
+      form.setError("destinationLocationId", {
+        message: "Select where this stock will be kept.",
+      });
+      return;
+    }
+    if (mode === "movement" && !values.sourceLocationId) {
+      form.setError("sourceLocationId", { message: "Select a source location." });
+      return;
+    }
+    if (mode === "movement" && !values.destinationLocationId) {
+      form.setError("destinationLocationId", {
+        message: "Select a destination location.",
+      });
+      return;
+    }
+    if (mode === "adjustment" && !values.locationId) {
+      form.setError("locationId", { message: "Select a location." });
+      return;
+    }
+    if (
+      (mode === "opening" &&
+        configuredUnitCostMinor === undefined &&
+        values.unitCostNaira === undefined) ||
+      (mode === "receipt" && values.unitCostNaira === undefined)
+    ) {
+      form.setError("unitCostNaira", {
+        message: "Enter the cost of one unit in naira.",
+      });
+      return;
+    }
+    if (product?.trackingType === "batch" && !values.lotNumber?.trim()) {
+      form.setError("lotNumber", { message: "Enter the batch or lot number." });
+      return;
+    }
     const serials = parseSerialText(values.serialText);
     if (
       serials.duplicates.length ||
@@ -120,6 +220,37 @@ export function PostingForm({ mode }: { mode: keyof typeof config }) {
       return;
     }
     try {
+      let destinationLocationId = values.destinationLocationId;
+      if (
+        mode === "opening" &&
+        destinationLocationId?.startsWith("setup-warehouse:")
+      ) {
+        const warehouseId = destinationLocationId.slice(
+          "setup-warehouse:".length,
+        );
+        const warehouse = warehouses.data.find(
+          (candidate) => candidate.id === warehouseId,
+        );
+        if (!warehouse) {
+          form.setError("destinationLocationId", {
+            message: "That warehouse is no longer available. Select it again.",
+          });
+          return;
+        }
+        const created = await callAdministration<
+          object,
+          { id: string; saved: boolean }
+        >("saveInventoryLocation", {
+          name: `${warehouse.name} Stock`,
+          code: warehouse.code,
+          type: "warehouse",
+          warehouseId: warehouse.id,
+          status: "active",
+          systemManaged: false,
+          idempotencyKey: crypto.randomUUID(),
+        });
+        destinationLocationId = created.id;
+      }
       const enteredUnitCostMinor =
         values.unitCostNaira === undefined
           ? undefined
@@ -142,7 +273,7 @@ export function PostingForm({ mode }: { mode: keyof typeof config }) {
           ? {
               ...shared,
               sourceLocationId: values.sourceLocationId,
-              destinationLocationId: values.destinationLocationId,
+              destinationLocationId,
               lotNumber:
                 product?.trackingType === "batch"
                   ? values.lotNumber
@@ -162,10 +293,10 @@ export function PostingForm({ mode }: { mode: keyof typeof config }) {
               }
             : {
                 ...shared,
-                destinationLocationId: values.destinationLocationId,
+                destinationLocationId,
                 unitCostMinor:
                   mode === "opening"
-                    ? openingStockCostOverride(
+                    ? openingStockUnitCost(
                         configuredUnitCostMinor,
                         enteredUnitCostMinor,
                       )
@@ -178,18 +309,23 @@ export function PostingForm({ mode }: { mode: keyof typeof config }) {
         { transactionNumber: string; posted: boolean }
       >(config[mode].callable, payload);
       setMessage(
-        `${result.posted ? "Posted" : "Already posted"} as ${result.transactionNumber}.`,
+        result.posted
+          ? `Stock added successfully. Reference: ${result.transactionNumber}.`
+          : `This stock was already added. Reference: ${result.transactionNumber}.`,
       );
-      form.reset(defaults);
-    } catch {
+      form.reset({
+        ...defaults,
+        productId: initialProductId ?? "",
+        reason: mode === "opening" ? "Initial stock setup" : "",
+      });
+    } catch (error) {
       setMessage(
-        "Posting was rejected. Check permissions, stock, scope, tracking data, and costs.",
+        error instanceof Error
+          ? error.message
+          : "Stock could not be added. Review the highlighted fields and try again.",
       );
     }
   });
-  const locationOptions = locations.data.filter(
-    (item) => item.status === "active",
-  );
   if (!profile || !hasPermission(profile, config[mode].permission))
     return (
       <div className="rounded-xl border bg-white p-8">
@@ -202,17 +338,28 @@ export function PostingForm({ mode }: { mode: keyof typeof config }) {
   return (
     <form onSubmit={submit} className="max-w-3xl space-y-5">
       <div>
-        <h1 className="text-3xl font-semibold">{config[mode].title}</h1>
+        <h1 className="text-3xl font-semibold">
+          {mode === "opening" ? "Add initial stock" : config[mode].title}
+        </h1>
         <p className="text-[var(--muted)]">
-          All effects post atomically through the immutable inventory ledger.
+          {mode === "opening"
+            ? "Choose the product and where it is stored, enter the quantity, then add it to inventory."
+            : "Record the inventory movement securely."}
         </p>
       </div>
       {message && (
         <p className="rounded-lg bg-amber-50 p-3 text-sm">{message}</p>
       )}
+      {mode === "opening" && (
+        <aside className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-950">
+          <strong>Three quick steps:</strong> select a product, select its warehouse
+          stock location, and enter the quantity. Product cost and tracking settings
+          are reused automatically.
+        </aside>
+      )}
       <div className="form-grid rounded-xl border bg-white p-[clamp(1rem,3vw,1.5rem)]">
         <label className="text-sm">
-          Product
+          {mode === "opening" ? "1. Product" : "Product"}
           <select
             {...form.register("productId")}
             className="mt-1 w-full rounded-lg border p-2.5"
@@ -226,6 +373,11 @@ export function PostingForm({ mode }: { mode: keyof typeof config }) {
                 </option>
               ))}
           </select>
+          {form.formState.errors.productId?.message && (
+            <span className="mt-1 block text-xs text-red-700">
+              {form.formState.errors.productId.message}
+            </span>
+          )}
         </label>
         {mode === "movement" ? (
           <>
@@ -275,27 +427,75 @@ export function PostingForm({ mode }: { mode: keyof typeof config }) {
           </label>
         ) : (
           <label className="text-sm">
-            Destination location
+            {mode === "opening"
+              ? "2. Warehouse / stock location"
+              : "Destination location"}
             <select
               {...form.register("destinationLocationId")}
               className="mt-1 w-full rounded-lg border p-2.5"
             >
-              <option value="">Select…</option>
-              {locationOptions.map((item) => (
+              <option value="">
+                {mode === "opening" ? "Select where stock is stored…" : "Select…"}
+              </option>
+              {(mode === "opening" ? openingLocationOptions : locationOptions).map((item) => (
                 <option key={item.id} value={item.id}>
-                  {item.name}
+                  {mode === "opening" ? locationLabel(item) : item.name}
                 </option>
               ))}
+              {mode === "opening" && warehousesWithoutLocations.length > 0 && (
+                <optgroup label="Warehouses ready for automatic stock setup">
+                  {warehousesWithoutLocations.map((warehouse) => (
+                    <option
+                      key={warehouse.id}
+                      value={`setup-warehouse:${warehouse.id}`}
+                    >
+                      {warehouse.name} (set up automatically)
+                    </option>
+                  ))}
+                </optgroup>
+              )}
             </select>
+            {form.formState.errors.destinationLocationId?.message && (
+              <span className="mt-1 block text-xs text-red-700">
+                {form.formState.errors.destinationLocationId.message}
+              </span>
+            )}
+            {mode === "opening" &&
+              !locations.loading &&
+              openingLocationOptions.length === 0 &&
+              warehousesWithoutLocations.length === 0 && (
+              <span className="mt-2 block text-xs text-amber-800">
+                No available warehouse stock location was found.
+                {canManageLocations ? (
+                  <>
+                    {" "}
+                    <Link
+                      className="font-semibold underline"
+                      href="/administration/warehouses"
+                    >
+                      Create a warehouse first
+                    </Link>
+                    .
+                  </>
+                ) : (
+                  " Ask an administrator to configure your assigned warehouse."
+                )}
+              </span>
+            )}
           </label>
         )}
         <label className="text-sm">
-          Quantity
+          {mode === "opening" ? `3. Quantity${product ? ` (${product.unitOfMeasure})` : ""}` : "Quantity"}
           <input
             type="number"
             {...form.register("quantity")}
             className="mt-1 w-full rounded-lg border p-2.5"
           />
+          {form.formState.errors.quantity?.message && (
+            <span className="mt-1 block text-xs text-red-700">
+              {form.formState.errors.quantity.message}
+            </span>
+          )}
         </label>
         {mode === "opening" && configuredUnitCostMinor !== undefined ? (
           <div className="rounded-lg border bg-slate-50 p-3 text-sm">
@@ -330,6 +530,11 @@ export function PostingForm({ mode }: { mode: keyof typeof config }) {
               }
               className="mt-1 w-full rounded-lg border p-2.5"
             />
+            {form.formState.errors.unitCostNaira?.message && (
+              <span className="mt-1 block text-xs text-red-700">
+                {form.formState.errors.unitCostNaira.message}
+              </span>
+            )}
           </label>
         ) : null}
         {mode === "adjustment" && (
@@ -364,28 +569,40 @@ export function PostingForm({ mode }: { mode: keyof typeof config }) {
             </label>
           </>
         )}
-        <label className="text-sm">
-          Effective date
-          <input
-            type="datetime-local"
-            {...form.register("effectiveAt")}
-            className="mt-1 w-full rounded-lg border p-2.5"
-          />
-        </label>
-        <label className="text-sm">
-          Reference
-          <input
-            {...form.register("referenceNumber")}
-            className="mt-1 w-full rounded-lg border p-2.5"
-          />
-        </label>
+        {mode !== "opening" && (
+          <>
+            <label className="text-sm">
+              Effective date
+              <input
+                type="datetime-local"
+                {...form.register("effectiveAt")}
+                className="mt-1 w-full rounded-lg border p-2.5"
+              />
+            </label>
+            <label className="text-sm">
+              Reference
+              <input
+                {...form.register("referenceNumber")}
+                className="mt-1 w-full rounded-lg border p-2.5"
+              />
+            </label>
+          </>
+        )}
         {product?.trackingType === "batch" && (
           <label className="text-sm">
-            Lot number
+            Batch / lot number
             <input
               {...form.register("lotNumber")}
               className="mt-1 w-full rounded-lg border p-2.5"
             />
+            <span className="mt-1 block text-xs text-[var(--muted)]">
+              Required because this product is tracked by batch.
+            </span>
+            {form.formState.errors.lotNumber?.message && (
+              <span className="mt-1 block text-xs text-red-700">
+                {form.formState.errors.lotNumber.message}
+              </span>
+            )}
           </label>
         )}
         {product?.trackingType === "serial" && (
@@ -401,18 +618,39 @@ export function PostingForm({ mode }: { mode: keyof typeof config }) {
             )}
           />
         )}
-        <label className="text-sm md:col-span-2">
-          Reason
-          <textarea
-            {...form.register("reason")}
-            className="mt-1 w-full rounded-lg border p-2.5"
-          />
-        </label>
+        {mode === "opening" ? (
+          <details className="rounded-lg border p-3 md:col-span-2">
+            <summary className="cursor-pointer text-sm font-semibold">
+              Optional record details
+            </summary>
+            <div className="mt-3 grid gap-4 md:grid-cols-2">
+              <label className="text-sm">
+                Stock date
+                <input type="datetime-local" {...form.register("effectiveAt")} className="mt-1 w-full rounded-lg border p-2.5" />
+              </label>
+              <label className="text-sm">
+                Reference (optional)
+                <input {...form.register("referenceNumber")} className="mt-1 w-full rounded-lg border p-2.5" />
+              </label>
+              <label className="text-sm md:col-span-2">
+                Reason
+                <textarea {...form.register("reason")} className="mt-1 w-full rounded-lg border p-2.5" />
+              </label>
+            </div>
+          </details>
+        ) : (
+          <label className="text-sm md:col-span-2">
+            Reason
+            <textarea {...form.register("reason")} className="mt-1 w-full rounded-lg border p-2.5" />
+          </label>
+        )}
         <div className="md:col-span-2">
           <Button disabled={form.formState.isSubmitting}>
             {form.formState.isSubmitting
-              ? "Posting…"
-              : "Post immutable transaction"}
+              ? "Adding stock…"
+              : mode === "opening"
+                ? "Add stock to inventory"
+                : "Save inventory record"}
           </Button>
         </div>
       </div>

@@ -1,13 +1,16 @@
 "use client";
+import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { callAdministration } from "@/features/administration/api";
+import { useAuth } from "@/features/auth/auth-context";
 import {
   formatDateTime,
   formatNaira,
   formatQuantity,
 } from "@/features/inventory/format";
+import { hasPermission } from "@/lib/permissions/roles";
 import type {
   InventoryBalance,
   InventoryEntry,
@@ -29,6 +32,7 @@ interface Summary {
   includeCosts: boolean;
 }
 export default function ProductDetailPage() {
+  const { profile } = useAuth();
   const { product_id: productId } = useParams<{ product_id: string }>();
   const [summary, setSummary] = useState<Summary | null>(null);
   const [history, setHistory] = useState<InventoryEntry[]>([]);
@@ -78,12 +82,22 @@ export default function ProductDetailPage() {
     return <p className="p-8 text-center">Loading product history…</p>;
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-semibold">{summary.product.name}</h1>
-        <p className="font-mono text-[var(--muted)]">
-          {summary.product.sku} · {summary.product.trackingType} ·{" "}
-          {summary.product.unitOfMeasure}
-        </p>
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h1 className="text-3xl font-semibold">{summary.product.name}</h1>
+          <p className="font-mono text-[var(--muted)]">
+            {summary.product.sku} · {summary.product.trackingType} ·{" "}
+            {summary.product.unitOfMeasure}
+          </p>
+        </div>
+        {profile && hasPermission(profile, "inventory.opening_stock") && (
+          <Link
+            href={`/inventory/opening-stock?productId=${encodeURIComponent(summary.product.id)}`}
+            className="inline-flex min-h-11 items-center justify-center rounded-lg bg-[var(--brand)] px-4 text-sm font-semibold text-white hover:bg-[var(--brand-dark)]"
+          >
+            Add initial stock
+          </Link>
+        )}
       </div>
       <section className="grid gap-4 md:grid-cols-4">
         {[
