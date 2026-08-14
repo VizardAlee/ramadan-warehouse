@@ -9,31 +9,76 @@ import {
   Truck,
 } from "lucide-react";
 import Link from "next/link";
+import { useEffect, useState } from "react";
 import { EmptyState } from "@/components/ui/empty-state";
 import { PageHeader } from "@/components/ui/page-header";
 import { Skeleton } from "@/components/ui/skeleton";
+import { callAdministration } from "@/features/administration/api";
 import { useOrganizationCollection } from "@/features/administration/use-organization-collection";
 import { useAuth } from "@/features/auth/auth-context";
+import { summarizeDashboard } from "@/features/dashboard/summary";
 import type { BranchRequest, Product, WarehouseTransfer } from "@/types/domain";
 
-const completedRequestStatuses = new Set(["fulfilled", "cancelled", "closed", "rejected"]);
-const completedTransferStatuses = new Set(["closed", "cancelled"]);
+interface PageResult<T> {
+  rows: T[];
+  nextCursor: string | null;
+}
+
+async function loadScopedRegister<T>(callable: string): Promise<T[]> {
+  const rows: T[] = [];
+  let cursor: string | undefined;
+  for (let page = 0; page < 100; page += 1) {
+    const result = await callAdministration<object, PageResult<T>>(callable, {
+      cursor,
+      limit: 100,
+    });
+    rows.push(...result.rows);
+    if (!result.nextCursor) return rows;
+    cursor = result.nextCursor;
+  }
+  throw new Error("The dashboard register exceeded the supported page limit.");
+}
 
 export default function DashboardPage() {
   const { profile } = useAuth();
-  const requests = useOrganizationCollection<BranchRequest>("branchRequests");
-  const transfers = useOrganizationCollection<WarehouseTransfer>("transfers");
   const products = useOrganizationCollection<Product>("products");
-  const loading = requests.loading || transfers.loading || products.loading;
-  const failed = requests.error || transfers.error || products.error;
+  const [requests, setRequests] = useState<BranchRequest[]>([]);
+  const [transfers, setTransfers] = useState<WarehouseTransfer[]>([]);
+  const [registersLoading, setRegistersLoading] = useState(true);
+  const [registerError, setRegisterError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!profile) return;
+    let active = true;
+    void Promise.all([
+      loadScopedRegister<BranchRequest>("listBranchRequests"),
+      loadScopedRegister<WarehouseTransfer>("listTransfers"),
+    ])
+      .then(([requestRows, transferRows]) => {
+        if (!active) return;
+        setRequests(requestRows);
+        setTransfers(transferRows);
+        setRegisterError(null);
+      })
+      .catch(() => {
+        if (active)
+          setRegisterError(
+            "Some dashboard totals could not be refreshed for your assignments.",
+          );
+      })
+      .finally(() => {
+        if (active) setRegistersLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [profile]);
+
+  const loading = registersLoading || products.loading;
+  const failed = registerError || products.error;
   const summary = loading
     ? null
-    : {
-        requests: requests.data.filter((request) => !completedRequestStatuses.has(request.status)).length,
-        transfers: transfers.data.filter((transfer) => !completedTransferStatuses.has(transfer.status)).length,
-        products: products.data.filter((product) => product.active).length,
-        discrepancies: transfers.data.filter((transfer) => transfer.status === "disputed").length,
-      };
+    : summarizeDashboard(requests, transfers, products.data);
   const cards = [
     { label: "Open branch requests", value: summary?.requests, icon: ClipboardClock, href: "/requests", emphasis: false },
     { label: "Transfers in progress", value: summary?.transfers, icon: Truck, href: "/transfers", emphasis: false },
