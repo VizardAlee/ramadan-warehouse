@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { callAdministration } from "@/features/administration/api";
 import { useOrganizationCollection } from "@/features/administration/use-organization-collection";
 import { useAuth } from "@/features/auth/auth-context";
-import { formatNaira } from "@/features/inventory/format";
+import { formatNaira, nairaToKobo } from "@/features/inventory/format";
 import { hasPermission } from "@/lib/permissions/roles";
 import { openingStockCostOverride } from "./posting-form-calculations";
 import { parseSerialText, SerialNumberInput } from "./serial-number-input";
@@ -24,7 +24,14 @@ const schema = z.object({
   destinationLocationId: z.string().optional(),
   locationId: z.string().optional(),
   quantity: z.coerce.number().int().positive(),
-  unitCostMinor: z.coerce.number().int().nonnegative().optional(),
+  unitCostNaira: z
+    .number()
+    .nonnegative()
+    .refine(
+      (value) => Math.abs(value * 100 - Math.round(value * 100)) < 1e-6,
+      "Enter no more than two decimal places.",
+    )
+    .optional(),
   effectiveAt: z.string().min(1),
   reason: z.string().min(3),
   referenceNumber: z.string().optional(),
@@ -48,7 +55,7 @@ const defaults: Values = {
   destinationLocationId: "",
   locationId: "",
   quantity: 1,
-  unitCostMinor: 0,
+  unitCostNaira: undefined,
   effectiveAt: new Date().toISOString().slice(0, 16),
   reason: "",
   referenceNumber: "",
@@ -85,7 +92,10 @@ const config = {
 export function PostingForm({ mode }: { mode: keyof typeof config }) {
   const { profile } = useAuth();
   const products = useOrganizationCollection<Product>("products");
-  const productCosts = useOrganizationCollection<ProductCost>("productCosts");
+  const productCosts = useOrganizationCollection<ProductCost>(
+    "productCosts",
+    profile ? hasPermission(profile, "inventory.cost.read") : false,
+  );
   const locations =
     useOrganizationCollection<InventoryLocation>("inventoryLocations");
   const [message, setMessage] = useState<string | null>(null);
@@ -110,6 +120,10 @@ export function PostingForm({ mode }: { mode: keyof typeof config }) {
       return;
     }
     try {
+      const enteredUnitCostMinor =
+        values.unitCostNaira === undefined
+          ? undefined
+          : nairaToKobo(values.unitCostNaira);
       const shared = {
         productId: values.productId,
         quantity: values.quantity,
@@ -142,7 +156,7 @@ export function PostingForm({ mode }: { mode: keyof typeof config }) {
                 adjustmentType: values.adjustmentType,
                 unitCostMinor:
                   values.direction === "increase"
-                    ? values.unitCostMinor
+                    ? enteredUnitCostMinor
                     : undefined,
                 lot,
               }
@@ -153,9 +167,9 @@ export function PostingForm({ mode }: { mode: keyof typeof config }) {
                   mode === "opening"
                     ? openingStockCostOverride(
                         configuredUnitCostMinor,
-                        values.unitCostMinor,
+                        enteredUnitCostMinor,
                       )
-                    : values.unitCostMinor,
+                    : enteredUnitCostMinor,
                 externalAccount: mode === "opening" ? "migration" : "supplier",
                 lot,
               };
@@ -298,11 +312,18 @@ export function PostingForm({ mode }: { mode: keyof typeof config }) {
         ) : mode !== "movement" ? (
           <label className="text-sm">
             {mode === "opening"
-              ? "Unit cost (kobo — no product default configured)"
-              : "Unit cost (kobo)"}
+              ? "Unit cost (₦ — no product default configured)"
+              : "Unit cost (₦)"}
             <input
               type="number"
-              {...form.register("unitCostMinor")}
+              min="0"
+              step="0.01"
+              inputMode="decimal"
+              placeholder="0.00"
+              {...form.register("unitCostNaira", {
+                setValueAs: (value) =>
+                  value === "" ? undefined : Number(value),
+              })}
               disabled={
                 mode === "adjustment" &&
                 form.getValues("direction") === "decrease"

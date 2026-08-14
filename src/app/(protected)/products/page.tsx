@@ -11,7 +11,11 @@ import { useDialogFocus } from "@/components/ui/use-dialog-focus";
 import { callAdministration } from "@/features/administration/api";
 import { useOrganizationCollection } from "@/features/administration/use-organization-collection";
 import { useAuth } from "@/features/auth/auth-context";
-import { formatNaira } from "@/features/inventory/format";
+import {
+  formatNaira,
+  koboToNaira,
+  nairaToKobo,
+} from "@/features/inventory/format";
 import { hasPermission } from "@/lib/permissions/roles";
 import {
   productTrackingTypes,
@@ -37,7 +41,14 @@ const schema = z.object({
   trackingType: z.enum(productTrackingTypes),
   minimumStockLevel: z.coerce.number().int().nonnegative().optional(),
   reorderLevel: z.coerce.number().int().nonnegative().optional(),
-  defaultUnitCostMinor: z.coerce.number().int().nonnegative().optional(),
+  defaultUnitCostNaira: z
+    .number()
+    .nonnegative()
+    .refine(
+      (value) => Math.abs(value * 100 - Math.round(value * 100)) < 1e-6,
+      "Enter no more than two decimal places.",
+    )
+    .optional(),
   active: z.boolean(),
 });
 type Values = z.input<typeof schema>;
@@ -58,6 +69,14 @@ export default function ProductsPage() {
   const products = useOrganizationCollection<Product>("products");
   const categories =
     useOrganizationCollection<ProductCategory>("productCategories");
+  const productCosts = useOrganizationCollection<{
+    id: string;
+    productId: string;
+    defaultUnitCostMinor: number;
+  }>(
+    "productCosts",
+    profile ? hasPermission(profile, "inventory.cost.read") : false,
+  );
   const [search, setSearch] = useState("");
   const [tracking, setTracking] = useState("");
   const [editing, setEditing] = useState<Product | null>(null);
@@ -84,6 +103,11 @@ export default function ProductsPage() {
   );
   function edit(product?: Product) {
     setEditing(product ?? null);
+    const configuredCost = product
+      ? productCosts.data.find(
+          (cost) => cost.productId === product.id || cost.id === product.id,
+        )?.defaultUnitCostMinor
+      : undefined;
     form.reset(
       product
         ? {
@@ -101,7 +125,7 @@ export default function ProductsPage() {
             trackingType: product.trackingType,
             minimumStockLevel: product.minimumStockLevel,
             reorderLevel: product.reorderLevel,
-            defaultUnitCostMinor: product.defaultUnitCostMinor,
+            defaultUnitCostNaira: koboToNaira(configuredCost),
             active: product.active,
           }
         : defaults,
@@ -110,8 +134,9 @@ export default function ProductsPage() {
   }
   const submit = form.handleSubmit(async (values) => {
     try {
+      const { defaultUnitCostNaira, ...productValues } = values;
       const clean = Object.fromEntries(
-        Object.entries(values).filter(
+        Object.entries(productValues).filter(
           ([, value]) =>
             value !== "" &&
             value !== undefined &&
@@ -133,6 +158,9 @@ export default function ProductsPage() {
             ? { categoryName }
             : {}),
         ...(editing ? { id: editing.id } : {}),
+        ...(defaultUnitCostNaira !== undefined
+          ? { defaultUnitCostMinor: nairaToKobo(defaultUnitCostNaira) }
+          : {}),
         idempotencyKey: crypto.randomUUID(),
       });
       setOpen(false);
@@ -235,7 +263,12 @@ export default function ProductsPage() {
                   <td data-label="Tracking" className="px-4 capitalize">{product.trackingType}</td>
                   <td data-label="Unit" className="px-4">{product.unitOfMeasure}</td>
                   <td data-label="Default cost" className="px-4">
-                    {formatNaira(product.defaultUnitCostMinor)}
+                    {formatNaira(
+                      productCosts.data.find(
+                        (cost) =>
+                          cost.productId === product.id || cost.id === product.id,
+                      )?.defaultUnitCostMinor,
+                    )}
                   </td>
                   <td data-label="Status" className="px-4">
                     <StatusBadge tone={product.active ? "success" : "warning"}>
@@ -337,10 +370,17 @@ export default function ProductsPage() {
                 />
               </label>
               <label className="text-sm">
-                Default cost (kobo)
+                Default unit cost (₦)
                 <input
                   type="number"
-                  {...form.register("defaultUnitCostMinor")}
+                  min="0"
+                  step="0.01"
+                  inputMode="decimal"
+                  placeholder="0.00"
+                  {...form.register("defaultUnitCostNaira", {
+                    setValueAs: (value) =>
+                      value === "" ? undefined : Number(value),
+                  })}
                   className="mt-1 w-full rounded-lg border p-2.5"
                 />
               </label>

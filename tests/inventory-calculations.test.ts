@@ -7,8 +7,19 @@ import {
   parseSerialNumbers,
   receiptCost,
 } from "../functions/src/inventory/calculations";
+import {
+  formatNaira,
+  koboToNaira,
+  nairaToKobo,
+} from "@/features/inventory/format";
 
 describe("inventory calculations", () => {
+  it("converts naira input to exact integer kobo and displays two decimals", () => {
+    expect(nairaToKobo(1250.75)).toBe(125_075);
+    expect(koboToNaira(125_075)).toBe(1250.75);
+    expect(formatNaira(125_075)).toMatch(/1,250\.75/);
+    expect(() => nairaToKobo(10.001)).toThrow(/two decimal places/);
+  });
   it("normalizes identifiers and detects case-insensitive serial duplicates", () => {
     expect(normalizeInventoryIdentifier("  inv   001 ")).toBe("INV 001");
     expect(parseSerialNumbers(["sn-1", " SN-1 ", "sn-2"])).toEqual({
