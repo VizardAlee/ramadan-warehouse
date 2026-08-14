@@ -56,6 +56,20 @@ export function TransferForm({ source }: { source: "request" | "direct" }) {
         ),
       );
   }, [source]);
+  const destinationBranchLocations = locations.data.filter(
+    (item) =>
+      item.branchId === branchId &&
+      item.status === "active" &&
+      item.type === "branch",
+  );
+  const destinationBranch = branches.data.find((item) => item.id === branchId);
+  const selectedDestinationLocationId =
+    destinationLocationId ||
+    (destinationBranchLocations.length === 1
+      ? destinationBranchLocations[0]?.id ?? ""
+      : destinationBranchLocations.length === 0 && destinationBranch
+        ? `setup-branch:${destinationBranch.id}`
+        : "");
   async function selectRequest(id: string) {
     setRequestId(id);
     if (!id) return;
@@ -117,6 +131,24 @@ export function TransferForm({ source }: { source: "request" | "direct" }) {
     setSaving(true);
     setMessage(null);
     try {
+      let resolvedDestinationLocationId = selectedDestinationLocationId;
+      if (selectedDestinationLocationId.startsWith("setup-branch:")) {
+        if (!destinationBranch)
+          throw new Error("Select an active destination store/branch.");
+        const created = await callAdministration<
+          object,
+          { id: string; saved: boolean }
+        >("saveInventoryLocation", {
+          name: `${destinationBranch.name} Stock`,
+          code: destinationBranch.code,
+          type: "branch",
+          branchId: destinationBranch.id,
+          status: "active",
+          systemManaged: false,
+          idempotencyKey: crypto.randomUUID(),
+        });
+        resolvedDestinationLocationId = created.id;
+      }
       const result = await callAdministration<object, { transferId: string }>(
         source === "request"
           ? "createTransferFromRequest"
@@ -132,7 +164,7 @@ export function TransferForm({ source }: { source: "request" | "direct" }) {
           originWarehouseId: warehouseId,
           originLocationId,
           destinationBranchId: branchId,
-          destinationLocationId,
+          destinationLocationId: resolvedDestinationLocationId,
           purpose,
           priority,
           items: lines,
@@ -140,9 +172,11 @@ export function TransferForm({ source }: { source: "request" | "direct" }) {
         },
       );
       router.push(`/transfers/${result.transferId}`);
-    } catch {
+    } catch (error) {
       setMessage(
-        "Transfer creation failed. Check assignments, approved quantities, and active locations.",
+        error instanceof Error
+          ? error.message
+          : "Transfer creation failed. Check assignments, approved quantities, and active locations.",
       );
     } finally {
       setSaving(false);
@@ -233,7 +267,7 @@ export function TransferForm({ source }: { source: "request" | "direct" }) {
           </select>
         </label>
         <label>
-          Destination branch
+          Destination store / branch
           <select
             required
             disabled={source === "request"}
@@ -244,7 +278,7 @@ export function TransferForm({ source }: { source: "request" | "direct" }) {
               setDestinationLocationId("");
             }}
           >
-            <option value="">Select branch</option>
+            <option value="">Select store / branch</option>
             {branches.data
               .filter((item) => item.status === "active")
               .map((item) => (
@@ -254,29 +288,39 @@ export function TransferForm({ source }: { source: "request" | "direct" }) {
               ))}
           </select>
         </label>
-        <label>
-          Destination available location
-          <select
-            required
-            className={`${inputClass} mt-1 w-full`}
-            value={destinationLocationId}
-            onChange={(event) => setDestinationLocationId(event.target.value)}
-          >
-            <option value="">Select location</option>
-            {locations.data
-              .filter(
-                (item) =>
-                  item.branchId === branchId &&
-                  item.status === "active" &&
-                  item.type === "branch",
-              )
-              .map((item) => (
+        {destinationBranchLocations.length > 1 ? (
+          <label>
+            Destination stock area
+            <select
+              required
+              className={`${inputClass} mt-1 w-full`}
+              value={selectedDestinationLocationId}
+              onChange={(event) => setDestinationLocationId(event.target.value)}
+            >
+              <option value="">Select destination area</option>
+              {destinationBranchLocations.map((item) => (
                 <option key={item.id} value={item.id}>
                   {item.name}
                 </option>
               ))}
-          </select>
-        </label>
+            </select>
+          </label>
+        ) : (
+          <div className="rounded-lg border bg-slate-50 p-3 text-sm">
+            <span className="block text-[var(--muted)]">Destination inventory</span>
+            <strong className="mt-1 block">
+              {destinationBranch
+                ? destinationBranchLocations[0]?.name ??
+                  `${destinationBranch.name} Stock`
+                : "Select a store / branch"}
+            </strong>
+            {destinationBranch && destinationBranchLocations.length === 0 && (
+              <span className="mt-1 block text-xs text-[var(--muted)]">
+                Set up automatically with this transfer—no separate configuration needed.
+              </span>
+            )}
+          </div>
+        )}
         <label className="md:col-span-2">
           Purpose
           <textarea

@@ -13,6 +13,7 @@ import { hasPermission } from "@/lib/permissions/roles";
 import { openingStockUnitCost } from "./posting-form-calculations";
 import { parseSerialText, SerialNumberInput } from "./serial-number-input";
 import type {
+  Branch,
   InventoryLocation,
   PermissionId,
   Product,
@@ -113,8 +114,12 @@ export function PostingForm({
   );
   const locations =
     useOrganizationCollection<InventoryLocation>("inventoryLocations");
+  const branches = useOrganizationCollection<Branch>("branches");
   const warehouses = useOrganizationCollection<Warehouse>("warehouses");
   const [message, setMessage] = useState<string | null>(null);
+  const [openingDestinationType, setOpeningDestinationType] = useState<
+    "warehouse" | "branch"
+  >("warehouse");
   const form = useForm<Values, unknown, ParsedValues>({
     resolver: zodResolver(schema),
     defaultValues: {
@@ -135,6 +140,9 @@ export function PostingForm({
   const openingWarehouseOptions = locationOptions.filter(
     (item) => item.type === "warehouse",
   );
+  const openingBranchOptions = locationOptions.filter(
+    (item) => item.type === "branch",
+  );
   const canManageLocations = profile
     ? hasPermission(profile, "location.manage")
     : false;
@@ -147,11 +155,31 @@ export function PostingForm({
           ),
       )
     : [];
+  const branchesWithoutLocations = canManageLocations
+    ? branches.data.filter(
+        (branch) =>
+          branch.status === "active" &&
+          !openingBranchOptions.some(
+            (location) => location.branchId === branch.id,
+          ),
+      )
+    : [];
+  const openingDestinationOptions =
+    openingDestinationType === "warehouse"
+      ? openingWarehouseOptions
+      : openingBranchOptions;
+  const openingOwnersWithoutLocations =
+    openingDestinationType === "warehouse"
+      ? warehousesWithoutLocations
+      : branchesWithoutLocations;
   const locationLabel = (item: InventoryLocation) => {
     const warehouse = warehouses.data.find(
       (candidate) => candidate.id === item.warehouseId,
     );
-    const owner = warehouse?.name;
+    const branch = branches.data.find(
+      (candidate) => candidate.id === item.branchId,
+    );
+    const owner = warehouse?.name ?? branch?.name;
     return owner && owner !== item.name
       ? `${owner} — ${item.name}`
       : owner ?? item.name;
@@ -168,12 +196,29 @@ export function PostingForm({
         products.data.find((item) => item.active)?.id ?? "",
       );
     if (mode !== "opening" || form.getValues("destinationLocationId")) return;
-    const onlyLocation = openingWarehouseOptions.length === 1
-      ? openingWarehouseOptions.at(0)
+    const onlyLocation = openingDestinationOptions.length === 1
+      ? openingDestinationOptions.at(0)
       : undefined;
     if (onlyLocation)
       form.setValue("destinationLocationId", onlyLocation.id);
-  }, [form, mode, openingWarehouseOptions, products.data]);
+    const onlyOwnerWithoutLocation =
+      openingDestinationOptions.length === 0 &&
+      openingOwnersWithoutLocations.length === 1
+        ? openingOwnersWithoutLocations.at(0)
+        : undefined;
+    if (onlyOwnerWithoutLocation)
+      form.setValue(
+        "destinationLocationId",
+        `setup-${openingDestinationType}:${onlyOwnerWithoutLocation.id}`,
+      );
+  }, [
+    form,
+    mode,
+    openingDestinationOptions,
+    openingDestinationType,
+    openingOwnersWithoutLocations,
+    products.data,
+  ]);
   const submit = form.handleSubmit(async (values) => {
     setMessage(null);
     const destinationRequired = mode === "opening" || mode === "receipt";
@@ -247,6 +292,34 @@ export function PostingForm({
           code: warehouse.code,
           type: "warehouse",
           warehouseId: warehouse.id,
+          status: "active",
+          systemManaged: false,
+          idempotencyKey: crypto.randomUUID(),
+        });
+        destinationLocationId = created.id;
+      }
+      if (
+        mode === "opening" &&
+        destinationLocationId?.startsWith("setup-branch:")
+      ) {
+        const branchId = destinationLocationId.slice("setup-branch:".length);
+        const branch = branches.data.find(
+          (candidate) => candidate.id === branchId,
+        );
+        if (!branch) {
+          form.setError("destinationLocationId", {
+            message: "That store/branch is no longer available. Select it again.",
+          });
+          return;
+        }
+        const created = await callAdministration<
+          object,
+          { id: string; saved: boolean }
+        >("saveInventoryLocation", {
+          name: `${branch.name} Stock`,
+          code: branch.code,
+          type: "branch",
+          branchId: branch.id,
           status: "active",
           systemManaged: false,
           idempotencyKey: crypto.randomUUID(),
@@ -345,7 +418,7 @@ export function PostingForm({
         </h1>
         <p className="text-[var(--muted)]">
           {mode === "opening"
-            ? "Choose the product and warehouse, enter the quantity, then add it to inventory."
+            ? "Record stock already held by the business in a warehouse or store/branch."
             : "Record the inventory movement securely."}
         </p>
       </div>
@@ -354,10 +427,9 @@ export function PostingForm({
       )}
       {mode === "opening" && (
         <aside className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-950">
-          <strong>Three quick steps:</strong> select a product, select the
-          warehouse, and enter the quantity. Product cost and tracking settings
-          are reused automatically. Stock is sent to stores/branches later through
-          a transfer.
+          <strong>Opening balance:</strong> choose whether the stock is already
+          in a warehouse or already in a store/branch, then select the place and
+          enter the quantity. Future movements between them use transfers.
         </aside>
       )}
       <div className="form-grid rounded-xl border bg-white p-[clamp(1rem,3vw,1.5rem)]">
@@ -382,6 +454,25 @@ export function PostingForm({
             </span>
           )}
         </label>
+        {mode === "opening" && (
+          <label className="text-sm">
+            2. Where is this stock now?
+            <select
+              value={openingDestinationType}
+              onChange={(event) => {
+                setOpeningDestinationType(
+                  event.target.value as "warehouse" | "branch",
+                );
+                form.setValue("destinationLocationId", "");
+                form.clearErrors("destinationLocationId");
+              }}
+              className="mt-1 w-full rounded-lg border p-2.5"
+            >
+              <option value="warehouse">Warehouse</option>
+              <option value="branch">Store / branch</option>
+            </select>
+          </label>
+        )}
         {mode === "movement" ? (
           <>
             <label className="text-sm">
@@ -431,28 +522,30 @@ export function PostingForm({
         ) : (
           <label className="text-sm">
             {mode === "opening"
-              ? "2. Warehouse"
+              ? `3. ${openingDestinationType === "warehouse" ? "Warehouse" : "Store / branch"}`
               : "Destination location"}
             <select
               {...form.register("destinationLocationId")}
               className="mt-1 w-full rounded-lg border p-2.5"
             >
               <option value="">
-                {mode === "opening" ? "Select warehouse…" : "Select…"}
+                {mode === "opening"
+                  ? `Select ${openingDestinationType === "warehouse" ? "warehouse" : "store / branch"}…`
+                  : "Select…"}
               </option>
-              {(mode === "opening" ? openingWarehouseOptions : locationOptions).map((item) => (
+              {(mode === "opening" ? openingDestinationOptions : locationOptions).map((item) => (
                 <option key={item.id} value={item.id}>
                   {mode === "opening" ? locationLabel(item) : item.name}
                 </option>
               ))}
-              {mode === "opening" && warehousesWithoutLocations.length > 0 && (
-                <optgroup label="Warehouses ready for automatic stock setup">
-                  {warehousesWithoutLocations.map((warehouse) => (
+              {mode === "opening" && openingOwnersWithoutLocations.length > 0 && (
+                <optgroup label={`${openingDestinationType === "warehouse" ? "Warehouses" : "Stores / branches"} ready for automatic stock setup`}>
+                  {openingOwnersWithoutLocations.map((owner) => (
                     <option
-                      key={warehouse.id}
-                      value={`setup-warehouse:${warehouse.id}`}
+                      key={owner.id}
+                      value={`setup-${openingDestinationType}:${owner.id}`}
                     >
-                      {warehouse.name} (set up automatically)
+                      {owner.name} (set up automatically)
                     </option>
                   ))}
                 </optgroup>
@@ -465,30 +558,30 @@ export function PostingForm({
             )}
             {mode === "opening" &&
               !locations.loading &&
-              openingWarehouseOptions.length === 0 &&
-              warehousesWithoutLocations.length === 0 && (
+              openingDestinationOptions.length === 0 &&
+              openingOwnersWithoutLocations.length === 0 && (
               <span className="mt-2 block text-xs text-amber-800">
-                No available warehouse was found.
+                No available {openingDestinationType === "warehouse" ? "warehouse" : "store/branch"} was found.
                 {canManageLocations ? (
                   <>
                     {" "}
                     <Link
                       className="font-semibold underline"
-                      href="/administration/warehouses"
+                      href={openingDestinationType === "warehouse" ? "/administration/warehouses" : "/administration/branches"}
                     >
-                      Create a warehouse first
+                      Create one first
                     </Link>
                     .
                   </>
                 ) : (
-                  " Ask an administrator to configure your assigned warehouse."
+                  ` Ask an administrator to configure your assigned ${openingDestinationType === "warehouse" ? "warehouse" : "store/branch"}.`
                 )}
               </span>
             )}
           </label>
         )}
         <label className="text-sm">
-          {mode === "opening" ? `3. Quantity${product ? ` (${product.unitOfMeasure})` : ""}` : "Quantity"}
+          {mode === "opening" ? `4. Quantity${product ? ` (${product.unitOfMeasure})` : ""}` : "Quantity"}
           <input
             type="number"
             {...form.register("quantity")}
