@@ -14,7 +14,7 @@ import { hasPermission } from "@/lib/permissions/roles";
 import type { ProductCategory } from "@/types/domain";
 const schema = z.object({
   name: z.string().min(2),
-  code: z.string().min(2),
+  code: z.string().optional(),
   description: z.string().optional(),
   active: z.boolean(),
 });
@@ -131,9 +131,10 @@ export default function CategoriesPage() {
               />
             </label>
             <label className="block text-sm">
-              Code
+              Code (optional)
               <input
                 {...form.register("code")}
+                placeholder="Generated from the name if blank"
                 className="mt-1 w-full rounded-lg border p-2.5 uppercase"
               />
             </label>

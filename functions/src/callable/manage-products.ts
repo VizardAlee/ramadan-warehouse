@@ -6,6 +6,7 @@ import { requireAccess, requirePermission } from "../auth/authorize.js";
 import { writeAuditLog } from "../audit/write-audit-log.js";
 import { enforceAppCheck } from "../config.js";
 import {
+  generateCategoryCode,
   normalizeInventoryIdentifier,
   uniquenessDocumentId,
 } from "../inventory/calculations.js";
@@ -37,27 +38,34 @@ export const saveProductCategory = onCall(
       return { categoryId: prior.get("entityId") as string, saved: false };
     const categoryId = input.id ?? db.collection("productCategories").doc().id;
     const reference = db.collection("productCategories").doc(categoryId);
-    const normalizedCode = normalizeInventoryIdentifier(input.code);
-    const lock = db
-      .collection("organizationCodes")
-      .doc(
-        uniquenessDocumentId(
-          actor.organizationId,
-          "productCategory",
-          normalizedCode,
-        ),
-      );
     const requestId = correlationId();
     await db.runTransaction(async (transaction) => {
-      const [current, owner, existingOperation] = await Promise.all([
-        transaction.get(reference),
-        transaction.get(lock),
-        transaction.get(operation),
-      ]);
-      if (existingOperation.exists) return;
+      const [current, existingOperation] = await transaction.getAll(
+        reference,
+        operation,
+      );
+      const currentCategory = current!;
+      const currentOperation = existingOperation!;
+      if (currentOperation.exists) return;
+      const normalizedCode = normalizeInventoryIdentifier(
+        input.code?.trim() ||
+          (currentCategory.exists
+            ? String(currentCategory.get("code"))
+            : generateCategoryCode(input.name)),
+      );
+      const lock = db
+        .collection("organizationCodes")
+        .doc(
+          uniquenessDocumentId(
+            actor.organizationId,
+            "productCategory",
+            normalizedCode,
+          ),
+        );
+      const owner = await transaction.get(lock);
       if (
-        current.exists &&
-        current.get("organizationId") !== actor.organizationId
+        currentCategory.exists &&
+        currentCategory.get("organizationId") !== actor.organizationId
       )
         throw new HttpsError(
           "permission-denied",
@@ -78,14 +86,17 @@ export const saveProductCategory = onCall(
       });
       delete data.id;
       delete data.idempotencyKey;
-      if (current.exists) transaction.update(reference, data);
+      if (currentCategory.exists) transaction.update(reference, data);
       else
         transaction.create(reference, {
           ...data,
           createdAt: now,
           createdBy: actor.userId,
         });
-      if (current.exists && current.get("code") !== normalizedCode)
+      if (
+        currentCategory.exists &&
+        currentCategory.get("code") !== normalizedCode
+      )
         transaction.delete(
           db
             .collection("organizationCodes")
@@ -93,7 +104,7 @@ export const saveProductCategory = onCall(
               uniquenessDocumentId(
                 actor.organizationId,
                 "productCategory",
-                String(current.get("code")),
+                String(currentCategory.get("code")),
               ),
             ),
         );
@@ -113,13 +124,16 @@ export const saveProductCategory = onCall(
         createdBy: actor.userId,
       });
       writeAuditLog(transaction, actor, {
-        action: `product_category.${current.exists ? "updated" : "created"}`,
+        action: `product_category.${currentCategory.exists ? "updated" : "created"}`,
         entityType: "productCategory",
         entityId: categoryId,
         correlationId: requestId,
         sourceFunction: "saveProductCategory",
-        before: current.exists
-          ? { code: current.get("code"), active: current.get("active") }
+        before: currentCategory.exists
+          ? {
+              code: currentCategory.get("code"),
+              active: currentCategory.get("active"),
+            }
           : undefined,
         after: { code: normalizedCode, active: input.active },
       });
@@ -149,8 +163,25 @@ export const saveProduct = onCall({ enforceAppCheck }, async (request) => {
     return { productId: prior.get("entityId") as string, saved: false };
   const productId = input.id ?? db.collection("products").doc().id;
   const reference = db.collection("products").doc(productId);
-  const categoryReference = input.categoryId
-    ? db.collection("productCategories").doc(input.categoryId)
+  const inlineCategoryName = input.categoryId
+    ? undefined
+    : input.categoryName?.trim();
+  const inlineCategoryCode = inlineCategoryName
+    ? generateCategoryCode(inlineCategoryName)
+    : undefined;
+  const inlineCategoryId = inlineCategoryName
+    ? db.collection("productCategories").doc().id
+    : undefined;
+  const inlineCategoryLock = inlineCategoryCode
+    ? db
+        .collection("organizationCodes")
+        .doc(
+          uniquenessDocumentId(
+            actor.organizationId,
+            "productCategory",
+            inlineCategoryCode,
+          ),
+        )
     : undefined;
   const requestId = correlationId();
   await db.runTransaction(async (transaction) => {
@@ -165,6 +196,26 @@ export const saveProduct = onCall({ enforceAppCheck }, async (request) => {
       .collection("organizationSkus")
       .doc(uniquenessDocumentId(actor.organizationId, normalizedSku));
     const owner = await transaction.get(skuLock);
+    const inlineCategoryOwner = inlineCategoryLock
+      ? await transaction.get(inlineCategoryLock)
+      : undefined;
+    const currentCategoryMatchesInput = Boolean(
+      current.exists &&
+        inlineCategoryName &&
+        current.get("categoryId") &&
+        normalizeInventoryIdentifier(String(current.get("categoryName"))) ===
+          normalizeInventoryIdentifier(inlineCategoryName),
+    );
+    const effectiveCategoryId = input.categoryId
+      ? input.categoryId
+      : currentCategoryMatchesInput
+        ? String(current.get("categoryId"))
+      : inlineCategoryOwner?.exists
+        ? String(inlineCategoryOwner.get("entityId"))
+        : inlineCategoryId;
+    const categoryReference = effectiveCategoryId
+      ? db.collection("productCategories").doc(effectiveCategoryId)
+      : undefined;
     const category = categoryReference
       ? await transaction.get(categoryReference)
       : undefined;
@@ -181,6 +232,7 @@ export const saveProduct = onCall({ enforceAppCheck }, async (request) => {
       throw new HttpsError("already-exists", "SKU is already in use.");
     if (
       categoryReference &&
+      (inlineCategoryOwner?.exists || input.categoryId) &&
       (!category?.exists ||
         category.get("organizationId") !== actor.organizationId ||
         category.get("active") !== true)
@@ -199,11 +251,58 @@ export const saveProduct = onCall({ enforceAppCheck }, async (request) => {
         "Tracking type cannot change after inventory has been posted.",
       );
     const now = FieldValue.serverTimestamp();
+    const categoryCreated = Boolean(
+      inlineCategoryName &&
+        inlineCategoryCode &&
+        inlineCategoryLock &&
+        categoryReference &&
+        !currentCategoryMatchesInput &&
+        !inlineCategoryOwner?.exists,
+    );
+    if (
+      categoryCreated &&
+      inlineCategoryName &&
+      inlineCategoryCode &&
+      inlineCategoryLock &&
+      categoryReference
+    ) {
+      transaction.create(categoryReference, {
+        organizationId: actor.organizationId,
+        name: inlineCategoryName,
+        code: inlineCategoryCode,
+        active: true,
+        createdAt: now,
+        createdBy: actor.userId,
+        updatedAt: now,
+        updatedBy: actor.userId,
+      });
+      transaction.set(inlineCategoryLock, {
+        organizationId: actor.organizationId,
+        kind: "productCategory",
+        code: inlineCategoryCode,
+        entityId: categoryReference.id,
+        updatedAt: now,
+      });
+      writeAuditLog(transaction, actor, {
+        action: "product_category.created",
+        entityType: "productCategory",
+        entityId: categoryReference.id,
+        correlationId: requestId,
+        sourceFunction: "saveProduct",
+        after: { code: inlineCategoryCode, active: true },
+      });
+    }
+    const effectiveCategoryName = categoryCreated
+      ? inlineCategoryName
+      : category?.exists
+        ? String(category.get("name"))
+        : undefined;
     const data = clean({
       ...input,
       sku: effectiveSku,
       normalizedSku,
-      categoryName: category?.get("name"),
+      categoryId: categoryReference?.id,
+      categoryName: effectiveCategoryName,
       organizationId: actor.organizationId,
       currency: "NGN",
       updatedAt: now,

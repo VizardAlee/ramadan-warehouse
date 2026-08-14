@@ -14,7 +14,11 @@ const money = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
 export const categoryInput = z.object({
   id: id.optional(),
   name: z.string().trim().min(2).max(120),
-  code,
+  code: z.preprocess(
+    (value) =>
+      typeof value === "string" && value.trim() === "" ? undefined : value,
+    code.optional(),
+  ),
   description: optionalText(500),
   active: z.boolean().default(true),
   idempotencyKey,
@@ -28,6 +32,7 @@ export const productInput = z.object({
     code.optional(),
   ),
   categoryId: id.optional(),
+  categoryName: z.string().trim().min(2).max(120).optional(),
   brand: optionalText(120),
   model: optionalText(120),
   description: optionalText(2000),

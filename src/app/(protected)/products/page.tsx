@@ -29,7 +29,7 @@ const schema = z.object({
       (value) => value === "" || (value.length >= 2 && /^[A-Za-z0-9 _.-]+$/.test(value)),
       "Enter a valid SKU or leave it blank for automatic generation.",
     ),
-  categoryId: z.string().optional(),
+  categoryName: z.string().trim().max(120).optional(),
   brand: z.string().optional(),
   model: z.string().optional(),
   description: z.string().optional(),
@@ -45,7 +45,7 @@ type ParsedValues = z.output<typeof schema>;
 const defaults: Values = {
   name: "",
   sku: "",
-  categoryId: "",
+  categoryName: "",
   brand: "",
   model: "",
   description: "",
@@ -89,7 +89,11 @@ export default function ProductsPage() {
         ? {
             name: product.name,
             sku: product.sku,
-            categoryId: product.categoryId ?? "",
+            categoryName:
+              product.categoryName ??
+              categories.data.find((category) => category.id === product.categoryId)
+                ?.name ??
+              "",
             brand: product.brand ?? "",
             model: product.model ?? "",
             description: product.description ?? "",
@@ -114,8 +118,17 @@ export default function ProductsPage() {
             !(typeof value === "number" && Number.isNaN(value)),
         ),
       );
+      const categoryName = values.categoryName?.trim();
+      const existingCategory = categories.data.find(
+        (category) =>
+          category.active &&
+          category.name.toLocaleLowerCase() ===
+            categoryName?.toLocaleLowerCase(),
+      );
       await callAdministration("saveProduct", {
         ...clean,
+        categoryId: existingCategory?.id,
+        categoryName: existingCategory ? undefined : categoryName || undefined,
         id: editing?.id,
         idempotencyKey: crypto.randomUUID(),
       });
@@ -268,19 +281,22 @@ export default function ProductsPage() {
               </label>
               <label className="text-sm">
                 Category
-                <select
-                  {...form.register("categoryId")}
+                <input
+                  {...form.register("categoryName")}
+                  list="product-category-options"
+                  placeholder="Select or type a new category"
                   className="mt-1 w-full rounded-lg border p-2.5"
-                >
-                  <option value="">No category</option>
+                />
+                <datalist id="product-category-options">
                   {categories.data
                     .filter((category) => category.active)
                     .map((category) => (
-                      <option key={category.id} value={category.id}>
-                        {category.name}
-                      </option>
+                      <option key={category.id} value={category.name} />
                     ))}
-                </select>
+                </datalist>
+                <span className="mt-1 block text-xs text-[var(--muted)]">
+                  A new category is created automatically when needed.
+                </span>
               </label>
               <label className="text-sm">
                 Tracking

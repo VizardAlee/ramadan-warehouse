@@ -190,6 +190,58 @@ describe.sequential("inventory callables", () => {
     expect(lock.get("productId")).toBe(created.productId);
   });
 
+  it("creates and concurrently reuses categories entered in the product form", async () => {
+    const standalone = await call<{ categoryId: string }>(
+      administrator,
+      "saveProductCategory",
+      {
+        name: "Standalone Category",
+        active: true,
+        idempotencyKey: crypto.randomUUID(),
+      },
+    );
+    const standaloneCategory = await adminDb
+      .doc(`productCategories/${standalone.categoryId}`)
+      .get();
+    expect(standaloneCategory.get("code")).toBe("STANDALONE-CATEGORY");
+
+    const [first, second] = await Promise.all([
+      call<{ productId: string }>(
+        administrator,
+        "saveProduct",
+        product({
+          name: "Power Cable",
+          sku: "POWER-CABLE",
+          categoryName: "Power Accessories",
+        }),
+      ),
+      call<{ productId: string }>(
+        administrator,
+        "saveProduct",
+        product({
+          name: "Power Connector",
+          sku: "POWER-CONNECTOR",
+          categoryName: "power accessories",
+        }),
+      ),
+    ]);
+    const [firstProduct, secondProduct, categories] = await Promise.all([
+      adminDb.doc(`products/${first.productId}`).get(),
+      adminDb.doc(`products/${second.productId}`).get(),
+      adminDb
+        .collection("productCategories")
+        .where("organizationId", "==", organizationId)
+        .where("code", "==", "POWER-ACCESSORIES")
+        .get(),
+    ]);
+
+    expect(categories.size).toBe(1);
+    expect(firstProduct.get("categoryId")).toBe(categories.docs[0]!.id);
+    expect(secondProduct.get("categoryId")).toBe(categories.docs[0]!.id);
+    expect(firstProduct.get("categoryName")).toBe("Power Accessories");
+    expect(secondProduct.get("categoryName")).toBe("Power Accessories");
+  });
+
   it("posts opening stock once with balanced immutable entries", async () => {
     const key = crypto.randomUUID();
     const payload = {

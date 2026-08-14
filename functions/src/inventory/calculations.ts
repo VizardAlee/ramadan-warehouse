@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 export interface CostedBalance {
   readonly quantity: number;
   readonly totalValueMinor: number;
@@ -6,6 +8,21 @@ export interface CostedBalance {
 
 export function normalizeInventoryIdentifier(value: string): string {
   return value.trim().replace(/\s+/g, " ").toUpperCase();
+}
+export function generateCategoryCode(name: string): string {
+  const slug = name
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^A-Za-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .toUpperCase();
+  if (slug.length >= 2 && slug.length <= 40) return slug;
+  const digest = createHash("sha256")
+    .update(normalizeInventoryIdentifier(name))
+    .digest("hex")
+    .slice(0, 8)
+    .toUpperCase();
+  return `${(slug || "CATEGORY").slice(0, 31)}-${digest}`;
 }
 export function assertSafeInteger(value: number, label: string): void {
   if (!Number.isSafeInteger(value))

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   balanceDocumentId,
+  generateCategoryCode,
   issueCost,
   normalizeInventoryIdentifier,
   parseSerialNumbers,
@@ -14,6 +15,14 @@ describe("inventory calculations", () => {
       normalized: ["SN-1", "SN-1", "SN-2"],
       duplicates: ["SN-1"],
     });
+  });
+
+  it("generates readable, bounded category codes", () => {
+    expect(generateCategoryCode("Solar Panels & Accessories")).toBe(
+      "SOLAR-PANELS-ACCESSORIES",
+    );
+    expect(generateCategoryCode("é")).toMatch(/^E-[A-F0-9]{8}$/);
+    expect(generateCategoryCode("A category name that is much longer than forty characters")).toHaveLength(40);
   });
 
   it("calculates weighted-average receipts in integer minor units", () => {
