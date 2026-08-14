@@ -43,7 +43,35 @@ const navigation = [
   { href: "/audit", label: "Audit", icon: History, permissions: ["audit.read"] },
 ] as const;
 const titleFromPath = (pathname: string) => {
-  const section = pathname.split("/").filter(Boolean).at(-1) ?? "Dashboard";
+  const segments = pathname.split("/").filter(Boolean);
+  const section = segments.at(-1) ?? "Dashboard";
+  const namedSubpages = {
+    transfers: new Set([
+      "review", "reservations", "picking", "packing", "dispatch",
+      "in-transit", "incoming", "discrepancies", "costs",
+      "cost-approvals", "cost-reconciliation", "closed", "create",
+    ]),
+    requests: new Set(["create", "reports", "review"]),
+    products: new Set(["categories"]),
+  } as const;
+  if (
+    segments[0] === "transfers" &&
+    segments.length === 2 &&
+    !namedSubpages.transfers.has(section)
+  )
+    return "Transfer details";
+  if (
+    segments[0] === "requests" &&
+    segments.length === 2 &&
+    !namedSubpages.requests.has(section)
+  )
+    return "Request details";
+  if (
+    segments[0] === "products" &&
+    segments.length === 2 &&
+    !namedSubpages.products.has(section)
+  )
+    return "Product details";
   return section
     .replaceAll("-", " ")
     .replaceAll("_", " ")

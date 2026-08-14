@@ -6,12 +6,23 @@ import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { callAdministration } from "@/features/administration/api";
+import { useOrganizationCollection } from "@/features/administration/use-organization-collection";
 import { useAuth } from "@/features/auth/auth-context";
+import {
+  formatDateTime,
+  formatNaira,
+  formatQuantity,
+} from "@/features/inventory/format";
 import { hasPermission } from "@/lib/permissions/roles";
 import { sensitiveActionDisabled, useConnectivity } from "@/lib/connectivity";
 import type {
+  Branch,
+  BranchRequest,
+  DateTimeValue,
+  InventoryLocation,
   TransferCost,
   TransferItem,
+  Warehouse,
   WarehouseTransfer,
 } from "@/types/domain";
 
@@ -25,21 +36,46 @@ interface TransferDetailResult {
   events: Array<Record<string, unknown>>;
   costs: TransferCost[];
 }
-const quantityFields = [
-  "Planned",
-  "Approved",
-  "Reserved",
-  "Picked",
-  "Packed",
-  "Dispatched",
-  "Received",
-  "Damaged",
-  "Missing",
-  "Outstanding",
-] as const;
+const progressSteps = ["Draft", "Approval", "Prepare", "Dispatch", "Receive", "Complete"] as const;
+const statusProgress: Record<string, number> = {
+  draft: 0,
+  submitted: 1,
+  under_review: 1,
+  changes_requested: 1,
+  approved: 2,
+  partially_reserved: 2,
+  reserved: 2,
+  picking: 2,
+  picked: 2,
+  packing: 2,
+  packed: 2,
+  ready_for_dispatch: 3,
+  partially_dispatched: 3,
+  dispatched: 4,
+  partially_received: 4,
+  received: 5,
+  cost_reconciliation: 5,
+  closed: 5,
+};
+
+function nextStepCopy(status: string) {
+  if (status === "draft") return "Review the route and items, then submit this transfer for approval.";
+  if (["submitted", "under_review"].includes(status)) return "This transfer is waiting for review and approval.";
+  if (["approved", "partially_reserved"].includes(status)) return "Reserve the approved stock so warehouse preparation can begin.";
+  if (["reserved", "picking", "picked", "packing", "packed", "ready_for_dispatch"].includes(status)) return "The warehouse should prepare and dispatch the approved stock.";
+  if (["partially_dispatched", "dispatched", "partially_received"].includes(status)) return "The destination store should confirm what was received.";
+  if (["received", "cost_reconciliation"].includes(status)) return "Validate the completed movement and close the transfer.";
+  if (status === "closed") return "This transfer is complete and closed.";
+  if (status === "cancelled") return "This transfer was cancelled; no further movement is expected.";
+  return "Review the transfer status and available actions below.";
+}
 export function TransferDetail({ transferId }: { transferId: string }) {
   const { profile } = useAuth();
   const { online } = useConnectivity();
+  const branches = useOrganizationCollection<Branch>("branches");
+  const warehouses = useOrganizationCollection<Warehouse>("warehouses");
+  const locations = useOrganizationCollection<InventoryLocation>("inventoryLocations");
+  const requests = useOrganizationCollection<BranchRequest>("branchRequests");
   const [result, setResult] = useState<TransferDetailResult | null>(null);
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState<string | null>(null);
@@ -117,8 +153,29 @@ export function TransferDetail({ transferId }: { transferId: string }) {
       </p>
     );
   const transfer = result.transfer;
-  const totalKey = (label: (typeof quantityFields)[number]) =>
-    `total${label}Quantity` as keyof WarehouseTransfer;
+  const originWarehouse = warehouses.data.find(
+    (item) => item.id === transfer.originWarehouseId,
+  );
+  const destinationBranch = branches.data.find(
+    (item) => item.id === transfer.destinationBranchId,
+  );
+  const originLocation = locations.data.find(
+    (item) => item.id === transfer.originLocationId,
+  );
+  const destinationLocation = locations.data.find(
+    (item) => item.id === transfer.destinationLocationId,
+  );
+  const sourceRequest = requests.data.find(
+    (item) => item.id === transfer.sourceRequestId,
+  );
+  const currentProgress = statusProgress[transfer.status] ?? 0;
+  const keyQuantities = [
+    ["Planned", transfer.totalPlannedQuantity],
+    ["Approved", transfer.totalApprovedQuantity],
+    ["Dispatched", transfer.totalDispatchedQuantity],
+    ["Received", transfer.totalReceivedQuantity],
+    ["Remaining", transfer.totalOutstandingQuantity],
+  ] as const;
   return (
     <div className="min-w-0 space-y-6">
       <header className="flex flex-wrap items-start justify-between gap-4">
@@ -129,7 +186,7 @@ export function TransferDetail({ transferId }: { transferId: string }) {
           >
             Transfers
           </Link>
-          <div className="mt-2 flex items-center gap-3">
+          <div className="mt-2 flex flex-wrap items-center gap-3">
             <h1 className="text-3xl font-semibold">
               {transfer.transferNumber}
             </h1>
@@ -145,9 +202,10 @@ export function TransferDetail({ transferId }: { transferId: string }) {
               {transfer.status.replaceAll("_", " ")}
             </StatusBadge>
           </div>
-          <p className="mt-1 text-[var(--muted)]">
-            {transfer.sourceType.replaceAll("_", " ")} ·{" "}
-            {transfer.originWarehouseId} → {transfer.destinationBranchId}
+          <p className="mt-1 text-sm text-[var(--muted)]">
+            {transfer.sourceType === "admin_allocation"
+              ? "Direct allocation"
+              : "From an approved branch request"}
           </p>
         </div>
         <Button variant="secondary" onClick={() => void load()}>
@@ -158,7 +216,42 @@ export function TransferDetail({ transferId }: { transferId: string }) {
       {message && (
         <p className="rounded-lg bg-amber-50 p-3 text-sm">{message}</p>
       )}
-      <section className="flex flex-wrap gap-2 rounded-xl border bg-white p-4">
+      <section className="rounded-xl border bg-white p-5">
+        <p className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
+          Transfer route
+        </p>
+        <div className="mt-3 grid items-center gap-3 sm:grid-cols-[1fr_auto_1fr]">
+          <div className="rounded-lg bg-slate-50 p-4">
+            <span className="block text-xs text-[var(--muted)]">From warehouse</span>
+            <strong className="mt-1 block text-lg">
+              {originWarehouse?.name ?? originLocation?.name ?? "Loading warehouse…"}
+            </strong>
+            {originLocation && originLocation.name !== originWarehouse?.name && (
+              <span className="block text-xs text-[var(--muted)]">{originLocation.name}</span>
+            )}
+          </div>
+          <span className="text-center text-xl text-[var(--brand)]" aria-hidden>→</span>
+          <div className="rounded-lg bg-emerald-50 p-4">
+            <span className="block text-xs text-[var(--muted)]">To store / branch</span>
+            <strong className="mt-1 block text-lg">
+              {destinationBranch?.name ?? destinationLocation?.name ?? "Loading destination…"}
+            </strong>
+            {destinationLocation && destinationLocation.name !== destinationBranch?.name && (
+              <span className="block text-xs text-[var(--muted)]">{destinationLocation.name}</span>
+            )}
+          </div>
+        </div>
+        {transfer.purpose && (
+          <p className="mt-4 text-sm"><span className="text-[var(--muted)]">Purpose:</span> {transfer.purpose}</p>
+        )}
+      </section>
+      <section className="rounded-xl border border-emerald-200 bg-emerald-50 p-5">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wide text-emerald-800">Next step</p>
+            <p className="mt-1 max-w-2xl font-medium text-emerald-950">{nextStepCopy(transfer.status)}</p>
+          </div>
+          <div className="flex flex-wrap gap-2">
         {transfer.status === "draft" &&
           hasPermission(profile, "transfers.submit") && (
             <Button disabled={sensitiveActionDisabled(online, loading)} onClick={() => void action("submitTransfer")}>
@@ -178,14 +271,14 @@ export function TransferDetail({ transferId }: { transferId: string }) {
         {["submitted", "under_review"].includes(transfer.status) &&
           hasPermission(profile, "transfers.approve") && (
             <Button disabled={sensitiveActionDisabled(online, loading)} onClick={() => void action("approveTransfer")}>
-              Approve version {transfer.version}
+              Approve transfer
             </Button>
           )}
         {["approved", "partially_reserved"].includes(transfer.status) &&
           hasPermission(profile, "transfers.reserve") &&
           result.items.every((item) => item.trackingType === "quantity") && (
             <Button disabled={sensitiveActionDisabled(online, loading)} onClick={() => void action("reserveTransferStock")}>
-              Reserve quantity stock
+              Reserve stock
             </Button>
           )}
         {["received", "cost_reconciliation"].includes(transfer.status) &&
@@ -194,95 +287,68 @@ export function TransferDetail({ transferId }: { transferId: string }) {
               Validate and close
             </Button>
           )}
+          </div>
+        </div>
       </section>
-      <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-        {quantityFields.map((label) => (
+      <section className="rounded-xl border bg-white p-5">
+        <h2 className="text-lg font-semibold">Progress</h2>
+        <ol className="mt-4 grid grid-cols-3 gap-2 sm:grid-cols-6">
+          {progressSteps.map((step, index) => (
+            <li key={step} className="text-center">
+              <span className={`mx-auto grid size-8 place-items-center rounded-full text-sm font-semibold ${index <= currentProgress ? "bg-[var(--brand)] text-white" : "bg-slate-100 text-slate-500"}`}>
+                {index < currentProgress ? "✓" : index + 1}
+              </span>
+              <span className="mt-1 block text-xs text-[var(--muted)]">{step}</span>
+            </li>
+          ))}
+        </ol>
+      </section>
+      <section className="grid grid-cols-2 gap-3 lg:grid-cols-5">
+        {keyQuantities.map(([label, value]) => (
           <div key={label} className="rounded-xl border bg-white p-4">
             <p className="text-2xl font-semibold">
-              {String(transfer[totalKey(label)] ?? 0)}
+              {formatQuantity(value)}
             </p>
             <p className="text-xs text-[var(--muted)]">{label}</p>
           </div>
         ))}
       </section>
-      <section className="grid min-w-0 gap-4 lg:grid-cols-3">
-        <div className="min-w-0 rounded-xl border bg-white p-5 lg:col-span-2">
-          <h2 className="text-lg font-semibold">Transfer items</h2>
-          <div className="responsive-table-wrap mt-4">
-            <table className="responsive-table">
-              <thead>
-                <tr>
-                  {[
-                    "Product",
-                    "Approved",
-                    "Reserved",
-                    "Picked",
-                    "Packed",
-                    "Dispatched",
-                    "Received",
-                    "Status",
-                  ].map((label) => (
-                    <th key={label} className="border-b px-3 py-2">
-                      {label}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {result.items.map((item) => (
-                  <tr key={item.id}>
-                    <td data-label="Product" data-primary="true" className="border-b px-3 py-3">
-                      <span className="font-medium">{item.sku}</span>
-                      <span className="block text-xs text-[var(--muted)]">
-                        {item.productName} · {item.trackingType}
-                      </span>
-                    </td>
-                    <td data-label="Approved" className="border-b px-3">{item.approvedQuantity}</td>
-                    <td data-label="Reserved" className="border-b px-3">{item.reservedQuantity}</td>
-                    <td data-label="Picked" className="border-b px-3">{item.pickedQuantity}</td>
-                    <td data-label="Packed" className="border-b px-3">{item.packedQuantity}</td>
-                    <td data-label="Dispatched" className="border-b px-3">{item.dispatchedQuantity}</td>
-                    <td data-label="Received" className="border-b px-3">{item.receivedQuantity}</td>
-                    <td data-label="Status" className="border-b px-3">
-                      {item.itemStatus.replaceAll("_", " ")}
-                    </td>
-                  </tr>
+      <section className="rounded-xl border bg-white p-5">
+        <h2 className="text-lg font-semibold">Products in this transfer</h2>
+        <div className="mt-4 grid gap-3">
+          {result.items.map((item) => (
+            <article key={item.id} className="rounded-xl border p-4">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <h3 className="font-semibold">{item.productName}</h3>
+                  <p className="text-xs text-[var(--muted)]">{item.sku} · {item.unitOfMeasure} · {item.trackingType} tracking</p>
+                </div>
+                <StatusBadge status={item.itemStatus} />
+              </div>
+              <dl className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-5">
+                {[
+                  ["Planned", item.plannedQuantity],
+                  ["Approved", item.approvedQuantity],
+                  ["Reserved", item.reservedQuantity],
+                  ["Dispatched", item.dispatchedQuantity],
+                  ["Received", item.receivedQuantity],
+                ].map(([label, value]) => (
+                  <div key={String(label)} className="rounded-lg bg-slate-50 p-3">
+                    <dt className="text-xs text-[var(--muted)]">{label}</dt>
+                    <dd className="mt-1 text-lg font-semibold">{formatQuantity(Number(value))}</dd>
+                  </div>
                 ))}
-              </tbody>
-            </table>
-          </div>
+              </dl>
+            </article>
+          ))}
         </div>
-        <aside className="min-w-0 space-y-3 rounded-xl border bg-white p-5">
-          <h2 className="text-lg font-semibold">Control references</h2>
-          <dl className="space-y-3 text-sm">
-            <div>
-              <dt className="text-[var(--muted)]">Source request</dt>
-              <dd>{transfer.sourceRequestId ?? "Direct allocation"}</dd>
-            </div>
-            <div>
-              <dt className="text-[var(--muted)]">Origin location</dt>
-              <dd>{transfer.originLocationId}</dd>
-            </div>
-            <div>
-              <dt className="text-[var(--muted)]">Transit location</dt>
-              <dd>{transfer.transitLocationId}</dd>
-            </div>
-            <div>
-              <dt className="text-[var(--muted)]">Destination location</dt>
-              <dd>{transfer.destinationLocationId}</dd>
-            </div>
-            <div>
-              <dt className="text-[var(--muted)]">Priority</dt>
-              <dd>{transfer.priority}</dd>
-            </div>
-          </dl>
-        </aside>
       </section>
       <section className="grid gap-4 lg:grid-cols-2">
         <div className="rounded-xl border bg-white p-5">
           <h2 className="text-lg font-semibold">Operational timeline</h2>
-          <ol className="mt-4 space-y-3">
-            {result.events.map((event, index) => (
+          {result.events.length ? (
+            <ol className="mt-4 space-y-3">
+              {result.events.map((event, index) => (
               <li
                 key={String(event.id ?? index)}
                 className="border-l-2 border-emerald-200 pl-4"
@@ -291,29 +357,39 @@ export function TransferDetail({ transferId }: { transferId: string }) {
                   {String(event.eventType ?? "event").replaceAll("_", " ")}
                 </p>
                 <p className="text-xs text-[var(--muted)]">
-                  {String(event.createdAt ?? "Pending timestamp")}
+                  {formatDateTime(event.createdAt as DateTimeValue | undefined)}
                 </p>
               </li>
-            ))}
-          </ol>
+              ))}
+            </ol>
+          ) : (
+            <p className="mt-3 text-sm text-[var(--muted)]">No activity has been recorded yet.</p>
+          )}
         </div>
         <div className="space-y-4">
           <div className="rounded-xl border bg-white p-5">
-            <h2 className="text-lg font-semibold">Execution records</h2>
-            <p className="mt-2 text-sm text-[var(--muted)]">
-              {result.packages.length} packages · {result.dispatches.length}{" "}
-              dispatches · {result.receipts.length} receipts ·{" "}
-              {result.discrepancies.length} discrepancies
-            </p>
+            <h2 className="text-lg font-semibold">Movement records</h2>
+            <dl className="mt-3 grid grid-cols-2 gap-3 text-sm">
+              {[
+                ["Packages", result.packages.length],
+                ["Dispatches", result.dispatches.length],
+                ["Receipts", result.receipts.length],
+                ["Issues", result.discrepancies.length],
+              ].map(([label, value]) => (
+                <div key={String(label)} className="rounded-lg bg-slate-50 p-3">
+                  <dt className="text-xs text-[var(--muted)]">{label}</dt>
+                  <dd className="mt-1 text-lg font-semibold">{value}</dd>
+                </div>
+              ))}
+            </dl>
           </div>
           {hasPermission(profile, "transfers.cost.read") && (
             <div className="rounded-xl border bg-white p-5">
               <h2 className="text-lg font-semibold">Transfer costs</h2>
               <p className="mt-2 text-sm">
-                Estimated ₦
-                {(transfer.estimatedCostMinor / 100).toLocaleString()} ·
-                Approved ₦{(transfer.approvedCostMinor / 100).toLocaleString()}{" "}
-                · Actual ₦{(transfer.actualCostMinor / 100).toLocaleString()}
+                Estimated {formatNaira(transfer.estimatedCostMinor)} · Approved{" "}
+                {formatNaira(transfer.approvedCostMinor)} · Actual{" "}
+                {formatNaira(transfer.actualCostMinor)}
               </p>
               <p className="text-xs text-[var(--muted)]">
                 {result.costs.length} auditable cost records
@@ -322,6 +398,42 @@ export function TransferDetail({ transferId }: { transferId: string }) {
           )}
         </div>
       </section>
+      <details className="rounded-xl border bg-white p-5">
+        <summary className="cursor-pointer font-semibold">Record details</summary>
+        <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
+          <div>
+            <dt className="text-[var(--muted)]">Source</dt>
+            <dd>
+              {sourceRequest
+                ? sourceRequest.requestNumber
+                : transfer.sourceRequestId
+                  ? "Approved branch request"
+                  : "Direct allocation"}
+            </dd>
+          </div>
+          <div>
+            <dt className="text-[var(--muted)]">Priority</dt>
+            <dd className="capitalize">{transfer.priority}</dd>
+          </div>
+          <div>
+            <dt className="text-[var(--muted)]">Created</dt>
+            <dd>{formatDateTime(transfer.createdAt)}</dd>
+          </div>
+          <div>
+            <dt className="text-[var(--muted)]">Last updated</dt>
+            <dd>{formatDateTime(transfer.updatedAt)}</dd>
+          </div>
+        </dl>
+        <details className="mt-4 border-t pt-4 text-xs text-[var(--muted)]">
+          <summary className="cursor-pointer">Technical references</summary>
+          <dl className="mt-3 grid gap-2 break-all sm:grid-cols-2">
+            <div><dt>Transfer ID</dt><dd>{transfer.id}</dd></div>
+            <div><dt>Origin location ID</dt><dd>{transfer.originLocationId}</dd></div>
+            <div><dt>Destination location ID</dt><dd>{transfer.destinationLocationId}</dd></div>
+            <div><dt>Transit location ID</dt><dd>{transfer.transitLocationId}</dd></div>
+          </dl>
+        </details>
+      </details>
     </div>
   );
 }
