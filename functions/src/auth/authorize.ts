@@ -601,6 +601,7 @@ export function hasServerPermission(
   actor: AccessProfile,
   permission: Permission,
 ): boolean {
+  if (hasRole(actor, "system_administrator")) return true;
   return accessRoleIds(actor).some((roleId) =>
     rolePermissions[roleId].includes(permission),
   );

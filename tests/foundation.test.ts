@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { hasAnyPermission, hasPermission, isAssignedToBranch } from "@/lib/permissions/roles";
 import { inventoryLocationSchema, organizationSchema, userProfileSchema } from "@/lib/validation/foundation";
+import { permissionIds } from "@/types/domain";
 
 describe("foundation validation", () => {
   it("normalizes organization defaults and requires uppercase codes", () => { expect(organizationSchema.parse({ legalName: "Solar Operations", code: "SOLAR" })).toMatchObject({ defaultCurrency: "NGN", timezone: "Africa/Lagos" }); expect(() => organizationSchema.parse({ legalName: "Solar Operations", code: "solar" })).toThrow(); });
@@ -14,6 +15,12 @@ describe("least-privilege permissions", () => {
   it("shows navigation only when one of the role permissions applies", () => {
     expect(hasAnyPermission(officer, ["inventory.read", "audit.read"])).toBe(true);
     expect(hasAnyPermission(officer, ["organization.manage", "audit.read"])).toBe(false);
+  });
+  it("gives an active system administrator every application permission", () => {
+    const administrator = { ...officer, roleId: "system_administrator" as const };
+    for (const permission of permissionIds) {
+      expect(hasPermission(administrator, permission), permission).toBe(true);
+    }
   });
   it("gives branch managers full branch inventory workflows but not shared catalogue administration", () => {
     const manager = { ...officer, roleId: "branch_manager" as const };

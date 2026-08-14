@@ -4,11 +4,14 @@ import { applyOperatingContext, assertAssignableRole, assertAssignableRoles, ass
 const actor = (roleId: AccessProfile["roleId"]): AccessProfile => ({ userId: "actor", organizationId: "org", roleId, branchIds: ["b1"], warehouseIds: ["w1"], authorizationVersion: 1 });
 describe("server authorization controls", () => {
   it("allows a system administrator to assign an allowed role", () => expect(canAssignRole("system_administrator", "finance_officer")).toBe(true));
-  it("preserves complete system-administrator inventory and cost authority", () => {
+  it("gives a system administrator every server action regardless of location scope", () => {
     const administrator = actor("system_administrator");
     expect(hasServerPermission(administrator, "inventory.reconcile")).toBe(true);
     expect(hasServerPermission(administrator, "inventory.cost.read")).toBe(true);
     expect(hasServerPermission(administrator, "inventory.cost.manage")).toBe(true);
+    expect(hasServerPermission(administrator, "requests.read.own_branch")).toBe(true);
+    expect(hasServerPermission(administrator, "transfers.read.assigned_warehouse")).toBe(true);
+    expect(hasServerPermission(administrator, "transfers.receive")).toBe(true);
   });
   it("prevents operations administrators creating system administrators", () => expect(() => assertAssignableRole(actor("operations_administrator"), undefined, "system_administrator")).toThrow());
   it("prevents users changing their own role", () => expect(() => assertAssignableRole(actor("system_administrator"), "actor", "auditor")).toThrow());

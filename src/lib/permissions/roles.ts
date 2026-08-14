@@ -1,71 +1,13 @@
-import { roleIds, type PermissionId, type RoleId, type UserProfile } from "@/types/domain";
+import {
+  permissionIds,
+  roleIds,
+  type PermissionId,
+  type RoleId,
+  type UserProfile,
+} from "@/types/domain";
 
 const permissionsByRole: Readonly<Record<RoleId, readonly PermissionId[]>> = {
-  system_administrator: [
-    "organization.manage",
-    "branch.manage",
-    "warehouse.manage",
-    "location.manage",
-    "user.manage",
-    "role.manage",
-    "audit.read",
-    "products.read",
-    "products.create",
-    "products.update",
-    "inventory.read",
-    "inventory.receive",
-    "inventory.opening_stock",
-    "inventory.move_internal",
-    "inventory.adjust",
-    "inventory.reverse",
-    "inventory.count",
-    "inventory.count_review",
-    "inventory.reconcile",
-    "inventory.cost.read",
-    "inventory.cost.manage",
-    "reports.inventory.read",
-    "reports.inventory.export",
-    "requests.read.all",
-    "requests.create",
-    "requests.update_draft",
-    "requests.submit",
-    "requests.cancel_own",
-    "requests.review",
-    "requests.request_changes",
-    "requests.approve",
-    "requests.reject",
-    "requests.cancel_approved",
-    "requests.close",
-    "requests.cost.read",
-    "reports.requests.read",
-    "reports.requests.export",
-    "transfers.read.all",
-    "transfers.create.from_request",
-    "transfers.create.direct",
-    "transfers.update_draft",
-    "transfers.submit",
-    "transfers.review",
-    "transfers.approve",
-    "transfers.cancel",
-    "transfers.reserve",
-    "transfers.release_reservation",
-    "transfers.pick",
-    "transfers.check_pick",
-    "transfers.pack",
-    "transfers.check_pack",
-    "transfers.dispatch",
-    "transfers.verify_dispatch",
-    "transfers.receive",
-    "transfers.report_discrepancy",
-    "transfers.resolve_discrepancy",
-    "transfers.cost.read",
-    "transfers.cost.create",
-    "transfers.cost.approve",
-    "transfers.cost.reconcile",
-    "transfers.close",
-    "reports.transfers.read",
-    "reports.transfers.export",
-  ],
+  system_administrator: permissionIds,
   operations_administrator: [
     "user.manage",
     "report.read",
@@ -274,7 +216,9 @@ export function hasPermission(
   permission: PermissionId,
 ): boolean {
   if (profile.status !== "active") return false;
-  return permissionsForRoles(roleIdsForProfile(profile)).has(permission);
+  const assignedRoles = roleIdsForProfile(profile);
+  if (assignedRoles.includes("system_administrator")) return true;
+  return permissionsForRoles(assignedRoles).has(permission);
 }
 
 export function hasAnyPermission(
