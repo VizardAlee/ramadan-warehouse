@@ -21,7 +21,14 @@ import {
 
 const schema = z.object({
   name: z.string().min(2),
-  sku: z.string().min(2),
+  sku: z
+    .string()
+    .trim()
+    .max(40)
+    .refine(
+      (value) => value === "" || (value.length >= 2 && /^[A-Za-z0-9 _.-]+$/.test(value)),
+      "Enter a valid SKU or leave it blank for automatic generation.",
+    ),
   categoryId: z.string().optional(),
   brand: z.string().optional(),
   model: z.string().optional(),
@@ -249,11 +256,15 @@ export default function ProductsPage() {
                 />
               </label>
               <label className="text-sm">
-                SKU
+                SKU (optional)
                 <input
                   {...form.register("sku")}
+                  placeholder="Generated automatically if blank"
                   className="mt-1 w-full rounded-lg border p-2.5 font-mono uppercase"
                 />
+                <span className="mt-1 block text-xs text-[var(--muted)]">
+                  Enter your own SKU or leave this blank.
+                </span>
               </label>
               <label className="text-sm">
                 Category

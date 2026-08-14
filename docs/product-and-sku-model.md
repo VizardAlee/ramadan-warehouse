@@ -2,7 +2,7 @@
 
 Products are organization-scoped and support quantity, batch, or serial tracking. They contain a normalized SKU, optional flat category, brand/model/description, validated unit, replenishment thresholds, currency, active state, authorship, and a ledger-activity guard.
 
-The server trims and uppercases SKU comparison values. `organizationSkus/{organization + normalizedSku}` provides transactional, case-insensitive uniqueness while allowing the same SKU in another organization. Category codes use the same lock pattern. Catalogue writes are callable-only and audited. Deactivation preserves history; hard deletion is never exposed.
+SKU entry is optional when creating a product. When omitted or blank, the server generates `SKU-{PRODUCT_ID}`; a manually supplied SKU is retained instead. Omitting SKU during a later edit preserves the product's existing SKU. The server trims and uppercases SKU comparison values. `organizationSkus/{organization + normalizedSku}` provides transactional, case-insensitive uniqueness for both generated and manual values while allowing the same SKU in another organization. Category codes use the same lock pattern. Catalogue writes are callable-only and audited. Deactivation preserves history; hard deletion is never exposed.
 
 Once `hasLedgerActivity` is true, tracking type cannot change without a separately designed migration. Inactive products remain in reports but cannot receive new postings.
 

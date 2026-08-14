@@ -82,7 +82,9 @@ async function createActor(
   return result;
 }
 
-function product(overrides: Record<string, unknown> = {}) {
+function product(
+  overrides: Record<string, unknown> = {},
+): Record<string, unknown> {
   return {
     name: "580W Monocrystalline Panel",
     sku: "PANEL-580",
@@ -136,6 +138,16 @@ describe.sequential("inventory callables", () => {
       product(),
     );
     productId = created.productId;
+    const updateWithoutSku = product({
+      id: productId,
+      name: "Updated 580W Monocrystalline Panel",
+    });
+    delete updateWithoutSku.sku;
+    await expect(
+      call(administrator, "saveProduct", updateWithoutSku),
+    ).resolves.toMatchObject({ saved: true });
+    const updatedWithoutSku = await adminDb.doc(`products/${productId}`).get();
+    expect(updatedWithoutSku.get("sku")).toBe("PANEL-580");
     await expect(
       call(administrator, "saveProduct", product({ sku: " panel-580 " })),
     ).rejects.toMatchObject({ code: "functions/already-exists" });
@@ -156,6 +168,26 @@ describe.sequential("inventory callables", () => {
     await expect(
       call(foreign, "saveProduct", product({ sku: "panel-580" })),
     ).resolves.toMatchObject({ saved: true });
+  });
+
+  it("generates a unique SKU when the product creator leaves it blank", async () => {
+    const payload = product({ name: "Automatically coded product" });
+    delete payload.sku;
+    const created = await call<{ productId: string }>(
+      administrator,
+      "saveProduct",
+      payload,
+    );
+    const saved = await adminDb.doc(`products/${created.productId}`).get();
+    const generatedSku = String(saved.get("sku"));
+
+    expect(generatedSku).toBe(`SKU-${created.productId.toUpperCase()}`);
+    expect(saved.get("normalizedSku")).toBe(generatedSku);
+    const lock = await adminDb
+      .doc(`organizationSkus/${organizationId.toUpperCase()}__${generatedSku}`)
+      .get();
+    expect(lock.exists).toBe(true);
+    expect(lock.get("productId")).toBe(created.productId);
   });
 
   it("posts opening stock once with balanced immutable entries", async () => {

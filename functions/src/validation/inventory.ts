@@ -22,7 +22,11 @@ export const categoryInput = z.object({
 export const productInput = z.object({
   id: id.optional(),
   name: z.string().trim().min(2).max(180),
-  sku: code,
+  sku: z.preprocess(
+    (value) =>
+      typeof value === "string" && value.trim() === "" ? undefined : value,
+    code.optional(),
+  ),
   categoryId: id.optional(),
   brand: optionalText(120),
   model: optionalText(120),

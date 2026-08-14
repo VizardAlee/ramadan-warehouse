@@ -149,19 +149,22 @@ export const saveProduct = onCall({ enforceAppCheck }, async (request) => {
     return { productId: prior.get("entityId") as string, saved: false };
   const productId = input.id ?? db.collection("products").doc().id;
   const reference = db.collection("products").doc(productId);
-  const normalizedSku = normalizeInventoryIdentifier(input.sku);
-  const skuLock = db
-    .collection("organizationSkus")
-    .doc(uniquenessDocumentId(actor.organizationId, normalizedSku));
   const categoryReference = input.categoryId
     ? db.collection("productCategories").doc(input.categoryId)
     : undefined;
   const requestId = correlationId();
   await db.runTransaction(async (transaction) => {
-    const snapshots = await transaction.getAll(reference, skuLock, operation);
+    const snapshots = await transaction.getAll(reference, operation);
     const current = snapshots[0]!;
-    const owner = snapshots[1]!;
-    const existingOperation = snapshots[2]!;
+    const existingOperation = snapshots[1]!;
+    const effectiveSku =
+      input.sku?.trim() ||
+      (current.exists ? String(current.get("sku")) : `SKU-${productId.toUpperCase()}`);
+    const normalizedSku = normalizeInventoryIdentifier(effectiveSku);
+    const skuLock = db
+      .collection("organizationSkus")
+      .doc(uniquenessDocumentId(actor.organizationId, normalizedSku));
+    const owner = await transaction.get(skuLock);
     const category = categoryReference
       ? await transaction.get(categoryReference)
       : undefined;
@@ -198,7 +201,7 @@ export const saveProduct = onCall({ enforceAppCheck }, async (request) => {
     const now = FieldValue.serverTimestamp();
     const data = clean({
       ...input,
-      sku: input.sku.trim(),
+      sku: effectiveSku,
       normalizedSku,
       categoryName: category?.get("name"),
       organizationId: actor.organizationId,
@@ -266,7 +269,7 @@ export const saveProduct = onCall({ enforceAppCheck }, async (request) => {
           }
         : undefined,
       after: {
-        sku: input.sku,
+        sku: effectiveSku,
         trackingType: input.trackingType,
         active: input.active,
       },
