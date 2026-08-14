@@ -1,6 +1,7 @@
 import { httpsCallable } from "firebase/functions";
 import { getFirebaseServices } from "@/lib/firebase/client";
 import { toUserFacingError } from "@/lib/firebase/user-facing-error";
+import { readStoredOperatingContext } from "@/features/auth/operating-context";
 
 export function sanitizeCallableInput<TInput extends object>(
   input: TInput,
@@ -23,8 +24,12 @@ function isOutdatedAuthorization(error: unknown) {
 }
 
 export async function callAdministration<TInput extends object, TResult>(name: string, input: TInput): Promise<TResult> {
-  const callable = httpsCallable<TInput, TResult>(getFirebaseServices().functions, name);
-  const sanitizedInput = sanitizeCallableInput(input);
+  const callable = httpsCallable<TInput & { operatingContext?: ReturnType<typeof readStoredOperatingContext> }, TResult>(getFirebaseServices().functions, name);
+  const operatingContext = readStoredOperatingContext();
+  const sanitizedInput = sanitizeCallableInput({
+    ...input,
+    operatingContext: operatingContext ?? undefined,
+  });
   try { return (await callable(sanitizedInput)).data; }
   catch (error) {
     const currentUser = getFirebaseServices().auth.currentUser;

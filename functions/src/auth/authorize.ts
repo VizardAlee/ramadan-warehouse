@@ -329,6 +329,25 @@ export interface AccessProfile {
   readonly warehouseIds: readonly string[];
   readonly authorizationVersion: number;
 }
+export interface OperatingContext {
+  readonly type: "warehouse" | "branch";
+  readonly id: string;
+}
+
+const organizationWideRoles: readonly RoleId[] = [
+  "system_administrator",
+  "operations_administrator",
+  "finance_officer",
+  "auditor",
+];
+const warehouseOperatingRoles: readonly RoleId[] = [
+  "warehouse_manager",
+  "warehouse_officer",
+];
+const branchOperatingRoles: readonly RoleId[] = [
+  "branch_manager",
+  "branch_requester",
+];
 function stringArray(value: unknown): string[] {
   return Array.isArray(value) && value.every((item) => typeof item === "string")
     ? value
@@ -363,6 +382,49 @@ export function hasRole(
   roleId: RoleId,
 ): boolean {
   return accessRoleIds(actor).includes(roleId);
+}
+
+function requestedOperatingContext(data: unknown): OperatingContext | null {
+  if (typeof data !== "object" || data === null) return null;
+  const value = (data as Record<string, unknown>).operatingContext;
+  if (typeof value !== "object" || value === null) return null;
+  const { type, id } = value as Record<string, unknown>;
+  return (type === "warehouse" || type === "branch") &&
+    typeof id === "string" &&
+    id.length > 0
+    ? { type, id }
+    : null;
+}
+
+export function applyOperatingContext(
+  actor: AccessProfile,
+  context: OperatingContext | null,
+): AccessProfile {
+  const assignedRoles = accessRoleIds(actor);
+  if (assignedRoles.some((role) => organizationWideRoles.includes(role)))
+    return actor;
+  if (!context) return actor;
+  const allowedRoles =
+    context.type === "warehouse"
+      ? warehouseOperatingRoles
+      : branchOperatingRoles;
+  const scopedRoles = assignedRoles.filter((role) => allowedRoles.includes(role));
+  const assignedIds =
+    context.type === "warehouse" ? actor.warehouseIds : actor.branchIds;
+  if (scopedRoles.length === 0 || !assignedIds.includes(context.id)) {
+    throw new HttpsError(
+      "permission-denied",
+      "The selected operating context is outside your assigned authority.",
+      { code: "OPERATING_CONTEXT_INVALID", retryable: false },
+    );
+  }
+  return {
+    ...actor,
+    roleId: scopedRoles[0]!,
+    roleIds: scopedRoles,
+    branchIds: context.type === "branch" ? [context.id] : [],
+    warehouseIds: context.type === "warehouse" ? [context.id] : [],
+  };
 }
 
 export function canAssignRole(actorRole: RoleId, targetRole: RoleId): boolean {
@@ -478,7 +540,7 @@ export async function requireAccess(
       { code: "OUTDATED_VERSION", retryable: true },
     );
   const roleIds = normalizeRoleIds(record.roleIds, record.roleId);
-  return {
+  return applyOperatingContext({
     userId,
     organizationId: record.organizationId,
     roleId: roleIds[0]!,
@@ -489,7 +551,7 @@ export async function requireAccess(
       typeof record.authorizationVersion === "number"
         ? record.authorizationVersion
         : 1,
-  };
+  }, requestedOperatingContext(request.data));
 }
 export function requirePermission(
   actor: AccessProfile,

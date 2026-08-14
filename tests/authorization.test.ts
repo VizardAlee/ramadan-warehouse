@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { assertAssignableRole, assertAssignableRoles, assertAssignmentScope, canAssignRole, hasServerPermission, type AccessProfile } from "../functions/src/auth/authorize";
+import { applyOperatingContext, assertAssignableRole, assertAssignableRoles, assertAssignmentScope, canAssignRole, hasServerPermission, type AccessProfile } from "../functions/src/auth/authorize";
 
 const actor = (roleId: AccessProfile["roleId"]): AccessProfile => ({ userId: "actor", organizationId: "org", roleId, branchIds: ["b1"], warehouseIds: ["w1"], authorizationVersion: 1 });
 describe("server authorization controls", () => {
@@ -21,5 +21,15 @@ describe("server authorization controls", () => {
   it("allows an administrator to grant multiple roles and rejects a partially forbidden set", () => {
     expect(() => assertAssignableRoles(actor("system_administrator"), undefined, ["branch_manager", "warehouse_manager"])).not.toThrow();
     expect(() => assertAssignableRoles(actor("operations_administrator"), undefined, ["branch_manager", "finance_officer"])).toThrow();
+  });
+  it("enforces the selected branch context for a dual manager", () => {
+    const manager = { ...actor("warehouse_manager"), roleIds: ["warehouse_manager", "branch_manager"] } satisfies AccessProfile;
+    const scoped = applyOperatingContext(manager, { type: "branch", id: "b1" });
+    expect(scoped).toMatchObject({ roleId: "branch_manager", roleIds: ["branch_manager"], branchIds: ["b1"], warehouseIds: [] });
+    expect(hasServerPermission(scoped, "transfers.receive")).toBe(true);
+    expect(hasServerPermission(scoped, "inventory.adjust")).toBe(false);
+  });
+  it("rejects an operating context outside the user's assignments", () => {
+    expect(() => applyOperatingContext(actor("branch_manager"), { type: "branch", id: "b2" })).toThrow();
   });
 });

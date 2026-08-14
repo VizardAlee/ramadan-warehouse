@@ -5,10 +5,21 @@ import { doc, getDoc } from "firebase/firestore";
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { getFirebaseServices } from "@/lib/firebase/client";
 import type { UserProfile } from "@/types/domain";
+import {
+  availableOperatingContexts,
+  isAvailableOperatingContext,
+  narrowProfileToOperatingContext,
+  readStoredOperatingContext,
+  storeOperatingContext,
+  type OperatingContext,
+} from "./operating-context";
 
 interface AuthContextValue {
   user: User | null;
   profile: UserProfile | null;
+  accessProfile: UserProfile | null;
+  operatingContext: OperatingContext | null;
+  setOperatingContext(context: OperatingContext): void;
   loading: boolean;
   error: string | null;
   login(email: string, password: string): Promise<void>;
@@ -20,7 +31,9 @@ const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
-  const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [accessProfile, setAccessProfile] = useState<UserProfile | null>(null);
+  const [operatingContext, setOperatingContextState] =
+    useState<OperatingContext | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -32,7 +45,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setError(null);
         setUser(nextUser);
         if (!nextUser) {
-          setProfile(null);
+          setAccessProfile(null);
+          setOperatingContextState(null);
           setLoading(false);
           return;
         }
@@ -56,9 +70,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           ) {
             await nextUser.getIdToken(true);
           }
-          setProfile(nextProfile);
+          const contexts = availableOperatingContexts(nextProfile);
+          const stored = readStoredOperatingContext();
+          const nextContext = isAvailableOperatingContext(stored, nextProfile)
+            ? stored
+            : (contexts[0] ?? null);
+          storeOperatingContext(nextContext);
+          setOperatingContextState(nextContext);
+          setAccessProfile(nextProfile);
         } catch (cause) {
-          setProfile(null);
+          setAccessProfile(null);
           setError(cause instanceof Error ? cause.message : "Unable to load your access profile.");
         } finally {
           setLoading(false);
@@ -86,20 +107,70 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const snapshot = await getDoc(doc(getFirebaseServices().db, "users", current.uid));
     if (!snapshot.exists()) {
       await signOut(getFirebaseServices().auth);
-      setProfile(null);
+      setAccessProfile(null);
       setError("Warehouse access has been revoked. Contact an administrator.");
       return;
     }
     const nextProfile = { id: snapshot.id, ...snapshot.data() } as UserProfile;
     if (nextProfile.status !== "active" || nextProfile.authDisabled) {
       await signOut(getFirebaseServices().auth);
-      setProfile(null);
+      setAccessProfile(null);
       setError("Warehouse access has been disabled. Contact an administrator.");
       return;
     }
-    setProfile(nextProfile);
-  }, []);
-  const value = useMemo(() => ({ user, profile, loading, error, login, logout, refreshAuthorization }), [user, profile, loading, error, login, logout, refreshAuthorization]);
+    const contexts = availableOperatingContexts(nextProfile);
+    const nextContext = isAvailableOperatingContext(
+      operatingContext,
+      nextProfile,
+    )
+      ? operatingContext
+      : (contexts[0] ?? null);
+    storeOperatingContext(nextContext);
+    setOperatingContextState(nextContext);
+    setAccessProfile(nextProfile);
+  }, [operatingContext]);
+  const profile = useMemo(
+    () =>
+      accessProfile
+        ? narrowProfileToOperatingContext(accessProfile, operatingContext)
+        : null,
+    [accessProfile, operatingContext],
+  );
+  const setOperatingContext = useCallback(
+    (context: OperatingContext) => {
+      if (!accessProfile || !isAvailableOperatingContext(context, accessProfile))
+        return;
+      storeOperatingContext(context);
+      setOperatingContextState(context);
+    },
+    [accessProfile],
+  );
+  const value = useMemo(
+    () => ({
+      user,
+      profile,
+      accessProfile,
+      operatingContext,
+      setOperatingContext,
+      loading,
+      error,
+      login,
+      logout,
+      refreshAuthorization,
+    }),
+    [
+      user,
+      profile,
+      accessProfile,
+      operatingContext,
+      setOperatingContext,
+      loading,
+      error,
+      login,
+      logout,
+      refreshAuthorization,
+    ],
+  );
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 

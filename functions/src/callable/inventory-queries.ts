@@ -293,7 +293,10 @@ async function report(
   kind: "stock" | "movement" | "valuation" | "serial",
 ) {
   const actor = await requireAccess(request);
-  requirePermission(actor, "reports.inventory.read");
+  requirePermission(
+    actor,
+    kind === "stock" ? "inventory.read" : "reports.inventory.read",
+  );
   const input = parseInput(pageInput, request.data);
   const includeCosts =
     input.includeCosts && hasServerPermission(actor, "inventory.cost.read");

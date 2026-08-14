@@ -40,7 +40,7 @@ async function loadScopedRegister<T>(callable: string): Promise<T[]> {
 }
 
 export default function DashboardPage() {
-  const { profile } = useAuth();
+  const { profile, operatingContext } = useAuth();
   const products = useOrganizationCollection<Product>("products");
   const [requests, setRequests] = useState<BranchRequest[]>([]);
   const [transfers, setTransfers] = useState<WarehouseTransfer[]>([]);
@@ -90,7 +90,7 @@ export default function DashboardPage() {
     <div className="page-stack">
       <PageHeader
         eyebrow="Operations control"
-        title="Warehouse overview"
+        title={operatingContext?.type === "branch" ? "Branch overview" : "Warehouse overview"}
         description={`Welcome, ${profile?.displayName ?? "administrator"}. Priorities and operational queues appear here as real master data and stock are configured.`}
       />
       {failed && (

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   callable: vi.fn(),
@@ -24,6 +24,8 @@ describe("callAdministration", () => {
     vi.clearAllMocks();
     mocks.httpsCallable.mockReturnValue(mocks.callable);
   });
+
+  afterEach(() => vi.unstubAllGlobals());
 
   it("refreshes a stale authorization token once and retries the callable", async () => {
     mocks.callable
@@ -58,5 +60,21 @@ describe("callAdministration", () => {
     });
     expect(mocks.getIdToken).not.toHaveBeenCalled();
     expect(mocks.callable).toHaveBeenCalledTimes(1);
+  });
+
+  it("includes the selected operating context in callable requests", async () => {
+    vi.stubGlobal("window", {
+      localStorage: {
+        getItem: () => JSON.stringify({ type: "branch", id: "branch-1" }),
+      },
+    });
+    mocks.callable.mockResolvedValueOnce({ data: { rows: [] } });
+
+    await callAdministration("listBranchRequests", { limit: 50 });
+
+    expect(mocks.callable).toHaveBeenCalledWith({
+      limit: 50,
+      operatingContext: { type: "branch", id: "branch-1" },
+    });
   });
 });

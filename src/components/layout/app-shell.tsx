@@ -18,12 +18,15 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useState, type ReactNode } from "react";
+import { doc, getDoc } from "firebase/firestore";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { Feedback } from "@/components/ui/feedback";
 import { useDialogFocus } from "@/components/ui/use-dialog-focus";
 import { useAuth } from "@/features/auth/auth-context";
+import { availableOperatingContexts } from "@/features/auth/operating-context";
 import { useConnectivity } from "@/lib/connectivity";
+import { getFirebaseServices } from "@/lib/firebase/client";
 import { cn } from "@/lib/utils";
 
 const navigation = [
@@ -48,16 +51,60 @@ const titleFromPath = (pathname: string) => {
 };
 
 export function AppShell({ children }: { children: ReactNode }) {
-  const { user, profile, loading, error, logout, refreshAuthorization } =
-    useAuth();
+  const {
+    user,
+    profile,
+    accessProfile,
+    operatingContext,
+    setOperatingContext,
+    loading,
+    error,
+    logout,
+    refreshAuthorization,
+  } = useAuth();
   const pathname = usePathname();
   const router = useRouter();
   const [open, setOpen] = useState(false);
+  const [contextNames, setContextNames] = useState<Record<string, string>>({});
+  const contexts = useMemo(
+    () => (accessProfile ? availableOperatingContexts(accessProfile) : []),
+    [accessProfile],
+  );
   const moreSheetRef = useDialogFocus<HTMLElement>(open, () => setOpen(false));
   const { online } = useConnectivity();
   useEffect(() => {
     if (!loading && !user) router.replace("/login");
   }, [loading, user, router]);
+  useEffect(() => {
+    let active = true;
+    if (contexts.length === 0) return;
+    void Promise.all(
+      contexts.map(async (context) => {
+        const snapshot = await getDoc(
+          doc(
+            getFirebaseServices().db,
+            context.type === "warehouse" ? "warehouses" : "branches",
+            context.id,
+          ),
+        );
+        return [
+          `${context.type}:${context.id}`,
+          snapshot.exists()
+            ? String(snapshot.get("name") || snapshot.get("code") || context.id)
+            : context.id,
+        ] as const;
+      }),
+    )
+      .then((entries) => {
+        if (active) setContextNames(Object.fromEntries(entries));
+      })
+      .catch(() => {
+        if (active) setContextNames({});
+      });
+    return () => {
+      active = false;
+    };
+  }, [contexts]);
   if (loading)
     return (
       <main className="grid min-h-dvh place-items-center p-6">
@@ -94,6 +141,12 @@ export function AppShell({ children }: { children: ReactNode }) {
   const active = (href: string) =>
     pathname === href ||
     (href !== "/dashboard" && pathname.startsWith(`${href}/`));
+  const contextValue = operatingContext
+    ? `${operatingContext.type}:${operatingContext.id}`
+    : "";
+  const contextLabel = operatingContext
+    ? `${operatingContext.type === "warehouse" ? "Warehouse" : "Branch"}: ${contextNames[contextValue] ?? operatingContext.id}`
+    : null;
   const desktopNav = (
     <nav aria-label="Desktop navigation" className="space-y-1">
       {navigation.map(([href, label, Icon]) => (
@@ -194,17 +247,45 @@ export function AppShell({ children }: { children: ReactNode }) {
       )}
       <div className="min-w-0 xl:col-start-2">
         <header className="sticky top-0 z-30 flex min-h-16 items-center gap-3 border-b bg-white/95 px-[var(--page-gutter)] backdrop-blur">
-          <div className="min-w-0">
+          <div className="min-w-0 flex-1">
             <p className="truncate text-sm font-semibold md:text-base">
               {titleFromPath(pathname)}
             </p>
             <p className="hidden truncate text-xs text-[var(--muted)] sm:block">
-              AB Ramadan Ltd. · {(profile.roleIds ?? [profile.roleId])
+              AB Ramadan Ltd. · {contextLabel ?? (profile.roleIds ?? [profile.roleId])
                 .map((roleId) => roleId.replaceAll("_", " "))
                 .join(", ")}
             </p>
           </div>
-          <div className="ml-auto flex items-center gap-1">
+          <div className="ml-auto flex min-w-0 items-center gap-1">
+            {contexts.length > 1 && operatingContext && (
+              <label className="min-w-0">
+                <span className="sr-only">Working location</span>
+                <select
+                  aria-label="Working location"
+                  value={contextValue}
+                  onChange={(event) => {
+                    const selected = contexts.find(
+                      (context) =>
+                        `${context.type}:${context.id}` === event.target.value,
+                    );
+                    if (selected) setOperatingContext(selected);
+                  }}
+                  className="min-h-10 max-w-[10rem] rounded-lg border border-slate-300 bg-white px-2 text-xs font-semibold text-slate-800 sm:max-w-[16rem] sm:text-sm"
+                >
+                  {contexts.map((context) => {
+                    const value = `${context.type}:${context.id}`;
+                    const type =
+                      context.type === "warehouse" ? "Warehouse" : "Branch";
+                    return (
+                      <option key={value} value={value}>
+                        {type}: {contextNames[value] ?? context.id}
+                      </option>
+                    );
+                  })}
+                </select>
+              </label>
+            )}
             <Button
               size="icon"
               variant="ghost"
@@ -234,7 +315,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           </div>
         )}
         <main className="min-w-0 px-[var(--page-gutter)] py-[clamp(1rem,2.4vw,2rem)] pb-[calc(5.5rem+env(safe-area-inset-bottom))] xl:pb-8">
-          {children}
+          <div key={contextValue || "organization"}>{children}</div>
         </main>
         <nav
           aria-label="Mobile and tablet navigation"
