@@ -19,6 +19,7 @@ export function writeAuditLog(transaction: Transaction, actor: AccessProfile, ev
     organizationId: actor.organizationId,
     actorUserId: actor.userId,
     actorRoleId: actor.roleId,
+    actorRoleIds: actor.roleIds ?? [actor.roleId],
     ...event,
     createdAt: FieldValue.serverTimestamp(),
   };

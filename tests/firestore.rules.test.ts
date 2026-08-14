@@ -60,6 +60,22 @@ async function seed() {
       branchIds: [],
       warehouseIds: ["warehouse-1"],
     });
+    await db.doc("users/dual-manager").set({
+      organizationId: "org-1",
+      status: "active",
+      roleId: "warehouse_manager",
+      roleIds: ["warehouse_manager", "branch_manager"],
+      branchIds: ["branch-1"],
+      warehouseIds: ["warehouse-1"],
+    });
+    await db.doc("users/canonical-branch-user").set({
+      organizationId: "org-1",
+      status: "active",
+      roleId: "system_administrator",
+      roleIds: ["branch_requester"],
+      branchIds: ["branch-1"],
+      warehouseIds: [],
+    });
     await db.doc("users/finance").set({
       organizationId: "org-1",
       status: "active",
@@ -309,6 +325,21 @@ describe("Firestore baseline rules", () => {
     await assertFails(
       warehouseDb.doc("inventoryTransactions/branch-1-tx").get(),
     );
+  });
+  it("unions branch and warehouse scope for a user with both manager roles", async () => {
+    await seed();
+    const db = environment.authenticatedContext("dual-manager").firestore();
+    await assertSucceeds(db.doc("branches/branch-1").get());
+    await assertSucceeds(db.doc("warehouses/warehouse-1").get());
+    await assertSucceeds(db.doc("inventoryTransactions/branch-1-tx").get());
+    await assertSucceeds(db.doc("inventoryTransactions/warehouse-1-tx").get());
+    await assertFails(db.doc("inventoryTransactions/branch-2-tx").get());
+  });
+  it("does not grant a stale compatibility role when canonical roles exist", async () => {
+    await seed();
+    const db = environment.authenticatedContext("canonical-branch-user").firestore();
+    await assertSucceeds(db.doc("branches/branch-1").get());
+    await assertFails(db.doc("auditLogs/audit-1").get());
   });
   it("denies all direct ledger mutations and protects cost documents", async () => {
     await seed();

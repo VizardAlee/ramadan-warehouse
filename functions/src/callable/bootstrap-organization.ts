@@ -20,7 +20,7 @@ export const bootstrapOrganization = onCall({ enforceAppCheck, secrets: bootstra
   const profileRef = db.collection("users").doc(authentication.uid);
   const bootstrapRef = db.doc("system/bootstrap");
   const requestId = correlationId();
-  const actor: AccessProfile = { userId: authentication.uid, organizationId: organizationRef.id, roleId: "system_administrator", branchIds: [], warehouseIds: [], authorizationVersion: 1 };
+  const actor: AccessProfile = { userId: authentication.uid, organizationId: organizationRef.id, roleId: "system_administrator", roleIds: ["system_administrator"], branchIds: [], warehouseIds: [], authorizationVersion: 1 };
 
   await db.runTransaction(async (transaction) => {
     const [state, organizations, administrators, existingProfile] = await Promise.all([
@@ -30,7 +30,7 @@ export const bootstrapOrganization = onCall({ enforceAppCheck, secrets: bootstra
     if (state.exists || !organizations.empty || !administrators.empty || existingProfile.exists) throw new HttpsError("already-exists", "Organization bootstrap has already been completed.");
     const now = FieldValue.serverTimestamp();
     transaction.create(organizationRef, { ...input.organization, status: "active", createdAt: now, createdBy: authentication.uid, updatedAt: now, updatedBy: authentication.uid });
-    transaction.create(profileRef, { uid: authentication.uid, organizationId: organizationRef.id, email, displayName: typeof authentication.token.name === "string" ? authentication.token.name : email.split("@")[0], roleId: "system_administrator", branchIds: [], warehouseIds: [], status: "active", authDisabled: false, authorizationVersion: 1, createdAt: now, createdBy: authentication.uid, updatedAt: now, updatedBy: authentication.uid });
+    transaction.create(profileRef, { uid: authentication.uid, organizationId: organizationRef.id, email, displayName: typeof authentication.token.name === "string" ? authentication.token.name : email.split("@")[0], roleId: "system_administrator", roleIds: ["system_administrator"], branchIds: [], warehouseIds: [], status: "active", authDisabled: false, authorizationVersion: 1, createdAt: now, createdBy: authentication.uid, updatedAt: now, updatedBy: authentication.uid });
     transaction.create(bootstrapRef, { completed: true, organizationId: organizationRef.id, administratorUid: authentication.uid, completedAt: now, completedBy: authentication.uid, version: 1 });
     writeAuditLog(transaction, actor, { action: "organization.bootstrap", entityType: "organization", entityId: organizationRef.id, correlationId: requestId, sourceFunction: "bootstrapOrganization", after: { code: input.organization.code, administratorUid: authentication.uid } });
   });

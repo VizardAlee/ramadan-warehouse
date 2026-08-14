@@ -21,7 +21,7 @@ export const inventoryLocationSchema = baseEntitySchema.extend({ type: z.enum(in
 });
 export const userProfileSchema = z.object({
   email: z.string().trim().email().max(254), displayName: z.string().trim().min(2).max(120), phoneNumber: z.string().trim().min(7).max(24).optional(), employeeReference: optionalText(80),
-  status: z.enum(["active", "inactive", "suspended"]).default("active"), roleId: z.enum(roleIds), branchIds: z.array(idSchema).max(100).default([]), warehouseIds: z.array(idSchema).max(100).default([]),
+  status: z.enum(["active", "inactive", "suspended"]).default("active"), roleId: z.enum(roleIds), roleIds: z.array(z.enum(roleIds)).min(1).max(roleIds.length).optional(), branchIds: z.array(idSchema).max(100).default([]), warehouseIds: z.array(idSchema).max(100).default([]),
 });
 export type OrganizationInput = z.infer<typeof organizationSchema>;
 export type BranchInput = z.infer<typeof branchSchema>;

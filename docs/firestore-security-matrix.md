@@ -13,4 +13,6 @@
 | Reservations | warehouse/admin/auditor read | denied | related transfer |
 | Notifications, outbox, idempotency, rate limits | denied | denied | server only |
 
+For multi-role profiles, read authority is the union of assigned roles while every organization, branch, warehouse, and related-record scope check still applies. Legacy single-`roleId` profiles and canonical `roleIds` profiles are both recognized during migration.
+
 The final recursive rule denies every unlisted read and write. Authoritative workflow, ledger, notification, audit, and projection mutations are callable/Admin SDK only. Storage is deny-all.

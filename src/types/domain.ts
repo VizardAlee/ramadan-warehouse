@@ -104,6 +104,7 @@ export interface UserProfile {
   employeeReference?: string;
   status: UserStatus;
   roleId: RoleId;
+  roleIds?: RoleId[];
   branchIds: string[];
   warehouseIds: string[];
   authDisabled: boolean;

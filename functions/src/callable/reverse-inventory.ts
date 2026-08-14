@@ -3,6 +3,7 @@ import { logger } from "firebase-functions";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
 import { db } from "../admin.js";
 import {
+  hasRole,
   requireAccess,
   requireBranchScope,
   requirePermission,
@@ -154,7 +155,7 @@ export const reverseInventoryTransaction = onCall(
           scope(actor, id);
         }
       }
-      if (!hasOwnedLocation && actor.roleId !== "system_administrator")
+      if (!hasOwnedLocation && !hasRole(actor, "system_administrator"))
         throw new HttpsError(
           "permission-denied",
           "Organization-wide transaction reversal requires system-administrator authority.",

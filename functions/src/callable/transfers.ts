@@ -9,6 +9,7 @@ import {
 import { HttpsError, onCall } from "firebase-functions/v2/https";
 import { db } from "../admin.js";
 import {
+  hasRole,
   hasServerPermission,
   requireAccess,
   requireBranchScope,
@@ -594,7 +595,7 @@ export const updateTransferDraft = onCall(
         );
       if (
         transfer.get("createdBy") !== actor.userId &&
-        actor.roleId !== "system_administrator"
+        !hasRole(actor, "system_administrator")
       )
         throw new HttpsError(
           "permission-denied",

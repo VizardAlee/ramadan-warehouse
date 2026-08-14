@@ -12,6 +12,7 @@ import {
 } from "firebase-functions/v2/https";
 import { db } from "../admin.js";
 import {
+  hasRole,
   hasServerPermission,
   requireAccess,
   requirePermission,
@@ -29,12 +30,12 @@ function organizationWide(actor: AccessProfile) {
     "operations_administrator",
     "finance_officer",
     "auditor",
-  ].includes(actor.roleId);
+  ].some((roleId) => hasRole(actor, roleId as Parameters<typeof hasRole>[1]));
 }
 
 function scopedQuery(query: Query, actor: AccessProfile): Query {
   if (organizationWide(actor)) return query;
-  if (["warehouse_manager", "warehouse_officer"].includes(actor.roleId)) {
+  if (hasRole(actor, "warehouse_manager") || hasRole(actor, "warehouse_officer")) {
     if (actor.warehouseIds.length === 0)
       throw new HttpsError("permission-denied", "No warehouse is assigned.");
     if (actor.warehouseIds.length > 30)
@@ -44,7 +45,7 @@ function scopedQuery(query: Query, actor: AccessProfile): Query {
       );
     return query.where("warehouseId", "in", actor.warehouseIds);
   }
-  if (actor.roleId === "branch_manager") {
+  if (hasRole(actor, "branch_manager")) {
     if (actor.branchIds.length === 0)
       throw new HttpsError("permission-denied", "No branch is assigned.");
     if (actor.branchIds.length > 30)
@@ -62,9 +63,9 @@ function recordInScope(
   snapshot: FirebaseFirestore.DocumentSnapshot,
 ) {
   if (organizationWide(actor)) return true;
-  if (["warehouse_manager", "warehouse_officer"].includes(actor.roleId))
+  if (hasRole(actor, "warehouse_manager") || hasRole(actor, "warehouse_officer"))
     return actor.warehouseIds.includes(String(snapshot.get("warehouseId")));
-  if (actor.roleId === "branch_manager")
+  if (hasRole(actor, "branch_manager"))
     return actor.branchIds.includes(String(snapshot.get("branchId")));
   return false;
 }

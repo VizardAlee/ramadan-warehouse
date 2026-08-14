@@ -9,6 +9,7 @@ import { logger } from "firebase-functions";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
 import { db } from "../admin.js";
 import {
+  hasRole,
   hasServerPermission,
   requireAccess,
   requireBranchScope,
@@ -64,7 +65,7 @@ function assertDraftOwner(actor: AccessProfile, record: Snapshot) {
   requirePermission(actor, "requests.update_draft");
   if (
     record.get("createdBy") !== actor.userId &&
-    actor.roleId !== "branch_manager" &&
+    !hasRole(actor, "branch_manager") &&
     !hasServerPermission(actor, "requests.read.all")
   )
     throw new HttpsError(

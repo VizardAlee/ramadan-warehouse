@@ -199,7 +199,9 @@ export function AppShell({ children }: { children: ReactNode }) {
               {titleFromPath(pathname)}
             </p>
             <p className="hidden truncate text-xs text-[var(--muted)] sm:block">
-              AB Ramadan Ltd. · {profile.roleId.replaceAll("_", " ")}
+              AB Ramadan Ltd. · {(profile.roleIds ?? [profile.roleId])
+                .map((roleId) => roleId.replaceAll("_", " "))
+                .join(", ")}
             </p>
           </div>
           <div className="ml-auto flex items-center gap-1">

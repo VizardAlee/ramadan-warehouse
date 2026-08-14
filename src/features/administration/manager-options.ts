@@ -1,4 +1,5 @@
 import type { UserProfile } from "@/types/domain";
+import { hasRole } from "@/lib/permissions/roles";
 
 type ManagerRole = "branch_manager" | "warehouse_manager";
 
@@ -7,6 +8,6 @@ export function eligibleManagers(
   roleId: ManagerRole,
 ): UserProfile[] {
   return users.filter(
-    (user) => user.status === "active" && user.roleId === roleId,
+    (user) => user.status === "active" && hasRole(user, roleId),
   );
 }

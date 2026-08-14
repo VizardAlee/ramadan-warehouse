@@ -2,7 +2,7 @@ import { FieldValue } from "firebase-admin/firestore";
 import { logger } from "firebase-functions";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
 import { db } from "../admin.js";
-import { requireAccess, requirePermission, type Permission } from "../auth/authorize.js";
+import { hasRole, normalizeRoleIds, requireAccess, requirePermission, type Permission } from "../auth/authorize.js";
 import { writeAuditLog } from "../audit/write-audit-log.js";
 import { enforceAppCheck } from "../config.js";
 import { branchInput, locationInput, updateOrganizationInput, warehouseInput } from "../validation/administration.js";
@@ -20,7 +20,7 @@ async function validateManagerAssignments(kind: MasterKind, input: Record<string
   if (ids.length === 0) return;
   const profiles = await db.getAll(...ids.map((id) => db.collection("users").doc(id)));
   const expectedRole = kind === "branch" ? "branch_manager" : "warehouse_manager";
-  if (profiles.some((profile) => !profile.exists || profile.get("organizationId") !== organizationId || profile.get("status") !== "active" || profile.get("roleId") !== expectedRole)) throw new HttpsError("failed-precondition", `Managers must be active ${expectedRole.replaceAll("_", " ")} users in this organization.`);
+  if (profiles.some((profile) => !profile.exists || profile.get("organizationId") !== organizationId || profile.get("status") !== "active" || !normalizeRoleIds(profile.get("roleIds"), profile.get("roleId")).includes(expectedRole))) throw new HttpsError("failed-precondition", `Managers must be active ${expectedRole.replaceAll("_", " ")} users in this organization.`);
 }
 
 async function validateLocationOwner(kind: MasterKind, input: Record<string, unknown>, organizationId: string) {
@@ -46,7 +46,7 @@ async function saveMaster(kind: MasterKind, input: Record<string, unknown>, acto
     if (previousOperation.exists) { resultId = previousOperation.get("entityId") as string; saved = false; return; }
     if (codeOwner.exists && codeOwner.get("entityId") !== id) throw new HttpsError("already-exists", `${kind} code is already in use.`);
     if (current.exists && current.get("organizationId") !== actor.organizationId) throw new HttpsError("permission-denied", "Cross-organization updates are not permitted.");
-    if (current.exists && current.get("systemManaged") === true && actor.roleId !== "system_administrator") throw new HttpsError("permission-denied", "This system-managed location cannot be edited.");
+    if (current.exists && current.get("systemManaged") === true && !hasRole(actor, "system_administrator")) throw new HttpsError("permission-denied", "This system-managed location cannot be edited.");
     const now = FieldValue.serverTimestamp();
     const values: Record<string, unknown> = Object.fromEntries(
       Object.entries(input).filter(

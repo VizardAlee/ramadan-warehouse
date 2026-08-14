@@ -7,12 +7,22 @@ service cloud.firestore {
     function profile() { return get(userPath()).data; }
     function active() { return hasProfile() && profile().status == "active"; }
     function sameOrganization(data) { return active() && data.organizationId == profile().organizationId; }
-    function hasRole(role) { return active() && profile().roleId == role; }
+    function hasRole(role) {
+      return active() && (
+        (profile().keys().hasAny(["roleIds"]) && profile().roleIds is list && role in profile().roleIds) ||
+        (!profile().keys().hasAny(["roleIds"]) && profile().roleId == role)
+      );
+    }
     function canManageFoundation() { return hasRole("system_administrator"); }
     function canManageUsers() { return canManageFoundation() || hasRole("operations_administrator"); }
     function canViewOperations() { return canManageUsers() || hasRole("auditor"); }
     function canAudit() { return hasRole("auditor") || hasRole("system_administrator"); }
-    function hasAnyRole(roles) { return active() && profile().roleId in roles; }
+    function hasAnyRole(roles) {
+      return active() && (
+        (profile().keys().hasAny(["roleIds"]) && profile().roleIds is list && profile().roleIds.hasAny(roles)) ||
+        (!profile().keys().hasAny(["roleIds"]) && profile().roleId in roles)
+      );
+    }
     function canReadProducts() { return hasAnyRole(["system_administrator", "operations_administrator", "warehouse_manager", "warehouse_officer", "branch_requester", "branch_manager", "finance_officer", "auditor"]); }
     function canReadOrganizationInventory() { return hasAnyRole(["system_administrator", "operations_administrator", "finance_officer", "auditor"]); }
     function hasInventoryCostAccess() { return hasAnyRole(["system_administrator", "warehouse_manager", "finance_officer", "auditor"]); }

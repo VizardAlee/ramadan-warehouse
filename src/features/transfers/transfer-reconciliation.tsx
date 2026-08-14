@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { callAdministration } from "@/features/administration/api";
 import { useAuth } from "@/features/auth/auth-context";
 import { useConnectivity } from "@/lib/connectivity";
+import { hasRole } from "@/lib/permissions/roles";
 
 interface Check { code: string; status: "pass" | "warning" | "fail"; message: string; expected?: unknown; actual?: unknown }
 interface Result { transferId: string; transferNumber: string; status: "clean" | "warning" | "error"; checkedAt: string; checks: Check[] }
@@ -17,7 +18,7 @@ export function TransferReconciliation() {
   const [result, setResult] = useState<Result | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const authorized = profile && ["system_administrator", "operations_administrator", "auditor"].includes(profile.roleId);
+  const authorized = profile && (["system_administrator", "operations_administrator", "auditor"] as const).some((roleId) => hasRole(profile, roleId));
   if (!authorized) return <p className="rounded-xl border bg-white p-8">Detailed transfer reconciliation is restricted to administrators and auditors.</p>;
   async function run() {
     setLoading(true); setMessage(null);

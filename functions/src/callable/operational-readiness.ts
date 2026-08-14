@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
 import { db } from "../admin.js";
-import { requireAccess } from "../auth/authorize.js";
+import { hasRole, requireAccess, type AccessProfile } from "../auth/authorize.js";
 import { environment, enforceAppCheck } from "../config.js";
 import { enforceRateLimit } from "../security/rate-limit.js";
 import { correlationId, parseInput } from "../utils/callable.js";
@@ -21,13 +21,13 @@ const operationsInput = z.object({
   limit: z.number().int().min(1).max(100).default(50),
 });
 
-const canReconcile = (roleId: string) =>
-  ["system_administrator", "operations_administrator", "auditor"].includes(roleId);
+const canReconcile = (actor: AccessProfile) =>
+  (["system_administrator", "operations_administrator", "auditor"] as const).some((roleId) => hasRole(actor, roleId));
 
 export const reconcileTransfer = onCall({ enforceAppCheck }, async (request) => {
   const started = Date.now();
   const actor = await requireAccess(request);
-  if (!canReconcile(actor.roleId)) throw new HttpsError("permission-denied", "Detailed reconciliation is restricted to administrators and auditors.");
+  if (!canReconcile(actor)) throw new HttpsError("permission-denied", "Detailed reconciliation is restricted to administrators and auditors.");
   const input = parseInput(reconciliationInput, request.data);
   await enforceRateLimit({ organizationId: actor.organizationId, userId: actor.userId, operation: "transfer-reconciliation", limit: 30, windowSeconds: 60 });
   const cid = correlationId();
@@ -38,7 +38,7 @@ export const reconcileTransfer = onCall({ enforceAppCheck }, async (request) => 
 
 export const reconcileWarehouseOperations = onCall({ enforceAppCheck }, async (request) => {
   const actor = await requireAccess(request);
-  if (!canReconcile(actor.roleId)) throw new HttpsError("permission-denied", "Operational reconciliation is restricted to administrators and auditors.");
+  if (!canReconcile(actor)) throw new HttpsError("permission-denied", "Operational reconciliation is restricted to administrators and auditors.");
   const input = parseInput(operationsInput, request.data);
   await enforceRateLimit({ organizationId: actor.organizationId, userId: actor.userId, operation: "operations-reconciliation", limit: 10, windowSeconds: 60 });
   const productTransferIds = input.productId
@@ -83,7 +83,7 @@ export const systemLiveness = onCall({ enforceAppCheck: false }, async () => ({
 
 export const systemReadiness = onCall({ enforceAppCheck }, async (request) => {
   const actor = await requireAccess(request);
-  if (!["system_administrator", "operations_administrator"].includes(actor.roleId))
+  if (!(["system_administrator", "operations_administrator"] as const).some((roleId) => hasRole(actor, roleId)))
     throw new HttpsError("permission-denied", "Detailed readiness is administrator-only.");
   await db.doc(`organizations/${actor.organizationId}`).get();
   const locations = await db.collection("inventoryLocations").where("organizationId", "==", actor.organizationId).where("type", "in", ["goods_in_transit", "damaged", "quarantined", "returned"]).limit(20).get();

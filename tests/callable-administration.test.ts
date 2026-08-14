@@ -53,6 +53,21 @@ describe("administration callables", () => {
     const invitedAuthRecord = await adminAuth.getUserByEmail(payload.email);
     expect(invitedAuthRecord.phoneNumber).toBe("+2347032545288");
     expect((await adminDb.doc(`users/${invitedAuthRecord.uid}`).get()).get("phoneNumber")).toBe("07032545288");
+    const dualManager = await create({
+      email: "dual-manager@example.test",
+      displayName: "Dual Manager",
+      roleIds: ["branch_manager", "warehouse_manager"],
+      branchIds: [],
+      warehouseIds: [],
+      status: "active",
+      idempotencyKey: crypto.randomUUID(),
+    });
+    expect(dualManager.data).toMatchObject({ created: true });
+    const dualManagerAuth = await adminAuth.getUserByEmail("dual-manager@example.test");
+    expect((await adminDb.doc(`users/${dualManagerAuth.uid}`).get()).data()).toMatchObject({
+      roleId: "warehouse_manager",
+      roleIds: ["warehouse_manager", "branch_manager"],
+    });
 
     const organizationId = bootstrap.get("organizationId") as string;
     const opsRecord = await adminAuth.createUser({ email: "ops@example.test", password: "Password!234567", displayName: "Operations Admin" });
@@ -86,6 +101,18 @@ describe("administration callables", () => {
     const warehouseResult = await warehouse({ name: "Central Warehouse", code: "central", managerIds: [], status: "active", idempotencyKey: crypto.randomUUID() });
     const savedWarehouse = await adminDb.doc(`warehouses/${(warehouseResult.data as { id: string }).id}`).get();
     expect(savedWarehouse.data()).toMatchObject({ name: "Central Warehouse", code: "CENTRAL", managerIds: [] });
+
+    const manager = await adminAuth.getUserByEmail("dual-manager@example.test");
+    const updateUser = httpsCallable(administrator.functions, "updateOrganizationUser");
+    await updateUser({ userId: manager.uid, roleIds: ["branch_manager"], branchIds: [saved.id], warehouseIds: [], reason: "Reassign manager roles", idempotencyKey: crypto.randomUUID() });
+    expect((await adminDb.doc(`users/${manager.uid}`).get()).data()).toMatchObject({ roleId: "branch_manager", roleIds: ["branch_manager"], branchIds: [saved.id], warehouseIds: [] });
+    await updateUser({ userId: manager.uid, roleIds: ["branch_manager", "warehouse_manager"], branchIds: [saved.id], warehouseIds: [savedWarehouse.id], reason: "Grant dual manager roles", idempotencyKey: crypto.randomUUID() });
+    expect((await adminDb.doc(`users/${manager.uid}`).get()).data()).toMatchObject({ roleId: "warehouse_manager", roleIds: ["warehouse_manager", "branch_manager"], branchIds: [saved.id], warehouseIds: [savedWarehouse.id] });
+
+    await save({ id: saved.id, name: "Lagos Branch", code: "lag", managerUserId: manager.uid, status: "active", idempotencyKey: crypto.randomUUID() });
+    await warehouse({ id: savedWarehouse.id, name: "Central Warehouse", code: "central", managerIds: [manager.uid], status: "active", idempotencyKey: crypto.randomUUID() });
+    expect((await adminDb.doc(`branches/${saved.id}`).get()).get("managerUserId")).toBe(manager.uid);
+    expect((await adminDb.doc(`warehouses/${savedWarehouse.id}`).get()).get("managerIds")).toEqual([manager.uid]);
   });
 
   it("protects organization scope and the final active administrator", async () => {

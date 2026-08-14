@@ -324,6 +324,7 @@ export interface AccessProfile {
   readonly userId: string;
   readonly organizationId: string;
   readonly roleId: RoleId;
+  readonly roleIds?: readonly RoleId[];
   readonly branchIds: readonly string[];
   readonly warehouseIds: readonly string[];
   readonly authorizationVersion: number;
@@ -339,8 +340,41 @@ function isRole(value: unknown): value is RoleId {
   );
 }
 
+export function normalizeRoleIds(
+  roleIds: unknown,
+  legacyRoleId?: unknown,
+): RoleId[] {
+  const selected = new Set<RoleId>();
+  if (Array.isArray(roleIds)) {
+    for (const roleId of roleIds) if (isRole(roleId)) selected.add(roleId);
+  }
+  if (selected.size === 0 && isRole(legacyRoleId)) selected.add(legacyRoleId);
+  return roles.filter((roleId) => selected.has(roleId));
+}
+
+export function accessRoleIds(
+  actor: Pick<AccessProfile, "roleId" | "roleIds">,
+): readonly RoleId[] {
+  return normalizeRoleIds(actor.roleIds, actor.roleId);
+}
+
+export function hasRole(
+  actor: Pick<AccessProfile, "roleId" | "roleIds">,
+  roleId: RoleId,
+): boolean {
+  return accessRoleIds(actor).includes(roleId);
+}
+
 export function canAssignRole(actorRole: RoleId, targetRole: RoleId): boolean {
   return assignableRoles[actorRole]?.includes(targetRole) ?? false;
+}
+export function canAssignRoles(
+  actor: Pick<AccessProfile, "roleId" | "roleIds">,
+  targetRoles: readonly RoleId[],
+): boolean {
+  return targetRoles.every((targetRole) =>
+    accessRoleIds(actor).some((actorRole) => canAssignRole(actorRole, targetRole)),
+  );
 }
 export function assertAssignableRole(
   actor: AccessProfile,
@@ -352,10 +386,26 @@ export function assertAssignableRole(
       "permission-denied",
       "You cannot change your own role.",
     );
-  if (!canAssignRole(actor.roleId, targetRole))
+  if (!canAssignRoles(actor, [targetRole]))
     throw new HttpsError(
       "permission-denied",
       "You cannot assign the requested role.",
+    );
+}
+export function assertAssignableRoles(
+  actor: AccessProfile,
+  targetUserId: string | undefined,
+  targetRoles: readonly RoleId[],
+): void {
+  if (targetUserId === actor.userId)
+    throw new HttpsError(
+      "permission-denied",
+      "You cannot change your own roles.",
+    );
+  if (targetRoles.length === 0 || !canAssignRoles(actor, targetRoles))
+    throw new HttpsError(
+      "permission-denied",
+      "You cannot assign one or more of the requested roles.",
     );
 }
 export function assertAssignmentScope(
@@ -364,8 +414,8 @@ export function assertAssignmentScope(
   warehouseIds: readonly string[],
 ): void {
   if (
-    actor.roleId === "system_administrator" ||
-    actor.roleId === "operations_administrator"
+    hasRole(actor, "system_administrator") ||
+    hasRole(actor, "operations_administrator")
   )
     return;
   if (branchIds.some((id) => !actor.branchIds.includes(id)))
@@ -401,7 +451,7 @@ export async function requireAccess(
     record.status !== "active" ||
     record.authDisabled === true ||
     typeof record.organizationId !== "string" ||
-    !isRole(record.roleId)
+    normalizeRoleIds(record.roleIds, record.roleId).length === 0
   )
     throw new HttpsError(
       "permission-denied",
@@ -427,10 +477,12 @@ export async function requireAccess(
       "Your authorization has changed. Refresh your session.",
       { code: "OUTDATED_VERSION", retryable: true },
     );
+  const roleIds = normalizeRoleIds(record.roleIds, record.roleId);
   return {
     userId,
     organizationId: record.organizationId,
-    roleId: record.roleId,
+    roleId: roleIds[0]!,
+    roleIds,
     branchIds: stringArray(record.branchIds),
     warehouseIds: stringArray(record.warehouseIds),
     authorizationVersion:
@@ -443,7 +495,7 @@ export function requirePermission(
   actor: AccessProfile,
   permission: Permission,
 ): void {
-  if (!rolePermissions[actor.roleId].includes(permission))
+  if (!hasServerPermission(actor, permission))
     throw new HttpsError(
       "permission-denied",
       "You do not have permission for this operation.",
@@ -453,7 +505,9 @@ export function hasServerPermission(
   actor: AccessProfile,
   permission: Permission,
 ): boolean {
-  return rolePermissions[actor.roleId].includes(permission);
+  return accessRoleIds(actor).some((roleId) =>
+    rolePermissions[roleId].includes(permission),
+  );
 }
 export function requireWarehouseScope(
   actor: AccessProfile,
@@ -465,7 +519,7 @@ export function requireWarehouseScope(
       "operations_administrator",
       "auditor",
       "finance_officer",
-    ].includes(actor.roleId)
+    ].some((roleId) => hasRole(actor, roleId as RoleId))
   )
     return;
   if (!actor.warehouseIds.includes(warehouseId))
@@ -484,7 +538,7 @@ export function requireBranchScope(
       "operations_administrator",
       "auditor",
       "finance_officer",
-    ].includes(actor.roleId)
+    ].some((roleId) => hasRole(actor, roleId as RoleId))
   )
     return;
   if (!actor.branchIds.includes(branchId))

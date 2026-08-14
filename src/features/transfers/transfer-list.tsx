@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { callAdministration } from "@/features/administration/api";
 import { useAuth } from "@/features/auth/auth-context";
-import { hasPermission } from "@/lib/permissions/roles";
+import { hasPermission, hasRole } from "@/lib/permissions/roles";
 import type { WarehouseTransfer } from "@/types/domain";
 
 const queueStatus: Record<string, string> = {
@@ -145,7 +145,7 @@ export function TransferList({ view = "all" }: { view?: string }) {
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          {["system_administrator", "operations_administrator", "auditor"].includes(profile.roleId) && (
+          {(["system_administrator", "operations_administrator", "auditor"] as const).some((roleId) => hasRole(profile, roleId)) && (
             <Link className="inline-flex min-h-10 items-center rounded-lg border bg-white px-4 text-sm font-semibold" href="/transfers/reconciliation">Reconciliation</Link>
           )}
           {hasPermission(profile, "reports.transfers.export") &&

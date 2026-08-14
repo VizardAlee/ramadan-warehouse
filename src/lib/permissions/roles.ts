@@ -1,4 +1,4 @@
-import type { PermissionId, RoleId, UserProfile } from "@/types/domain";
+import { roleIds, type PermissionId, type RoleId, type UserProfile } from "@/types/domain";
 
 const permissionsByRole: Readonly<Record<RoleId, readonly PermissionId[]>> = {
   system_administrator: [
@@ -252,11 +252,27 @@ export function permissionsForRoles(
 }
 
 export function hasPermission(
-  profile: Pick<UserProfile, "status" | "roleId">,
+  profile: Pick<UserProfile, "status" | "roleId" | "roleIds">,
   permission: PermissionId,
 ): boolean {
   if (profile.status !== "active") return false;
-  return permissionsForRoles([profile.roleId]).has(permission);
+  return permissionsForRoles(roleIdsForProfile(profile)).has(permission);
+}
+
+export function roleIdsForProfile(
+  profile: Pick<UserProfile, "roleId" | "roleIds">,
+): readonly RoleId[] {
+  const selected = new Set(
+    profile.roleIds?.length ? profile.roleIds : [profile.roleId],
+  );
+  return roleIds.filter((roleId) => selected.has(roleId));
+}
+
+export function hasRole(
+  profile: Pick<UserProfile, "roleId" | "roleIds">,
+  roleId: RoleId,
+): boolean {
+  return roleIdsForProfile(profile).includes(roleId);
 }
 
 export function isAssignedToBranch(

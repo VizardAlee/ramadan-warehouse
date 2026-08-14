@@ -7,6 +7,7 @@ export const getMyAccessContext = onCall({ enforceAppCheck }, async (request) =>
   return {
     organizationId: profile.organizationId,
     roleId: profile.roleId,
+    roleIds: profile.roleIds ?? [profile.roleId],
     branchIds: profile.branchIds,
     warehouseIds: profile.warehouseIds,
     authorizationVersion: profile.authorizationVersion,

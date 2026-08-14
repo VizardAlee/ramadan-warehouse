@@ -11,7 +11,7 @@ import { useDialogFocus } from "@/components/ui/use-dialog-focus";
 import { useAuth } from "@/features/auth/auth-context";
 import { callAdministration } from "@/features/administration/api";
 import { useOrganizationCollection } from "@/features/administration/use-organization-collection";
-import { hasPermission } from "@/lib/permissions/roles";
+import { hasPermission, roleIdsForProfile } from "@/lib/permissions/roles";
 import {
   roleIds,
   type Branch,
@@ -30,7 +30,7 @@ const formSchema = z.object({
     ])
     .optional(),
   employeeReference: z.string().optional(),
-  roleId: z.enum(roleIds),
+  roleIds: z.array(z.enum(roleIds)).min(1),
   branchIds: z.array(z.string()),
   warehouseIds: z.array(z.string()),
   status: z.enum(["active", "inactive", "suspended"]),
@@ -41,7 +41,7 @@ const defaults: Values = {
   displayName: "",
   phoneNumber: "",
   employeeReference: "",
-  roleId: "branch_requester",
+  roleIds: ["branch_requester"],
   branchIds: [],
   warehouseIds: [],
   status: "active",
@@ -82,7 +82,7 @@ export default function UsersPage() {
             `${user.displayName} ${user.email}`
               .toLowerCase()
               .includes(search.toLowerCase())) &&
-          (!role || user.roleId === role) &&
+          (!role || roleIdsForProfile(user).includes(role as (typeof roleIds)[number])) &&
           (!status || user.status === status) &&
           (!branchId || user.branchIds.includes(branchId)) &&
           (!warehouseId || user.warehouseIds.includes(warehouseId)),
@@ -99,7 +99,7 @@ export default function UsersPage() {
             displayName: user.displayName,
             phoneNumber: user.phoneNumber ?? "",
             employeeReference: user.employeeReference ?? "",
-            roleId: user.roleId,
+            roleIds: [...roleIdsForProfile(user)],
             branchIds: user.branchIds,
             warehouseIds: user.warehouseIds,
             status: user.status,
@@ -269,7 +269,7 @@ export default function UsersPage() {
             <tr>
               {[
                 "User",
-                "Role",
+                "Roles",
                 "Branches",
                 "Warehouses",
                 "Status",
@@ -301,8 +301,10 @@ export default function UsersPage() {
                       {user.email}
                     </span>
                   </td>
-                  <td data-label="Role" className="capitalize">
-                    {user.roleId.replaceAll("_", " ")}
+                  <td data-label="Roles" className="capitalize">
+                    {roleIdsForProfile(user)
+                      .map((roleId) => roleId.replaceAll("_", " "))
+                      .join(", ")}
                   </td>
                   <td data-label="Branches">{user.branchIds.length}</td>
                   <td data-label="Warehouses">{user.warehouseIds.length}</td>
@@ -388,19 +390,25 @@ export default function UsersPage() {
                   className="mt-1 w-full rounded-lg border p-2.5"
                 />
               </label>
-              <label className="text-sm">
-                Role
-                <select
-                  {...register("roleId")}
-                  className="mt-1 w-full rounded-lg border p-2.5"
-                >
+              <fieldset className="rounded-lg border p-3 text-sm">
+                <legend className="px-1">Roles</legend>
+                <p className="mb-2 text-xs text-[var(--muted)]">
+                  Select every role this user should hold.
+                </p>
+                <div className="grid gap-2 sm:grid-cols-2">
                   {roleIds.map((id) => (
-                    <option key={id} value={id}>
+                    <label key={id} className="flex items-center gap-2 capitalize">
+                      <input type="checkbox" value={id} {...register("roleIds")} />
                       {id.replaceAll("_", " ")}
-                    </option>
+                    </label>
                   ))}
-                </select>
-              </label>
+                </div>
+                {errors.roleIds && (
+                  <span className="mt-2 block text-xs text-red-700">
+                    Select at least one role
+                  </span>
+                )}
+              </fieldset>
               <label className="text-sm">
                 Status
                 <select

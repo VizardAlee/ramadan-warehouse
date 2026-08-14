@@ -26,8 +26,18 @@ const userPhone = z.preprocess(
 );
 export const organizationInput = z.object({ legalName: z.string().trim().min(2).max(160), tradingName: text(160), code, registrationNumber: text(80), contactEmail: optionalEmail, phoneNumbers: z.array(z.string().trim().min(7).max(24)).max(5).default([]), address: text(500), defaultCurrency: z.literal("NGN").default("NGN"), timezone: z.string().trim().min(1).default("Africa/Lagos") });
 export const bootstrapInput = z.object({ organization: organizationInput, bootstrapSecret: z.string().min(16).max(512).optional() });
-export const userInput = z.object({ email: z.string().trim().toLowerCase().email().max(254), displayName: z.string().trim().min(2).max(120), phoneNumber: userPhone, employeeReference: text(80), roleId: z.enum(roles), branchIds: z.array(id).max(100).default([]), warehouseIds: z.array(id).max(100).default([]), status: z.enum(["active", "inactive", "suspended"]).default("active"), idempotencyKey: z.string().uuid() });
-export const updateUserInput = userInput.omit({ email: true, idempotencyKey: true }).partial().extend({ userId: id, reason: z.string().trim().min(3).max(500), idempotencyKey: z.string().uuid() });
+const roleSelection = {
+  roleId: z.enum(roles).optional(),
+  roleIds: z.array(z.enum(roles)).min(1).max(roles.length).optional(),
+};
+const userFields = z.object({ email: z.string().trim().toLowerCase().email().max(254), displayName: z.string().trim().min(2).max(120), phoneNumber: userPhone, employeeReference: text(80), ...roleSelection, branchIds: z.array(id).max(100).default([]), warehouseIds: z.array(id).max(100).default([]), status: z.enum(["active", "inactive", "suspended"]).default("active"), idempotencyKey: z.string().uuid() });
+export const userInput = userFields.superRefine((value, context) => {
+  if (!value.roleId && !value.roleIds?.length) context.addIssue({ code: "custom", path: ["roleIds"], message: "Select at least one role" });
+  if (value.roleIds && new Set(value.roleIds).size !== value.roleIds.length) context.addIssue({ code: "custom", path: ["roleIds"], message: "Roles must be unique" });
+});
+export const updateUserInput = userFields.omit({ email: true, idempotencyKey: true }).partial().extend({ userId: id, reason: z.string().trim().min(3).max(500), idempotencyKey: z.string().uuid() }).superRefine((value, context) => {
+  if (value.roleIds && new Set(value.roleIds).size !== value.roleIds.length) context.addIssue({ code: "custom", path: ["roleIds"], message: "Roles must be unique" });
+});
 export const revokeSessionsInput = z.object({ userId: id, reason: z.string().trim().min(3).max(500) });
 const baseMaster = z.object({ id: optionalId, name: z.string().trim().min(2).max(120), code, status: z.enum(["active", "inactive"]).default("active"), address: text(500), state: text(80) });
 export const branchInput = baseMaster.extend({ contactEmail: optionalEmail, contactPhone: text(24), managerUserId: optionalId, idempotencyKey: z.string().uuid() });

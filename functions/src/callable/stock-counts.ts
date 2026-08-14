@@ -3,6 +3,7 @@ import { logger } from "firebase-functions";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
 import { db } from "../admin.js";
 import {
+  hasRole,
   requireBranchScope,
   requireAccess,
   requirePermission,
@@ -32,7 +33,7 @@ function requireCountScope(
   if (
     typeof warehouseId !== "string" &&
     typeof branchId !== "string" &&
-    actor.roleId !== "system_administrator"
+    !hasRole(actor, "system_administrator")
   )
     throw new HttpsError(
       "permission-denied",
@@ -57,8 +58,8 @@ export const getStockCountWorkspace = onCall(
       actor.userId,
     );
     const canReview =
-      actor.roleId === "system_administrator" ||
-      actor.roleId === "warehouse_manager";
+      hasRole(actor, "system_administrator") ||
+      hasRole(actor, "warehouse_manager");
     if (!assigned && !canReview)
       throw new HttpsError(
         "permission-denied",
@@ -333,7 +334,7 @@ export const submitStockCount = onCall({ enforceAppCheck }, async (request) => {
     requireCountScope(actor, count);
     if (
       !(count.get("assignedUserIds") as string[]).includes(actor.userId) &&
-      actor.roleId !== "system_administrator"
+      !hasRole(actor, "system_administrator")
     )
       throw new HttpsError(
         "permission-denied",
