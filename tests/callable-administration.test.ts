@@ -86,7 +86,7 @@ describe("administration callables", () => {
   });
 
   it("saves master data idempotently", async () => {
-    const state = await adminDb.doc("system/bootstrap").get(); const administratorUid = state.get("administratorUid") as string;
+    const state = await adminDb.doc("system/bootstrap").get(); const administratorUid = state.get("administratorUid") as string; const organizationId = state.get("organizationId") as string;
     const administratorEmail = (await adminAuth.getUser(administratorUid)).email!; const administrator = client("master-administrator"); await signInWithEmailAndPassword(administrator.auth, administratorEmail, "Password!234567");
     const save = httpsCallable(administrator.functions, "saveBranch"); const idempotencyKey = crypto.randomUUID();
     const payload = { id: null, name: "Lagos Branch", code: "lag", contactEmail: "", managerUserId: "", status: "active", idempotencyKey };
@@ -113,6 +113,14 @@ describe("administration callables", () => {
     await warehouse({ id: savedWarehouse.id, name: "Central Warehouse", code: "central", managerIds: [manager.uid], status: "active", idempotencyKey: crypto.randomUUID() });
     expect((await adminDb.doc(`branches/${saved.id}`).get()).get("managerUserId")).toBe(manager.uid);
     expect((await adminDb.doc(`warehouses/${savedWarehouse.id}`).get()).get("managerIds")).toEqual([manager.uid]);
+
+    const replacement = await adminAuth.createUser({ email: "replacement-manager@example.test", password: "Password!234567", displayName: "Replacement Manager" });
+    await adminDb.doc(`users/${replacement.uid}`).set({ uid: replacement.uid, organizationId, email: replacement.email, displayName: replacement.displayName, roleId: "warehouse_manager", roleIds: ["warehouse_manager", "branch_manager"], branchIds: [], warehouseIds: [], status: "active", authDisabled: false, authorizationVersion: 1 });
+    await save({ id: saved.id, name: "Lagos Branch", code: "lag", managerUserId: replacement.uid, status: "active", idempotencyKey: crypto.randomUUID() });
+    await warehouse({ id: savedWarehouse.id, name: "Central Warehouse", code: "central", managerIds: [replacement.uid], status: "active", idempotencyKey: crypto.randomUUID() });
+    expect((await adminDb.doc(`users/${replacement.uid}`).get()).data()).toMatchObject({ branchIds: [saved.id], warehouseIds: [savedWarehouse.id], authorizationVersion: 3 });
+    expect((await adminAuth.getUser(replacement.uid)).customClaims).toMatchObject({ organizationId, authorizationVersion: 3 });
+    expect((await adminDb.doc(`users/${manager.uid}`).get()).data()).toMatchObject({ branchIds: [], warehouseIds: [] });
   });
 
   it("protects organization scope and the final active administrator", async () => {

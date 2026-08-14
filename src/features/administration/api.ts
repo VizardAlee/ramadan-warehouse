@@ -10,8 +10,32 @@ export function sanitizeCallableInput<TInput extends object>(
   ) as TInput;
 }
 
+function isOutdatedAuthorization(error: unknown) {
+  if (typeof error !== "object" || error === null || !("details" in error))
+    return false;
+  const details = error.details;
+  return (
+    typeof details === "object" &&
+    details !== null &&
+    "code" in details &&
+    details.code === "OUTDATED_VERSION"
+  );
+}
+
 export async function callAdministration<TInput extends object, TResult>(name: string, input: TInput): Promise<TResult> {
   const callable = httpsCallable<TInput, TResult>(getFirebaseServices().functions, name);
-  try { return (await callable(sanitizeCallableInput(input))).data; }
-  catch (error) { throw toUserFacingError(error); }
+  const sanitizedInput = sanitizeCallableInput(input);
+  try { return (await callable(sanitizedInput)).data; }
+  catch (error) {
+    const currentUser = getFirebaseServices().auth.currentUser;
+    if (currentUser && isOutdatedAuthorization(error)) {
+      try {
+        await currentUser.getIdToken(true);
+        return (await callable(sanitizedInput)).data;
+      } catch (retryError) {
+        throw toUserFacingError(retryError);
+      }
+    }
+    throw toUserFacingError(error);
+  }
 }

@@ -1,7 +1,7 @@
 import { FieldValue } from "firebase-admin/firestore";
 import { logger } from "firebase-functions";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
-import { db } from "../admin.js";
+import { adminAuth, db } from "../admin.js";
 import { hasRole, normalizeRoleIds, requireAccess, requirePermission, type Permission } from "../auth/authorize.js";
 import { writeAuditLog } from "../audit/write-audit-log.js";
 import { enforceAppCheck } from "../config.js";
@@ -14,6 +14,43 @@ const configuration = {
   warehouse: { collection: "warehouses", permission: "warehouse.manage" as Permission },
   inventoryLocation: { collection: "inventoryLocations", permission: "location.manage" as Permission },
 };
+
+function managerIds(kind: MasterKind, values: Record<string, unknown>) {
+  if (kind === "branch")
+    return typeof values.managerUserId === "string"
+      ? [values.managerUserId]
+      : [];
+  if (kind === "warehouse")
+    return Array.isArray(values.managerIds)
+      ? values.managerIds.filter(
+          (managerId): managerId is string => typeof managerId === "string",
+        )
+      : [];
+  return [];
+}
+
+function stringArray(value: unknown) {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string")
+    : [];
+}
+
+async function refreshManagerClaims(userIds: readonly string[]) {
+  await Promise.all(
+    userIds.map(async (userId) => {
+      const [profile, authUser] = await Promise.all([
+        db.collection("users").doc(userId).get(),
+        adminAuth.getUser(userId),
+      ]);
+      if (!profile.exists) return;
+      await adminAuth.setCustomUserClaims(userId, {
+        ...authUser.customClaims,
+        organizationId: profile.get("organizationId"),
+        authorizationVersion: profile.get("authorizationVersion"),
+      });
+    }),
+  );
+}
 
 async function validateManagerAssignments(kind: MasterKind, input: Record<string, unknown>, organizationId: string) {
   const ids = kind === "branch" && typeof input.managerUserId === "string" ? [input.managerUserId] : kind === "warehouse" && Array.isArray(input.managerIds) ? input.managerIds as string[] : [];
@@ -35,15 +72,58 @@ async function saveMaster(kind: MasterKind, input: Record<string, unknown>, acto
   const config = configuration[kind]; requirePermission(actor, config.permission);
   const operation = db.collection("idempotencyKeys").doc(`${actor.organizationId}_save${kind}_${String(input.idempotencyKey)}`);
   const prior = await operation.get();
-  if (prior.exists && prior.get("status") === "completed") return { id: prior.get("entityId") as string, saved: false };
+  if (prior.exists && prior.get("status") === "completed") {
+    await refreshManagerClaims(stringArray(prior.get("authorizationUserIds")));
+    return { id: prior.get("entityId") as string, saved: false };
+  }
   await Promise.all([validateManagerAssignments(kind, input, actor.organizationId), validateLocationOwner(kind, input, actor.organizationId)]);
   const id = typeof input.id === "string" ? input.id : db.collection(config.collection).doc().id;
   const reference = db.collection(config.collection).doc(id); const code = String(input.code); const codeReference = db.collection("organizationCodes").doc(`${actor.organizationId}_${kind}_${code}`);
   const requestId = correlationId();
   let resultId = id; let saved = true;
+  let authorizationUserIds: string[] = [];
   await db.runTransaction(async (transaction) => {
     const [current, codeOwner, previousOperation] = await Promise.all([transaction.get(reference), transaction.get(codeReference), transaction.get(operation)]);
-    if (previousOperation.exists) { resultId = previousOperation.get("entityId") as string; saved = false; return; }
+    if (previousOperation.exists) {
+      resultId = previousOperation.get("entityId") as string;
+      authorizationUserIds = stringArray(
+        previousOperation.get("authorizationUserIds"),
+      );
+      saved = false;
+      return;
+    }
+    const previousManagerIds = current.exists
+      ? managerIds(kind, current.data() as Record<string, unknown>)
+      : [];
+    const nextManagerIds = managerIds(kind, input);
+    const affectedManagerIds = [
+      ...new Set([...previousManagerIds, ...nextManagerIds]),
+    ];
+    const managerProfiles = affectedManagerIds.length
+      ? await transaction.getAll(
+          ...affectedManagerIds.map((userId) =>
+            db.collection("users").doc(userId),
+          ),
+        )
+      : [];
+    const expectedRole = kind === "branch" ? "branch_manager" : "warehouse_manager";
+    if (
+      managerProfiles.some(
+        (profile) =>
+          nextManagerIds.includes(profile.id) &&
+          (!profile.exists ||
+            profile.get("organizationId") !== actor.organizationId ||
+            profile.get("status") !== "active" ||
+            !normalizeRoleIds(
+              profile.get("roleIds"),
+              profile.get("roleId"),
+            ).includes(expectedRole)),
+      )
+    )
+      throw new HttpsError(
+        "failed-precondition",
+        `Managers must be active ${expectedRole.replaceAll("_", " ")} users in this organization.`,
+      );
     if (codeOwner.exists && codeOwner.get("entityId") !== id) throw new HttpsError("already-exists", `${kind} code is already in use.`);
     if (current.exists && current.get("organizationId") !== actor.organizationId) throw new HttpsError("permission-denied", "Cross-organization updates are not permitted.");
     if (current.exists && current.get("systemManaged") === true && !hasRole(actor, "system_administrator")) throw new HttpsError("permission-denied", "This system-managed location cannot be edited.");
@@ -55,12 +135,42 @@ async function saveMaster(kind: MasterKind, input: Record<string, unknown>, acto
     );
     Object.assign(values, { organizationId: actor.organizationId, updatedAt: now, updatedBy: actor.userId });
     if (current.exists) transaction.update(reference, values); else transaction.create(reference, { ...values, createdAt: now, createdBy: actor.userId });
+    const assignmentField = kind === "branch" ? "branchIds" : "warehouseIds";
+    authorizationUserIds = [];
+    for (const profile of managerProfiles) {
+      if (!profile.exists) continue;
+      const beforeAssignments = stringArray(profile.get(assignmentField));
+      const afterAssignments = nextManagerIds.includes(profile.id)
+        ? [...new Set([...beforeAssignments, id])]
+        : beforeAssignments.filter((assignmentId) => assignmentId !== id);
+      if (JSON.stringify(afterAssignments) === JSON.stringify(beforeAssignments))
+        continue;
+      const authorizationVersion =
+        Number(profile.get("authorizationVersion") ?? 1) + 1;
+      transaction.update(profile.ref, {
+        [assignmentField]: afterAssignments,
+        authorizationVersion,
+        updatedAt: now,
+        updatedBy: actor.userId,
+      });
+      authorizationUserIds.push(profile.id);
+      writeAuditLog(transaction, actor, {
+        action: `user.${kind === "branch" ? "branch" : "warehouse"}_assignments_changed`,
+        entityType: "user",
+        entityId: profile.id,
+        correlationId: requestId,
+        sourceFunction: "saveAdministrativeMaster",
+        before: { [assignmentField]: beforeAssignments },
+        after: { [assignmentField]: afterAssignments },
+      });
+    }
     const previousCode = current.exists ? String(current.get("code")) : undefined;
     if (previousCode && previousCode !== code) transaction.delete(db.collection("organizationCodes").doc(`${actor.organizationId}_${kind}_${previousCode}`));
     transaction.set(codeReference, { organizationId: actor.organizationId, kind, code, entityId: id, updatedAt: now });
-    transaction.create(operation, { organizationId: actor.organizationId, action: `save${kind}`, entityId: id, status: "completed", createdAt: now, createdBy: actor.userId });
+    transaction.create(operation, { organizationId: actor.organizationId, action: `save${kind}`, entityId: id, status: "completed", authorizationUserIds, createdAt: now, createdBy: actor.userId });
     writeAuditLog(transaction, actor, { action: `${kind}.${current.exists ? "updated" : "created"}`, entityType: kind, entityId: id, correlationId: requestId, sourceFunction: "saveAdministrativeMaster", before: current.exists ? { code: current.get("code"), status: current.get("status") } : undefined, after: { code, status: input.status } });
   });
+  await refreshManagerClaims(authorizationUserIds);
   if (saved) logger.info("Administrative master saved", { organizationId: actor.organizationId, actorUserId: actor.userId, kind, entityId: resultId, correlationId: requestId });
   return { id: resultId, saved };
 }

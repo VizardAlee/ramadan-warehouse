@@ -8,39 +8,48 @@ import {
   formatQuantity,
 } from "@/features/inventory/format";
 import type { InventoryBalance } from "@/types/domain";
+
+function fetchStockPosition(cursor?: string) {
+  return callAdministration<
+    object,
+    { rows: InventoryBalance[]; nextCursor: string | null }
+  >("generateStockPositionReport", {
+    cursor,
+    limit: 50,
+    includeCosts: true,
+  });
+}
+
 export default function InventoryPage() {
   const [rows, setRows] = useState<InventoryBalance[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   async function load(next?: string) {
     try {
-      const result = await callAdministration<
-        object,
-        { rows: InventoryBalance[]; nextCursor: string | null }
-      >("generateStockPositionReport", {
-        cursor: next,
-        limit: 50,
-        includeCosts: true,
-      });
+      const result = await fetchStockPosition(next);
       setRows((current) => (next ? [...current, ...result.rows] : result.rows));
       setCursor(result.nextCursor);
-    } catch {
-      setError("Unable to load inventory position.");
+    } catch (cause) {
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : "Unable to load inventory position.",
+      );
     }
   }
   useEffect(() => {
-    void callAdministration<
-      object,
-      { rows: InventoryBalance[]; nextCursor: string | null }
-    >("generateStockPositionReport", {
-      limit: 50,
-      includeCosts: true,
-    })
+    void fetchStockPosition()
       .then((result) => {
         setRows(result.rows);
         setCursor(result.nextCursor);
       })
-      .catch(() => setError("Unable to load inventory position."));
+      .catch((cause) =>
+        setError(
+          cause instanceof Error
+            ? cause.message
+            : "Unable to load inventory position.",
+        ),
+      );
   }, []);
   const totals = rows.reduce(
     (value, row) => ({
