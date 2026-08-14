@@ -187,11 +187,13 @@ const rolePermissions: Readonly<Record<RoleId, readonly Permission[]>> = {
     "products.update",
     "inventory.read",
     "inventory.receive",
+    "inventory.opening_stock",
     "inventory.move_internal",
     "inventory.adjust",
     "inventory.reverse",
     "inventory.count",
     "inventory.count_review",
+    "inventory.reconcile",
     "inventory.cost.read",
     "inventory.cost.manage",
     "reports.inventory.read",
@@ -225,6 +227,8 @@ const rolePermissions: Readonly<Record<RoleId, readonly Permission[]>> = {
     "transfers.resolve_discrepancy",
     "transfers.cost.read",
     "transfers.cost.create",
+    "transfers.cost.approve",
+    "transfers.cost.reconcile",
     "transfers.close",
     "reports.transfers.read",
     "reports.transfers.export",
@@ -252,16 +256,30 @@ const rolePermissions: Readonly<Record<RoleId, readonly Permission[]>> = {
   branch_manager: [
     "products.read",
     "inventory.read",
+    "inventory.receive",
+    "inventory.opening_stock",
+    "inventory.move_internal",
+    "inventory.adjust",
+    "inventory.reverse",
+    "inventory.count",
+    "inventory.count_review",
+    "inventory.reconcile",
+    "reports.inventory.read",
+    "reports.inventory.export",
     "requests.read.own_branch",
     "requests.create",
     "requests.update_draft",
     "requests.submit",
     "requests.cancel_own",
+    "requests.cancel_approved",
+    "requests.close",
     "reports.requests.read",
+    "reports.requests.export",
     "transfers.read.own_branch",
     "transfers.receive",
     "transfers.report_discrepancy",
     "reports.transfers.read",
+    "reports.transfers.export",
   ],
   logistics_officer: [
     "transfers.read.all",
@@ -403,15 +421,30 @@ export function applyOperatingContext(
   const assignedRoles = accessRoleIds(actor);
   if (assignedRoles.some((role) => organizationWideRoles.includes(role)))
     return actor;
-  if (!context) return actor;
+  const availableContexts: OperatingContext[] = [
+    ...(assignedRoles.some((role) => warehouseOperatingRoles.includes(role))
+      ? actor.warehouseIds.map((id) => ({ type: "warehouse" as const, id }))
+      : []),
+    ...(assignedRoles.some((role) => branchOperatingRoles.includes(role))
+      ? actor.branchIds.map((id) => ({ type: "branch" as const, id }))
+      : []),
+  ];
+  const selectedContext = context ?? availableContexts[0] ?? null;
+  if (!selectedContext) return actor;
+  if (!context && availableContexts.length > 1)
+    throw new HttpsError(
+      "failed-precondition",
+      "Select a branch or warehouse before continuing.",
+      { code: "OPERATING_CONTEXT_REQUIRED", retryable: false },
+    );
   const allowedRoles =
-    context.type === "warehouse"
+    selectedContext.type === "warehouse"
       ? warehouseOperatingRoles
       : branchOperatingRoles;
   const scopedRoles = assignedRoles.filter((role) => allowedRoles.includes(role));
   const assignedIds =
-    context.type === "warehouse" ? actor.warehouseIds : actor.branchIds;
-  if (scopedRoles.length === 0 || !assignedIds.includes(context.id)) {
+    selectedContext.type === "warehouse" ? actor.warehouseIds : actor.branchIds;
+  if (scopedRoles.length === 0 || !assignedIds.includes(selectedContext.id)) {
     throw new HttpsError(
       "permission-denied",
       "The selected operating context is outside your assigned authority.",
@@ -422,8 +455,9 @@ export function applyOperatingContext(
     ...actor,
     roleId: scopedRoles[0]!,
     roleIds: scopedRoles,
-    branchIds: context.type === "branch" ? [context.id] : [],
-    warehouseIds: context.type === "warehouse" ? [context.id] : [],
+    branchIds: selectedContext.type === "branch" ? [selectedContext.id] : [],
+    warehouseIds:
+      selectedContext.type === "warehouse" ? [selectedContext.id] : [],
   };
 }
 

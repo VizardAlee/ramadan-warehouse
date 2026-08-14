@@ -59,7 +59,8 @@ export const getStockCountWorkspace = onCall(
     );
     const canReview =
       hasRole(actor, "system_administrator") ||
-      hasRole(actor, "warehouse_manager");
+      hasRole(actor, "warehouse_manager") ||
+      hasRole(actor, "branch_manager");
     if (!assigned && !canReview)
       throw new HttpsError(
         "permission-denied",

@@ -454,7 +454,9 @@ export const reconcileInventoryBalances = onCall(
       query = query.where("productId", "==", input.productId);
     if (input.locationId)
       query = query.where("locationId", "==", input.locationId);
+    query = scopedQuery(query, actor);
     const balances = await query.limit(input.limit).get();
+    const includeCosts = hasServerPermission(actor, "inventory.cost.read");
     const discrepancies: Record<string, unknown>[] = [];
     for (const balance of balances.docs) {
       const entries = await db
@@ -522,8 +524,12 @@ export const reconcileInventoryBalances = onCall(
           locationId: balance.get("locationId"),
           storedQuantity: balance.get("onHandQuantity"),
           ledgerQuantity,
-          storedValueMinor: balance.get("totalValueMinor"),
-          ledgerValueMinor,
+          ...(includeCosts
+            ? {
+                storedValueMinor: balance.get("totalValueMinor"),
+                ledgerValueMinor,
+              }
+            : {}),
           serializedItemCount: serialCount,
           ...(lotId
             ? {

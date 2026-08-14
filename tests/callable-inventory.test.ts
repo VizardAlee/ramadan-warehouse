@@ -462,6 +462,43 @@ describe.sequential("inventory callables", () => {
     expect(second.rows.map((row) => row.id)).not.toContain(first.rows[1]!.id);
   });
 
+  it("reconciles only the branch manager's assigned branch and keeps costs hidden", async () => {
+    await Promise.all([
+      adminDb.doc("inventoryBalances/branch-a-balance").set({
+        organizationId,
+        productId,
+        locationId: "branch-a-location",
+        branchId: "branch-a",
+        onHandQuantity: 3,
+        totalValueMinor: 30_000,
+      }),
+      adminDb.doc("inventoryBalances/branch-b-balance").set({
+        organizationId,
+        productId,
+        locationId: "branch-b-location",
+        branchId: "branch-b",
+        onHandQuantity: 9,
+        totalValueMinor: 90_000,
+      }),
+    ]);
+    const result = await call<{
+      checkedBalances: number;
+      discrepancies: Record<string, unknown>[];
+    }>(branchActor, "reconcileInventoryBalances", { limit: 20 });
+    expect(result.checkedBalances).toBe(1);
+    expect(result.discrepancies).toHaveLength(1);
+    expect(result.discrepancies[0]).toMatchObject({
+      balanceId: "branch-a-balance",
+      storedQuantity: 3,
+    });
+    expect(result.discrepancies[0]).not.toHaveProperty("storedValueMinor");
+    expect(result.discrepancies[0]).not.toHaveProperty("ledgerValueMinor");
+    await Promise.all([
+      adminDb.doc("inventoryBalances/branch-a-balance").delete(),
+      adminDb.doc("inventoryBalances/branch-b-balance").delete(),
+    ]);
+  });
+
   it("uses blind maker-checker stock counts and posts variance only after review", async () => {
     const countProduct = await call<{ productId: string }>(
       administrator,

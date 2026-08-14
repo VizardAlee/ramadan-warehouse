@@ -27,21 +27,21 @@ import { useAuth } from "@/features/auth/auth-context";
 import { availableOperatingContexts } from "@/features/auth/operating-context";
 import { useConnectivity } from "@/lib/connectivity";
 import { getFirebaseServices } from "@/lib/firebase/client";
+import { hasAnyPermission } from "@/lib/permissions/roles";
 import { cn } from "@/lib/utils";
+import type { PermissionId } from "@/types/domain";
 
 const navigation = [
-  ["/dashboard", "Dashboard", Gauge],
-  ["/products", "Products", Boxes],
-  ["/inventory", "Inventory", Archive],
-  ["/requests", "Requests", ClipboardList],
-  ["/transfers", "Transfers", Truck],
-  ["/costs", "Costs", ReceiptText],
-  ["/reports", "Reports", FileBarChart],
-  ["/administration", "Administration", Settings],
-  ["/audit", "Audit", History],
+  { href: "/dashboard", label: "Dashboard", icon: Gauge, permissions: [] },
+  { href: "/products", label: "Products", icon: Boxes, permissions: ["products.read"] },
+  { href: "/inventory", label: "Inventory", icon: Archive, permissions: ["inventory.read"] },
+  { href: "/requests", label: "Requests", icon: ClipboardList, permissions: ["requests.read.all", "requests.read.own_branch", "requests.create"] },
+  { href: "/transfers", label: "Transfers", icon: Truck, permissions: ["transfers.read.all", "transfers.read.assigned_warehouse", "transfers.read.own_branch"] },
+  { href: "/costs", label: "Costs", icon: ReceiptText, permissions: ["transfers.cost.read", "transfers.cost.create", "transfers.cost.approve", "transfers.cost.reconcile"] },
+  { href: "/reports", label: "Reports", icon: FileBarChart, permissions: ["reports.inventory.read", "reports.requests.read", "reports.transfers.read"] },
+  { href: "/administration", label: "Administration", icon: Settings, permissions: ["organization.manage", "branch.manage", "warehouse.manage", "location.manage", "user.manage", "role.manage"] },
+  { href: "/audit", label: "Audit", icon: History, permissions: ["audit.read"] },
 ] as const;
-const mobilePrimary = navigation.slice(0, 5);
-const secondaryNavigation = navigation.slice(5);
 const titleFromPath = (pathname: string) => {
   const section = pathname.split("/").filter(Boolean).at(-1) ?? "Dashboard";
   return section
@@ -70,6 +70,22 @@ export function AppShell({ children }: { children: ReactNode }) {
     () => (accessProfile ? availableOperatingContexts(accessProfile) : []),
     [accessProfile],
   );
+  const visibleNavigation = useMemo(
+    () =>
+      profile
+        ? navigation.filter(
+            (item) =>
+              item.permissions.length === 0 ||
+              hasAnyPermission(
+                profile,
+                item.permissions as readonly PermissionId[],
+              ),
+          )
+        : [],
+    [profile],
+  );
+  const mobilePrimary = visibleNavigation.slice(0, 5);
+  const secondaryNavigation = visibleNavigation.slice(5);
   const moreSheetRef = useDialogFocus<HTMLElement>(open, () => setOpen(false));
   const { online } = useConnectivity();
   useEffect(() => {
@@ -149,7 +165,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     : null;
   const desktopNav = (
     <nav aria-label="Desktop navigation" className="space-y-1">
-      {navigation.map(([href, label, Icon]) => (
+      {visibleNavigation.map(({ href, label, icon: Icon }) => (
         <Link
           key={href}
           href={href}
@@ -184,7 +200,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         </Link>
         {desktopNav}
       </aside>
-      {open && (
+      {open && secondaryNavigation.length > 0 && (
         <div className="fixed inset-0 z-50 xl:hidden">
           <button
             className="absolute inset-0 bg-black/50"
@@ -223,7 +239,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               aria-label="Secondary navigation"
               className="grid gap-3 sm:grid-cols-2"
             >
-              {secondaryNavigation.map(([href, label, Icon]) => (
+              {secondaryNavigation.map(({ href, label, icon: Icon }) => (
                 <Link
                   key={href}
                   href={href}
@@ -319,9 +335,12 @@ export function AppShell({ children }: { children: ReactNode }) {
         </main>
         <nav
           aria-label="Mobile and tablet navigation"
-          className="safe-bottom fixed inset-x-0 bottom-0 z-30 grid grid-cols-6 border-t bg-white/97 px-1 pt-1 shadow-[0_-4px_16px_rgb(16_41_31_/_0.08)] backdrop-blur xl:hidden sm:px-[max(1rem,calc((100vw-48rem)/2))]"
+          className="safe-bottom fixed inset-x-0 bottom-0 z-30 grid border-t bg-white/97 px-1 pt-1 shadow-[0_-4px_16px_rgb(16_41_31_/_0.08)] backdrop-blur xl:hidden sm:px-[max(1rem,calc((100vw-48rem)/2))]"
+          style={{
+            gridTemplateColumns: `repeat(${mobilePrimary.length + (secondaryNavigation.length > 0 ? 1 : 0)}, minmax(0, 1fr))`,
+          }}
         >
-          {mobilePrimary.map(([href, label, Icon]) => (
+          {mobilePrimary.map(({ href, label, icon: Icon }) => (
             <Link
               key={href}
               href={href}
@@ -335,13 +354,15 @@ export function AppShell({ children }: { children: ReactNode }) {
               <span>{label}</span>
             </Link>
           ))}
-          <button
-            onClick={() => setOpen(true)}
-            className="flex min-h-14 flex-col items-center justify-center gap-1 rounded-lg px-1 text-[.65rem] font-medium text-slate-600"
-          >
-            <MoreHorizontal className="size-5" />
-            <span>More</span>
-          </button>
+          {secondaryNavigation.length > 0 && (
+            <button
+              onClick={() => setOpen(true)}
+              className="flex min-h-14 flex-col items-center justify-center gap-1 rounded-lg px-1 text-[.65rem] font-medium text-slate-600"
+            >
+              <MoreHorizontal className="size-5" />
+              <span>More</span>
+            </button>
+          )}
         </nav>
       </div>
     </div>

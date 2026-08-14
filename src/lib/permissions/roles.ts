@@ -115,11 +115,13 @@ const permissionsByRole: Readonly<Record<RoleId, readonly PermissionId[]>> = {
     "products.update",
     "inventory.read",
     "inventory.receive",
+    "inventory.opening_stock",
     "inventory.move_internal",
     "inventory.adjust",
     "inventory.reverse",
     "inventory.count",
     "inventory.count_review",
+    "inventory.reconcile",
     "inventory.cost.read",
     "inventory.cost.manage",
     "reports.inventory.read",
@@ -153,6 +155,8 @@ const permissionsByRole: Readonly<Record<RoleId, readonly PermissionId[]>> = {
     "transfers.resolve_discrepancy",
     "transfers.cost.read",
     "transfers.cost.create",
+    "transfers.cost.approve",
+    "transfers.cost.reconcile",
     "transfers.close",
     "reports.transfers.read",
     "reports.transfers.export",
@@ -183,16 +187,30 @@ const permissionsByRole: Readonly<Record<RoleId, readonly PermissionId[]>> = {
     "receipt.confirm",
     "products.read",
     "inventory.read",
+    "inventory.receive",
+    "inventory.opening_stock",
+    "inventory.move_internal",
+    "inventory.adjust",
+    "inventory.reverse",
+    "inventory.count",
+    "inventory.count_review",
+    "inventory.reconcile",
+    "reports.inventory.read",
+    "reports.inventory.export",
     "requests.read.own_branch",
     "requests.create",
     "requests.update_draft",
     "requests.submit",
     "requests.cancel_own",
+    "requests.cancel_approved",
+    "requests.close",
     "reports.requests.read",
+    "reports.requests.export",
     "transfers.read.own_branch",
     "transfers.receive",
     "transfers.report_discrepancy",
     "reports.transfers.read",
+    "reports.transfers.export",
   ],
   logistics_officer: [
     "logistics.manage",
@@ -257,6 +275,13 @@ export function hasPermission(
 ): boolean {
   if (profile.status !== "active") return false;
   return permissionsForRoles(roleIdsForProfile(profile)).has(permission);
+}
+
+export function hasAnyPermission(
+  profile: Pick<UserProfile, "status" | "roleId" | "roleIds">,
+  permissions: readonly PermissionId[],
+): boolean {
+  return permissions.some((permission) => hasPermission(profile, permission));
 }
 
 export function roleIdsForProfile(

@@ -1,6 +1,14 @@
-import Link from "next/link";
+import { PermissionTabs } from "@/components/layout/permission-tabs";
 
-const links = [["/administration", "Overview"], ["/administration/organization", "Organization"], ["/administration/users", "Users"], ["/administration/branches", "Branches"], ["/administration/warehouses", "Warehouses"], ["/administration/locations", "Inventory Locations"], ["/administration/roles", "Roles & Permissions"]] as const;
+const tabs = [
+  { href: "/administration", label: "Overview", permissions: ["organization.manage", "branch.manage", "warehouse.manage", "location.manage", "user.manage", "role.manage"] },
+  { href: "/administration/organization", label: "Organization", permissions: ["organization.manage"] },
+  { href: "/administration/users", label: "Users", permissions: ["user.manage"] },
+  { href: "/administration/branches", label: "Branches", permissions: ["branch.manage"] },
+  { href: "/administration/warehouses", label: "Warehouses", permissions: ["warehouse.manage"] },
+  { href: "/administration/locations", label: "Inventory Locations", permissions: ["location.manage"] },
+  { href: "/administration/roles", label: "Roles & Permissions", permissions: ["role.manage"] },
+] as const;
 export default function AdministrationLayout({ children }: { children: React.ReactNode }) {
-  return <div className="page-stack"><nav aria-label="Administration sections" className="scroll-tabs rounded-xl border bg-white p-2">{links.map(([href, label]) => <Link key={href} href={href} className="inline-flex min-h-11 items-center whitespace-nowrap rounded-lg px-3 text-sm font-medium hover:bg-emerald-50 hover:text-[var(--brand)]">{label}</Link>)}</nav>{children}</div>;
+  return <div className="page-stack"><PermissionTabs label="Administration sections" tabs={tabs} />{children}</div>;
 }

@@ -1,3 +1,21 @@
-import Link from "next/link";
-const links = [["/inventory", "Stock overview"], ["/inventory/receipts", "Receipts"], ["/inventory/opening-stock", "Opening stock"], ["/inventory/movements", "Internal movement"], ["/inventory/adjustments", "Adjustments"], ["/inventory/counts", "Stock counts"], ["/inventory/reconciliation", "Reconciliation"], ["/inventory/assets", "Serials & lots"]] as const;
-export default function InventoryLayout({ children }: { children: React.ReactNode }) { return <div className="page-stack"><nav aria-label="Inventory sections" className="scroll-tabs rounded-xl border bg-white p-2">{links.map(([href, label]) => <Link key={href} href={href} className="inline-flex min-h-11 items-center whitespace-nowrap rounded-lg px-3 text-sm font-medium hover:bg-emerald-50">{label}</Link>)}</nav>{children}</div>; }
+import { PermissionTabs } from "@/components/layout/permission-tabs";
+
+const tabs = [
+  { href: "/inventory", label: "Stock overview", permissions: ["inventory.read"] },
+  { href: "/inventory/receipts", label: "Receipts", permissions: ["inventory.receive"] },
+  { href: "/inventory/opening-stock", label: "Opening stock", permissions: ["inventory.opening_stock"] },
+  { href: "/inventory/movements", label: "Internal movement", permissions: ["inventory.move_internal"] },
+  { href: "/inventory/adjustments", label: "Adjustments", permissions: ["inventory.adjust"] },
+  { href: "/inventory/counts", label: "Stock counts", permissions: ["inventory.count"] },
+  { href: "/inventory/reconciliation", label: "Reconciliation", permissions: ["inventory.reconcile"] },
+  { href: "/inventory/assets", label: "Serials & lots", permissions: ["reports.inventory.read"] },
+] as const;
+
+export default function InventoryLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="page-stack">
+      <PermissionTabs label="Inventory sections" tabs={tabs} />
+      {children}
+    </div>
+  );
+}

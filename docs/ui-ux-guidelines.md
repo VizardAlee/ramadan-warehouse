@@ -50,3 +50,5 @@ The manifest identifies AB Ramadan Warehouse, uses standalone display, the produ
 ## Content-driven decisions
 
 Navigation changes from the persistent desktop sidebar to bottom navigation below 1280px, keeping both portrait and landscape tablets touch-first. Tables transform into record decks below 768px, where dense operational columns become impractical. Intrinsic card/form grids provide the intermediate adaptations from 360px through wide desktop. Feature-specific horizontal tab strips are contained and touch-scrollable; they do not cause page-level overflow.
+
+Top-level navigation and feature tabs are filtered from the effective role in the selected operating context. Users do not see administration, cost, reporting, inventory-posting, or workflow destinations they cannot use. A dual branch/warehouse manager switches context in the header; the visible navigation and loaded data then refresh for that single selected location.
