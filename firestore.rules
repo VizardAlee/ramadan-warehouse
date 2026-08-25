@@ -63,6 +63,12 @@ service cloud.firestore {
       return canReadAllProcurement() ||
         (hasAnyRole(["warehouse_manager", "warehouse_officer"]) && data.warehouseId in profile().warehouseIds);
     }
+    function canReadAllExpenses() { return hasAnyRole(["system_administrator", "operations_administrator", "finance_officer", "auditor"]); }
+    function expenseScope(data) {
+      return canReadAllExpenses() ||
+        (hasRole("branch_manager") && data.branchId != null && data.branchId in profile().branchIds) ||
+        (hasRole("warehouse_manager") && data.warehouseId != null && data.warehouseId in profile().warehouseIds);
+    }
 
     match /users/{userId} {
       allow get: if signedIn() && (request.auth.uid == userId || (canManageUsers() && sameOrganization(resource.data)));
@@ -365,6 +371,18 @@ service cloud.firestore {
       allow create, update, delete: if false;
     }
     match /supplierAccountEntries/{documentId} {
+      allow read: if sameOrganization(resource.data) && hasAnyRole(["system_administrator", "finance_officer", "auditor"]);
+      allow create, update, delete: if false;
+    }
+    match /expenseCategories/{documentId} {
+      allow read: if sameOrganization(resource.data) && hasAnyRole(["system_administrator", "operations_administrator", "warehouse_manager", "branch_manager", "finance_officer", "auditor"]);
+      allow create, update, delete: if false;
+    }
+    match /expenses/{documentId} {
+      allow read: if sameOrganization(resource.data) && expenseScope(resource.data);
+      allow create, update, delete: if false;
+    }
+    match /expensePayments/{documentId} {
       allow read: if sameOrganization(resource.data) && hasAnyRole(["system_administrator", "finance_officer", "auditor"]);
       allow create, update, delete: if false;
     }

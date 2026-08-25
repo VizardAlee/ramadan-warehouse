@@ -229,6 +229,29 @@ async function seed() {
       supplierId: "supplier-1",
       status: "approved",
     });
+    await db.doc("expenseCategories/expense-category-1").set({
+      organizationId: "org-1",
+      name: "Electricity",
+      active: true,
+    });
+    await db.doc("expenses/branch-expense-1").set({
+      organizationId: "org-1",
+      branchId: "branch-1",
+      status: "approved",
+    });
+    await db.doc("expenses/warehouse-expense-1").set({
+      organizationId: "org-1",
+      warehouseId: "warehouse-1",
+      status: "approved",
+    });
+    await db.doc("expenses/organization-expense-1").set({
+      organizationId: "org-1",
+      status: "approved",
+    });
+    await db.doc("expensePayments/expense-payment-1").set({
+      organizationId: "org-1",
+      expenseId: "branch-expense-1",
+    });
     await db
       .doc("inventoryTransactions/branch-1-tx")
       .set({ organizationId: "org-1", branchId: "branch-1", status: "posted" });
@@ -670,5 +693,24 @@ describe("Firestore baseline rules", () => {
     await assertFails(adminDb.doc("suppliers/new").set({ organizationId: "org-1", name: "Unsafe" }));
     await assertFails(warehouseDb.doc("purchaseOrders/purchase-1").update({ status: "received" }));
     await assertFails(financeDb.doc("supplierInvoices/supplier-invoice-1").update({ status: "paid" }));
+  });
+  it("scopes operating expenses and keeps approval and payment writes server-only", async () => {
+    await seed();
+    const branchDb = environment.authenticatedContext("branch-manager").firestore();
+    const warehouseDb = environment.authenticatedContext("warehouse-manager").firestore();
+    const financeDb = environment.authenticatedContext("finance").firestore();
+    const adminDb = environment.authenticatedContext("admin").firestore();
+    await assertSucceeds(branchDb.doc("expenseCategories/expense-category-1").get());
+    await assertSucceeds(branchDb.doc("expenses/branch-expense-1").get());
+    await assertFails(branchDb.doc("expenses/warehouse-expense-1").get());
+    await assertFails(branchDb.doc("expenses/organization-expense-1").get());
+    await assertSucceeds(warehouseDb.doc("expenses/warehouse-expense-1").get());
+    await assertFails(warehouseDb.doc("expenses/branch-expense-1").get());
+    await assertSucceeds(financeDb.doc("expenses/organization-expense-1").get());
+    await assertSucceeds(financeDb.doc("expensePayments/expense-payment-1").get());
+    await assertFails(branchDb.doc("expensePayments/expense-payment-1").get());
+    await assertFails(adminDb.doc("expenses/new").set({ organizationId: "org-1", status: "approved" }));
+    await assertFails(financeDb.doc("expenses/branch-expense-1").update({ status: "paid" }));
+    await assertFails(financeDb.doc("expensePayments/new").set({ organizationId: "org-1", amountMinor: 1 }));
   });
 });

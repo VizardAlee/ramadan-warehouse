@@ -38,6 +38,14 @@ still reject creator self-approval. Purchase approval never posts inventory or
 a payable; only physical receipt posts stock, and only approved invoice
 matching posts Accounts Payable.
 
+Branch and warehouse managers may create operating expenses only in their
+assigned context. Operations administrators may create and approve expenses
+organization-wide. Finance officers may create, independently approve, and pay
+expenses organization-wide; the server still rejects creator self-approval.
+Auditors have read-only organization-wide access. Only the payment permission
+can record a disbursement, and all category, expense, payment, journal, and
+audit writes remain callable-only.
+
 Custom claims contain only `organizationId`, an optional broad bootstrap platform marker, and `authorizationVersion`. Claims improve routing and token invalidation but never replace a fresh trusted-profile check for sensitive operations.
 
 Server controls are centralized in `functions/src/auth/authorize.ts`:

@@ -62,6 +62,9 @@ const permissionsByRole: Readonly<Record<RoleId, readonly PermissionId[]>> = {
     "procurement.read",
     "procurement.create",
     "procurement.approve",
+    "expenses.read",
+    "expenses.create",
+    "expenses.approve",
   ],
   warehouse_manager: [
     "report.read",
@@ -89,6 +92,8 @@ const permissionsByRole: Readonly<Record<RoleId, readonly PermissionId[]>> = {
     "procurement.read",
     "procurement.create",
     "procurement.receive",
+    "expenses.read",
+    "expenses.create",
     "requests.read.all",
     "requests.review",
     "requests.request_changes",
@@ -190,6 +195,8 @@ const permissionsByRole: Readonly<Record<RoleId, readonly PermissionId[]>> = {
     "sales.returns.create",
     "sales.returns.approve",
     "reports.sales.read",
+    "expenses.read",
+    "expenses.create",
   ],
   sales_cashier: [
     "products.read",
@@ -244,6 +251,10 @@ const permissionsByRole: Readonly<Record<RoleId, readonly PermissionId[]>> = {
     "payables.create",
     "payables.approve",
     "payables.pay",
+    "expenses.read",
+    "expenses.create",
+    "expenses.approve",
+    "expenses.pay",
   ],
   auditor: [
     "audit.read",
@@ -270,6 +281,7 @@ const permissionsByRole: Readonly<Record<RoleId, readonly PermissionId[]>> = {
     "suppliers.read",
     "procurement.read",
     "payables.read",
+    "expenses.read",
   ],
 };
 

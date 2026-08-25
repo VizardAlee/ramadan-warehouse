@@ -10,15 +10,18 @@ return submission, and independent return approval, plus exchange-credit
 redemption in the existing sale callable. This source checkpoint is not yet deployed. Production therefore
 correctly remains on the validated 98-function release described below. Phase 4
 adds nine callable Functions for suppliers, purchase orders, controlled goods
-receipts, supplier-invoice matching and approval, and supplier payments. The
-source checkpoint now contains 120 Functions. A later
+receipts, supplier-invoice matching and approval, and supplier payments.
+Phase 5 adds five callable Functions for the expense workspace, draft creation,
+submission, independent approval, and controlled payment. The source checkpoint
+now contains 125 Functions. A later
 approved release must pass the full production predeploy gate, deploy web,
-Functions, rules, and indexes together, and verify 120 ACTIVE Functions plus a
+Functions, rules, and indexes together, and verify 125 ACTIVE Functions plus a
 real paid sale, reconnecting-offline paid sale, approved credit sale, limit
 rejection, customer repayment, restockable and non-restockable returns,
 maker-checker rejection, one-time exchange-credit redemption, independently
 approved purchase order, idempotent goods receipt, received-quantity invoice
-match, balanced AP journal, and supplier payment before this section can be reclassified as
+match, balanced AP journal, supplier payment, independently approved operating
+expense, overpayment rejection, and partial/final expense disbursement before this section can be reclassified as
 deployed. Never infer deployment from a Git push.
 
 ## Production checkpoint (2026-08-12)

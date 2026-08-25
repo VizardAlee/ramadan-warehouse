@@ -143,3 +143,10 @@ export {
   approveSupplierInvoice,
   recordSupplierPayment,
 } from "./callable/procurement.js";
+export {
+  getExpenseWorkspace,
+  createExpense,
+  submitExpense,
+  approveExpense,
+  recordExpensePayment,
+} from "./callable/expenses.js";

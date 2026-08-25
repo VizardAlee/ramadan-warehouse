@@ -106,7 +106,11 @@ export type Permission =
   | "payables.read"
   | "payables.create"
   | "payables.approve"
-  | "payables.pay";
+  | "payables.pay"
+  | "expenses.read"
+  | "expenses.create"
+  | "expenses.approve"
+  | "expenses.pay";
 
 const rolePermissions: Readonly<Record<RoleId, readonly Permission[]>> = {
   system_administrator: [
@@ -198,6 +202,10 @@ const rolePermissions: Readonly<Record<RoleId, readonly Permission[]>> = {
     "payables.create",
     "payables.approve",
     "payables.pay",
+    "expenses.read",
+    "expenses.create",
+    "expenses.approve",
+    "expenses.pay",
   ],
   operations_administrator: [
     "user.manage",
@@ -249,6 +257,9 @@ const rolePermissions: Readonly<Record<RoleId, readonly Permission[]>> = {
     "procurement.read",
     "procurement.create",
     "procurement.approve",
+    "expenses.read",
+    "expenses.create",
+    "expenses.approve",
   ],
   warehouse_manager: [
     "products.read",
@@ -271,6 +282,8 @@ const rolePermissions: Readonly<Record<RoleId, readonly Permission[]>> = {
     "procurement.read",
     "procurement.create",
     "procurement.receive",
+    "expenses.read",
+    "expenses.create",
     "requests.read.all",
     "requests.review",
     "requests.request_changes",
@@ -369,6 +382,8 @@ const rolePermissions: Readonly<Record<RoleId, readonly Permission[]>> = {
     "sales.returns.create",
     "sales.returns.approve",
     "reports.sales.read",
+    "expenses.read",
+    "expenses.create",
   ],
   sales_cashier: [
     "products.read",
@@ -418,6 +433,10 @@ const rolePermissions: Readonly<Record<RoleId, readonly Permission[]>> = {
     "payables.create",
     "payables.approve",
     "payables.pay",
+    "expenses.read",
+    "expenses.create",
+    "expenses.approve",
+    "expenses.pay",
   ],
   auditor: [
     "audit.read",
@@ -442,6 +461,7 @@ const rolePermissions: Readonly<Record<RoleId, readonly Permission[]>> = {
     "suppliers.read",
     "procurement.read",
     "payables.read",
+    "expenses.read",
   ],
 };
 const assignableRoles: Readonly<Partial<Record<RoleId, readonly RoleId[]>>> = {

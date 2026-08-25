@@ -16,6 +16,8 @@
 | Chart of accounts and journals | system administrator, finance, auditor | denied | organization |
 | Suppliers and purchase orders | purchasing roles; warehouse users limited to assignments | denied | organization and warehouse |
 | Supplier invoices, payments, allocations, and account entries | system administrator, finance, auditor | denied | organization |
+| Expense categories and operating expenses | administrative/finance/auditor or assigned manager | denied | organization plus branch/warehouse |
+| Expense payments | system administrator, finance, auditor | denied | organization |
 | Notifications, outbox, idempotency, rate limits | denied | denied | server only |
 
 For multi-role profiles, read authority is the union of assigned roles while every organization, branch, warehouse, and related-record scope check still applies. Legacy single-`roleId` profiles and canonical `roleIds` profiles are both recognized during migration.

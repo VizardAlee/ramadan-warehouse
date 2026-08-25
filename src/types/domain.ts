@@ -115,6 +115,10 @@ export const permissionIds = [
   "payables.create",
   "payables.approve",
   "payables.pay",
+  "expenses.read",
+  "expenses.create",
+  "expenses.approve",
+  "expenses.pay",
 ] as const;
 export type PermissionId = (typeof permissionIds)[number];
 
@@ -214,6 +218,31 @@ export interface SupplierInvoice {
   grossAmountMinor: number;
   outstandingAmountMinor: number;
   createdBy: string;
+}
+
+export interface OperatingExpense {
+  id: string;
+  organizationId: string;
+  expenseNumber: string;
+  categoryId: string;
+  categoryCode: string;
+  categoryName: string;
+  payeeName: string;
+  branchId?: string;
+  branchName?: string;
+  warehouseId?: string;
+  warehouseName?: string;
+  expenseDate: string;
+  supplierDocumentNumber?: string;
+  description: string;
+  status: "draft" | "submitted" | "approved" | "partially_paid" | "paid";
+  netAmountMinor: number;
+  vatAmountMinor: number;
+  grossAmountMinor: number;
+  outstandingAmountMinor: number;
+  currency: "NGN";
+  createdBy: string;
+  createdAt: DateTimeValue;
 }
 export type EntityStatus = "active" | "inactive";
 export type UserStatus = EntityStatus | "suspended";

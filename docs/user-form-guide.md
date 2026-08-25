@@ -132,3 +132,19 @@ for both warehouse locations and store/branch stock locations.
    naira, actual method, and external reference. Partial payment is allowed by
    the accounting service; never claim bank settlement merely because a
    reference was recorded.
+
+## Operating expenses
+
+1. Open **Expenses** and type the category, such as Electricity or Repairs.
+   Existing categories are suggested; typing a new category creates it
+   automatically, so no separate setup form is required.
+2. Enter the actual payee, expense date, description, and optional supplier
+   invoice or receipt number. Allocate it to the whole organization, one store
+   / branch, or one warehouse. A scoped manager sees only assigned locations.
+3. Enter the net amount and VAT separately in naira. Kobo uses two decimal
+   places. Do not enter product purchases here; those belong to Purchasing.
+4. Create and review the draft, then submit it. A different authorized user
+   approves it. Submission and approval do not claim the bill was paid.
+5. Finance records each real payment using its actual method, amount, and
+   external reference. Partial payment is supported. The app rejects any
+   amount above the remaining outstanding balance.

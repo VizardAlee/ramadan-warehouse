@@ -17,6 +17,7 @@ their meaning.
 | Supplier master | `suppliers`, `supplierCounters`, `supplierCodes` |
 | Purchasing | `purchaseOrders`, `purchaseOrderItems`, `purchaseReceipts`, `purchaseOrderCounters` |
 | Accounts Payable | `supplierInvoices`, `supplierInvoiceItems`, `purchaseInvoiceItemCounters`, `supplierPayments`, `supplierPaymentAllocations`, `supplierAccountEntries` |
+| Operating expenses | `expenseCategories`, `expenseCategoryCounters`, `expenses`, `expenseCounters`, `expenseDocumentCodes`, `expensePayments` |
 | Existing ledger integration | `inventoryTransactions` and `inventoryEntries` using `branch_sale`; `inventoryBalances` remains the mutable projection |
 | Reliability/control | existing `idempotencyKeys`, `auditLogs`, plus browser-local queued drafts that are not authoritative records |
 
@@ -55,3 +56,9 @@ approval or goods receipt, creates the Accounts Payable journal and supplier
 account entry. `purchaseInvoiceItemCounters` prevents approved invoice matches
 from exceeding received quantities. Payments add allocations and correcting
 subledger/journal records without rewriting the invoice.
+
+Operating expenses use an automatically reused or created category plus an
+optional branch or warehouse dimension. Approval posts accounts `6000`, `1300`,
+and `2100`; later disbursements clear `2100` against the recorded settlement
+account. Expense status is a projection of the immutable approval and payment
+evidence, and cannot be mutated by Firestore clients.

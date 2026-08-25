@@ -18,6 +18,7 @@ const messages: Record<string, string> = {
   RETURN_SELF_APPROVAL_FORBIDDEN: "The person who submitted this return cannot approve it. Ask another authorized manager or administrator to review it.",
   PURCHASE_ORDER_SELF_APPROVAL_FORBIDDEN: "The person who created this purchase order cannot approve it. Ask another authorized purchasing approver.",
   SUPPLIER_INVOICE_SELF_APPROVAL_FORBIDDEN: "The person who entered this supplier invoice cannot approve it. Ask another authorized finance approver.",
+  EXPENSE_SELF_APPROVAL_FORBIDDEN: "The person who entered this expense cannot approve it. Ask another authorized approver.",
 };
 export class UserFacingError extends Error { constructor(message: string, readonly diagnosticCode?: string) { super(message); this.name = "UserFacingError"; } }
 export function toUserFacingError(error: unknown, fallback = "The operation could not be completed. Refresh and try again."): UserFacingError {
