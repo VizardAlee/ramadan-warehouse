@@ -252,6 +252,23 @@ async function seed() {
       organizationId: "org-1",
       expenseId: "branch-expense-1",
     });
+    await db.doc("bankAccounts/bank-account-1").set({
+      organizationId: "org-1",
+      bankName: "Access Bank",
+      accountNumberLast4: "4321",
+      ledgerAccountCode: "1030",
+    });
+    await db.doc("bankStatementTransactions/bank-transaction-1").set({
+      organizationId: "org-1",
+      bankAccountId: "bank-account-1",
+      amountMinor: -20000,
+      status: "matched",
+    });
+    await db.doc("bankReconciliations/bank-reconciliation-1").set({
+      organizationId: "org-1",
+      bankAccountId: "bank-account-1",
+      status: "prepared",
+    });
     await db
       .doc("inventoryTransactions/branch-1-tx")
       .set({ organizationId: "org-1", branchId: "branch-1", status: "posted" });
@@ -712,5 +729,20 @@ describe("Firestore baseline rules", () => {
     await assertFails(adminDb.doc("expenses/new").set({ organizationId: "org-1", status: "approved" }));
     await assertFails(financeDb.doc("expenses/branch-expense-1").update({ status: "paid" }));
     await assertFails(financeDb.doc("expensePayments/new").set({ organizationId: "org-1", amountMinor: 1 }));
+  });
+  it("restricts bank evidence to finance roles and keeps reconciliation writes server-only", async () => {
+    await seed();
+    const branchDb = environment.authenticatedContext("branch-manager").firestore();
+    const financeDb = environment.authenticatedContext("finance").firestore();
+    const auditorDb = environment.authenticatedContext("auditor").firestore();
+    const adminDb = environment.authenticatedContext("admin").firestore();
+    for (const path of ["bankAccounts/bank-account-1", "bankStatementTransactions/bank-transaction-1", "bankReconciliations/bank-reconciliation-1"]) {
+      await assertFails(branchDb.doc(path).get());
+      await assertSucceeds(financeDb.doc(path).get());
+      await assertSucceeds(auditorDb.doc(path).get());
+    }
+    await assertFails(adminDb.doc("bankAccounts/new").set({ organizationId: "org-1", ledgerAccountCode: "1031" }));
+    await assertFails(financeDb.doc("bankStatementTransactions/bank-transaction-1").update({ status: "reconciled" }));
+    await assertFails(adminDb.doc("bankReconciliations/bank-reconciliation-1").update({ status: "closed" }));
   });
 });

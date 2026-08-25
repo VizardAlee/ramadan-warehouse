@@ -148,3 +148,23 @@ for both warehouse locations and store/branch stock locations.
 5. Finance records each real payment using its actual method, amount, and
    external reference. Partial payment is supported. The app rejects any
    amount above the remaining outstanding balance.
+
+## Bank reconciliation
+
+1. Open **Banking** and add the real bank account once. Enter only its last four
+   digits; the full account number is neither required nor stored. Keep `1030`
+   for the existing bank-transfer clearing account. Each additional bank account
+   needs its own unused 10xx ledger code.
+2. Select the bank account and paste statement rows in the displayed order:
+   `date, description, amount, reference, bank ID`. Use a positive amount for
+   money received and a negative amount for money paid. Amounts are naira with
+   up to two decimal places. Reference and bank ID are optional.
+3. Match each row to an equal ledger line. The app proposes only equal debit or
+   credit amounts and rejects dates more than 31 days apart. If a match is wrong,
+   remove it before closing the period.
+4. Enter the statement period and its exact opening and closing balances. The
+   app will not prepare the reconciliation while either side has an unmatched
+   transaction or the difference is not exactly zero.
+5. A different authorized administrator or finance officer completes the
+   prepared reconciliation. Closed matches cannot be removed; corrections must
+   use new accounting evidence rather than rewriting the closed period.

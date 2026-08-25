@@ -46,6 +46,13 @@ Auditors have read-only organization-wide access. Only the payment permission
 can record a disbursement, and all category, expense, payment, journal, and
 audit writes remain callable-only.
 
+Banking data is restricted to system administrators, finance officers, and
+auditors. Administrators and finance officers may configure a masked bank
+account, import statement rows, and reconcile exact journal matches. Auditors
+are read-only. The server rejects completion by the reconciliation preparer,
+and a completed period freezes its match links without changing the underlying
+posted journal evidence.
+
 Custom claims contain only `organizationId`, an optional broad bootstrap platform marker, and `authorizationVersion`. Claims improve routing and token invalidation but never replace a fresh trusted-profile check for sensitive operations.
 
 Server controls are centralized in `functions/src/auth/authorize.ts`:

@@ -119,8 +119,58 @@ export const permissionIds = [
   "expenses.create",
   "expenses.approve",
   "expenses.pay",
+  "banking.read",
+  "banking.manage",
+  "banking.reconcile",
+  "banking.approve",
 ] as const;
 export type PermissionId = (typeof permissionIds)[number];
+
+export interface BankAccount {
+  id: string;
+  organizationId: string;
+  bankName: string;
+  accountName: string;
+  accountNumberLast4: string;
+  ledgerAccountCode: string;
+  openingBalanceMinor: number;
+  openingDate: string;
+  currency: "NGN";
+  active: boolean;
+}
+
+export interface BankStatementTransaction {
+  id: string;
+  organizationId: string;
+  bankAccountId: string;
+  transactionDate: string;
+  description: string;
+  reference?: string;
+  amountMinor: number;
+  status: "unmatched" | "matched" | "reconciled";
+  journalLineId?: string;
+  journalNumber?: string;
+  reconciliationId?: string;
+}
+
+export interface BankReconciliation {
+  id: string;
+  organizationId: string;
+  bankAccountId: string;
+  reconciliationNumber: string;
+  periodStart: string;
+  periodEnd: string;
+  openingBalanceMinor: number;
+  closingBalanceMinor: number;
+  statementMovementMinor: number;
+  ledgerMovementMinor: number;
+  differenceMinor: number;
+  statementTransactionCount: number;
+  journalLineCount: number;
+  status: "prepared" | "closed";
+  preparedBy: string;
+  closedBy?: string;
+}
 
 export interface Customer {
   id: string;

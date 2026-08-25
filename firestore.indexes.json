@@ -1,6 +1,48 @@
 {
   "indexes": [
     {
+      "collectionGroup": "bankStatementTransactions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "organizationId", "order": "ASCENDING" },
+        { "fieldPath": "bankAccountId", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "bankStatementTransactions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "organizationId", "order": "ASCENDING" },
+        { "fieldPath": "bankAccountId", "order": "ASCENDING" },
+        { "fieldPath": "transactionDate", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "bankReconciliations",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "organizationId", "order": "ASCENDING" },
+        { "fieldPath": "bankAccountId", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "journalLines",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "organizationId", "order": "ASCENDING" },
+        { "fieldPath": "accountCode", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "journalLines",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "organizationId", "order": "ASCENDING" },
+        { "fieldPath": "accountCode", "order": "ASCENDING" },
+        { "fieldPath": "effectiveAt", "order": "ASCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "expenseCategories",
       "queryScope": "COLLECTION",
       "fields": [

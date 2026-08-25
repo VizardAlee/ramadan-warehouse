@@ -18,6 +18,7 @@ their meaning.
 | Purchasing | `purchaseOrders`, `purchaseOrderItems`, `purchaseReceipts`, `purchaseOrderCounters` |
 | Accounts Payable | `supplierInvoices`, `supplierInvoiceItems`, `purchaseInvoiceItemCounters`, `supplierPayments`, `supplierPaymentAllocations`, `supplierAccountEntries` |
 | Operating expenses | `expenseCategories`, `expenseCategoryCounters`, `expenses`, `expenseCounters`, `expenseDocumentCodes`, `expensePayments` |
+| Banking and reconciliation | `bankAccounts`, `bankStatementTransactions`, `bankReconciliations`, `bankReconciliationCounters` |
 | Existing ledger integration | `inventoryTransactions` and `inventoryEntries` using `branch_sale`; `inventoryBalances` remains the mutable projection |
 | Reliability/control | existing `idempotencyKeys`, `auditLogs`, plus browser-local queued drafts that are not authoritative records |
 
@@ -62,3 +63,11 @@ optional branch or warehouse dimension. Approval posts accounts `6000`, `1300`,
 and `2100`; later disbursements clear `2100` against the recorded settlement
 account. Expense status is a projection of the immutable approval and payment
 evidence, and cannot be mutated by Firestore clients.
+
+`bankAccounts` stores only the last four account-number digits and maps one
+real bank account to one unique 10xx ledger code. Statement transactions use a
+deterministic fingerprint for duplicate protection. Matching adds links between
+otherwise immutable statement and journal-line evidence; it never changes a
+journal amount. A closed `bankReconciliations` record snapshots the period,
+balances, signed movement, included identifiers, zero difference, preparer,
+and independent closer.

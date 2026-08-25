@@ -386,6 +386,18 @@ service cloud.firestore {
       allow read: if sameOrganization(resource.data) && hasAnyRole(["system_administrator", "finance_officer", "auditor"]);
       allow create, update, delete: if false;
     }
+    match /bankAccounts/{documentId} {
+      allow read: if sameOrganization(resource.data) && hasAnyRole(["system_administrator", "finance_officer", "auditor"]);
+      allow create, update, delete: if false;
+    }
+    match /bankStatementTransactions/{documentId} {
+      allow read: if sameOrganization(resource.data) && hasAnyRole(["system_administrator", "finance_officer", "auditor"]);
+      allow create, update, delete: if false;
+    }
+    match /bankReconciliations/{documentId} {
+      allow read: if sameOrganization(resource.data) && hasAnyRole(["system_administrator", "finance_officer", "auditor"]);
+      allow create, update, delete: if false;
+    }
 
     match /system/{documentId} {
       allow read, write: if false;

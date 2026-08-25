@@ -1,6 +1,6 @@
 # Warehouse application implementation plan
 
-## Business expansion — Phases 1 through 5 implemented locally
+## Business expansion — Phases 1 through 6 implemented locally
 
 The first POS expansion slice adds centrally controlled base selling prices,
 version-aware branch markups, separately stated VAT, branch-scoped cashier
@@ -33,8 +33,13 @@ branch/warehouse/organization allocation, separately stated input VAT,
 independent approval, accrued-expense journals, and controlled partial or full
 disbursements. See `operating-expenses.md` for the workflow and invariants.
 
-The expansion does not yet implement serialized or lot checkout at POS, bank
-reconciliation, period closing, or complete
+Phase 6 adds bank-account masters with masked identifiers, duplicate-safe
+statement imports, exact one-to-one statement/journal matching, reversible
+open matches, zero-difference period preparation, independent completion, and
+immutable closed reconciliation evidence. See `bank-reconciliation.md`.
+
+The expansion does not yet implement serialized or lot checkout at POS,
+accounting period closing, or complete
 financial statements. Those remain later finance phases. The new source must
 pass its full local and emulator gates before any production deployment; the
 current production environment continues to run the validated 98-function
@@ -79,8 +84,8 @@ Deferred Phase 3 hardening includes binary attachments, delivery adapters for no
 
 The numbered list above describes the original warehouse-transfer programme.
 The later business expansion uses its own POS/finance phase numbering: POS,
-customer credit, returns, procurement/payables, then operating expenses and
-controlled disbursements. The next business finance phase is bank
-reconciliation, followed by period close and complete financial reporting.
+customer credit, returns, procurement/payables, operating expenses, controlled
+disbursements, and bank reconciliation. The next business finance phase is
+accounting period close, followed by complete financial reporting.
 
 Each phase should add emulator tests for its invariants before the next phase begins. Production deployment remains a separate, explicitly approved activity.

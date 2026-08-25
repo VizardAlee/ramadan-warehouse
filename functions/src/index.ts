@@ -150,3 +150,12 @@ export {
   approveExpense,
   recordExpensePayment,
 } from "./callable/expenses.js";
+export {
+  getBankReconciliationWorkspace,
+  saveBankAccount,
+  importBankStatement,
+  matchBankTransaction,
+  unmatchBankTransaction,
+  prepareBankReconciliation,
+  completeBankReconciliation,
+} from "./callable/bank-reconciliation.js";
