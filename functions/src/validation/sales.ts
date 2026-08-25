@@ -26,6 +26,29 @@ export const posWorkspaceInput = z.object({
   limit: z.number().int().min(1).max(500).default(200),
 });
 
+export const saleDocumentInput = z.object({
+  saleId: id,
+});
+
+export const salesReportInput = z.object({
+  reportType: z.literal("sales_register").default("sales_register"),
+  branchId: id.optional(),
+  fromDate: z.string().date().optional(),
+  toDate: z.string().date().optional(),
+  cursor: z.object({
+    recordedAt: z.string().datetime(),
+    saleId: id,
+  }).optional(),
+  limit: z.number().int().min(1).max(500).default(200),
+}).superRefine((value, context) => {
+  if (value.fromDate && value.toDate && value.fromDate > value.toDate)
+    context.addIssue({
+      code: "custom",
+      path: ["toDate"],
+      message: "The report end date cannot be before its start date.",
+    });
+});
+
 export const saveCustomerInput = z
   .object({
     customerId: id.optional(),

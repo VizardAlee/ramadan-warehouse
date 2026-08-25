@@ -19,9 +19,33 @@ online-only.
 
 Phase 1 provides branch-scoped POS access, centrally managed base prices,
 branch markups, paid quantity-tracked sales, payment-method records, immutable
-receipts, inventory/COGS posting, balanced sales journals, and durable offline
+invoice and receipt evidence, inventory/COGS posting, balanced sales journals, and durable offline
 sale capture and retry. Cash, card, bank transfer, and split payments are
 recorded; external payment-provider settlement is not inferred.
+
+## Invoices, receipts, and report downloads
+
+The browser never invents an official invoice or receipt. After a successful
+server transaction, `getSaleDocument` reconstructs the customer document from
+the immutable sale, sale-item, payment, and receipt records. Organization,
+branch, customer, product, price, VAT, and document-number snapshots are taken
+at posting time so later master-data edits do not rewrite historical evidence.
+The document states VAT separately and can be printed or saved as PDF through
+the browser. Authorized users can reopen it from the Sales register.
+
+A paid sale carries both an invoice number and a receipt number. A credit sale
+still has an invoice, but the receipt states the amount actually received and
+the outstanding customer-credit amount. An offline checkout produces only a
+clearly marked provisional reference; it becomes an official server document
+after successful synchronization.
+
+`generateSalesReport` returns an organization- and branch-scoped sales
+register without inventory cost data. The Reports screen can download the
+complete filtered register as UTF-8 CSV, retaining naira and kobo as two
+decimal places, and limits one download to 25,000 sales before requiring a
+shorter date range. The accounting close screen also downloads its trial
+balance evidence as CSV. Existing request, transfer, and inventory exports
+remain available under their own permissions.
 
 ## Phase 2 boundary — customer credit and receivables
 
@@ -68,9 +92,9 @@ non-restockable return: branch stock unchanged
 return debits = return credits
 ```
 
-Serialized and batch checkout, procurement/accounts payable, expenses, bank reconciliation, period
-closing, and complete financial statements follow in later phases. The schema
-and journals introduced here are designed for those extensions.
+Serialized and batch checkout and complete financial statements remain later
+work. Procurement/accounts payable, expenses, bank reconciliation, and period
+closing are implemented as controlled accounting workflows.
 
 ## Atomic sale invariant
 

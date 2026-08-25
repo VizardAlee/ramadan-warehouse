@@ -117,6 +117,8 @@ export {
   saveProductSalesPrice,
   saveBranchSalesPrice,
   getPosWorkspace,
+  getSaleDocument,
+  generateSalesReport,
   openPosShift,
   closePosShift,
   commitPosSale,

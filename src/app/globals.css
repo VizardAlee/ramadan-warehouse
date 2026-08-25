@@ -14,6 +14,36 @@
   --section-gap: clamp(1.25rem, 2vw, 2rem);
 }
 
+@media print {
+  body:has([data-print-document]) * {
+    visibility: hidden !important;
+  }
+
+  body:has([data-print-document]) [data-print-document],
+  body:has([data-print-document]) [data-print-document] * {
+    visibility: visible !important;
+  }
+
+  body:has([data-print-document]) [data-sale-document-overlay] {
+    position: static !important;
+    overflow: visible !important;
+    background: white !important;
+    padding: 0 !important;
+  }
+
+  body:has([data-print-document]) [data-print-document] {
+    position: absolute;
+    inset: 0;
+    max-width: none !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+  }
+
+  [data-no-print] {
+    display: none !important;
+  }
+}
+
 * { border-color: var(--border); box-sizing: border-box; }
 html { min-width: 320px; background: var(--background); }
 body { margin: 0; min-height: 100dvh; overflow-x: hidden; background: var(--background); color: var(--foreground); font-family: Arial, Helvetica, sans-serif; text-rendering: optimizeLegibility; }

@@ -31,6 +31,7 @@ const locationId = "branch-sales-location";
 const productId = "product-sales";
 let administrator: ReturnType<typeof client>;
 let branchManager: ReturnType<typeof client>;
+let cashier: ReturnType<typeof client>;
 
 function client(name: string) {
   const app = initializeApp(
@@ -67,7 +68,7 @@ async function createActor(email: string, roleId: string) {
     email,
     displayName: roleId,
     roleId,
-    branchIds: roleId === "branch_manager" ? [branchId] : [],
+    branchIds: ["branch_manager", "sales_cashier"].includes(roleId) ? [branchId] : [],
     warehouseIds: roleId === "warehouse_manager" ? ["warehouse-sales"] : [],
     status: "active",
     authDisabled: false,
@@ -97,12 +98,27 @@ beforeAll(async () => {
     "sales-manager@example.test",
     "branch_manager",
   );
+  cashier = await createActor("sales-cashier@example.test", "sales_cashier");
   const now = FieldValue.serverTimestamp();
   await Promise.all([
+    adminDb.doc(`organizations/${organizationId}`).set({
+      legalName: "AB Ramadan Ltd.",
+      tradingName: "ABR",
+      registrationNumber: "RC-TEST-001",
+      address: "Kano, Nigeria",
+      contactEmail: "accounts@example.test",
+      phoneNumbers: ["07012345678"],
+      status: "active",
+      createdAt: now,
+      updatedAt: now,
+    }),
     adminDb.doc(`branches/${branchId}`).set({
       organizationId,
       name: "Igbo Road Branch",
       code: "IRB",
+      address: "Igbo Road",
+      state: "Kano",
+      contactPhone: "07012345678",
       status: "active",
       createdAt: now,
       updatedAt: now,
@@ -276,6 +292,66 @@ describe.sequential("sales callables", () => {
     expect(journalQuery.docs[0]!.get("totalDebitMinor")).toBe(
       journalQuery.docs[0]!.get("totalCreditMinor"),
     );
+
+    const officialDocument = await call<{
+      official: boolean;
+      organization: { legalName: string; tradingName: string };
+      sale: { invoiceNumber: string; receiptNumber: string; vatAmountMinor: number };
+      items: Array<Record<string, unknown>>;
+      payments: Array<Record<string, unknown>>;
+    }>(branchManager, "getSaleDocument", { saleId: posted.saleId });
+    expect(officialDocument).toMatchObject({
+      official: true,
+      organization: { legalName: "AB Ramadan Ltd.", tradingName: "ABR" },
+      sale: {
+        invoiceNumber: posted.saleNumber,
+        receiptNumber: posted.receiptNumber,
+        vatAmountMinor: 1_650,
+      },
+    });
+    expect(officialDocument.items).toHaveLength(1);
+    expect(officialDocument.payments).toHaveLength(1);
+    expect(officialDocument.items[0]).not.toHaveProperty("unitCostMinor");
+    expect(officialDocument.items[0]).not.toHaveProperty("costAmountMinor");
+    await expect(
+      call(cashier, "getSaleDocument", { saleId: posted.saleId }),
+    ).resolves.toMatchObject({ official: true, sale: { saleNumber: posted.saleNumber } });
+    await expect(
+      call(cashier, "generateSalesReport", { reportType: "sales_register", branchId }),
+    ).rejects.toMatchObject({ code: "functions/permission-denied" });
+
+    const salesReport = await call<{
+      rows: Array<Record<string, unknown>>;
+      nextCursor: { recordedAt: string; saleId: string } | null;
+    }>(branchManager, "generateSalesReport", {
+      reportType: "sales_register",
+      branchId,
+      limit: 100,
+    });
+    expect(salesReport.rows).toContainEqual(expect.objectContaining({
+      id: posted.saleId,
+      saleNumber: posted.saleNumber,
+      receiptNumber: posted.receiptNumber,
+      grossAmountMinor: 23_650,
+      vatAmountMinor: 1_650,
+    }));
+    expect(salesReport.rows.find((row) => row.id === posted.saleId)).not.toHaveProperty("costAmountMinor");
+
+    await adminDb.doc("sales/out-of-scope-sale").set({
+      organizationId,
+      branchId: "another-branch",
+      saleNumber: "SAL-OTHER-2026-000001",
+      recordedAt: FieldValue.serverTimestamp(),
+    });
+    await expect(
+      call(branchManager, "getSaleDocument", { saleId: "out-of-scope-sale" }),
+    ).rejects.toMatchObject({ code: "functions/permission-denied" });
+    await expect(
+      call(branchManager, "generateSalesReport", {
+        reportType: "sales_register",
+        branchId: "another-branch",
+      }),
+    ).rejects.toMatchObject({ code: "functions/permission-denied" });
   });
 
   it("rejects stale offline prices, then posts an exact cached snapshot once", async () => {

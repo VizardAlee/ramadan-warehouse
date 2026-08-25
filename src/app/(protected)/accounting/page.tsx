@@ -1,6 +1,6 @@
 "use client";
 
-import { CheckCircle2, LockKeyhole, RefreshCw, ShieldCheck } from "lucide-react";
+import { CheckCircle2, Download, LockKeyhole, RefreshCw, ShieldCheck } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { callAdministration } from "@/features/administration/api";
@@ -92,6 +92,29 @@ export default function AccountingClosePage() {
   );
   const blocked = Boolean(workspace?.evidence.blockers.length);
 
+  function downloadTrialBalance() {
+    if (!workspace) return;
+    const escape = (value: unknown) => `"${String(value ?? "").replaceAll('"', '""')}"`;
+    const rows = workspace.evidence.trialBalance.map((line) => [
+      line.accountCode,
+      line.accountName,
+      (line.debitMinor / 100).toFixed(2),
+      (line.creditMinor / 100).toFixed(2),
+      (line.netMinor / 100).toFixed(2),
+      "NGN",
+    ]);
+    const csv = [
+      ["account_code", "account_name", "debit_naira", "credit_naira", "net_debit_naira", "currency"],
+      ...rows,
+    ].map((row) => row.map(escape).join(",")).join("\n");
+    const url = URL.createObjectURL(new Blob(["\uFEFF", csv], { type: "text/csv;charset=utf-8" }));
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `trial-balance-${periodKey}.csv`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  }
+
   if (!profile || !can("accounting.close.read"))
     return <div className="rounded-xl border bg-white p-6">Your roles do not include monthly accounting-close access.</div>;
 
@@ -129,7 +152,7 @@ export default function AccountingClosePage() {
       </section>
 
       <section className="overflow-hidden rounded-xl border bg-white">
-        <div className="p-5"><h2 className="text-xl font-semibold">Trial balance evidence</h2><p className="text-sm text-[var(--muted)]">Amounts are shown in naira with kobo retained to two decimal places.</p></div>
+        <div className="flex flex-wrap items-start justify-between gap-3 p-5"><div><h2 className="text-xl font-semibold">Trial balance evidence</h2><p className="text-sm text-[var(--muted)]">Amounts are shown in naira with kobo retained to two decimal places.</p></div><Button variant="secondary" onClick={downloadTrialBalance}><Download className="mr-2 size-4" /> Download CSV</Button></div>
         <div className="overflow-x-auto"><table className="w-full min-w-[44rem] text-left text-sm"><thead className="bg-slate-50"><tr><th className="p-3">Account</th><th className="p-3 text-right">Debit</th><th className="p-3 text-right">Credit</th><th className="p-3 text-right">Net debit / (credit)</th></tr></thead><tbody>{workspace.evidence.trialBalance.map((line) => <tr key={line.accountCode} className="border-t"><td className="p-3"><strong>{line.accountCode}</strong> · {line.accountName}</td><td className="p-3 text-right">{formatNaira(line.debitMinor)}</td><td className="p-3 text-right">{formatNaira(line.creditMinor)}</td><td className="p-3 text-right">{formatNaira(line.netMinor)}</td></tr>)}{!workspace.evidence.trialBalance.length && <tr className="border-t"><td colSpan={4} className="p-6 text-center text-[var(--muted)]">No journals were posted in this month.</td></tr>}</tbody></table></div>
       </section>
 

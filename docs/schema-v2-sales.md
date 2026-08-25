@@ -27,6 +27,14 @@ payment, paired inventory entries, balance update, COGS, journal, audit record,
 and idempotency record. Confirmed records are append-only. Later returns and
 refunds add linked correcting records rather than editing the original.
 
+The official printable sales document is a read model, not a mutable document
+uploaded by the client. It joins the server-authoritative `sales`, `saleItems`,
+`salePayments`, and `salesReceipts` evidence after checking organization and
+branch scope. Historical organization, branch, customer, product, price, and
+VAT snapshots are retained on the sale evidence. The downloadable sales
+register exposes revenue, VAT, settlement, and receivable values but never
+inventory cost fields.
+
 `saleReturnItemCounters` is the transactional projection that prevents all
 approved returns for one sale item from exceeding its sold quantity. Submitted
 requests do not reserve quantity; approval rechecks the counter and either

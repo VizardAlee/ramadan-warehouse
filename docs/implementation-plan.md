@@ -43,11 +43,14 @@ blockers, race-safe period preparation, independent completion, immutable
 evidence snapshots, and a shared effective-date lock across every journal
 posting path. See `accounting-period-close.md`.
 
-The expansion does not yet implement serialized or lot checkout at POS,
-or complete financial statements. Those remain later finance phases. The new source must
-pass its full local and emulator gates before any production deployment; the
-current production environment continues to run the validated 98-function
-inventory/transfer release until that separate approval.
+The sales-document and reporting hardening adds server-authoritative printable
+invoices/receipts, historical document reprint, a branch-scoped downloadable
+sales register, and downloadable trial-balance evidence. Offline references
+remain visibly provisional until the queued sale posts successfully.
+
+The expansion does not yet implement serialized or lot checkout at POS or
+complete financial statements. Those remain later finance work. Each source
+change must pass the full local and emulator gates before deployment.
 
 ## Warehouse transfer programme — implemented locally
 

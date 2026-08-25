@@ -18,6 +18,7 @@ import { callAdministration } from "@/features/administration/api";
 import { useOrganizationCollection } from "@/features/administration/use-organization-collection";
 import { useAuth } from "@/features/auth/auth-context";
 import { calculatePosCart, provisionalReceiptReference } from "@/features/pos/calculations";
+import { SaleDocumentDialog } from "@/features/pos/sale-document";
 import {
   listQueuedSales,
   queueOfflineSale,
@@ -31,6 +32,7 @@ import type {
   PosCheckoutMethod,
   PosPaymentMethod,
   PosSalePayload,
+  SaleDocument,
   PosWorkspace,
   QueuedPosSale,
 } from "@/features/pos/types";
@@ -78,6 +80,7 @@ export default function PosPage() {
     reference: string;
     totalMinor: number;
     queued: boolean;
+    document?: SaleDocument;
   } | null>(null);
   const [priceProductId, setPriceProductId] = useState<string | null>(null);
   const [branchPrice, setBranchPrice] = useState("");
@@ -375,10 +378,22 @@ export default function PosPage() {
           "commitPosSale",
           payload,
         );
+        let document: SaleDocument | undefined;
+        try {
+          document = await callAdministration<{ saleId: string }, SaleDocument>(
+            "getSaleDocument",
+            { saleId: result.saleId },
+          );
+        } catch {
+          setMessage(
+            `Sale ${result.saleNumber} posted safely. Its full invoice and receipt can be reprinted from Sales reports.`,
+          );
+        }
         setReceipt({
           reference: result.receiptNumber,
           totalMinor: totals.grossAmountMinor,
           queued: false,
+          document,
         });
         await loadWorkspace();
       } else {
@@ -649,21 +664,23 @@ export default function PosPage() {
         </div>
       )}
 
-      {receipt && (
+      {receipt?.document ? (
+        <SaleDocumentDialog document={receipt.document} onClose={() => setReceipt(null)} />
+      ) : receipt ? (
         <div className="fixed inset-0 z-50 grid place-items-center bg-black/50 p-4" role="dialog" aria-modal="true" aria-label="Sale receipt">
-          <section className="w-full max-w-sm rounded-2xl bg-white p-6 text-center shadow-2xl">
+          <section className="w-full max-w-sm rounded-2xl bg-white p-6 text-center shadow-2xl" data-print-document>
             {receipt.queued ? <CircleAlert className="mx-auto size-12 text-amber-600" /> : <CheckCircle2 className="mx-auto size-12 text-emerald-600" />}
             <h2 className="mt-3 text-2xl font-semibold">{receipt.queued ? "Sale saved offline" : "Sale completed"}</h2>
             <p className="mt-2 font-mono text-sm">{receipt.reference}</p>
             <p className="mt-4 text-3xl font-semibold">{formatNaira(receipt.totalMinor)}</p>
             <p className="mt-3 text-sm text-[var(--muted)]">{receipt.queued ? "This provisional receipt will be linked to the official receipt after synchronization." : "Inventory, VAT, settlement or receivable, and accounting records were posted."}</p>
-            <div className="mt-5 flex gap-3">
-              <Button variant="outline" className="flex-1" onClick={() => window.print()}><Printer className="mr-2 size-4" /> Print</Button>
+            <div className="mt-5 flex gap-3" data-no-print>
+              <Button variant="outline" className="flex-1" onClick={() => window.print()}><Printer className="mr-2 size-4" /> Print provisional</Button>
               <Button className="flex-1" onClick={() => setReceipt(null)}>New sale</Button>
             </div>
           </section>
         </div>
-      )}
+      ) : null}
 
       {priceProductId && workspace && (() => {
         const product = workspace.products.find((item) => item.id === priceProductId);

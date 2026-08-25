@@ -95,3 +95,63 @@ export interface QueuedPosSale {
   status: "queued" | "needs_review";
   lastError?: string;
 }
+
+export interface SaleDocument {
+  official: boolean;
+  organization: {
+    legalName: string;
+    tradingName: string | null;
+    registrationNumber: string | null;
+    address: string | null;
+    contactEmail: string | null;
+    phoneNumbers: string[];
+  };
+  branch: {
+    id: string;
+    name: string;
+    code: string;
+    address: string | null;
+    state: string | null;
+    contactPhone: string | null;
+  };
+  sale: {
+    id: string;
+    saleNumber: string;
+    invoiceNumber: string;
+    receiptNumber: string;
+    paymentStatus: string;
+    customerNumber: string | null;
+    customerName: string | null;
+    customerPhone: string | null;
+    customerEmail: string | null;
+    customerAddress: string | null;
+    customerTaxId: string | null;
+    netAmountMinor: number;
+    vatAmountMinor: number;
+    grossAmountMinor: number;
+    amountPaidMinor: number;
+    creditAmountMinor: number;
+    currency: "NGN";
+    recordedAt: string | null;
+    postedAt: string | null;
+  };
+  items: Array<{
+    id: string;
+    sku: string;
+    productName: string;
+    unitOfMeasure: string;
+    quantity: number;
+    unitPriceMinor: number;
+    vatRateBasisPoints: number;
+    netAmountMinor: number;
+    vatAmountMinor: number;
+    grossAmountMinor: number;
+  }>;
+  payments: Array<{
+    id: string;
+    method: string;
+    amountMinor: number;
+    reference: string | null;
+    status: string;
+  }>;
+}

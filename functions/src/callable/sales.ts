@@ -1,10 +1,11 @@
-import { FieldValue, Timestamp } from "firebase-admin/firestore";
+import { FieldPath, FieldValue, Timestamp } from "firebase-admin/firestore";
 import { logger } from "firebase-functions";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
 import { db } from "../admin.js";
 import { accountingPeriodReference, assertAccountingPeriodOpen } from "../accounting/period-lock.js";
 import { writeAuditLog } from "../audit/write-audit-log.js";
 import {
+  hasServerPermission,
   hasRole,
   requireAccess,
   requireBranchScope,
@@ -28,6 +29,8 @@ import {
   commitSaleInput,
   openPosShiftInput,
   posWorkspaceInput,
+  saleDocumentInput,
+  salesReportInput,
   salesPriceInput,
 } from "../validation/sales.js";
 
@@ -56,6 +59,19 @@ function clean(values: Record<string, unknown>) {
       ([, value]) => value !== undefined && value !== "",
     ),
   );
+}
+
+function iso(value: unknown): string | null {
+  return value instanceof Timestamp ? value.toDate().toISOString() : null;
+}
+
+function canReadAllSales(actor: Awaited<ReturnType<typeof requireAccess>>) {
+  return ([
+    "system_administrator",
+    "operations_administrator",
+    "finance_officer",
+    "auditor",
+  ] as const).some((role) => hasRole(actor, role));
 }
 
 function branchPriceId(
@@ -415,6 +431,168 @@ export const getPosWorkspace = onCall(
   },
 );
 
+export const getSaleDocument = onCall(
+  { enforceAppCheck },
+  async (request) => {
+    const actor = await requireAccess(request);
+    if (
+      !hasServerPermission(actor, "reports.sales.read") &&
+      !hasServerPermission(actor, "sales.read.own_branch") &&
+      !hasServerPermission(actor, "sales.read.all")
+    )
+      throw new HttpsError("permission-denied", "You do not have permission to view sale documents.");
+    const input = parseInput(saleDocumentInput, request.data);
+    const sale = await db.doc(`sales/${input.saleId}`).get();
+    if (!sale.exists || sale.get("organizationId") !== actor.organizationId)
+      throw new HttpsError("not-found", "Sale document not found.");
+    requireBranchScope(actor, String(sale.get("branchId")));
+    const [receipt, items, payments, organization, branch] = await Promise.all([
+      db.collection("salesReceipts").where("saleId", "==", sale.id).limit(2).get(),
+      db.collection("saleItems").where("saleId", "==", sale.id).limit(100).get(),
+      db.collection("salePayments").where("saleId", "==", sale.id).limit(20).get(),
+      db.doc(`organizations/${actor.organizationId}`).get(),
+      db.doc(`branches/${String(sale.get("branchId"))}`).get(),
+    ]);
+    const officialReceipt = receipt.docs[0];
+    if (!officialReceipt)
+      throw new HttpsError("failed-precondition", "The official receipt record is unavailable.");
+    const belongsToSale = (document: FirebaseFirestore.QueryDocumentSnapshot) =>
+      document.get("organizationId") === actor.organizationId &&
+      document.get("branchId") === sale.get("branchId");
+    if (
+      receipt.size !== 1 ||
+      !belongsToSale(officialReceipt) ||
+      !items.docs.every(belongsToSale) ||
+      !payments.docs.every(belongsToSale)
+    )
+      throw new HttpsError("data-loss", "Sale document evidence is inconsistent.");
+    return {
+      official: true,
+      organization: {
+        legalName: sale.get("organizationLegalName") ?? organization.get("legalName"),
+        tradingName: sale.get("organizationTradingName") ?? organization.get("tradingName") ?? null,
+        registrationNumber: sale.get("organizationRegistrationNumber") ?? organization.get("registrationNumber") ?? null,
+        address: sale.get("organizationAddress") ?? organization.get("address") ?? null,
+        contactEmail: sale.get("organizationContactEmail") ?? organization.get("contactEmail") ?? null,
+        phoneNumbers: sale.get("organizationPhoneNumbers") ?? organization.get("phoneNumbers") ?? [],
+      },
+      branch: {
+        id: sale.get("branchId"),
+        name: sale.get("branchName"),
+        code: sale.get("branchCode"),
+        address: sale.get("branchAddress") ?? branch.get("address") ?? null,
+        state: sale.get("branchState") ?? branch.get("state") ?? null,
+        contactPhone: sale.get("branchContactPhone") ?? branch.get("contactPhone") ?? null,
+      },
+      sale: {
+        id: sale.id,
+        saleNumber: sale.get("saleNumber"),
+        invoiceNumber: sale.get("saleNumber"),
+        receiptNumber: officialReceipt.get("receiptNumber"),
+        paymentStatus: sale.get("paymentStatus"),
+        customerNumber: sale.get("customerNumber") ?? null,
+        customerName: sale.get("customerName") ?? null,
+        customerPhone: sale.get("customerPhone") ?? null,
+        customerEmail: sale.get("customerEmail") ?? null,
+        customerAddress: sale.get("customerAddress") ?? null,
+        customerTaxId: sale.get("customerTaxId") ?? null,
+        netAmountMinor: Number(sale.get("netAmountMinor") ?? 0),
+        vatAmountMinor: Number(sale.get("vatAmountMinor") ?? 0),
+        grossAmountMinor: Number(sale.get("grossAmountMinor") ?? 0),
+        amountPaidMinor: Number(sale.get("amountPaidMinor") ?? 0),
+        creditAmountMinor: Number(sale.get("creditAmountMinor") ?? 0),
+        currency: sale.get("currency") ?? "NGN",
+        recordedAt: iso(sale.get("recordedAt")),
+        postedAt: iso(sale.get("postedAt")),
+      },
+      items: items.docs.map((item) => ({
+        id: item.id,
+        sku: item.get("sku"),
+        productName: item.get("productName"),
+        unitOfMeasure: item.get("unitOfMeasure"),
+        quantity: Number(item.get("quantity") ?? 0),
+        unitPriceMinor: Number(item.get("unitPriceMinor") ?? 0),
+        vatRateBasisPoints: Number(item.get("vatRateBasisPoints") ?? 0),
+        netAmountMinor: Number(item.get("netAmountMinor") ?? 0),
+        vatAmountMinor: Number(item.get("vatAmountMinor") ?? 0),
+        grossAmountMinor: Number(item.get("grossAmountMinor") ?? 0),
+      })),
+      payments: payments.docs.map((payment) => ({
+        id: payment.id,
+        method: payment.get("method"),
+        amountMinor: Number(payment.get("amountMinor") ?? 0),
+        reference: payment.get("reference") ?? null,
+        status: payment.get("status"),
+      })),
+    };
+  },
+);
+
+export const generateSalesReport = onCall(
+  { enforceAppCheck, timeoutSeconds: 120 },
+  async (request) => {
+    const actor = await requireAccess(request);
+    requirePermission(actor, "reports.sales.read");
+    const input = parseInput(salesReportInput, request.data);
+    let branchId = input.branchId;
+    if (!canReadAllSales(actor)) {
+      branchId ??= actor.branchIds.length === 1 ? actor.branchIds[0] : undefined;
+      if (!branchId)
+        throw new HttpsError("invalid-argument", "Select one assigned branch for this report.");
+    }
+    if (branchId) requireBranchScope(actor, branchId);
+    let query = db.collection("sales")
+      .where("organizationId", "==", actor.organizationId);
+    if (branchId) query = query.where("branchId", "==", branchId);
+    if (input.fromDate)
+      query = query.where("recordedAt", ">=", Timestamp.fromDate(new Date(`${input.fromDate}T00:00:00.000Z`)));
+    if (input.toDate) {
+      const exclusiveEnd = new Date(`${input.toDate}T00:00:00.000Z`);
+      exclusiveEnd.setUTCDate(exclusiveEnd.getUTCDate() + 1);
+      query = query.where("recordedAt", "<", Timestamp.fromDate(exclusiveEnd));
+    }
+    query = query
+      .orderBy("recordedAt", "desc")
+      .orderBy(FieldPath.documentId(), "desc");
+    if (input.cursor)
+      query = query.startAfter(
+        Timestamp.fromDate(new Date(input.cursor.recordedAt)),
+        input.cursor.saleId,
+      );
+    const result = await query.limit(input.limit + 1).get();
+    const page = result.docs.slice(0, input.limit);
+    const rows = page.map((sale) => ({
+      id: sale.id,
+      saleNumber: sale.get("saleNumber"),
+      receiptNumber: sale.get("receiptNumber"),
+      branchId: sale.get("branchId"),
+      branchName: sale.get("branchName"),
+      customerNumber: sale.get("customerNumber") ?? "",
+      customerName: sale.get("customerName") ?? "Walk-in customer",
+      paymentStatus: sale.get("paymentStatus"),
+      source: sale.get("source"),
+      itemCount: Number(sale.get("itemCount") ?? 0),
+      totalQuantity: Number(sale.get("totalQuantity") ?? 0),
+      netAmountMinor: Number(sale.get("netAmountMinor") ?? 0),
+      vatAmountMinor: Number(sale.get("vatAmountMinor") ?? 0),
+      grossAmountMinor: Number(sale.get("grossAmountMinor") ?? 0),
+      amountPaidMinor: Number(sale.get("amountPaidMinor") ?? 0),
+      creditAmountMinor: Number(sale.get("creditAmountMinor") ?? 0),
+      currency: sale.get("currency") ?? "NGN",
+      recordedAt: iso(sale.get("recordedAt")),
+    }));
+    const last = page.at(-1);
+    return {
+      reportType: input.reportType,
+      rows,
+      nextCursor: result.docs.length > input.limit && last
+        ? { recordedAt: iso(last.get("recordedAt")), saleId: last.id }
+        : null,
+      includeCosts: false,
+    };
+  },
+);
+
 export const openPosShift = onCall(
   { enforceAppCheck },
   async (request) => {
@@ -597,6 +775,7 @@ export const commitPosSale = onCall(
     const operation = db.doc(
       `idempotencyKeys/${actor.organizationId}_commitPosSale_${input.idempotencyKey}`,
     );
+    const organization = db.doc(`organizations/${actor.organizationId}`);
     const branch = db.doc(`branches/${input.branchId}`);
     const location = locationOutsideTransaction.ref;
     const shift = db.doc(`posShifts/${input.shiftId}`);
@@ -638,6 +817,7 @@ export const commitPosSale = onCall(
     await db.runTransaction(async (transaction) => {
       const snapshots = await transaction.getAll(
         operation,
+        organization,
         branch,
         location,
         shift,
@@ -654,6 +834,7 @@ export const commitPosSale = onCall(
       );
       let cursor = 0;
       const previousOperation = snapshots[cursor++]!;
+      const organizationSnapshot = snapshots[cursor++]!;
       const branchSnapshot = snapshots[cursor++]!;
       const locationSnapshot = snapshots[cursor++]!;
       const shiftSnapshot = snapshots[cursor++]!;
@@ -677,6 +858,8 @@ export const commitPosSale = onCall(
         return;
       }
       assertAccountingPeriodOpen(accountingPeriodSnapshot);
+      if (!organizationSnapshot.exists || organizationSnapshot.get("status") !== "active")
+        throw new HttpsError("failed-precondition", "The organization is unavailable.");
       if (
         !branchSnapshot.exists ||
         branchSnapshot.get("organizationId") !== actor.organizationId ||
@@ -906,9 +1089,18 @@ export const commitPosSale = onCall(
       });
       transaction.create(sale, clean({
         organizationId: actor.organizationId,
+        organizationLegalName: organizationSnapshot.get("legalName"),
+        organizationTradingName: organizationSnapshot.get("tradingName"),
+        organizationRegistrationNumber: organizationSnapshot.get("registrationNumber"),
+        organizationAddress: organizationSnapshot.get("address"),
+        organizationContactEmail: organizationSnapshot.get("contactEmail"),
+        organizationPhoneNumbers: organizationSnapshot.get("phoneNumbers") ?? [],
         branchId: input.branchId,
         branchName: branchSnapshot.get("name"),
         branchCode,
+        branchAddress: branchSnapshot.get("address"),
+        branchState: branchSnapshot.get("state"),
+        branchContactPhone: branchSnapshot.get("contactPhone"),
         locationId: location.id,
         shiftId: shift.id,
         deviceId: input.deviceId,
@@ -929,6 +1121,10 @@ export const commitPosSale = onCall(
           ? customerSnapshot.get("customerNumber")
           : undefined,
         customerName: input.customerId ? customerSnapshot.get("name") : undefined,
+        customerPhone: input.customerId ? customerSnapshot.get("phone") : undefined,
+        customerEmail: input.customerId ? customerSnapshot.get("email") : undefined,
+        customerAddress: input.customerId ? customerSnapshot.get("address") : undefined,
+        customerTaxId: input.customerId ? customerSnapshot.get("taxId") : undefined,
         creditAmountMinor: input.creditAmountMinor,
         amountPaidMinor: calculated.grossAmountMinor - input.creditAmountMinor,
         source: input.offline ? "offline_sync" : "online_pos",
