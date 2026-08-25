@@ -53,6 +53,13 @@ async function seed() {
       branchIds: ["branch-1"],
       warehouseIds: [],
     });
+    await db.doc("users/sales-cashier").set({
+      organizationId: "org-1",
+      status: "active",
+      roleId: "sales_cashier",
+      branchIds: ["branch-1"],
+      warehouseIds: [],
+    });
     await db.doc("users/warehouse-manager").set({
       organizationId: "org-1",
       status: "active",
@@ -115,6 +122,55 @@ async function seed() {
       organizationId: "org-1",
       productId: "product-1",
       defaultUnitCostMinor: 1000,
+    });
+    await db.doc("productSalesPrices/product-1").set({
+      organizationId: "org-1",
+      productId: "product-1",
+      basePriceMinor: 2000,
+      vatRateBasisPoints: 750,
+      active: true,
+    });
+    for (const [id, branchId] of [
+      ["sale-1", "branch-1"],
+      ["sale-2", "branch-2"],
+    ]) {
+      await db.doc(`sales/${id}`).set({
+        organizationId: "org-1",
+        branchId,
+        status: "completed",
+      });
+      await db.doc(`saleItems/${id}-item`).set({
+        organizationId: "org-1",
+        branchId,
+        saleId: id,
+      });
+      await db.doc(`salePayments/${id}-payment`).set({
+        organizationId: "org-1",
+        branchId,
+        saleId: id,
+      });
+      await db.doc(`salesReceipts/${id}-receipt`).set({
+        organizationId: "org-1",
+        branchId,
+        saleId: id,
+      });
+      await db.doc(`posShifts/${id}-shift`).set({
+        organizationId: "org-1",
+        branchId,
+        status: "open",
+      });
+    }
+    await db.doc("chartOfAccounts/account-1").set({
+      organizationId: "org-1",
+      code: "4000",
+    });
+    await db.doc("journalEntries/journal-1").set({
+      organizationId: "org-1",
+      branchId: "branch-1",
+    });
+    await db.doc("journalLines/journal-1-line").set({
+      organizationId: "org-1",
+      branchId: "branch-1",
     });
     await db
       .doc("inventoryTransactions/branch-1-tx")
@@ -482,6 +538,34 @@ describe("Firestore baseline rules", () => {
       adminDb
         .doc("transferApprovals/new")
         .set({ organizationId: "org-1", transferId: "transfer-1" }),
+    );
+  });
+  it("scopes POS reads by branch and denies all direct sales and journal writes", async () => {
+    await seed();
+    const cashierDb = environment
+      .authenticatedContext("sales-cashier")
+      .firestore();
+    const adminDb = environment.authenticatedContext("admin").firestore();
+    const financeDb = environment.authenticatedContext("finance").firestore();
+    await assertSucceeds(cashierDb.doc("products/product-1").get());
+    await assertSucceeds(cashierDb.doc("productSalesPrices/product-1").get());
+    await assertSucceeds(cashierDb.doc("sales/sale-1").get());
+    await assertFails(cashierDb.doc("sales/sale-2").get());
+    await assertSucceeds(cashierDb.doc("saleItems/sale-1-item").get());
+    await assertSucceeds(cashierDb.doc("salePayments/sale-1-payment").get());
+    await assertSucceeds(cashierDb.doc("salesReceipts/sale-1-receipt").get());
+    await assertSucceeds(cashierDb.doc("posShifts/sale-1-shift").get());
+    await assertFails(cashierDb.doc("journalEntries/journal-1").get());
+    await assertSucceeds(financeDb.doc("journalEntries/journal-1").get());
+    await assertSucceeds(adminDb.doc("chartOfAccounts/account-1").get());
+    await assertFails(
+      cashierDb.doc("sales/new-sale").set({
+        organizationId: "org-1",
+        branchId: "branch-1",
+      }),
+    );
+    await assertFails(
+      adminDb.doc("journalEntries/journal-1").update({ status: "void" }),
     );
   });
 });

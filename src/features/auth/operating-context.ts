@@ -16,7 +16,11 @@ const warehouseRoles: readonly RoleId[] = [
   "warehouse_manager",
   "warehouse_officer",
 ];
-const branchRoles: readonly RoleId[] = ["branch_manager", "branch_requester"];
+const branchRoles: readonly RoleId[] = [
+  "branch_manager",
+  "branch_requester",
+  "sales_cashier",
+];
 
 function assignedRoles(profile: UserProfile): RoleId[] {
   return profile.roleIds?.length ? profile.roleIds : [profile.roleId];

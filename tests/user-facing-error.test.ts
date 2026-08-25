@@ -8,4 +8,14 @@ describe("user-facing Firebase errors", () => {
     expect(toUserFacingError({ code: "functions/aborted" }).diagnosticCode).toBe("functions/aborted");
   });
   it("uses the supplied safe fallback for unknown errors", () => expect(toUserFacingError(new Error("raw"), "Try again safely.").message).toBe("Try again safely."));
+  it("preserves safe POS reconciliation guidance without exposing raw errors", () => {
+    const price = toUserFacingError({
+      code: "functions/failed-precondition",
+      message: "raw internal text",
+      details: { code: "STALE_POS_PRICE", productId: "secret-id" },
+    });
+    expect(price.message).toContain("outdated price");
+    expect(price.message).not.toContain("secret-id");
+    expect(price.diagnosticCode).toBe("STALE_POS_PRICE");
+  });
 });

@@ -1,6 +1,32 @@
 {
   "indexes": [
     {
+      "collectionGroup": "inventoryLocations",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "organizationId", "order": "ASCENDING" },
+        { "fieldPath": "branchId", "order": "ASCENDING" },
+        { "fieldPath": "type", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "branchSalesPrices",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "organizationId", "order": "ASCENDING" },
+        { "fieldPath": "branchId", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "posShifts",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "organizationId", "order": "ASCENDING" },
+        { "fieldPath": "branchId", "order": "ASCENDING" },
+        { "fieldPath": "status", "order": "ASCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "users",
       "queryScope": "COLLECTION",
       "fields": [

@@ -11,9 +11,28 @@ const messages: Record<string, string> = {
   "auth/invalid-credential": "The email address or password is incorrect.",
   "auth/too-many-requests": "Too many sign-in attempts. Wait briefly before trying again.",
   "auth/network-request-failed": "Sign-in could not reach the service. Check your connection and try again.",
+  STALE_POS_PRICE: "An offline sale uses an outdated price. Review and refresh it before posting.",
+  POS_STOCK_RECONCILIATION_REQUIRED: "An offline sale exceeds current branch stock. A manager must reconcile stock before posting it.",
 };
 export class UserFacingError extends Error { constructor(message: string, readonly diagnosticCode?: string) { super(message); this.name = "UserFacingError"; } }
 export function toUserFacingError(error: unknown, fallback = "The operation could not be completed. Refresh and try again."): UserFacingError {
   const code = typeof error === "object" && error !== null && "code" in error ? String(error.code) : undefined;
-  return new UserFacingError(code ? messages[code] ?? fallback : fallback, code);
+  const details =
+    typeof error === "object" &&
+    error !== null &&
+    "details" in error &&
+    typeof error.details === "object" &&
+    error.details !== null
+      ? error.details
+      : undefined;
+  const operationCode =
+    details && "code" in details && typeof details.code === "string"
+      ? details.code
+      : undefined;
+  return new UserFacingError(
+    (operationCode && messages[operationCode]) ??
+      (code ? messages[code] : undefined) ??
+      fallback,
+    operationCode ?? code,
+  );
 }

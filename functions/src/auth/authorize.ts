@@ -8,6 +8,7 @@ export const roles = [
   "warehouse_officer",
   "branch_requester",
   "branch_manager",
+  "sales_cashier",
   "logistics_officer",
   "finance_officer",
   "auditor",
@@ -79,7 +80,15 @@ export type Permission =
   | "transfers.cost.reconcile"
   | "transfers.close"
   | "reports.transfers.read"
-  | "reports.transfers.export";
+  | "reports.transfers.export"
+  | "sales.read.own_branch"
+  | "sales.read.all"
+  | "sales.create"
+  | "sales.shift.manage"
+  | "sales.price.base.manage"
+  | "sales.price.branch.manage"
+  | "reports.sales.read"
+  | "finance.journal.read";
 
 const rolePermissions: Readonly<Record<RoleId, readonly Permission[]>> = {
   system_administrator: [
@@ -146,6 +155,13 @@ const rolePermissions: Readonly<Record<RoleId, readonly Permission[]>> = {
     "transfers.close",
     "reports.transfers.read",
     "reports.transfers.export",
+    "sales.read.all",
+    "sales.create",
+    "sales.shift.manage",
+    "sales.price.base.manage",
+    "sales.price.branch.manage",
+    "reports.sales.read",
+    "finance.journal.read",
   ],
   operations_administrator: [
     "user.manage",
@@ -180,6 +196,11 @@ const rolePermissions: Readonly<Record<RoleId, readonly Permission[]>> = {
     "transfers.close",
     "reports.transfers.read",
     "reports.transfers.export",
+    "sales.read.all",
+    "sales.create",
+    "sales.shift.manage",
+    "sales.price.branch.manage",
+    "reports.sales.read",
   ],
   warehouse_manager: [
     "products.read",
@@ -232,6 +253,7 @@ const rolePermissions: Readonly<Record<RoleId, readonly Permission[]>> = {
     "transfers.close",
     "reports.transfers.read",
     "reports.transfers.export",
+    "sales.price.base.manage",
   ],
   warehouse_officer: [
     "products.read",
@@ -280,6 +302,18 @@ const rolePermissions: Readonly<Record<RoleId, readonly Permission[]>> = {
     "transfers.report_discrepancy",
     "reports.transfers.read",
     "reports.transfers.export",
+    "sales.read.own_branch",
+    "sales.create",
+    "sales.shift.manage",
+    "sales.price.branch.manage",
+    "reports.sales.read",
+  ],
+  sales_cashier: [
+    "products.read",
+    "inventory.read",
+    "sales.read.own_branch",
+    "sales.create",
+    "sales.shift.manage",
   ],
   logistics_officer: [
     "transfers.read.all",
@@ -306,6 +340,9 @@ const rolePermissions: Readonly<Record<RoleId, readonly Permission[]>> = {
     "transfers.cost.reconcile",
     "reports.transfers.read",
     "reports.transfers.export",
+    "sales.read.all",
+    "reports.sales.read",
+    "finance.journal.read",
   ],
   auditor: [
     "audit.read",
@@ -322,6 +359,9 @@ const rolePermissions: Readonly<Record<RoleId, readonly Permission[]>> = {
     "transfers.cost.read",
     "reports.transfers.read",
     "reports.transfers.export",
+    "sales.read.all",
+    "reports.sales.read",
+    "finance.journal.read",
   ],
 };
 const assignableRoles: Readonly<Partial<Record<RoleId, readonly RoleId[]>>> = {
@@ -331,11 +371,12 @@ const assignableRoles: Readonly<Partial<Record<RoleId, readonly RoleId[]>>> = {
     "warehouse_officer",
     "branch_requester",
     "branch_manager",
+    "sales_cashier",
     "logistics_officer",
     "auditor",
   ],
   warehouse_manager: ["warehouse_officer"],
-  branch_manager: ["branch_requester"],
+  branch_manager: ["branch_requester", "sales_cashier"],
 };
 
 export interface AccessProfile {
@@ -365,6 +406,7 @@ const warehouseOperatingRoles: readonly RoleId[] = [
 const branchOperatingRoles: readonly RoleId[] = [
   "branch_manager",
   "branch_requester",
+  "sales_cashier",
 ];
 function stringArray(value: unknown): string[] {
   return Array.isArray(value) && value.every((item) => typeof item === "string")

@@ -49,6 +49,23 @@ const schema = z.object({
       "Enter no more than two decimal places.",
     )
     .optional(),
+  baseSellingPriceNaira: z
+    .number()
+    .positive()
+    .refine(
+      (value) => Math.abs(value * 100 - Math.round(value * 100)) < 1e-6,
+      "Enter no more than two decimal places.",
+    )
+    .optional(),
+  vatPercent: z
+    .number()
+    .min(0)
+    .max(100)
+    .refine(
+      (value) => Math.abs(value * 100 - Math.round(value * 100)) < 1e-6,
+      "Enter no more than two decimal places.",
+    )
+    .optional(),
   active: z.boolean(),
 });
 type Values = z.input<typeof schema>;
@@ -77,6 +94,13 @@ export default function ProductsPage() {
     "productCosts",
     profile ? hasPermission(profile, "inventory.cost.read") : false,
   );
+  const productSalesPrices = useOrganizationCollection<{
+    id: string;
+    productId: string;
+    basePriceMinor: number;
+    vatRateBasisPoints: number;
+    active: boolean;
+  }>("productSalesPrices");
   const [search, setSearch] = useState("");
   const [tracking, setTracking] = useState("");
   const [editing, setEditing] = useState<Product | null>(null);
@@ -85,6 +109,9 @@ export default function ProductsPage() {
   const [message, setMessage] = useState<string | null>(null);
   const canCreate = profile ? hasPermission(profile, "products.create") : false;
   const canUpdate = profile ? hasPermission(profile, "products.update") : false;
+  const canManageBasePrice = profile
+    ? hasPermission(profile, "sales.price.base.manage")
+    : false;
   const form = useForm<Values, unknown, ParsedValues>({
     resolver: zodResolver(schema),
     defaultValues: defaults,
@@ -108,6 +135,11 @@ export default function ProductsPage() {
           (cost) => cost.productId === product.id || cost.id === product.id,
         )?.defaultUnitCostMinor
       : undefined;
+    const configuredPrice = product
+      ? productSalesPrices.data.find(
+          (price) => price.productId === product.id || price.id === product.id,
+        )
+      : undefined;
     form.reset(
       product
         ? {
@@ -126,6 +158,13 @@ export default function ProductsPage() {
             minimumStockLevel: product.minimumStockLevel,
             reorderLevel: product.reorderLevel,
             defaultUnitCostNaira: koboToNaira(configuredCost),
+            baseSellingPriceNaira: koboToNaira(
+              configuredPrice?.basePriceMinor,
+            ),
+            vatPercent:
+              configuredPrice === undefined
+                ? undefined
+                : configuredPrice.vatRateBasisPoints / 100,
             active: product.active,
           }
         : defaults,
@@ -134,7 +173,12 @@ export default function ProductsPage() {
   }
   const submit = form.handleSubmit(async (values) => {
     try {
-      const { defaultUnitCostNaira, ...productValues } = values;
+      const {
+        defaultUnitCostNaira,
+        baseSellingPriceNaira,
+        vatPercent,
+        ...productValues
+      } = values;
       const clean = Object.fromEntries(
         Object.entries(productValues).filter(
           ([, value]) =>
@@ -150,7 +194,10 @@ export default function ProductsPage() {
           category.name.toLocaleLowerCase() ===
             categoryName?.toLocaleLowerCase(),
       );
-      await callAdministration("saveProduct", {
+      const saved = await callAdministration<
+        Record<string, unknown>,
+        { productId: string; saved: boolean }
+      >("saveProduct", {
         ...clean,
         ...(existingCategory
           ? { categoryId: existingCategory.id }
@@ -163,6 +210,15 @@ export default function ProductsPage() {
           : {}),
         idempotencyKey: crypto.randomUUID(),
       });
+      if (canManageBasePrice && baseSellingPriceNaira !== undefined) {
+        await callAdministration("saveProductSalesPrice", {
+          productId: saved.productId,
+          basePriceMinor: nairaToKobo(baseSellingPriceNaira),
+          vatRateBasisPoints: Math.round((vatPercent ?? 0) * 100),
+          active: true,
+          idempotencyKey: crypto.randomUUID(),
+        });
+      }
       setOpen(false);
       setMessage("Product saved securely.");
     } catch (cause) {
@@ -223,6 +279,8 @@ export default function ProductsPage() {
                 "Tracking",
                 "Unit",
                 "Default cost",
+                "Base selling price",
+                "VAT",
                 "Status",
                 "",
               ].map((label) => (
@@ -235,13 +293,13 @@ export default function ProductsPage() {
           <tbody>
             {products.loading ? (
               <tr>
-                <td colSpan={7} className="p-8 text-center">
+                <td colSpan={9} className="p-8 text-center">
                   Loading…
                 </td>
               </tr>
             ) : filtered.length === 0 ? (
               <tr>
-                <td colSpan={7} className="p-8 text-center text-[var(--muted)]">
+                <td colSpan={9} className="p-8 text-center text-[var(--muted)]">
                   No products found.
                 </td>
               </tr>
@@ -269,6 +327,23 @@ export default function ProductsPage() {
                           cost.productId === product.id || cost.id === product.id,
                       )?.defaultUnitCostMinor,
                     )}
+                  </td>
+                  <td data-label="Base selling price" className="px-4">
+                    {formatNaira(
+                      productSalesPrices.data.find(
+                        (price) =>
+                          price.productId === product.id || price.id === product.id,
+                      )?.basePriceMinor,
+                    )}
+                  </td>
+                  <td data-label="VAT" className="px-4">
+                    {(() => {
+                      const rate = productSalesPrices.data.find(
+                        (price) =>
+                          price.productId === product.id || price.id === product.id,
+                      )?.vatRateBasisPoints;
+                      return rate === undefined ? "Not set" : `${rate / 100}%`;
+                    })()}
                   </td>
                   <td data-label="Status" className="px-4">
                     <StatusBadge tone={product.active ? "success" : "warning"}>
@@ -384,6 +459,47 @@ export default function ProductsPage() {
                   className="mt-1 w-full rounded-lg border p-2.5"
                 />
               </label>
+              {canManageBasePrice && (
+                <>
+                  <label className="text-sm">
+                    Central base selling price (₦)
+                    <input
+                      type="number"
+                      min="0.01"
+                      step="0.01"
+                      inputMode="decimal"
+                      placeholder="0.00"
+                      {...form.register("baseSellingPriceNaira", {
+                        setValueAs: (value) =>
+                          value === "" ? undefined : Number(value),
+                      })}
+                      className="mt-1 w-full rounded-lg border p-2.5"
+                    />
+                    <span className="mt-1 block text-xs text-[var(--muted)]">
+                      Branches may sell above this. A lower price needs administrator approval.
+                    </span>
+                  </label>
+                  <label className="text-sm">
+                    VAT rate (%)
+                    <input
+                      type="number"
+                      min="0"
+                      max="100"
+                      step="0.01"
+                      inputMode="decimal"
+                      placeholder="0.00"
+                      {...form.register("vatPercent", {
+                        setValueAs: (value) =>
+                          value === "" ? undefined : Number(value),
+                      })}
+                      className="mt-1 w-full rounded-lg border p-2.5"
+                    />
+                    <span className="mt-1 block text-xs text-[var(--muted)]">
+                      VAT is added and displayed separately at checkout.
+                    </span>
+                  </label>
+                </>
+              )}
               <label className="text-sm">
                 Minimum stock
                 <input

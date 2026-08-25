@@ -45,6 +45,11 @@ const permissionsByRole: Readonly<Record<RoleId, readonly PermissionId[]>> = {
     "transfers.close",
     "reports.transfers.read",
     "reports.transfers.export",
+    "sales.read.all",
+    "sales.create",
+    "sales.shift.manage",
+    "sales.price.branch.manage",
+    "reports.sales.read",
   ],
   warehouse_manager: [
     "report.read",
@@ -102,6 +107,7 @@ const permissionsByRole: Readonly<Record<RoleId, readonly PermissionId[]>> = {
     "transfers.close",
     "reports.transfers.read",
     "reports.transfers.export",
+    "sales.price.base.manage",
   ],
   warehouse_officer: [
     "inventory.operate",
@@ -153,6 +159,18 @@ const permissionsByRole: Readonly<Record<RoleId, readonly PermissionId[]>> = {
     "transfers.report_discrepancy",
     "reports.transfers.read",
     "reports.transfers.export",
+    "sales.read.own_branch",
+    "sales.create",
+    "sales.shift.manage",
+    "sales.price.branch.manage",
+    "reports.sales.read",
+  ],
+  sales_cashier: [
+    "products.read",
+    "inventory.read",
+    "sales.read.own_branch",
+    "sales.create",
+    "sales.shift.manage",
   ],
   logistics_officer: [
     "logistics.manage",
@@ -184,6 +202,9 @@ const permissionsByRole: Readonly<Record<RoleId, readonly PermissionId[]>> = {
     "transfers.cost.reconcile",
     "reports.transfers.read",
     "reports.transfers.export",
+    "sales.read.all",
+    "reports.sales.read",
+    "finance.journal.read",
   ],
   auditor: [
     "audit.read",
@@ -202,6 +223,9 @@ const permissionsByRole: Readonly<Record<RoleId, readonly PermissionId[]>> = {
     "transfers.cost.read",
     "reports.transfers.read",
     "reports.transfers.export",
+    "sales.read.all",
+    "reports.sales.read",
+    "finance.journal.read",
   ],
 };
 

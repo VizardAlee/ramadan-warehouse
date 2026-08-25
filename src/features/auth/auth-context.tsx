@@ -28,6 +28,30 @@ interface AuthContextValue {
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
+const offlineProfileKey = (uid: string) => `abr-offline-access-profile:${uid}`;
+
+function cacheAccessProfile(profile: UserProfile) {
+  window.localStorage.setItem(offlineProfileKey(profile.uid), JSON.stringify(profile));
+}
+
+function readCachedAccessProfile(uid: string): UserProfile | null {
+  try {
+    const value = JSON.parse(
+      window.localStorage.getItem(offlineProfileKey(uid)) ?? "null",
+    ) as UserProfile | null;
+    return value &&
+      value.uid === uid &&
+      value.status === "active" &&
+      value.authDisabled !== true &&
+      typeof value.organizationId === "string" &&
+      Array.isArray(value.branchIds) &&
+      Array.isArray(value.warehouseIds)
+      ? value
+      : null;
+  } catch {
+    return null;
+  }
+}
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
@@ -51,24 +75,43 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           return;
         }
         try {
-          const snapshot = await getDoc(doc(db, "users", nextUser.uid));
-          if (!snapshot.exists()) {
-            await signOut(auth);
-            throw new Error("Warehouse access has been revoked. Contact an administrator.");
+          let nextProfile: UserProfile;
+          let loadedOffline = false;
+          try {
+            const snapshot = await getDoc(doc(db, "users", nextUser.uid));
+            if (!snapshot.exists()) {
+              window.localStorage.removeItem(offlineProfileKey(nextUser.uid));
+              await signOut(auth);
+              throw new Error("Warehouse access has been revoked. Contact an administrator.");
+            }
+            nextProfile = { id: snapshot.id, ...snapshot.data() } as UserProfile;
+            cacheAccessProfile(nextProfile);
+          } catch (cause) {
+            const cached = navigator.onLine
+              ? null
+              : readCachedAccessProfile(nextUser.uid);
+            if (!cached) throw cause;
+            nextProfile = cached;
+            loadedOffline = true;
+            setError(
+              "Offline access uses the last verified role and branch assignment. Server authorization is checked again during synchronization.",
+            );
           }
-          const nextProfile = { id: snapshot.id, ...snapshot.data() } as UserProfile;
           if (nextProfile.status !== "active" || nextProfile.authDisabled) {
+            window.localStorage.removeItem(offlineProfileKey(nextUser.uid));
             await signOut(auth);
             throw new Error("Warehouse access has been disabled. Contact an administrator.");
           }
-          const token = await getIdTokenResult(nextUser);
-          const tokenVersion = token.claims.authorizationVersion;
-          const tokenOrganization = token.claims.organizationId;
-          if (
-            (typeof tokenVersion === "number" && tokenVersion !== nextProfile.authorizationVersion) ||
-            (typeof tokenOrganization === "string" && tokenOrganization !== nextProfile.organizationId)
-          ) {
-            await nextUser.getIdToken(true);
+          if (!loadedOffline) {
+            const token = await getIdTokenResult(nextUser);
+            const tokenVersion = token.claims.authorizationVersion;
+            const tokenOrganization = token.claims.organizationId;
+            if (
+              (typeof tokenVersion === "number" && tokenVersion !== nextProfile.authorizationVersion) ||
+              (typeof tokenOrganization === "string" && tokenOrganization !== nextProfile.organizationId)
+            ) {
+              await nextUser.getIdToken(true);
+            }
           }
           const contexts = availableOperatingContexts(nextProfile);
           const stored = readStoredOperatingContext();
@@ -99,13 +142,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setError(null);
     await signInWithEmailAndPassword(getFirebaseServices().auth, email, password);
   }, []);
-  const logout = useCallback(() => signOut(getFirebaseServices().auth), []);
+  const logout = useCallback(() => {
+    const current = getFirebaseServices().auth.currentUser;
+    if (current) window.localStorage.removeItem(offlineProfileKey(current.uid));
+    return signOut(getFirebaseServices().auth);
+  }, []);
   const refreshAuthorization = useCallback(async () => {
     const current = getFirebaseServices().auth.currentUser;
     if (!current) return;
     await current.getIdToken(true);
     const snapshot = await getDoc(doc(getFirebaseServices().db, "users", current.uid));
     if (!snapshot.exists()) {
+      window.localStorage.removeItem(offlineProfileKey(current.uid));
       await signOut(getFirebaseServices().auth);
       setAccessProfile(null);
       setError("Warehouse access has been revoked. Contact an administrator.");
@@ -113,11 +161,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
     const nextProfile = { id: snapshot.id, ...snapshot.data() } as UserProfile;
     if (nextProfile.status !== "active" || nextProfile.authDisabled) {
+      window.localStorage.removeItem(offlineProfileKey(current.uid));
       await signOut(getFirebaseServices().auth);
       setAccessProfile(null);
       setError("Warehouse access has been disabled. Contact an administrator.");
       return;
     }
+    cacheAccessProfile(nextProfile);
     const contexts = availableOperatingContexts(nextProfile);
     const nextContext = isAvailableOperatingContext(
       operatingContext,

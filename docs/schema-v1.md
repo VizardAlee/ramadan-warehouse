@@ -2,6 +2,9 @@
 
 Version 1 is frozen after Phase 5.1. Correctness fixes and additive indexes/fields require migration notes; broad redesign requires a new schema version.
 
+The additive POS, sales, and accounting extension is defined separately in
+`schema-v2-sales.md`; it does not redefine v1 inventory or transfer truth.
+
 | Classification | Authoritative collections |
 |---|---|
 | Configuration/master data | `organizations`, `roles`, `settings`, `users`, `branches`, `warehouses`, `inventoryLocations`, `productCategories`, `products`, `productCosts` |

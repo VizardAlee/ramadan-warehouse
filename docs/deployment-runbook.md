@@ -1,5 +1,16 @@
 # Deployment runbook
 
+## Unreleased sales expansion checkpoint (2026-08-25)
+
+Sales expansion Phase 1 adds six callable Functions, POS rules/indexes, and the
+offline-capable web surface. It is local source under validation and is not yet
+deployed. Production therefore correctly remains on the validated 98-function
+release described below. A later approved release must pass the full production
+predeploy gate, deploy web/Functions/rules/indexes together, and verify 104
+ACTIVE Functions plus a real online and reconnecting-offline sale before this
+section can be reclassified as deployed. Never infer deployment from a Git
+push.
+
 ## Production checkpoint (2026-08-12)
 
 Immutable Firebase project ID `ramadan-warehouse-staging` is now the approved production project. The sole cloud alias is `production`; there is no cloud `staging` alias. The project display name, web-app label, monitoring policies, uptime check, and deployed Functions runtime were converted to production after the representative-data recovery gate passed. The existing App Hosting backend remains healthy at its immutable generated URL.

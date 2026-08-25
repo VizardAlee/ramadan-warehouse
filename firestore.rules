@@ -23,7 +23,7 @@ service cloud.firestore {
         (!profile().keys().hasAny(["roleIds"]) && profile().roleId in roles)
       );
     }
-    function canReadProducts() { return hasAnyRole(["system_administrator", "operations_administrator", "warehouse_manager", "warehouse_officer", "branch_requester", "branch_manager", "finance_officer", "auditor"]); }
+    function canReadProducts() { return hasAnyRole(["system_administrator", "operations_administrator", "warehouse_manager", "warehouse_officer", "branch_requester", "branch_manager", "sales_cashier", "finance_officer", "auditor"]); }
     function canReadOrganizationInventory() { return hasAnyRole(["system_administrator", "operations_administrator", "finance_officer", "auditor"]); }
     function hasInventoryCostAccess() { return hasAnyRole(["system_administrator", "warehouse_manager", "finance_officer", "auditor"]); }
     function inventoryScope(data) {
@@ -53,6 +53,11 @@ service cloud.firestore {
     }
     function relatedTransfer(data) { return get(/databases/$(database)/documents/transfers/$(data.transferId)).data; }
     function relatedTransferScope(data) { return sameOrganization(data) && transferScope(relatedTransfer(data)); }
+    function canReadAllSales() { return hasAnyRole(["system_administrator", "operations_administrator", "finance_officer", "auditor"]); }
+    function salesScope(data) {
+      return canReadAllSales() ||
+        (hasAnyRole(["branch_manager", "sales_cashier"]) && data.branchId in profile().branchIds);
+    }
 
     match /users/{userId} {
       allow get: if signedIn() && (request.auth.uid == userId || (canManageUsers() && sameOrganization(resource.data)));
@@ -106,6 +111,14 @@ service cloud.firestore {
     }
     match /productCosts/{documentId} {
       allow read: if sameOrganization(resource.data) && hasInventoryCostAccess();
+      allow create, update, delete: if false;
+    }
+    match /productSalesPrices/{documentId} {
+      allow read: if sameOrganization(resource.data) && canReadProducts();
+      allow create, update, delete: if false;
+    }
+    match /branchSalesPrices/{documentId} {
+      allow read: if sameOrganization(resource.data) && salesScope(resource.data);
       allow create, update, delete: if false;
     }
 
@@ -251,6 +264,39 @@ service cloud.firestore {
     }
     match /logisticsVendors/{documentId} {
       allow read: if sameOrganization(resource.data) && hasAnyRole(["system_administrator", "operations_administrator", "warehouse_manager", "logistics_officer", "finance_officer", "auditor"]);
+      allow create, update, delete: if false;
+    }
+
+    match /sales/{documentId} {
+      allow read: if sameOrganization(resource.data) && salesScope(resource.data);
+      allow create, update, delete: if false;
+    }
+    match /saleItems/{documentId} {
+      allow read: if sameOrganization(resource.data) && salesScope(resource.data);
+      allow create, update, delete: if false;
+    }
+    match /salePayments/{documentId} {
+      allow read: if sameOrganization(resource.data) && salesScope(resource.data);
+      allow create, update, delete: if false;
+    }
+    match /salesReceipts/{documentId} {
+      allow read: if sameOrganization(resource.data) && salesScope(resource.data);
+      allow create, update, delete: if false;
+    }
+    match /posShifts/{documentId} {
+      allow read: if sameOrganization(resource.data) && salesScope(resource.data);
+      allow create, update, delete: if false;
+    }
+    match /chartOfAccounts/{documentId} {
+      allow read: if sameOrganization(resource.data) && hasAnyRole(["system_administrator", "finance_officer", "auditor"]);
+      allow create, update, delete: if false;
+    }
+    match /journalEntries/{documentId} {
+      allow read: if sameOrganization(resource.data) && hasAnyRole(["system_administrator", "finance_officer", "auditor"]);
+      allow create, update, delete: if false;
+    }
+    match /journalLines/{documentId} {
+      allow read: if sameOrganization(resource.data) && hasAnyRole(["system_administrator", "finance_officer", "auditor"]);
       allow create, update, delete: if false;
     }
 

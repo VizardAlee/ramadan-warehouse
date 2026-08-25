@@ -5,6 +5,7 @@ export const roleIds = [
   "warehouse_officer",
   "branch_requester",
   "branch_manager",
+  "sales_cashier",
   "logistics_officer",
   "finance_officer",
   "auditor",
@@ -88,6 +89,14 @@ export const permissionIds = [
   "transfers.close",
   "reports.transfers.read",
   "reports.transfers.export",
+  "sales.read.own_branch",
+  "sales.read.all",
+  "sales.create",
+  "sales.shift.manage",
+  "sales.price.base.manage",
+  "sales.price.branch.manage",
+  "reports.sales.read",
+  "finance.journal.read",
 ] as const;
 export type PermissionId = (typeof permissionIds)[number];
 export type EntityStatus = "active" | "inactive";
@@ -474,6 +483,7 @@ export const inventoryTransactionTypes = [
   "transfer_dispatch",
   "transfer_receipt",
   "discrepancy_resolution",
+  "branch_sale",
   "write_off",
   "reversal",
 ] as const;

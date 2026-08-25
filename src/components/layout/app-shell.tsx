@@ -13,6 +13,7 @@ import {
   ReceiptText,
   RefreshCw,
   Settings,
+  ShoppingCart,
   Truck,
   X,
 } from "lucide-react";
@@ -33,12 +34,13 @@ import type { PermissionId } from "@/types/domain";
 
 const navigation = [
   { href: "/dashboard", label: "Dashboard", icon: Gauge, permissions: [] },
+  { href: "/pos", label: "POS", icon: ShoppingCart, permissions: ["sales.create"] },
   { href: "/products", label: "Products", icon: Boxes, permissions: ["products.read"] },
   { href: "/inventory", label: "Inventory", icon: Archive, permissions: ["inventory.read"] },
   { href: "/requests", label: "Requests", icon: ClipboardList, permissions: ["requests.read.all", "requests.read.own_branch", "requests.create"] },
   { href: "/transfers", label: "Transfers", icon: Truck, permissions: ["transfers.read.all", "transfers.read.assigned_warehouse", "transfers.read.own_branch"] },
   { href: "/costs", label: "Costs", icon: ReceiptText, permissions: ["transfers.cost.read", "transfers.cost.create", "transfers.cost.approve", "transfers.cost.reconcile"] },
-  { href: "/reports", label: "Reports", icon: FileBarChart, permissions: ["reports.inventory.read", "reports.requests.read", "reports.transfers.read"] },
+  { href: "/reports", label: "Reports", icon: FileBarChart, permissions: ["reports.inventory.read", "reports.requests.read", "reports.transfers.read", "reports.sales.read"] },
   { href: "/administration", label: "Administration", icon: Settings, permissions: ["organization.manage", "branch.manage", "warehouse.manage", "location.manage", "user.manage", "role.manage"] },
   { href: "/audit", label: "Audit", icon: History, permissions: ["audit.read"] },
 ] as const;
@@ -354,8 +356,8 @@ export function AppShell({ children }: { children: ReactNode }) {
             role="status"
             className="border-b border-amber-300 bg-amber-50 px-[var(--page-gutter)] py-2 text-center text-sm text-amber-950"
           >
-            You are offline. Data may be stale and protected write actions
-            remain unavailable.
+            You are offline. Data may be stale. The POS can queue paid sales;
+            other protected write actions remain unavailable.
           </div>
         )}
         <main className="min-w-0 px-[var(--page-gutter)] py-[clamp(1rem,2.4vw,2rem)] pb-[calc(5.5rem+env(safe-area-inset-bottom))] xl:pb-8">

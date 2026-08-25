@@ -11,6 +11,9 @@
 | Dispatches/receipts/discrepancies | related-transfer scoped | denied | related transfer |
 | Costs/approvals/audit | elevated roles only | denied | organization |
 | Reservations | warehouse/admin/auditor read | denied | related transfer |
+| Product/base sales prices | permitted product roles | denied | organization |
+| Branch prices, sales, items, payments, receipts, shifts | administrator/finance/auditor or assigned branch sales roles | denied | organization and branch |
+| Chart of accounts and journals | system administrator, finance, auditor | denied | organization |
 | Notifications, outbox, idempotency, rate limits | denied | denied | server only |
 
 For multi-role profiles, read authority is the union of assigned roles while every organization, branch, warehouse, and related-record scope check still applies. Legacy single-`roleId` profiles and canonical `roleIds` profiles are both recognized during migration.

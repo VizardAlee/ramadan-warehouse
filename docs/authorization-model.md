@@ -6,6 +6,15 @@ Permissions are the union of all assigned roles, but scoped users operate in one
 
 Navigation and feature tabs are permission-filtered. Ordinary users see only workspaces supported by their assigned role. Branch and warehouse managers receive the complete inventory workflow for their selected location, including receipts, opening balances while enabled, internal movement, adjustments, reversals, counts, review, reconciliation, and scoped reporting. This does not grant organization administration, shared catalogue mutation, cross-location access, or the opposite side of a transfer. Branch managers retain branch-side request and receipt authority; warehouse managers retain warehouse-side approval, reservation, fulfilment, dispatch, and cost authority. Existing maker-checker restrictions still prohibit a user from reviewing or approving their own controlled action.
 
+The `sales_cashier` role may read the organization product catalogue and operate
+paid POS sales and device shifts only for assigned branches. Branch managers
+inherit those branch POS actions and may publish branch markups. Warehouse
+managers establish central base selling prices. System administrators may work
+across every branch and are the only role allowed to approve a branch price
+below the current central base. Finance officers and auditors can read sales
+and journals organization-wide but cannot mutate authoritative records from a
+client.
+
 Custom claims contain only `organizationId`, an optional broad bootstrap platform marker, and `authorizationVersion`. Claims improve routing and token invalidation but never replace a fresh trusted-profile check for sensitive operations.
 
 Server controls are centralized in `functions/src/auth/authorize.ts`:

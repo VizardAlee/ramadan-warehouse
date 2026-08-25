@@ -1,5 +1,22 @@
 # Warehouse application implementation plan
 
+## Sales expansion — Phase 1 implemented locally
+
+The first POS expansion slice adds centrally controlled base selling prices,
+version-aware branch markups, separately stated VAT, branch-scoped cashier
+access, device-bound shifts, paid quantity-product checkout, receipts, payment
+records, immutable branch inventory issues, COGS, balanced sales journals, and
+an IndexedDB/service-worker offline queue. Cash, card, and bank transfer are
+recorded payment methods; no external payment-settlement claim is made.
+
+This slice deliberately does not yet implement administrator-approved customer
+credit, returns/exchanges, refunds, serialized or lot checkout, supplier
+payables, expense management, bank reconciliation, period closing, or complete
+financial statements. Those remain later sales/finance expansion phases. The
+new source must pass its full local and emulator gates before any production
+deployment; the current production environment continues to run the validated
+98-function inventory/transfer release until that separate approval.
+
 ## Phase 4 — implemented locally
 
 Warehouse transfers cover request/direct initiation, versioned approval, atomic reservation/release, serial/lot allocation, picker/checker, packages, dispatch to route transit, partial receipt, request fulfilment, discrepancies, costs, cancellation, closure, reports, notifications, rules, indexes, UI, tests, and emulator seed data. Deployment, production configuration, binary evidence, paid notifications, advanced policy UI, and existing branch-app integration remain deferred.
