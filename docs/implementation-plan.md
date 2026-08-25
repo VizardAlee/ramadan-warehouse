@@ -1,6 +1,6 @@
 # Warehouse application implementation plan
 
-## Sales expansion — Phase 1 implemented locally
+## Sales expansion — Phase 1 complete; Phase 2 implemented locally
 
 The first POS expansion slice adds centrally controlled base selling prices,
 version-aware branch markups, separately stated VAT, branch-scoped cashier
@@ -9,8 +9,14 @@ records, immutable branch inventory issues, COGS, balanced sales journals, and
 an IndexedDB/service-worker offline queue. Cash, card, and bank transfer are
 recorded payment methods; no external payment-settlement claim is made.
 
-This slice deliberately does not yet implement administrator-approved customer
-credit, returns/exchanges, refunds, serialized or lot checkout, supplier
+Phase 2 adds reusable customer accounts, administrator-only credit decisions,
+live credit-limit enforcement, online credit checkout, an immutable customer
+account ledger, Accounts Receivable journals, and customer repayment posting.
+Customer creation does not itself grant credit, credit is never represented as
+a payment, and repayment never edits the original sale.
+
+The sales expansion does not yet implement returns/exchanges, refunds,
+serialized or lot checkout, supplier
 payables, expense management, bank reconciliation, period closing, or complete
 financial statements. Those remain later sales/finance expansion phases. The
 new source must pass its full local and emulator gates before any production

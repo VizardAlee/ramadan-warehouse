@@ -1,4 +1,15 @@
 export type PosPaymentMethod = "cash" | "card" | "bank_transfer";
+export type PosCheckoutMethod = PosPaymentMethod | "customer_credit";
+
+export interface PosCustomer {
+  id: string;
+  customerNumber: string;
+  name: string;
+  phone: string | null;
+  creditLimitMinor: number;
+  outstandingBalanceMinor: number;
+  availableCreditMinor: number;
+}
 
 export interface PosProduct {
   id: string;
@@ -23,6 +34,7 @@ export interface PosShift {
   cashSalesMinor: number;
   nonCashSalesMinor: number;
   grossSalesMinor: number;
+  creditSalesMinor: number;
   saleCount: number;
 }
 
@@ -30,6 +42,7 @@ export interface PosWorkspace {
   branch: { id: string; name: string; code: string };
   location: { id: string; name: string };
   products: PosProduct[];
+  customers: PosCustomer[];
   openShift: PosShift | null;
   refreshedAt: string;
 }
@@ -58,6 +71,8 @@ export interface PosSalePayload {
     amountMinor: number;
     reference?: string;
   }>;
+  customerId?: string;
+  creditAmountMinor?: number;
   notes?: string;
   idempotencyKey: string;
 }

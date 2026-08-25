@@ -28,6 +28,7 @@ import {
 } from "@/features/pos/offline-store";
 import type {
   PosCartLine,
+  PosCheckoutMethod,
   PosPaymentMethod,
   PosSalePayload,
   PosWorkspace,
@@ -65,8 +66,9 @@ export default function PosPage() {
   const [queued, setQueued] = useState<QueuedPosSale[]>([]);
   const [search, setSearch] = useState("");
   const [paymentMethod, setPaymentMethod] =
-    useState<PosPaymentMethod>("cash");
+    useState<PosCheckoutMethod>("cash");
   const [paymentReference, setPaymentReference] = useState("");
+  const [customerId, setCustomerId] = useState("");
   const [openingCash, setOpeningCash] = useState("0.00");
   const [closingCash, setClosingCash] = useState("");
   const [message, setMessage] = useState<string | null>(null);
@@ -96,6 +98,9 @@ export default function PosPage() {
   const canSell = Boolean(profile && hasPermission(profile, "sales.create"));
   const canManageBranchPrice = Boolean(
     profile && hasPermission(profile, "sales.price.branch.manage"),
+  );
+  const canCreateCredit = Boolean(
+    profile && hasPermission(profile, "sales.credit.create"),
   );
   const totals = useMemo(() => calculatePosCart(cart), [cart]);
 
@@ -294,6 +299,14 @@ export default function PosPage() {
   async function checkout() {
     if (!workspace?.openShift || cart.length === 0 || totals.grossAmountMinor <= 0)
       return;
+    if (paymentMethod === "customer_credit" && !online) {
+      setError("Customer credit requires an online approval and credit-limit check.");
+      return;
+    }
+    if (paymentMethod === "customer_credit" && !customerId) {
+      setError("Select an administrator-approved customer for this credit sale.");
+      return;
+    }
     setBusy(true);
     setError(null);
     const idempotencyKey = crypto.randomUUID();
@@ -316,13 +329,19 @@ export default function PosPage() {
             }
           : {}),
       })),
-      payments: [
-        {
-          method: paymentMethod,
-          amountMinor: totals.grossAmountMinor,
-          reference: paymentReference.trim() || undefined,
-        },
-      ],
+      payments:
+        paymentMethod === "customer_credit"
+          ? []
+          : [
+              {
+                method: paymentMethod as PosPaymentMethod,
+                amountMinor: totals.grossAmountMinor,
+                reference: paymentReference.trim() || undefined,
+              },
+            ],
+      customerId: paymentMethod === "customer_credit" ? customerId : undefined,
+      creditAmountMinor:
+        paymentMethod === "customer_credit" ? totals.grossAmountMinor : 0,
       idempotencyKey,
     };
     try {
@@ -359,6 +378,7 @@ export default function PosPage() {
       }
       setCart([]);
       setPaymentReference("");
+      setCustomerId("");
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "The sale could not be completed.");
     } finally {
@@ -572,15 +592,28 @@ export default function PosPage() {
               <div className="flex justify-between text-lg font-semibold"><dt>Total</dt><dd>{formatNaira(totals.grossAmountMinor)}</dd></div>
             </dl>
             <label className="mt-4 block text-sm font-medium">Payment method
-              <select value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value as PosPaymentMethod)} className="mt-1 w-full rounded-lg border p-3">
+              <select value={paymentMethod} onChange={(event) => { setPaymentMethod(event.target.value as PosCheckoutMethod); setPaymentReference(""); if (event.target.value !== "customer_credit") setCustomerId(""); }} className="mt-1 w-full rounded-lg border p-3">
                 <option value="cash">Cash</option><option value="card">Card / POS terminal</option><option value="bank_transfer">Bank transfer</option>
+                {canCreateCredit && <option value="customer_credit" disabled={!online}>Approved customer credit</option>}
               </select>
             </label>
-            {paymentMethod !== "cash" && <label className="mt-3 block text-sm font-medium">Payment reference (optional)<input value={paymentReference} onChange={(event) => setPaymentReference(event.target.value)} className="mt-1 w-full rounded-lg border p-3" placeholder="Terminal or transfer reference" /></label>}
-            <Button className="mt-5 w-full" disabled={busy || cart.length === 0} onClick={() => void checkout()}>
+            {paymentMethod === "customer_credit" ? (
+              <label className="mt-3 block text-sm font-medium">Approved customer
+                <select value={customerId} onChange={(event) => setCustomerId(event.target.value)} className="mt-1 w-full rounded-lg border p-3">
+                  <option value="">Select customer</option>
+                  {(workspace.customers ?? []).map((customer) => (
+                    <option key={customer.id} value={customer.id} disabled={customer.availableCreditMinor < totals.grossAmountMinor}>
+                      {customer.name} · available {formatNaira(customer.availableCreditMinor)}
+                    </option>
+                  ))}
+                </select>
+                <span className="mt-1 block text-xs font-normal text-[var(--muted)]">Credit is checked live and posted to Accounts Receivable. Only administrator-approved customers appear.</span>
+              </label>
+            ) : paymentMethod !== "cash" ? <label className="mt-3 block text-sm font-medium">Payment reference (optional)<input value={paymentReference} onChange={(event) => setPaymentReference(event.target.value)} className="mt-1 w-full rounded-lg border p-3" placeholder="Terminal or transfer reference" /></label> : null}
+            <Button className="mt-5 w-full" disabled={busy || cart.length === 0 || (paymentMethod === "customer_credit" && (!online || !customerId))} onClick={() => void checkout()}>
               {online ? "Complete sale" : "Save offline sale"} · {formatNaira(totals.grossAmountMinor)}
             </Button>
-            <p className="mt-2 text-center text-xs text-[var(--muted)]">{online ? "Stock, receipt, payment, VAT and accounts post together." : "A provisional receipt is issued now; posting occurs after sync."}</p>
+            <p className="mt-2 text-center text-xs text-[var(--muted)]">{paymentMethod === "customer_credit" ? "Stock, receipt, VAT and the customer receivable post together online." : online ? "Stock, receipt, payment, VAT and accounts post together." : "A provisional receipt is issued now; posting occurs after sync."}</p>
             <details className="mt-5 border-t pt-4">
               <summary className="cursor-pointer text-sm font-semibold">Close shift</summary>
               <label className="mt-3 block text-sm">Counted closing cash (₦)<input type="number" min="0" step="0.01" value={closingCash} onChange={(event) => setClosingCash(event.target.value)} className="mt-1 w-full rounded-lg border p-2.5" /></label>
@@ -597,7 +630,7 @@ export default function PosPage() {
             <h2 className="mt-3 text-2xl font-semibold">{receipt.queued ? "Sale saved offline" : "Sale completed"}</h2>
             <p className="mt-2 font-mono text-sm">{receipt.reference}</p>
             <p className="mt-4 text-3xl font-semibold">{formatNaira(receipt.totalMinor)}</p>
-            <p className="mt-3 text-sm text-[var(--muted)]">{receipt.queued ? "This provisional receipt will be linked to the official receipt after synchronization." : "Inventory, VAT, payment and accounting records were posted."}</p>
+            <p className="mt-3 text-sm text-[var(--muted)]">{receipt.queued ? "This provisional receipt will be linked to the official receipt after synchronization." : "Inventory, VAT, settlement or receivable, and accounting records were posted."}</p>
             <div className="mt-5 flex gap-3">
               <Button variant="outline" className="flex-1" onClick={() => window.print()}><Printer className="mr-2 size-4" /> Print</Button>
               <Button className="flex-1" onClick={() => setReceipt(null)}>New sale</Button>

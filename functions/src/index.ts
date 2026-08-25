@@ -121,3 +121,8 @@ export {
   closePosShift,
   commitPosSale,
 } from "./callable/sales.js";
+export {
+  saveCustomer,
+  decideCustomerCredit,
+  recordCustomerPayment,
+} from "./callable/customers.js";

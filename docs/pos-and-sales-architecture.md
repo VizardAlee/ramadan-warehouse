@@ -14,7 +14,7 @@ Only active customers approved by a system administrator may use credit.
 Credit sales, returns, refunds, below-base price changes, and other actions that
 depend on current balances or approval remain online-only.
 
-## Phase 1 boundary
+## Phase 1 boundary — complete
 
 Phase 1 provides branch-scoped POS access, centrally managed base prices,
 branch markups, paid quantity-tracked sales, payment-method records, immutable
@@ -22,8 +22,29 @@ receipts, inventory/COGS posting, balanced sales journals, and durable offline
 sale capture and retry. Cash, card, bank transfer, and split payments are
 recorded; external payment-provider settlement is not inferred.
 
-Serialized and batch checkout, approved-customer credit, returns/exchanges,
-refunds, procurement/accounts payable, expenses, bank reconciliation, period
+## Phase 2 boundary — customer credit and receivables
+
+Phase 2 adds organization customer records, administrator-only credit approval,
+live available-credit validation, fully paid or split credit checkout support,
+an immutable customer account ledger, and online customer repayment posting.
+A customer begins with `pending` credit authority. Only a system administrator
+may approve a positive limit, suspend further use, reject an application, or
+change the limit. Existing outstanding debt is never erased by suspension.
+
+Credit is not a payment method in the accounting model. At checkout the amount
+granted on credit debits Accounts Receivable (`1100`), while any cash, card, or
+bank portion debits its settlement account. The full sale still credits sales
+revenue and VAT payable and posts stock/COGS atomically. A repayment later
+debits the receiving settlement account and credits Accounts Receivable. It
+adds `customerPayments`, `customerAccountEntries`, journal, and audit evidence;
+it does not edit the sale or receipt.
+
+Credit checkout, credit decisions, and repayments are online-only because the
+server must validate the current customer status, outstanding balance, and
+available limit in one transaction.
+
+Serialized and batch checkout, returns/exchanges, refunds,
+procurement/accounts payable, expenses, bank reconciliation, period
 closing, and complete financial statements follow in later phases. The schema
 and journals introduced here are designed for those extensions.
 
@@ -99,6 +120,11 @@ only path to confirmed sales, inventory balances, journals, or receipts.
 - Warehouse managers can establish central base prices.
 - Branch managers can operate their assigned branch POS and publish markups.
 - Sales cashiers can operate POS only for assigned branches.
+- Branch managers and operations administrators may create customer records,
+  but creation never approves credit.
+- Only system administrators approve or change customer credit authority.
+- Authorized branch managers and finance staff may record real customer
+  repayments; all users remain scoped to their assigned authority.
 - Finance officers and auditors receive organization-scoped read/report access.
 
 Operating-context selection narrows multi-role users to the selected branch or

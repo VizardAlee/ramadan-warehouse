@@ -382,4 +382,147 @@ describe.sequential("sales callables", () => {
     const finalBalance = await before.ref.get();
     expect(finalBalance.get("onHandQuantity")).toBe(7);
   });
+
+  it("requires administrator-approved credit, posts receivables, enforces the limit, and records repayment", async () => {
+    const saved = await call<{ customerId: string; customerNumber: string }>(
+      branchManager,
+      "saveCustomer",
+      {
+        name: "Aminu Solar Services",
+        phone: "07012345678",
+        active: true,
+        idempotencyKey: crypto.randomUUID(),
+        operatingContext: { type: "branch", id: branchId },
+      },
+    );
+    expect(saved.customerNumber).toMatch(/^CUS-/);
+    await expect(
+      call(branchManager, "decideCustomerCredit", {
+        customerId: saved.customerId,
+        decision: "approve",
+        creditLimitMinor: 20_000,
+        reason: "Known trade customer",
+        idempotencyKey: crypto.randomUUID(),
+        operatingContext: { type: "branch", id: branchId },
+      }),
+    ).rejects.toMatchObject({ code: "functions/permission-denied" });
+    await expect(
+      call(administrator, "decideCustomerCredit", {
+        customerId: saved.customerId,
+        decision: "approve",
+        creditLimitMinor: 20_000,
+        reason: "Approved trade account after administrator review",
+        idempotencyKey: crypto.randomUUID(),
+      }),
+    ).resolves.toMatchObject({ decision: "approve", saved: true });
+
+    const workspace = await call<{
+      customers: Array<{ id: string; availableCreditMinor: number }>;
+    }>(branchManager, "getPosWorkspace", {
+      branchId,
+      operatingContext: { type: "branch", id: branchId },
+    });
+    expect(workspace.customers).toContainEqual(
+      expect.objectContaining({ id: saved.customerId, availableCreditMinor: 20_000 }),
+    );
+    const shift = await adminDb
+      .collection("posShifts")
+      .where("branchId", "==", branchId)
+      .where("status", "==", "open")
+      .limit(1)
+      .get();
+    const currentShift = shift.docs[0]!;
+    const sale = await call<{ saleId: string; posted: boolean }>(
+      branchManager,
+      "commitPosSale",
+      {
+        branchId,
+        shiftId: currentShift.id,
+        deviceId: currentShift.get("deviceId"),
+        recordedAt: new Date().toISOString(),
+        offline: false,
+        customerId: saved.customerId,
+        creditAmountMinor: 12_900,
+        lines: [{ productId, quantity: 1 }],
+        payments: [],
+        idempotencyKey: crypto.randomUUID(),
+        operatingContext: { type: "branch", id: branchId },
+      },
+    );
+    expect(sale.posted).toBe(true);
+    const [saleRecord, customer, receivableLines, accountEntries] = await Promise.all([
+      adminDb.doc(`sales/${sale.saleId}`).get(),
+      adminDb.doc(`customers/${saved.customerId}`).get(),
+      adminDb.collection("journalLines").where("journalEntryId", "==", (
+        await adminDb.collection("journalEntries").where("referenceId", "==", sale.saleId).limit(1).get()
+      ).docs[0]!.id).get(),
+      adminDb.collection("customerAccountEntries").where("referenceId", "==", sale.saleId).get(),
+    ]);
+    expect(saleRecord.data()).toMatchObject({
+      customerId: saved.customerId,
+      paymentStatus: "credit",
+      creditAmountMinor: 12_900,
+      amountPaidMinor: 0,
+    });
+    expect(customer.data()).toMatchObject({
+      outstandingBalanceMinor: 12_900,
+      availableCreditMinor: 7_100,
+    });
+    expect(receivableLines.docs.some((line) => line.get("accountCode") === "1100" && line.get("debitMinor") === 12_900)).toBe(true);
+    expect(accountEntries.size).toBe(1);
+
+    const stockBeforeRejectedSale = await adminDb
+      .doc(`inventoryBalances/${balanceDocumentId(organizationId, productId, locationId)}`)
+      .get();
+    await expect(
+      call(branchManager, "commitPosSale", {
+        branchId,
+        shiftId: currentShift.id,
+        deviceId: currentShift.get("deviceId"),
+        recordedAt: new Date().toISOString(),
+        offline: false,
+        customerId: saved.customerId,
+        creditAmountMinor: 12_900,
+        lines: [{ productId, quantity: 1 }],
+        payments: [],
+        idempotencyKey: crypto.randomUUID(),
+        operatingContext: { type: "branch", id: branchId },
+      }),
+    ).rejects.toMatchObject({ code: "functions/failed-precondition" });
+    expect((await stockBeforeRejectedSale.ref.get()).get("onHandQuantity")).toBe(
+      stockBeforeRejectedSale.get("onHandQuantity"),
+    );
+
+    await expect(
+      call(branchManager, "recordCustomerPayment", {
+        customerId: saved.customerId,
+        branchId,
+        method: "bank_transfer",
+        amountMinor: 5_000,
+        reference: "BANK-CR-001",
+        idempotencyKey: crypto.randomUUID(),
+        operatingContext: { type: "branch", id: branchId },
+      }),
+    ).resolves.toMatchObject({ recorded: true });
+    expect((await adminDb.doc(`customers/${saved.customerId}`).get()).data()).toMatchObject({
+      outstandingBalanceMinor: 7_900,
+      availableCreditMinor: 12_100,
+    });
+
+    await expect(
+      call(branchManager, "commitPosSale", {
+        branchId,
+        shiftId: currentShift.id,
+        deviceId: currentShift.get("deviceId"),
+        recordedAt: new Date().toISOString(),
+        offline: true,
+        customerId: saved.customerId,
+        creditAmountMinor: 12_900,
+        lines: [{ productId, quantity: 1, unitPriceMinor: 12_000, vatRateBasisPoints: 750, priceVersion: 2 }],
+        payments: [],
+        idempotencyKey: crypto.randomUUID(),
+        operatingContext: { type: "branch", id: branchId },
+      }),
+    ).rejects.toMatchObject({ code: "functions/invalid-argument" });
+  });
 });

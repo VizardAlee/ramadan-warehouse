@@ -56,5 +56,20 @@ for both warehouse locations and store/branch stock locations.
 7. Resolve every offline review item before closing the shift, count the cash,
    and enter the closing amount for variance recording.
 
-Customer credit is not a payment shortcut in Phase 1. It will be available
-only through an online workflow for customers an administrator has approved.
+## Customer and credit forms
+
+1. Create the customer once with a name and either an 11-digit Nigerian phone
+   number beginning with `0` or an email address. The generated customer number
+   is reused on sales, receipts, payments, and account entries.
+2. Creating a customer does **not** approve credit. A system administrator must
+   open **Credit decision**, choose approve, enter the limit in naira, and give
+   a meaningful reason. Suspending or rejecting credit blocks new borrowing but
+   never erases an existing balance.
+3. At POS, choose **Approved customer credit** and select the customer. The app
+   shows current available credit and performs a live server check before it
+   posts stock, VAT, receipt, and Accounts Receivable together. Credit cannot
+   be used offline.
+4. When money is received later, use **Record payment** on the customer. Select
+   the receiving branch, actual method, amount, and external reference where
+   applicable. The payment reduces the receivable and creates its own journal;
+   it does not rewrite the original sale.

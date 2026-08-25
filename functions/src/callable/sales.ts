@@ -34,6 +34,7 @@ const accountNames: Readonly<Record<string, string>> = {
   "1010": "Cash on hand",
   "1020": "Card clearing",
   "1030": "Bank transfer clearing",
+  "1100": "Accounts receivable",
   "1200": "Inventory asset",
   "2100": "VAT payable",
   "4000": "Sales revenue",
@@ -283,7 +284,7 @@ export const getPosWorkspace = onCall(
     const input = parseInput(posWorkspaceInput, request.data);
     requireBranchScope(actor, input.branchId);
     const location = await activeBranchLocation(actor.organizationId, input.branchId);
-    const [branch, products, prices, branchPrices, balances, shifts] =
+    const [branch, products, prices, branchPrices, balances, shifts, customers] =
       await Promise.all([
         db.doc(`branches/${input.branchId}`).get(),
         db
@@ -314,6 +315,13 @@ export const getPosWorkspace = onCall(
           .where("branchId", "==", input.branchId)
           .where("status", "==", "open")
           .limit(20)
+          .get(),
+        db
+          .collection("customers")
+          .where("organizationId", "==", actor.organizationId)
+          .where("active", "==", true)
+          .where("creditStatus", "==", "approved")
+          .limit(200)
           .get(),
       ]);
     if (
@@ -382,6 +390,15 @@ export const getPosWorkspace = onCall(
         shifts.docs
           .filter((shift) => shift.get("openedBy") === actor.userId)
           .map((shift) => ({ id: shift.id, ...shift.data() }))[0] ?? null,
+      customers: customers.docs.map((customer) => ({
+        id: customer.id,
+        customerNumber: customer.get("customerNumber"),
+        name: customer.get("name"),
+        phone: customer.get("phone") ?? null,
+        creditLimitMinor: Number(customer.get("creditLimitMinor") ?? 0),
+        outstandingBalanceMinor: Number(customer.get("outstandingBalanceMinor") ?? 0),
+        availableCreditMinor: Number(customer.get("availableCreditMinor") ?? 0),
+      })),
       refreshedAt: new Date().toISOString(),
     };
   },
@@ -434,6 +451,7 @@ export const openPosShift = onCall(
         openingCashMinor: input.openingCashMinor,
         cashSalesMinor: 0,
         nonCashSalesMinor: 0,
+        creditSalesMinor: 0,
         grossSalesMinor: 0,
         saleCount: 0,
         currency: "NGN",
@@ -552,6 +570,8 @@ export const commitPosSale = onCall(
     const actor = await requireAccess(request);
     requirePermission(actor, "sales.create");
     const input = parseInput(commitSaleInput, request.data);
+    if (input.creditAmountMinor > 0)
+      requirePermission(actor, "sales.credit.create");
     requireBranchScope(actor, input.branchId);
     const locationOutsideTransaction = await activeBranchLocation(
       actor.organizationId,
@@ -575,6 +595,9 @@ export const commitPosSale = onCall(
     );
     const journalCounter = db.doc(
       `journalCounters/${uniquenessDocumentId(actor.organizationId, "general")}`,
+    );
+    const customer = db.doc(
+      `customers/${input.customerId ?? "no-credit-customer-placeholder"}`,
     );
     const productReferences = input.lines.map((line) =>
       db.doc(`products/${line.productId}`),
@@ -603,6 +626,7 @@ export const commitPosSale = onCall(
         salesCounter,
         inventoryCounter,
         journalCounter,
+        customer,
         ...productReferences,
         ...centralPriceReferences,
         ...branchPriceReferences,
@@ -616,6 +640,7 @@ export const commitPosSale = onCall(
       const salesCounterSnapshot = snapshots[cursor++]!;
       const inventoryCounterSnapshot = snapshots[cursor++]!;
       const journalCounterSnapshot = snapshots[cursor++]!;
+      const customerSnapshot = snapshots[cursor++]!;
       const products = snapshots.slice(cursor, (cursor += input.lines.length));
       const centralPrices = snapshots.slice(cursor, (cursor += input.lines.length));
       const branchPrices = snapshots.slice(cursor, (cursor += input.lines.length));
@@ -662,6 +687,34 @@ export const commitPosSale = onCall(
           "permission-denied",
           "This shift belongs to another cashier.",
         );
+      if (
+        input.customerId &&
+        (!customerSnapshot.exists ||
+          customerSnapshot.get("organizationId") !== actor.organizationId ||
+          customerSnapshot.get("active") !== true)
+      )
+        throw new HttpsError(
+          "failed-precondition",
+          "Select an active customer from this organization.",
+        );
+      if (input.creditAmountMinor > 0) {
+        if (
+          customerSnapshot.get("creditStatus") !== "approved"
+        )
+          throw new HttpsError(
+            "failed-precondition",
+            "Select an active customer whose credit has been approved by a system administrator.",
+          );
+        if (
+          input.creditAmountMinor >
+          Number(customerSnapshot.get("availableCreditMinor") ?? 0)
+        )
+          throw new HttpsError(
+            "failed-precondition",
+            "This sale exceeds the customer's available credit.",
+            { code: "CUSTOMER_CREDIT_LIMIT_EXCEEDED", customerId: customer.id },
+          );
+      }
       const resolvedLines = input.lines.map((line, index) => {
         const product = products[index]!;
         const central = centralPrices[index]!;
@@ -756,7 +809,10 @@ export const commitPosSale = onCall(
       );
       try {
         assertPaymentsEqualTotal(
-          input.payments.map((payment) => payment.amountMinor),
+          [
+            ...input.payments.map((payment) => payment.amountMinor),
+            ...(input.creditAmountMinor > 0 ? [input.creditAmountMinor] : []),
+          ],
           calculated.grossAmountMinor,
         );
       } catch (error) {
@@ -772,6 +828,9 @@ export const commitPosSale = onCall(
       }));
       const journalLines = [
         ...paymentJournalLines,
+        ...(input.creditAmountMinor > 0
+          ? [{ accountCode: "1100", debitMinor: input.creditAmountMinor, creditMinor: 0 }]
+          : []),
         { accountCode: "5000", debitMinor: calculated.costAmountMinor, creditMinor: 0 },
         { accountCode: "4000", debitMinor: 0, creditMinor: calculated.netAmountMinor },
         { accountCode: "2100", debitMinor: 0, creditMinor: calculated.vatAmountMinor },
@@ -829,9 +888,21 @@ export const commitPosSale = onCall(
         receiptNumber,
         provisionalReceiptReference: input.provisionalReceiptReference,
         status: "completed",
-        paymentStatus: input.offline && input.payments.some((payment) => payment.method !== "cash")
-          ? "awaiting_verification"
-          : "recorded",
+        paymentStatus:
+          input.creditAmountMinor === calculated.grossAmountMinor
+            ? "credit"
+            : input.creditAmountMinor > 0
+              ? "partially_paid"
+              : input.offline && input.payments.some((payment) => payment.method !== "cash")
+                ? "awaiting_verification"
+                : "recorded",
+        customerId: input.customerId,
+        customerNumber: input.customerId
+          ? customerSnapshot.get("customerNumber")
+          : undefined,
+        customerName: input.customerId ? customerSnapshot.get("name") : undefined,
+        creditAmountMinor: input.creditAmountMinor,
+        amountPaidMinor: calculated.grossAmountMinor - input.creditAmountMinor,
         source: input.offline ? "offline_sync" : "online_pos",
         netAmountMinor: calculated.netAmountMinor,
         vatAmountMinor: calculated.vatAmountMinor,
@@ -856,6 +927,13 @@ export const commitPosSale = onCall(
         netAmountMinor: calculated.netAmountMinor,
         vatAmountMinor: calculated.vatAmountMinor,
         grossAmountMinor: calculated.grossAmountMinor,
+        customerId: input.customerId,
+        customerNumber: input.customerId
+          ? customerSnapshot.get("customerNumber")
+          : undefined,
+        customerName: input.customerId ? customerSnapshot.get("name") : undefined,
+        creditAmountMinor: input.creditAmountMinor,
+        amountPaidMinor: calculated.grossAmountMinor - input.creditAmountMinor,
         currency: "NGN",
         issuedAt: now,
         issuedBy: actor.userId,
@@ -978,6 +1056,34 @@ export const commitPosSale = onCall(
           createdAt: now,
         }));
       });
+      if (input.creditAmountMinor > 0) {
+        const outstanding = Number(
+          customerSnapshot.get("outstandingBalanceMinor") ?? 0,
+        );
+        const nextOutstanding = outstanding + input.creditAmountMinor;
+        const creditLimit = Number(customerSnapshot.get("creditLimitMinor") ?? 0);
+        transaction.update(customer, {
+          outstandingBalanceMinor: nextOutstanding,
+          availableCreditMinor: Math.max(0, creditLimit - nextOutstanding),
+          updatedAt: now,
+          updatedBy: actor.userId,
+        });
+        transaction.create(db.collection("customerAccountEntries").doc(), {
+          organizationId: actor.organizationId,
+          branchId: input.branchId,
+          customerId: customer.id,
+          entryType: "credit_sale",
+          referenceType: "sale",
+          referenceId: sale.id,
+          referenceNumber: saleNumber,
+          amountMinor: input.creditAmountMinor,
+          balanceAfterMinor: nextOutstanding,
+          currency: "NGN",
+          effectiveAt: recordedAt,
+          createdAt: now,
+          createdBy: actor.userId,
+        });
+      }
       transaction.create(journal, {
         organizationId: actor.organizationId,
         branchId: input.branchId,
@@ -1032,7 +1138,11 @@ export const commitPosSale = onCall(
         cashSalesMinor: Number(shiftSnapshot.get("cashSalesMinor") ?? 0) + cashAmount,
         nonCashSalesMinor:
           Number(shiftSnapshot.get("nonCashSalesMinor") ?? 0) +
-          calculated.grossAmountMinor - cashAmount,
+          input.payments.reduce((sum, payment) => sum + payment.amountMinor, 0) -
+          cashAmount,
+        creditSalesMinor:
+          Number(shiftSnapshot.get("creditSalesMinor") ?? 0) +
+          input.creditAmountMinor,
         grossSalesMinor:
           Number(shiftSnapshot.get("grossSalesMinor") ?? 0) +
           calculated.grossAmountMinor,

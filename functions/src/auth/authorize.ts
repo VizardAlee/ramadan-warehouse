@@ -87,6 +87,11 @@ export type Permission =
   | "sales.shift.manage"
   | "sales.price.base.manage"
   | "sales.price.branch.manage"
+  | "customers.read"
+  | "customers.manage"
+  | "customers.credit.approve"
+  | "customers.payment.record"
+  | "sales.credit.create"
   | "reports.sales.read"
   | "finance.journal.read";
 
@@ -160,6 +165,11 @@ const rolePermissions: Readonly<Record<RoleId, readonly Permission[]>> = {
     "sales.shift.manage",
     "sales.price.base.manage",
     "sales.price.branch.manage",
+    "customers.read",
+    "customers.manage",
+    "customers.credit.approve",
+    "customers.payment.record",
+    "sales.credit.create",
     "reports.sales.read",
     "finance.journal.read",
   ],
@@ -200,6 +210,10 @@ const rolePermissions: Readonly<Record<RoleId, readonly Permission[]>> = {
     "sales.create",
     "sales.shift.manage",
     "sales.price.branch.manage",
+    "customers.read",
+    "customers.manage",
+    "customers.payment.record",
+    "sales.credit.create",
     "reports.sales.read",
   ],
   warehouse_manager: [
@@ -306,6 +320,10 @@ const rolePermissions: Readonly<Record<RoleId, readonly Permission[]>> = {
     "sales.create",
     "sales.shift.manage",
     "sales.price.branch.manage",
+    "customers.read",
+    "customers.manage",
+    "customers.payment.record",
+    "sales.credit.create",
     "reports.sales.read",
   ],
   sales_cashier: [
@@ -314,6 +332,7 @@ const rolePermissions: Readonly<Record<RoleId, readonly Permission[]>> = {
     "sales.read.own_branch",
     "sales.create",
     "sales.shift.manage",
+    "sales.credit.create",
   ],
   logistics_officer: [
     "transfers.read.all",
@@ -341,6 +360,8 @@ const rolePermissions: Readonly<Record<RoleId, readonly Permission[]>> = {
     "reports.transfers.read",
     "reports.transfers.export",
     "sales.read.all",
+    "customers.read",
+    "customers.payment.record",
     "reports.sales.read",
     "finance.journal.read",
   ],
@@ -360,6 +381,7 @@ const rolePermissions: Readonly<Record<RoleId, readonly Permission[]>> = {
     "reports.transfers.read",
     "reports.transfers.export",
     "sales.read.all",
+    "customers.read",
     "reports.sales.read",
     "finance.journal.read",
   ],

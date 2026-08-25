@@ -13,6 +13,7 @@ const messages: Record<string, string> = {
   "auth/network-request-failed": "Sign-in could not reach the service. Check your connection and try again.",
   STALE_POS_PRICE: "An offline sale uses an outdated price. Review and refresh it before posting.",
   POS_STOCK_RECONCILIATION_REQUIRED: "An offline sale exceeds current branch stock. A manager must reconcile stock before posting it.",
+  CUSTOMER_CREDIT_LIMIT_EXCEEDED: "This sale exceeds the customer's currently available credit. Reduce the sale, collect a payment, or ask an administrator to review the limit.",
 };
 export class UserFacingError extends Error { constructor(message: string, readonly diagnosticCode?: string) { super(message); this.name = "UserFacingError"; } }
 export function toUserFacingError(error: unknown, fallback = "The operation could not be completed. Refresh and try again."): UserFacingError {

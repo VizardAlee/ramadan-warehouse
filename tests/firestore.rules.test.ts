@@ -172,6 +172,23 @@ async function seed() {
       organizationId: "org-1",
       branchId: "branch-1",
     });
+    await db.doc("customers/customer-1").set({
+      organizationId: "org-1",
+      customerNumber: "CUS-000001",
+      name: "Approved Customer",
+      active: true,
+      creditStatus: "approved",
+    });
+    await db.doc("customerPayments/customer-payment-1").set({
+      organizationId: "org-1",
+      branchId: "branch-1",
+      customerId: "customer-1",
+    });
+    await db.doc("customerAccountEntries/customer-entry-1").set({
+      organizationId: "org-1",
+      branchId: "branch-1",
+      customerId: "customer-1",
+    });
     await db
       .doc("inventoryTransactions/branch-1-tx")
       .set({ organizationId: "org-1", branchId: "branch-1", status: "posted" });
@@ -558,6 +575,11 @@ describe("Firestore baseline rules", () => {
     await assertFails(cashierDb.doc("journalEntries/journal-1").get());
     await assertSucceeds(financeDb.doc("journalEntries/journal-1").get());
     await assertSucceeds(adminDb.doc("chartOfAccounts/account-1").get());
+    await assertSucceeds(adminDb.doc("customers/customer-1").get());
+    await assertSucceeds(financeDb.doc("customers/customer-1").get());
+    await assertFails(cashierDb.doc("customers/customer-1").get());
+    await assertSucceeds(cashierDb.doc("customerPayments/customer-payment-1").get());
+    await assertSucceeds(cashierDb.doc("customerAccountEntries/customer-entry-1").get());
     await assertFails(
       cashierDb.doc("sales/new-sale").set({
         organizationId: "org-1",
@@ -566,6 +588,15 @@ describe("Firestore baseline rules", () => {
     );
     await assertFails(
       adminDb.doc("journalEntries/journal-1").update({ status: "void" }),
+    );
+    await assertFails(
+      adminDb.doc("customers/customer-1").update({ creditLimitMinor: 999999 }),
+    );
+    await assertFails(
+      cashierDb.doc("customerPayments/new").set({
+        organizationId: "org-1",
+        branchId: "branch-1",
+      }),
     );
   });
 });

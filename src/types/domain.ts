@@ -95,10 +95,33 @@ export const permissionIds = [
   "sales.shift.manage",
   "sales.price.base.manage",
   "sales.price.branch.manage",
+  "customers.read",
+  "customers.manage",
+  "customers.credit.approve",
+  "customers.payment.record",
+  "sales.credit.create",
   "reports.sales.read",
   "finance.journal.read",
 ] as const;
 export type PermissionId = (typeof permissionIds)[number];
+
+export interface Customer {
+  id: string;
+  organizationId: string;
+  customerNumber: string;
+  name: string;
+  phone?: string;
+  email?: string;
+  address?: string;
+  taxId?: string;
+  active: boolean;
+  creditStatus: "pending" | "approved" | "suspended" | "rejected";
+  creditLimitMinor: number;
+  outstandingBalanceMinor: number;
+  availableCreditMinor: number;
+  createdAt: DateTimeValue;
+  updatedAt: DateTimeValue;
+}
 export type EntityStatus = "active" | "inactive";
 export type UserStatus = EntityStatus | "suspended";
 export type DateTimeValue = string | { seconds: number; nanoseconds: number };

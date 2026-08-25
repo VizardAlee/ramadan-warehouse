@@ -2,14 +2,16 @@
 
 ## Unreleased sales expansion checkpoint (2026-08-25)
 
-Sales expansion Phase 1 adds six callable Functions, POS rules/indexes, and the
-offline-capable web surface. It is local source under validation and is not yet
-deployed. Production therefore correctly remains on the validated 98-function
-release described below. A later approved release must pass the full production
-predeploy gate, deploy web/Functions/rules/indexes together, and verify 104
-ACTIVE Functions plus a real online and reconnecting-offline sale before this
-section can be reclassified as deployed. Never infer deployment from a Git
-push.
+Sales expansion Phase 1 adds six callable Functions and the offline-capable POS.
+Phase 2 adds three callable Functions for customer records, administrator credit
+decisions, and receivable payments, plus credit checkout in the existing sale
+callable. This source checkpoint is not yet deployed. Production therefore
+correctly remains on the validated 98-function release described below. A later
+approved release must pass the full production predeploy gate, deploy web,
+Functions, rules, and indexes together, and verify 107 ACTIVE Functions plus a
+real paid sale, reconnecting-offline paid sale, approved credit sale, limit
+rejection, and customer repayment before this section can be reclassified as
+deployed. Never infer deployment from a Git push.
 
 ## Production checkpoint (2026-08-12)
 

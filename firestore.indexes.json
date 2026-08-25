@@ -1,6 +1,24 @@
 {
   "indexes": [
     {
+      "collectionGroup": "customers",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "organizationId", "order": "ASCENDING" },
+        { "fieldPath": "active", "order": "ASCENDING" },
+        { "fieldPath": "creditStatus", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "customerAccountEntries",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "organizationId", "order": "ASCENDING" },
+        { "fieldPath": "customerId", "order": "ASCENDING" },
+        { "fieldPath": "effectiveAt", "order": "DESCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "inventoryLocations",
       "queryScope": "COLLECTION",
       "fields": [

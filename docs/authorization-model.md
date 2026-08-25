@@ -11,9 +11,13 @@ paid POS sales and device shifts only for assigned branches. Branch managers
 inherit those branch POS actions and may publish branch markups. Warehouse
 managers establish central base selling prices. System administrators may work
 across every branch and are the only role allowed to approve a branch price
-below the current central base. Finance officers and auditors can read sales
-and journals organization-wide but cannot mutate authoritative records from a
-client.
+below the current central base. Customer records may be created by authorized
+administrators and branch managers, but only a system administrator can approve
+or change customer credit authority. Cashiers and branch managers may use an
+approved customer's available credit at POS; finance officers and authorized
+branch managers may record repayments. Finance officers and auditors can read
+sales, customer balances, and journals organization-wide, but no role may
+mutate authoritative records directly from a client.
 
 Custom claims contain only `organizationId`, an optional broad bootstrap platform marker, and `authorizationVersion`. Claims improve routing and token invalidation but never replace a fresh trusted-profile check for sensitive operations.
 

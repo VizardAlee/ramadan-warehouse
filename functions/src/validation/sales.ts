@@ -26,6 +26,44 @@ export const posWorkspaceInput = z.object({
   limit: z.number().int().min(1).max(500).default(200),
 });
 
+export const saveCustomerInput = z
+  .object({
+    customerId: id.optional(),
+    name: z.string().trim().min(2).max(160),
+    phone: z.string().trim().regex(/^0\d{10}$/, "Use an 11-digit Nigerian number beginning with 0.").optional(),
+    email: z.string().trim().email().max(254).optional(),
+    address: z.string().trim().max(500).optional(),
+    taxId: z.string().trim().max(80).optional(),
+    active: z.boolean().default(true),
+    idempotencyKey: z.string().uuid(),
+  })
+  .superRefine((value, context) => {
+    if (!value.phone && !value.email)
+      context.addIssue({
+        code: "custom",
+        path: ["phone"],
+        message: "Provide a phone number or email address.",
+      });
+  });
+
+export const decideCustomerCreditInput = z.object({
+  customerId: id,
+  decision: z.enum(["approve", "suspend", "reject"]),
+  creditLimitMinor: money.default(0),
+  reason: z.string().trim().min(3).max(500),
+  idempotencyKey: z.string().uuid(),
+});
+
+export const customerPaymentInput = z.object({
+  customerId: id,
+  branchId: id,
+  method: z.enum(["cash", "card", "bank_transfer"]),
+  amountMinor: positiveMoney,
+  reference: z.string().trim().max(120).optional(),
+  notes: z.string().trim().max(500).optional(),
+  idempotencyKey: z.string().uuid(),
+});
+
 export const openPosShiftInput = z.object({
   branchId: id,
   deviceId: id,
@@ -82,8 +120,29 @@ export const commitSaleInput = z.object({
         reference: z.string().trim().max(120).optional(),
       }),
     )
-    .min(1)
+    .min(0)
     .max(5),
+  customerId: id.optional(),
+  creditAmountMinor: money.default(0),
   notes: z.string().trim().max(500).optional(),
   idempotencyKey: z.string().uuid(),
+}).superRefine((value, context) => {
+  if (value.creditAmountMinor > 0 && !value.customerId)
+    context.addIssue({
+      code: "custom",
+      path: ["customerId"],
+      message: "Select an approved customer for credit.",
+    });
+  if (value.creditAmountMinor > 0 && value.offline)
+    context.addIssue({
+      code: "custom",
+      path: ["offline"],
+      message: "Credit sales require a live online authorization check.",
+    });
+  if (value.creditAmountMinor === 0 && value.payments.length === 0)
+    context.addIssue({
+      code: "custom",
+      path: ["payments"],
+      message: "A paid sale requires at least one payment.",
+    });
 });

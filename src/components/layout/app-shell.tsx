@@ -4,6 +4,7 @@ import {
   Archive,
   Boxes,
   ClipboardList,
+  ContactRound,
   FileBarChart,
   Gauge,
   History,
@@ -35,6 +36,7 @@ import type { PermissionId } from "@/types/domain";
 const navigation = [
   { href: "/dashboard", label: "Dashboard", icon: Gauge, permissions: [] },
   { href: "/pos", label: "POS", icon: ShoppingCart, permissions: ["sales.create"] },
+  { href: "/customers", label: "Customers", icon: ContactRound, permissions: ["customers.read"] },
   { href: "/products", label: "Products", icon: Boxes, permissions: ["products.read"] },
   { href: "/inventory", label: "Inventory", icon: Archive, permissions: ["inventory.read"] },
   { href: "/requests", label: "Requests", icon: ClipboardList, permissions: ["requests.read.all", "requests.read.own_branch", "requests.create"] },
