@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { readFileSync, statSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { extname, join } from "node:path";
 
 const root = process.cwd();
@@ -20,6 +20,8 @@ const repositoryFiles = execFileSync("git", ["ls-files", "--cached", "--others",
 for (const rel of repositoryFiles) {
   const path = join(root, rel);
   const name = rel.split("/").at(-1) ?? rel;
+  // `git ls-files --cached` includes tracked paths deleted in the worktree.
+  if (!existsSync(path)) continue;
   const stat = statSync(path);
   if (!stat.isFile() || stat.size > 2_000_000 || (!textExtensions.has(extname(name)) && !name.startsWith(".env"))) continue;
   const content = readFileSync(path, "utf8");

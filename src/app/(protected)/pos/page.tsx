@@ -107,11 +107,6 @@ export default function PosPage() {
   );
   const totals = useMemo(() => calculatePosCart(cart), [cart]);
 
-  useEffect(() => {
-    if ("serviceWorker" in navigator)
-      void navigator.serviceWorker.register("/sw.js");
-  }, []);
-
   const refreshQueue = useCallback(async () => {
     if (!selectedBranchId || !user) return;
     setQueued(await listQueuedSales(selectedBranchId, user.uid));

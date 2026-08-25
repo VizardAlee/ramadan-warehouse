@@ -15,3 +15,10 @@ offline queue cannot bypass revoked access when it reconnects.
 Cached workspaces and queued sales are keyed to that Firebase user as well as
 the branch, so a second user on the same browser cannot inherit or post the
 first cashier's offline shift.
+
+The PWA service worker is registered for the whole application but caches only
+the offline fallback, install assets, versioned static assets, and a successfully
+visited POS page shell. Other navigations remain network-first and fall back to
+the reconnect page. It never intercepts cross-origin Firebase/Auth/Functions
+traffic, never caches callable responses or business documents, and never
+enables a non-POS offline mutation. See `pwa-and-device-support.md`.

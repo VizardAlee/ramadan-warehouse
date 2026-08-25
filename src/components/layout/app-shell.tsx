@@ -32,6 +32,7 @@ import { Feedback } from "@/components/ui/feedback";
 import { useDialogFocus } from "@/components/ui/use-dialog-focus";
 import { useAuth } from "@/features/auth/auth-context";
 import { availableOperatingContexts } from "@/features/auth/operating-context";
+import { PwaControls } from "@/features/pwa/pwa-controls";
 import { useConnectivity } from "@/lib/connectivity";
 import { getFirebaseServices } from "@/lib/firebase/client";
 import { hasAnyPermission } from "@/lib/permissions/roles";
@@ -344,6 +345,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                 </select>
               </label>
             )}
+            <PwaControls />
             <Button
               size="icon"
               variant="ghost"

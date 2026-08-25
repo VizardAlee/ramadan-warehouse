@@ -45,7 +45,16 @@ The pattern is applied to users, administrative master data, products, stock bal
 
 ## PWA conventions
 
-The manifest identifies AB Ramadan Warehouse, uses standalone display, the production brand palette, and the repository warehouse icon. Viewport configuration supports device safe areas. Standalone layout accounts for top/bottom safe-area insets. An offline banner clearly states that authoritative workflow confirmations require connectivity; trusted writes remain server-controlled.
+The typed manifest identifies AB Ramadan Warehouse, uses standalone display,
+the production brand palette, Chrome-sized and maskable PNG icons, an Apple
+touch icon, and task shortcuts. Chrome receives a native install prompt when
+eligible; iPhone/iPad and macOS Safari receive platform-specific Home Screen or
+Dock instructions. Viewport configuration supports display cutouts and the
+on-screen keyboard without disabling user zoom. Standalone layout accounts for
+all safe-area insets. An offline fallback and banner clearly state that
+authoritative workflow confirmations require connectivity; trusted writes
+remain server-controlled. Updates wait for explicit activation instead of
+interrupting an active workflow.
 
 ## Content-driven decisions
 
