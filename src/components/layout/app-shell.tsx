@@ -16,6 +16,7 @@ import {
   RefreshCw,
   Settings,
   ShoppingCart,
+  ShoppingBasket,
   Truck,
   X,
 } from "lucide-react";
@@ -39,6 +40,7 @@ const navigation = [
   { href: "/pos", label: "POS", icon: ShoppingCart, permissions: ["sales.create"] },
   { href: "/customers", label: "Customers", icon: ContactRound, permissions: ["customers.read"] },
   { href: "/returns", label: "Returns", icon: RotateCcw, permissions: ["sales.returns.read"] },
+  { href: "/procurement", label: "Purchasing", icon: ShoppingBasket, permissions: ["procurement.read", "payables.read"] },
   { href: "/products", label: "Products", icon: Boxes, permissions: ["products.read"] },
   { href: "/inventory", label: "Inventory", icon: Archive, permissions: ["inventory.read"] },
   { href: "/requests", label: "Requests", icon: ClipboardList, permissions: ["requests.read.all", "requests.read.own_branch", "requests.create"] },

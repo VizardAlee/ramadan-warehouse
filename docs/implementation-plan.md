@@ -1,6 +1,6 @@
 # Warehouse application implementation plan
 
-## Sales expansion — Phases 1 through 3 implemented locally
+## Business expansion — Phases 1 through 4 implemented locally
 
 The first POS expansion slice adds centrally controlled base selling prices,
 version-aware branch markups, separately stated VAT, branch-scoped cashier
@@ -22,14 +22,20 @@ refund evidence, customer-receivable credits, and exchange credit that may be
 redeemed on a later online POS sale. Approval posts the correcting inventory,
 accounting, customer, and audit evidence atomically without altering the sale.
 
-The sales expansion does not yet implement serialized or lot checkout, supplier
-payables, expense management, bank reconciliation, period closing, or complete
-financial statements. Those remain later sales/finance expansion phases. The
-new source must pass its full local and emulator gates before any production
-deployment; the current production environment continues to run the validated
-98-function inventory/transfer release until that separate approval.
+Phase 4 adds supplier master data, warehouse purchase orders, independent PO
+approval, controlled goods receipt into the immutable inventory ledger,
+received-quantity invoice matching, independent supplier-invoice approval,
+Accounts Payable journals, a supplier subledger, and allocated supplier
+payments. See `procurement-and-payables.md` for its workflow and invariants.
 
-## Phase 4 — implemented locally
+The expansion does not yet implement serialized or lot checkout at POS,
+operating-expense bills, bank reconciliation, period closing, or complete
+financial statements. Those remain later finance phases. The new source must
+pass its full local and emulator gates before any production deployment; the
+current production environment continues to run the validated 98-function
+inventory/transfer release until that separate approval.
+
+## Warehouse transfer programme — implemented locally
 
 Warehouse transfers cover request/direct initiation, versioned approval, atomic reservation/release, serial/lot allocation, picker/checker, packages, dispatch to route transit, partial receipt, request fulfilment, discrepancies, costs, cancellation, closure, reports, notifications, rules, indexes, UI, tests, and emulator seed data. Deployment, production configuration, binary evidence, paid notifications, advanced policy UI, and existing branch-app integration remain deferred.
 
@@ -65,5 +71,11 @@ Deferred Phase 3 hardening includes binary attachments, delivery adapters for no
 - Phase 6: receipts, discrepancies, reversals, and closure controls.
 - Phase 7: finance approval expansion, period locking, and accounting integration.
 - Phase 8: maintained reporting summaries, exports, versioned integration adapters, monitoring, and operational hardening.
+
+The numbered list above describes the original warehouse-transfer programme.
+The later business expansion uses its own POS/finance phase numbering: POS,
+customer credit, returns, then procurement and payables. The next business
+finance phase is operating expenses and cash-disbursement control, followed by
+bank reconciliation, period close, and complete financial reporting.
 
 Each phase should add emulator tests for its invariants before the next phase begins. Production deployment remains a separate, explicitly approved activity.

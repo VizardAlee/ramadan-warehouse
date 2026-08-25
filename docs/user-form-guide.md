@@ -93,3 +93,42 @@ for both warehouse locations and store/branch stock locations.
    credit. Its balance is applied first and any sale remainder is recorded as
    cash. The credit is checked and consumed atomically; it cannot be used
    offline or reused after exhaustion.
+
+## Suppliers and purchasing
+
+### Supplier form
+
+- Enter the supplier's business name once. Code may be left blank when the form
+  offers generation; use an existing supplier code only when it is genuinely
+  part of the business records.
+- Phone, email, tax number, and address identify the supplier; they do not
+  approve a purchase, invoice, or payment.
+
+### Purchase order
+
+1. Select the receiving **warehouse** and its physical stock location. A branch
+   is not a warehouse and cannot be selected as the PO destination.
+2. Select the supplier and existing products. Product name, SKU, and tracking
+   policy are reused; enter only ordered quantity, agreed unit cost in naira,
+   and applicable VAT.
+3. Create the draft, review it, then submit it. A different authorized user
+   approves it. Approval does not add stock and does not create a payable.
+
+### Receive purchase order
+
+1. Open an approved order and select the product line physically delivered.
+2. Enter only the quantity actually counted. The destination, product, unit
+   cost, and VAT come from the PO and are not re-entered.
+3. Enter serial numbers or batch evidence only when required by the product.
+   Posting increases warehouse stock and cannot exceed the approved quantity.
+
+### Supplier invoice and payment
+
+1. Match the supplier's invoice to received, not-yet-invoiced PO quantities.
+   Enter the supplier invoice number and date from the actual document.
+2. Submit the match. A different authorized approver confirms it; this is when
+   the Accounts Payable balance and accounting journal are posted.
+3. Record a payment only when money is genuinely disbursed. Enter the amount in
+   naira, actual method, and external reference. Partial payment is allowed by
+   the accounting service; never claim bank settlement merely because a
+   reference was recorded.

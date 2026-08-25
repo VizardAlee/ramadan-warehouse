@@ -26,7 +26,9 @@ The posting transaction reads the idempotency record, product/cost, counter, all
 ## Known limits
 
 - Reservation quantities remain zero until the transfer phase.
-- Generic receipts are not purchase orders or procurement accounting.
+- Generic inventory receipts remain non-procurement adjustments. The dedicated
+  purchase-order receipt workflow now posts through the same inventory service
+  while preserving PO, received-quantity, invoice-match, and AP evidence.
 - CSV import is deferred; CSV report export is implemented.
 - A stock count may post one idempotent correction transaction per variance item. This is resumable but is not one all-items atomic commit.
 - Reporting endpoints are paginated and deliberately capped; high-volume maintained aggregates remain future work.

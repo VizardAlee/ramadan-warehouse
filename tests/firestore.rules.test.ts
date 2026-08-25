@@ -206,6 +206,29 @@ async function seed() {
       branchId: "branch-1",
       customerId: "customer-1",
     });
+    await db.doc("suppliers/supplier-1").set({
+      organizationId: "org-1",
+      supplierNumber: "SUP-2026-000001",
+      name: "Test Supplier",
+      active: true,
+    });
+    await db.doc("purchaseOrders/purchase-1").set({
+      organizationId: "org-1",
+      warehouseId: "warehouse-1",
+      supplierId: "supplier-1",
+      status: "approved",
+    });
+    await db.doc("purchaseOrderItems/purchase-item-1").set({
+      organizationId: "org-1",
+      warehouseId: "warehouse-1",
+      purchaseOrderId: "purchase-1",
+    });
+    await db.doc("supplierInvoices/supplier-invoice-1").set({
+      organizationId: "org-1",
+      warehouseId: "warehouse-1",
+      supplierId: "supplier-1",
+      status: "approved",
+    });
     await db
       .doc("inventoryTransactions/branch-1-tx")
       .set({ organizationId: "org-1", branchId: "branch-1", status: "posted" });
@@ -630,5 +653,22 @@ describe("Firestore baseline rules", () => {
         branchId: "branch-1",
       }),
     );
+  });
+  it("scopes procurement reads and denies all direct purchasing and payable writes", async () => {
+    await seed();
+    const warehouseDb = environment.authenticatedContext("warehouse-manager").firestore();
+    const branchDb = environment.authenticatedContext("branch-user").firestore();
+    const financeDb = environment.authenticatedContext("finance").firestore();
+    const adminDb = environment.authenticatedContext("admin").firestore();
+    await assertSucceeds(warehouseDb.doc("suppliers/supplier-1").get());
+    await assertSucceeds(warehouseDb.doc("purchaseOrders/purchase-1").get());
+    await assertSucceeds(warehouseDb.doc("purchaseOrderItems/purchase-item-1").get());
+    await assertFails(branchDb.doc("purchaseOrders/purchase-1").get());
+    await assertSucceeds(financeDb.doc("supplierInvoices/supplier-invoice-1").get());
+    await assertSucceeds(adminDb.doc("supplierInvoices/supplier-invoice-1").get());
+    await assertFails(warehouseDb.doc("supplierInvoices/supplier-invoice-1").get());
+    await assertFails(adminDb.doc("suppliers/new").set({ organizationId: "org-1", name: "Unsafe" }));
+    await assertFails(warehouseDb.doc("purchaseOrders/purchase-1").update({ status: "received" }));
+    await assertFails(financeDb.doc("supplierInvoices/supplier-invoice-1").update({ status: "paid" }));
   });
 });

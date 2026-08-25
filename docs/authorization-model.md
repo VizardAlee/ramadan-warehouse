@@ -26,6 +26,18 @@ server always rejects approval by the creator. Restocking, refund/receivable
 posting, and exchange-credit issuance happen only through the approval
 callable; Firestore clients cannot write these records directly.
 
+Procurement authority is warehouse-scoped. Warehouse managers may create and
+submit purchase orders for assigned warehouses, and warehouse managers and
+officers may receive approved quantities into assigned warehouse locations.
+Operations administrators may manage suppliers and approve purchase orders.
+Finance officers can read purchasing evidence, submit supplier invoices,
+approve an invoice created by someone else, and record supplier payments.
+Auditors have read-only procurement and payables access. System administrators
+have organization-wide authority, but PO and invoice maker-checker restrictions
+still reject creator self-approval. Purchase approval never posts inventory or
+a payable; only physical receipt posts stock, and only approved invoice
+matching posts Accounts Payable.
+
 Custom claims contain only `organizationId`, an optional broad bootstrap platform marker, and `authorizationVersion`. Claims improve routing and token invalidation but never replace a fresh trusted-profile check for sensitive operations.
 
 Server controls are centralized in `functions/src/auth/authorize.ts`:

@@ -16,6 +16,8 @@ const messages: Record<string, string> = {
   CUSTOMER_CREDIT_LIMIT_EXCEEDED: "This sale exceeds the customer's currently available credit. Reduce the sale, collect a payment, or ask an administrator to review the limit.",
   EXCHANGE_CREDIT_UNAVAILABLE: "That exchange credit is no longer available or does not cover this amount. Refresh the POS and review the balance.",
   RETURN_SELF_APPROVAL_FORBIDDEN: "The person who submitted this return cannot approve it. Ask another authorized manager or administrator to review it.",
+  PURCHASE_ORDER_SELF_APPROVAL_FORBIDDEN: "The person who created this purchase order cannot approve it. Ask another authorized purchasing approver.",
+  SUPPLIER_INVOICE_SELF_APPROVAL_FORBIDDEN: "The person who entered this supplier invoice cannot approve it. Ask another authorized finance approver.",
 };
 export class UserFacingError extends Error { constructor(message: string, readonly diagnosticCode?: string) { super(message); this.name = "UserFacingError"; } }
 export function toUserFacingError(error: unknown, fallback = "The operation could not be completed. Refresh and try again."): UserFacingError {

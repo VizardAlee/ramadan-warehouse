@@ -105,6 +105,16 @@ export const permissionIds = [
   "sales.returns.approve",
   "reports.sales.read",
   "finance.journal.read",
+  "suppliers.read",
+  "suppliers.manage",
+  "procurement.read",
+  "procurement.create",
+  "procurement.approve",
+  "procurement.receive",
+  "payables.read",
+  "payables.create",
+  "payables.approve",
+  "payables.pay",
 ] as const;
 export type PermissionId = (typeof permissionIds)[number];
 
@@ -145,6 +155,65 @@ export interface SaleReturn {
   restockCostMinor: number;
   createdBy: string;
   createdAt: DateTimeValue;
+}
+
+export interface Supplier {
+  id: string;
+  organizationId: string;
+  supplierNumber: string;
+  name: string;
+  phone?: string;
+  email?: string;
+  paymentTermsDays: number;
+  outstandingBalanceMinor: number;
+  active: boolean;
+}
+
+export interface PurchaseOrder {
+  id: string;
+  organizationId: string;
+  purchaseOrderNumber: string;
+  supplierId: string;
+  supplierName: string;
+  warehouseId: string;
+  warehouseName: string;
+  receivingLocationId: string;
+  status: "draft" | "submitted" | "approved" | "partially_received" | "received";
+  netAmountMinor: number;
+  vatAmountMinor: number;
+  grossAmountMinor: number;
+  createdBy: string;
+}
+
+export interface PurchaseOrderItem {
+  id: string;
+  purchaseOrderId: string;
+  productId: string;
+  sku: string;
+  productName: string;
+  trackingType: "quantity" | "serial" | "batch";
+  unitOfMeasure: string;
+  orderedQuantity: number;
+  receivedQuantity: number;
+  invoicedQuantity?: number;
+  unitCostMinor: number;
+  vatRateBasisPoints: number;
+}
+
+export interface SupplierInvoice {
+  id: string;
+  supplierId: string;
+  supplierName: string;
+  purchaseOrderId: string;
+  purchaseOrderNumber: string;
+  warehouseId: string;
+  supplierInvoiceNumber: string;
+  status: "submitted" | "approved" | "partially_paid" | "paid";
+  netAmountMinor: number;
+  vatAmountMinor: number;
+  grossAmountMinor: number;
+  outstandingAmountMinor: number;
+  createdBy: string;
 }
 export type EntityStatus = "active" | "inactive";
 export type UserStatus = EntityStatus | "suspended";

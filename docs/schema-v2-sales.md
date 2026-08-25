@@ -1,4 +1,4 @@
-# Sales schema version 2
+# Sales and finance schema version 2
 
 Schema version 2 is an additive sales and accounting extension to the frozen
 warehouse schema v1. Existing inventory, request, and transfer records retain
@@ -14,6 +14,9 @@ their meaning.
 | Return/refund evidence | `saleReturns`, `saleReturnItems`, `saleReturnItemCounters`, `saleRefunds` |
 | Exchange value | `salesCredits` |
 | Accounting | `chartOfAccounts`, `journalCounters`, `journalEntries`, `journalLines` |
+| Supplier master | `suppliers`, `supplierCounters`, `supplierCodes` |
+| Purchasing | `purchaseOrders`, `purchaseOrderItems`, `purchaseReceipts`, `purchaseOrderCounters` |
+| Accounts Payable | `supplierInvoices`, `supplierInvoiceItems`, `purchaseInvoiceItemCounters`, `supplierPayments`, `supplierPaymentAllocations`, `supplierAccountEntries` |
 | Existing ledger integration | `inventoryTransactions` and `inventoryEntries` using `branch_sale`; `inventoryBalances` remains the mutable projection |
 | Reliability/control | existing `idempotencyKeys`, `auditLogs`, plus browser-local queued drafts that are not authoritative records |
 
@@ -44,3 +47,11 @@ balance.
 Money is integer NGN minor units. VAT rates are basis points. Product and
 branch price documents are versioned. A branch price records the central base
 version against which it was created or approved.
+
+Purchase orders snapshot product, cost, VAT, supplier, warehouse, and receiving
+location data. A physical `purchaseReceipts` record is backed by the existing
+inventory transaction and entries. Supplier invoice approval, rather than PO
+approval or goods receipt, creates the Accounts Payable journal and supplier
+account entry. `purchaseInvoiceItemCounters` prevents approved invoice matches
+from exceeding received quantities. Payments add allocations and correcting
+subledger/journal records without rewriting the invoice.

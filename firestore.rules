@@ -58,6 +58,11 @@ service cloud.firestore {
       return canReadAllSales() ||
         (hasAnyRole(["branch_manager", "sales_cashier"]) && data.branchId in profile().branchIds);
     }
+    function canReadAllProcurement() { return hasAnyRole(["system_administrator", "operations_administrator", "finance_officer", "auditor"]); }
+    function procurementScope(data) {
+      return canReadAllProcurement() ||
+        (hasAnyRole(["warehouse_manager", "warehouse_officer"]) && data.warehouseId in profile().warehouseIds);
+    }
 
     match /users/{userId} {
       allow get: if signedIn() && (request.auth.uid == userId || (canManageUsers() && sameOrganization(resource.data)));
@@ -324,6 +329,42 @@ service cloud.firestore {
       allow create, update, delete: if false;
     }
     match /journalLines/{documentId} {
+      allow read: if sameOrganization(resource.data) && hasAnyRole(["system_administrator", "finance_officer", "auditor"]);
+      allow create, update, delete: if false;
+    }
+    match /suppliers/{documentId} {
+      allow read: if sameOrganization(resource.data) && hasAnyRole(["system_administrator", "operations_administrator", "warehouse_manager", "warehouse_officer", "finance_officer", "auditor"]);
+      allow create, update, delete: if false;
+    }
+    match /purchaseOrders/{documentId} {
+      allow read: if sameOrganization(resource.data) && procurementScope(resource.data);
+      allow create, update, delete: if false;
+    }
+    match /purchaseOrderItems/{documentId} {
+      allow read: if sameOrganization(resource.data) && procurementScope(resource.data);
+      allow create, update, delete: if false;
+    }
+    match /purchaseReceipts/{documentId} {
+      allow read: if sameOrganization(resource.data) && procurementScope(resource.data);
+      allow create, update, delete: if false;
+    }
+    match /supplierInvoices/{documentId} {
+      allow read: if sameOrganization(resource.data) && hasAnyRole(["system_administrator", "finance_officer", "auditor"]);
+      allow create, update, delete: if false;
+    }
+    match /supplierInvoiceItems/{documentId} {
+      allow read: if sameOrganization(resource.data) && hasAnyRole(["system_administrator", "finance_officer", "auditor"]);
+      allow create, update, delete: if false;
+    }
+    match /supplierPayments/{documentId} {
+      allow read: if sameOrganization(resource.data) && hasAnyRole(["system_administrator", "finance_officer", "auditor"]);
+      allow create, update, delete: if false;
+    }
+    match /supplierPaymentAllocations/{documentId} {
+      allow read: if sameOrganization(resource.data) && hasAnyRole(["system_administrator", "finance_officer", "auditor"]);
+      allow create, update, delete: if false;
+    }
+    match /supplierAccountEntries/{documentId} {
       allow read: if sameOrganization(resource.data) && hasAnyRole(["system_administrator", "finance_officer", "auditor"]);
       allow create, update, delete: if false;
     }

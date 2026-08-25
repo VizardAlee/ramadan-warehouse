@@ -96,7 +96,17 @@ export type Permission =
   | "sales.returns.create"
   | "sales.returns.approve"
   | "reports.sales.read"
-  | "finance.journal.read";
+  | "finance.journal.read"
+  | "suppliers.read"
+  | "suppliers.manage"
+  | "procurement.read"
+  | "procurement.create"
+  | "procurement.approve"
+  | "procurement.receive"
+  | "payables.read"
+  | "payables.create"
+  | "payables.approve"
+  | "payables.pay";
 
 const rolePermissions: Readonly<Record<RoleId, readonly Permission[]>> = {
   system_administrator: [
@@ -178,6 +188,16 @@ const rolePermissions: Readonly<Record<RoleId, readonly Permission[]>> = {
     "sales.returns.approve",
     "reports.sales.read",
     "finance.journal.read",
+    "suppliers.read",
+    "suppliers.manage",
+    "procurement.read",
+    "procurement.create",
+    "procurement.approve",
+    "procurement.receive",
+    "payables.read",
+    "payables.create",
+    "payables.approve",
+    "payables.pay",
   ],
   operations_administrator: [
     "user.manage",
@@ -224,6 +244,11 @@ const rolePermissions: Readonly<Record<RoleId, readonly Permission[]>> = {
     "sales.returns.create",
     "sales.returns.approve",
     "reports.sales.read",
+    "suppliers.read",
+    "suppliers.manage",
+    "procurement.read",
+    "procurement.create",
+    "procurement.approve",
   ],
   warehouse_manager: [
     "products.read",
@@ -242,6 +267,10 @@ const rolePermissions: Readonly<Record<RoleId, readonly Permission[]>> = {
     "inventory.cost.manage",
     "reports.inventory.read",
     "reports.inventory.export",
+    "suppliers.read",
+    "procurement.read",
+    "procurement.create",
+    "procurement.receive",
     "requests.read.all",
     "requests.review",
     "requests.request_changes",
@@ -287,6 +316,9 @@ const rolePermissions: Readonly<Record<RoleId, readonly Permission[]>> = {
     "transfers.pick",
     "transfers.pack",
     "transfers.report_discrepancy",
+    "suppliers.read",
+    "procurement.read",
+    "procurement.receive",
   ],
   branch_requester: [
     "products.read",
@@ -380,6 +412,12 @@ const rolePermissions: Readonly<Record<RoleId, readonly Permission[]>> = {
     "sales.returns.approve",
     "reports.sales.read",
     "finance.journal.read",
+    "suppliers.read",
+    "procurement.read",
+    "payables.read",
+    "payables.create",
+    "payables.approve",
+    "payables.pay",
   ],
   auditor: [
     "audit.read",
@@ -401,6 +439,9 @@ const rolePermissions: Readonly<Record<RoleId, readonly Permission[]>> = {
     "sales.returns.read",
     "reports.sales.read",
     "finance.journal.read",
+    "suppliers.read",
+    "procurement.read",
+    "payables.read",
   ],
 };
 const assignableRoles: Readonly<Partial<Record<RoleId, readonly RoleId[]>>> = {

@@ -132,3 +132,14 @@ export {
   createSaleReturn,
   approveSaleReturn,
 } from "./callable/sales-returns.js";
+export {
+  saveSupplier,
+  getProcurementWorkspace,
+  createPurchaseOrder,
+  submitPurchaseOrder,
+  approvePurchaseOrder,
+  receivePurchaseOrderItem,
+  submitSupplierInvoice,
+  approveSupplierInvoice,
+  recordSupplierPayment,
+} from "./callable/procurement.js";
