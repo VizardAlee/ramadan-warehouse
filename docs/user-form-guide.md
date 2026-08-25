@@ -168,3 +168,17 @@ for both warehouse locations and store/branch stock locations.
 5. A different authorized administrator or finance officer completes the
    prepared reconciliation. Closed matches cannot be removed; corrections must
    use new accounting evidence rather than rewriting the closed period.
+
+## Monthly accounting close
+
+1. Complete sales, returns, purchasing invoices, expenses, payments, POS-shift
+   closure, and bank reconciliation for the ended month.
+2. Open **Month close**, select that month, and review every readiness message
+   plus the debit/credit trial balance. Resolve every blocker in its source
+   workflow; do not work around it with direct database edits.
+3. An authorized finance officer or administrator selects **Prepare month**.
+   This locks journal posting dated in that month.
+4. A different authorized finance officer or administrator selects **Complete
+   independently**. The app rechecks the evidence before recording the close.
+5. If a historical correction is later required, record an authorized
+   correcting transaction in an open month. Never alter closed evidence.

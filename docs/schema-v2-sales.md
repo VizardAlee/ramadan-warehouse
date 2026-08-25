@@ -13,7 +13,7 @@ their meaning.
 | Immutable sale evidence | `sales`, `saleItems`, `salePayments`, `salesReceipts` |
 | Return/refund evidence | `saleReturns`, `saleReturnItems`, `saleReturnItemCounters`, `saleRefunds` |
 | Exchange value | `salesCredits` |
-| Accounting | `chartOfAccounts`, `journalCounters`, `journalEntries`, `journalLines` |
+| Accounting | `chartOfAccounts`, `journalCounters`, `journalEntries`, `journalLines`, `accountingPeriods` |
 | Supplier master | `suppliers`, `supplierCounters`, `supplierCodes` |
 | Purchasing | `purchaseOrders`, `purchaseOrderItems`, `purchaseReceipts`, `purchaseOrderCounters` |
 | Accounts Payable | `supplierInvoices`, `supplierInvoiceItems`, `purchaseInvoiceItemCounters`, `supplierPayments`, `supplierPaymentAllocations`, `supplierAccountEntries` |
@@ -60,7 +60,7 @@ subledger/journal records without rewriting the invoice.
 
 Operating expenses use an automatically reused or created category plus an
 optional branch or warehouse dimension. Approval posts accounts `6000`, `1300`,
-and `2100`; later disbursements clear `2100` against the recorded settlement
+and `2300`; later disbursements clear `2300` against the recorded settlement
 account. Expense status is a projection of the immutable approval and payment
 evidence, and cannot be mutated by Firestore clients.
 
@@ -71,3 +71,10 @@ otherwise immutable statement and journal-line evidence; it never changes a
 journal amount. A closed `bankReconciliations` record snapshots the period,
 balances, signed movement, included identifiers, zero difference, preparer,
 and independent closer.
+
+`accountingPeriods` identifies one organization/calendar month using a
+deterministic document ID. `preparing`, `prepared`, and `closed` records lock
+all journal-producing transactions by effective date. Preparation snapshots a
+balanced trial balance and blocker-free operational evidence; completion must
+be performed by another authorized user and only succeeds when rebuilt
+evidence has the same hash.

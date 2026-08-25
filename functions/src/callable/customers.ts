@@ -1,6 +1,7 @@
 import { FieldValue, Timestamp } from "firebase-admin/firestore";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
 import { db } from "../admin.js";
+import { accountingPeriodReference, assertAccountingPeriodOpen } from "../accounting/period-lock.js";
 import { writeAuditLog } from "../audit/write-audit-log.js";
 import {
   hasRole,
@@ -220,11 +221,13 @@ export const recordCustomerPayment = onCall(
     const operation = db.doc(
       `idempotencyKeys/${actor.organizationId}_recordCustomerPayment_${input.idempotencyKey}`,
     );
+    const effectiveAt = Timestamp.now();
+    const accountingPeriod = accountingPeriodReference(actor.organizationId, effectiveAt);
     const cid = correlationId();
     let result = { paymentId: payment.id, paymentNumber: "", recorded: true };
     await db.runTransaction(async (transaction) => {
-      const [current, branchSnapshot, counterSnapshot, journalCounterSnapshot, previousOperation] =
-        await transaction.getAll(customer, branch, counter, journalCounter, operation);
+      const [current, branchSnapshot, counterSnapshot, journalCounterSnapshot, accountingPeriodSnapshot, previousOperation] =
+        await transaction.getAll(customer, branch, counter, journalCounter, accountingPeriod, operation);
       if (previousOperation!.exists) {
         result = {
           paymentId: String(previousOperation!.get("entityId")),
@@ -233,6 +236,7 @@ export const recordCustomerPayment = onCall(
         };
         return;
       }
+      assertAccountingPeriodOpen(accountingPeriodSnapshot!);
       if (!current!.exists || current!.get("organizationId") !== actor.organizationId)
         throw new HttpsError("not-found", "Customer not found.");
       if (
@@ -310,7 +314,7 @@ export const recordCustomerPayment = onCall(
         amountMinor: -input.amountMinor,
         balanceAfterMinor: nextOutstanding,
         currency: "NGN",
-        effectiveAt: Timestamp.now(),
+        effectiveAt,
         createdAt: now,
         createdBy: actor.userId,
       });
@@ -327,7 +331,7 @@ export const recordCustomerPayment = onCall(
         totalDebitMinor: input.amountMinor,
         totalCreditMinor: input.amountMinor,
         currency: "NGN",
-        effectiveAt: Timestamp.now(),
+        effectiveAt,
         postedAt: now,
         postedBy: actor.userId,
         correlationId: cid,
@@ -357,7 +361,7 @@ export const recordCustomerPayment = onCall(
           debitMinor: line.debitMinor,
           creditMinor: line.creditMinor,
           currency: "NGN",
-          effectiveAt: Timestamp.now(),
+          effectiveAt,
           createdAt: now,
         });
       }

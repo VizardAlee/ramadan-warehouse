@@ -35,6 +35,8 @@ bank data, initiate transfers, or alter posted accounting journals.
 - `closing balance = opening balance + statement movement`.
 - A reconciliation may close only when statement movement equals ledger
   movement and the final difference is exactly zero.
+- A bank account with genuinely no statement or ledger activity may close a
+  zero-row month when its opening and closing balances are equal.
 - Matching metadata never changes debit, credit, journal, payment, sale,
   expense, supplier, or inventory evidence.
 

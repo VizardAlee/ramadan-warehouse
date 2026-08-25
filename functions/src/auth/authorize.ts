@@ -114,7 +114,10 @@ export type Permission =
   | "banking.read"
   | "banking.manage"
   | "banking.reconcile"
-  | "banking.approve";
+  | "banking.approve"
+  | "accounting.close.read"
+  | "accounting.close.prepare"
+  | "accounting.close.approve";
 
 const rolePermissions: Readonly<Record<RoleId, readonly Permission[]>> = {
   system_administrator: [
@@ -214,6 +217,9 @@ const rolePermissions: Readonly<Record<RoleId, readonly Permission[]>> = {
     "banking.manage",
     "banking.reconcile",
     "banking.approve",
+    "accounting.close.read",
+    "accounting.close.prepare",
+    "accounting.close.approve",
   ],
   operations_administrator: [
     "user.manage",
@@ -449,6 +455,9 @@ const rolePermissions: Readonly<Record<RoleId, readonly Permission[]>> = {
     "banking.manage",
     "banking.reconcile",
     "banking.approve",
+    "accounting.close.read",
+    "accounting.close.prepare",
+    "accounting.close.approve",
   ],
   auditor: [
     "audit.read",
@@ -475,6 +484,7 @@ const rolePermissions: Readonly<Record<RoleId, readonly Permission[]>> = {
     "payables.read",
     "expenses.read",
     "banking.read",
+    "accounting.close.read",
   ],
 };
 const assignableRoles: Readonly<Partial<Record<RoleId, readonly RoleId[]>>> = {

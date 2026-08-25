@@ -1,6 +1,7 @@
 import { FieldValue, Timestamp } from "firebase-admin/firestore";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
 import { db } from "../admin.js";
+import { accountingPeriodReference, assertAccountingPeriodOpen } from "../accounting/period-lock.js";
 import { writeAuditLog } from "../audit/write-audit-log.js";
 import { hasRole, hasServerPermission, requireAccess, requirePermission, requireWarehouseScope } from "../auth/authorize.js";
 import { enforceAppCheck } from "../config.js";
@@ -331,15 +332,19 @@ export const approveSupplierInvoice = onCall({ enforceAppCheck }, async (request
   const counterRefs = invoiceItems.docs.map((line) => db.doc(`purchaseInvoiceItemCounters/${invoiceCounterId(actor.organizationId, String(line.get("purchaseOrderItemId")))}`));
   const itemRefs = invoiceItems.docs.map((line) => db.doc(`purchaseOrderItems/${line.get("purchaseOrderItemId")}`));
   const supplier = db.doc(`suppliers/${initial.get("supplierId")}`), purchaseOrder = db.doc(`purchaseOrders/${initial.get("purchaseOrderId")}`), operation = db.doc(`idempotencyKeys/${actor.organizationId}_approveSupplierInvoice_${input.idempotencyKey}`), journalCounter = db.doc(`journalCounters/${uniquenessDocumentId(actor.organizationId, "general")}`), journal = db.collection("journalEntries").doc();
+  const effectiveAt = Timestamp.fromDate(new Date(String(initial.get("invoiceDate"))));
+  const accountingPeriod = accountingPeriodReference(actor.organizationId, effectiveAt);
   await db.runTransaction(async (transaction) => {
-    const snapshots = await transaction.getAll(operation, invoice, supplier, purchaseOrder, journalCounter, ...itemRefs, ...counterRefs); let cursor = 0;
+    const snapshots = await transaction.getAll(operation, invoice, supplier, purchaseOrder, journalCounter, accountingPeriod, ...itemRefs, ...counterRefs); let cursor = 0;
     const previous = snapshots[cursor++]!, current = snapshots[cursor++]!, supplierSnapshot = snapshots[cursor++]!, order = snapshots[cursor++]!, journalCounterSnapshot = snapshots[cursor++]!;
+    const accountingPeriodSnapshot = snapshots[cursor++]!;
     if (previous.exists) return; if (!current.exists || current.get("status") !== "submitted") throw new HttpsError("failed-precondition", "Only a submitted supplier invoice can be approved.");
+    assertAccountingPeriodOpen(accountingPeriodSnapshot);
     if (current.get("createdBy") === actor.userId) throw new HttpsError("permission-denied", "The invoice creator cannot approve their own invoice.", { code: "SUPPLIER_INVOICE_SELF_APPROVAL_FORBIDDEN" });
     if (!supplierSnapshot.exists || supplierSnapshot.get("organizationId") !== actor.organizationId) throw new HttpsError("failed-precondition", "Supplier is unavailable.");
     const items = snapshots.slice(cursor, cursor += itemRefs.length), counters = snapshots.slice(cursor);
     invoiceItems.docs.forEach((line, index) => { const orderedItem = items[index]!, counter = counters[index]!, quantity = Number(line.get("quantity")); if (!orderedItem.exists || orderedItem.get("purchaseOrderId") !== order.id || quantity > Number(orderedItem.get("receivedQuantity") ?? 0) - Number(counter.get("invoicedQuantity") ?? 0)) throw new HttpsError("failed-precondition", "An invoice quantity is no longer available for approval."); });
-    const now = FieldValue.serverTimestamp(), effectiveAt = Timestamp.fromDate(new Date(String(current.get("invoiceDate")))), gross = Number(current.get("grossAmountMinor"));
+    const now = FieldValue.serverTimestamp(), gross = Number(current.get("grossAmountMinor"));
     const lines = journalLines(Number(current.get("netAmountMinor")), Number(current.get("vatAmountMinor")), "2000");
     writeJournal(transaction, actor, { journal, journalCounter, journalCounterValue: Number(journalCounterSnapshot.get("value") ?? 0) + 1, journalType: "supplier_invoice", referenceType: "supplierInvoice", referenceId: invoice.id, referenceNumber: String(current.get("supplierInvoiceNumber")), description: `Supplier invoice ${String(current.get("supplierInvoiceNumber"))}`, warehouseId: String(current.get("warehouseId")), effectiveAt, lines });
     transaction.update(invoice, { status: "approved", approvedAt: now, approvedBy: actor.userId, approvalNotes: input.notes ?? null, journalEntryId: journal.id, updatedAt: now });
@@ -361,15 +366,18 @@ export const recordSupplierPayment = onCall({ enforceAppCheck }, async (request)
   const actor = await requireAccess(request); requirePermission(actor, "payables.pay"); const input = parseInput(recordSupplierPaymentInput, request.data);
   const supplier = db.doc(`suppliers/${input.supplierId}`), invoiceRefs = input.allocations.map((allocation) => db.doc(`supplierInvoices/${allocation.supplierInvoiceId}`));
   const operation = db.doc(`idempotencyKeys/${actor.organizationId}_recordSupplierPayment_${input.idempotencyKey}`), payment = db.collection("supplierPayments").doc(), journalCounter = db.doc(`journalCounters/${uniquenessDocumentId(actor.organizationId, "general")}`), journal = db.collection("journalEntries").doc();
+  const effectiveAt = Timestamp.fromDate(new Date(input.paidAt));
+  const accountingPeriod = accountingPeriodReference(actor.organizationId, effectiveAt);
   let result = { paymentId: payment.id, recorded: true };
   await db.runTransaction(async (transaction) => {
-    const snapshots = await transaction.getAll(operation, supplier, journalCounter, ...invoiceRefs); const previous = snapshots[0]!, supplierSnapshot = snapshots[1]!, journalCounterSnapshot = snapshots[2]!;
+    const snapshots = await transaction.getAll(operation, supplier, journalCounter, accountingPeriod, ...invoiceRefs); const previous = snapshots[0]!, supplierSnapshot = snapshots[1]!, journalCounterSnapshot = snapshots[2]!, accountingPeriodSnapshot = snapshots[3]!;
     if (previous.exists) { result = { paymentId: String(previous.get("entityId")), recorded: false }; return; }
+    assertAccountingPeriodOpen(accountingPeriodSnapshot);
     if (!supplierSnapshot.exists || supplierSnapshot.get("organizationId") !== actor.organizationId) throw new HttpsError("failed-precondition", "Supplier is unavailable.");
-    const invoices = snapshots.slice(3), total = input.allocations.reduce((sum, allocation) => sum + allocation.amountMinor, 0);
+    const invoices = snapshots.slice(4), total = input.allocations.reduce((sum, allocation) => sum + allocation.amountMinor, 0);
     input.allocations.forEach((allocation, index) => { const invoice = invoices[index]!; if (!invoice.exists || invoice.get("organizationId") !== actor.organizationId || invoice.get("supplierId") !== supplier.id || !["approved", "partially_paid"].includes(String(invoice.get("status"))) || allocation.amountMinor > Number(invoice.get("outstandingAmountMinor") ?? 0)) throw new HttpsError("failed-precondition", "A payment allocation exceeds an approved outstanding supplier invoice."); });
     if (total > Number(supplierSnapshot.get("outstandingBalanceMinor") ?? 0)) throw new HttpsError("failed-precondition", "Payment exceeds the supplier's outstanding balance.");
-    const effectiveAt = Timestamp.fromDate(new Date(input.paidAt)), now = FieldValue.serverTimestamp(), paymentNumber = `PAY-${payment.id.slice(0, 10).toUpperCase()}`;
+    const now = FieldValue.serverTimestamp(), paymentNumber = `PAY-${payment.id.slice(0, 10).toUpperCase()}`;
     const lines = [{ accountCode: "2000", debitMinor: total, creditMinor: 0 }, { accountCode: paymentAccounts[input.method]!, debitMinor: 0, creditMinor: total }]; assertBalancedJournal(lines);
     writeJournal(transaction, actor, { journal, journalCounter, journalCounterValue: Number(journalCounterSnapshot.get("value") ?? 0) + 1, journalType: "supplier_payment", referenceType: "supplierPayment", referenceId: payment.id, referenceNumber: paymentNumber, description: `Supplier payment ${paymentNumber}`, effectiveAt, lines });
     input.allocations.forEach((allocation, index) => { const invoice = invoices[index]!, next = Number(invoice.get("outstandingAmountMinor")) - allocation.amountMinor; transaction.update(invoiceRefs[index]!, { outstandingAmountMinor: next, status: next === 0 ? "paid" : "partially_paid", updatedAt: now, lastPaymentId: payment.id }); transaction.create(db.collection("supplierPaymentAllocations").doc(), { organizationId: actor.organizationId, supplierId: supplier.id, supplierPaymentId: payment.id, supplierInvoiceId: invoice.id, amountMinor: allocation.amountMinor, currency: "NGN", createdAt: now }); });

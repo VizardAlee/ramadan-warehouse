@@ -398,6 +398,10 @@ service cloud.firestore {
       allow read: if sameOrganization(resource.data) && hasAnyRole(["system_administrator", "finance_officer", "auditor"]);
       allow create, update, delete: if false;
     }
+    match /accountingPeriods/{documentId} {
+      allow read: if sameOrganization(resource.data) && hasAnyRole(["system_administrator", "finance_officer", "auditor"]);
+      allow create, update, delete: if false;
+    }
 
     match /system/{documentId} {
       allow read, write: if false;

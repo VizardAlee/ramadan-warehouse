@@ -123,6 +123,9 @@ export const permissionIds = [
   "banking.manage",
   "banking.reconcile",
   "banking.approve",
+  "accounting.close.read",
+  "accounting.close.prepare",
+  "accounting.close.approve",
 ] as const;
 export type PermissionId = (typeof permissionIds)[number];
 
@@ -169,6 +172,22 @@ export interface BankReconciliation {
   journalLineCount: number;
   status: "prepared" | "closed";
   preparedBy: string;
+  closedBy?: string;
+}
+
+export interface AccountingPeriod {
+  id: string;
+  organizationId: string;
+  periodKey: string;
+  periodStart: string;
+  periodEnd: string;
+  status: "open" | "preparing" | "prepared" | "closed";
+  journalEntryCount?: number;
+  journalLineCount?: number;
+  totalDebitMinor?: number;
+  totalCreditMinor?: number;
+  trialBalance?: Array<{ accountCode: string; accountName: string; debitMinor: number; creditMinor: number; netMinor: number }>;
+  preparedBy?: string;
   closedBy?: string;
 }
 

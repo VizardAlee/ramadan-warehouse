@@ -38,8 +38,8 @@ separate from product purchase orders and transfer logistics costs.
 
 | Event | Debit | Credit |
 | --- | --- | --- |
-| Expense approval | `6000 Operating expenses`, `1300 Input VAT` | `2100 Accrued operating expenses` |
-| Expense payment | `2100 Accrued operating expenses` | settlement account `1010`, `1020`, or `1030` |
+| Expense approval | `6000 Operating expenses`, `1300 Input VAT` | `2300 Accrued operating expenses` |
+| Expense payment | `2300 Accrued operating expenses` | settlement account `1010`, `1020`, or `1030` |
 
 This first controlled expense phase uses one system operating-expense account
 with analytic category, branch, and warehouse dimensions. It does not yet

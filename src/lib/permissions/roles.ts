@@ -259,6 +259,9 @@ const permissionsByRole: Readonly<Record<RoleId, readonly PermissionId[]>> = {
     "banking.manage",
     "banking.reconcile",
     "banking.approve",
+    "accounting.close.read",
+    "accounting.close.prepare",
+    "accounting.close.approve",
   ],
   auditor: [
     "audit.read",
@@ -287,6 +290,7 @@ const permissionsByRole: Readonly<Record<RoleId, readonly PermissionId[]>> = {
     "payables.read",
     "expenses.read",
     "banking.read",
+    "accounting.close.read",
   ],
 };
 

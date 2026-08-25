@@ -65,4 +65,11 @@ describe.sequential("bank reconciliation callables", () => {
     expect((await adminDb.doc("journalLines/bank-credit-line").get()).data()).toMatchObject({ bankReconciled: true, bankReconciliationId: prepared.reconciliationId });
     await expect(call(financeOfficer, "unmatchBankTransaction", { statementTransactionId: statementId, idempotencyKey: crypto.randomUUID() })).rejects.toMatchObject({ code: "functions/failed-precondition" });
   });
+
+  it("closes a genuine zero-activity bank month when balances agree", async () => {
+    const account = await call<{ bankAccountId: string }>(financeOfficer, "saveBankAccount", { bankName: "Jaiz Bank", accountName: "ABR reserve account", accountNumberLast4: "5678", ledgerAccountCode: "1031", openingBalanceMinor: 250_000, openingDate: "2026-07-01", active: true });
+    const prepared = await call<{ reconciliationId: string }>(financeOfficer, "prepareBankReconciliation", { bankAccountId: account.bankAccountId, periodStart: "2026-07-01", periodEnd: "2026-07-31", openingBalanceMinor: 250_000, closingBalanceMinor: 250_000, notes: "No activity confirmed from the statement", idempotencyKey: crypto.randomUUID() });
+    await expect(call(administrator, "completeBankReconciliation", { reconciliationId: prepared.reconciliationId, idempotencyKey: crypto.randomUUID() })).resolves.toMatchObject({ status: "closed" });
+    expect((await adminDb.doc(`bankReconciliations/${prepared.reconciliationId}`).get()).data()).toMatchObject({ status: "closed", statementTransactionCount: 0, journalLineCount: 0, statementMovementMinor: 0, ledgerMovementMinor: 0, differenceMinor: 0 });
+  });
 });

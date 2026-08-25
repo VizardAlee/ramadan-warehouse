@@ -1,6 +1,7 @@
 import { FieldValue, Timestamp } from "firebase-admin/firestore";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
 import { db } from "../admin.js";
+import { accountingPeriodReference, assertAccountingPeriodOpen } from "../accounting/period-lock.js";
 import { writeAuditLog } from "../audit/write-audit-log.js";
 import { requireAccess, requireBranchScope, requirePermission } from "../auth/authorize.js";
 import { enforceAppCheck } from "../config.js";
@@ -173,17 +174,21 @@ export const approveSaleReturn = onCall({ enforceAppCheck, timeoutSeconds: 60 },
   const refund = db.collection("saleRefunds").doc();
   const inventoryTransaction = db.collection("inventoryTransactions").doc();
   const journal = db.collection("journalEntries").doc();
+  const effectiveAt = Timestamp.now();
+  const accountingPeriod = accountingPeriodReference(actor.organizationId, effectiveAt);
   let result = { returnId: input.returnId, approved: true, creditId: null as string | null };
   await db.runTransaction(async (transaction) => {
-    const snapshots = await transaction.getAll(operation, returnRef, customer, refundShift, inventoryCounter, journalCounter, ...itemRefs, ...counterRefs, ...balanceRefs);
+    const snapshots = await transaction.getAll(operation, returnRef, customer, refundShift, inventoryCounter, journalCounter, accountingPeriod, ...itemRefs, ...counterRefs, ...balanceRefs);
     let cursor = 0;
     const previous = snapshots[cursor++]!, current = snapshots[cursor++]!, customerSnapshot = snapshots[cursor++]!;
     const refundShiftSnapshot = snapshots[cursor++]!;
     const inventoryCounterSnapshot = snapshots[cursor++]!, journalCounterSnapshot = snapshots[cursor++]!;
+    const accountingPeriodSnapshot = snapshots[cursor++]!;
     const originalItems = snapshots.slice(cursor, cursor += itemRefs.length);
     const counters = snapshots.slice(cursor, cursor += counterRefs.length);
     const balances = snapshots.slice(cursor, cursor += balanceRefs.length);
     if (previous.exists) { result = { returnId: input.returnId, approved: false, creditId: previous.get("creditId") ?? null }; return; }
+    assertAccountingPeriodOpen(accountingPeriodSnapshot);
     if (!current.exists || current.get("status") !== "submitted") throw new HttpsError("failed-precondition", "Only a submitted return can be approved.");
     if (current.get("createdBy") === actor.userId) throw new HttpsError("permission-denied", "The return creator cannot approve their own return.", { code: "RETURN_SELF_APPROVAL_FORBIDDEN" });
     const lines = returnItemsQuery.docs.map((line, index) => {
@@ -211,7 +216,7 @@ export const approveSaleReturn = onCall({ enforceAppCheck, timeoutSeconds: 60 },
       ...(restockCost > 0 ? [{ accountCode: "1200", debitMinor: restockCost, creditMinor: 0 }, { accountCode: "5000", debitMinor: 0, creditMinor: restockCost }] : []),
     ].filter((line) => line.debitMinor || line.creditMinor);
     assertBalancedJournal(journalLines);
-    const now = FieldValue.serverTimestamp(), effectiveAt = Timestamp.now(), year = new Date().getUTCFullYear();
+    const now = FieldValue.serverTimestamp(), year = new Date().getUTCFullYear();
     const journalSequence = Number(journalCounterSnapshot.get("value") ?? 0) + 1;
     const inventorySequence = Number(inventoryCounterSnapshot.get("value") ?? 0) + 1;
     const journalNumber = `JRN-${year}-${String(journalSequence).padStart(6, "0")}`;

@@ -1,6 +1,7 @@
 import { FieldValue, Timestamp } from "firebase-admin/firestore";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
 import { db } from "../admin.js";
+import { accountingPeriodReference, assertAccountingPeriodOpen } from "../accounting/period-lock.js";
 import { writeAuditLog } from "../audit/write-audit-log.js";
 import {
   hasRole,
@@ -25,7 +26,7 @@ const accountNames: Readonly<Record<string, string>> = {
   "1020": "Card clearing",
   "1030": "Bank transfer clearing",
   "1300": "Input VAT recoverable",
-  "2100": "Accrued operating expenses",
+  "2300": "Accrued operating expenses",
   "6000": "Operating expenses",
 };
 const settlementAccounts: Readonly<Record<string, string>> = {
@@ -176,14 +177,17 @@ async function expenseStatusAction(request: Parameters<typeof requireAccess>[0],
   requireExpenseScope(actor, initial.get("branchId") || undefined, initial.get("warehouseId") || undefined);
   const operation = db.doc(`idempotencyKeys/${actor.organizationId}_${action}Expense_${input.idempotencyKey}`);
   const journalCounter = db.doc(`journalCounters/${uniquenessDocumentId(actor.organizationId, "general")}`), journal = db.collection("journalEntries").doc();
+  const effectiveAt = Timestamp.fromDate(new Date(String(initial.get("expenseDate"))));
+  const accountingPeriod = accountingPeriodReference(actor.organizationId, effectiveAt);
   await db.runTransaction(async (transaction) => {
-    const snapshots = action === "approve" ? await transaction.getAll(operation, expense, journalCounter) : await transaction.getAll(operation, expense);
+    const snapshots = action === "approve" ? await transaction.getAll(operation, expense, journalCounter, accountingPeriod) : await transaction.getAll(operation, expense);
     const previous = snapshots[0]!, current = snapshots[1]!;
     if (previous.exists) return;
     const requiredStatus = action === "submit" ? "draft" : "submitted";
     if (!current.exists || current.get("status") !== requiredStatus) throw new HttpsError("failed-precondition", `Only a ${requiredStatus} expense can be ${action}ted.`);
     if (action === "approve" && current.get("createdBy") === actor.userId)
       throw new HttpsError("permission-denied", "The expense creator cannot approve their own expense.", { code: "EXPENSE_SELF_APPROVAL_FORBIDDEN" });
+    if (action === "approve") assertAccountingPeriodOpen(snapshots[3]!);
     const now = FieldValue.serverTimestamp();
     if (action === "submit") {
       transaction.update(expense, { status: "submitted", submittedAt: now, submittedBy: actor.userId, updatedAt: now });
@@ -192,9 +196,9 @@ async function expenseStatusAction(request: Parameters<typeof requireAccess>[0],
       const lines = [
         { accountCode: "6000", debitMinor: net, creditMinor: 0 },
         { accountCode: "1300", debitMinor: vat, creditMinor: 0 },
-        { accountCode: "2100", debitMinor: 0, creditMinor: net + vat },
+        { accountCode: "2300", debitMinor: 0, creditMinor: net + vat },
       ].filter((line) => line.debitMinor || line.creditMinor);
-      writeJournal(transaction, actor, { journal, counter: journalCounter, sequence: Number(journalCounterSnapshot.get("value") ?? 0) + 1, journalType: "operating_expense", referenceType: "expense", referenceId: expense.id, referenceNumber: String(current.get("expenseNumber")), description: String(current.get("description")), branchId: current.get("branchId") || undefined, warehouseId: current.get("warehouseId") || undefined, effectiveAt: Timestamp.fromDate(new Date(String(current.get("expenseDate")))), lines });
+      writeJournal(transaction, actor, { journal, counter: journalCounter, sequence: Number(journalCounterSnapshot.get("value") ?? 0) + 1, journalType: "operating_expense", referenceType: "expense", referenceId: expense.id, referenceNumber: String(current.get("expenseNumber")), description: String(current.get("description")), branchId: current.get("branchId") || undefined, warehouseId: current.get("warehouseId") || undefined, effectiveAt, lines });
       transaction.update(expense, { status: "approved", approvedAt: now, approvedBy: actor.userId, approvalNotes: input.notes ?? null, journalEntryId: journal.id, updatedAt: now });
     }
     transaction.create(operation, { organizationId: actor.organizationId, action: `${action}Expense`, entityId: expense.id, status: "completed", createdAt: now, createdBy: actor.userId });
@@ -214,18 +218,21 @@ export const recordExpensePayment = onCall({ enforceAppCheck }, async (request) 
   requireExpenseScope(actor, initial.get("branchId") || undefined, initial.get("warehouseId") || undefined);
   const operation = db.doc(`idempotencyKeys/${actor.organizationId}_recordExpensePayment_${input.idempotencyKey}`);
   const payment = db.collection("expensePayments").doc(), journalCounter = db.doc(`journalCounters/${uniquenessDocumentId(actor.organizationId, "general")}`), journal = db.collection("journalEntries").doc();
+  const effectiveAt = Timestamp.fromDate(new Date(input.paidAt));
+  const accountingPeriod = accountingPeriodReference(actor.organizationId, effectiveAt);
   let result = { paymentId: payment.id, recorded: true };
   await db.runTransaction(async (transaction) => {
-    const [previous, current, journalCounterSnapshot] = await transaction.getAll(operation, expense, journalCounter);
+    const [previous, current, journalCounterSnapshot, accountingPeriodSnapshot] = await transaction.getAll(operation, expense, journalCounter, accountingPeriod);
     if (previous!.exists) { result = { paymentId: String(previous!.get("entityId")), recorded: false }; return; }
+    assertAccountingPeriodOpen(accountingPeriodSnapshot!);
     if (!current!.exists || !["approved", "partially_paid"].includes(String(current!.get("status")))) throw new HttpsError("failed-precondition", "Only an approved outstanding expense can be paid.");
     const outstanding = Number(current!.get("outstandingAmountMinor") ?? 0);
     if (input.amountMinor > outstanding) throw new HttpsError("failed-precondition", "Payment exceeds the expense outstanding balance.");
     const nextOutstanding = outstanding - input.amountMinor, now = FieldValue.serverTimestamp(), paymentNumber = `EPY-${payment.id.slice(0, 10).toUpperCase()}`;
-    const lines = [{ accountCode: "2100", debitMinor: input.amountMinor, creditMinor: 0 }, { accountCode: settlementAccounts[input.method]!, debitMinor: 0, creditMinor: input.amountMinor }];
-    writeJournal(transaction, actor, { journal, counter: journalCounter, sequence: Number(journalCounterSnapshot!.get("value") ?? 0) + 1, journalType: "expense_payment", referenceType: "expensePayment", referenceId: payment.id, referenceNumber: paymentNumber, description: `Payment for ${String(current!.get("expenseNumber"))}`, branchId: current!.get("branchId") || undefined, warehouseId: current!.get("warehouseId") || undefined, effectiveAt: Timestamp.fromDate(new Date(input.paidAt)), lines });
+    const lines = [{ accountCode: "2300", debitMinor: input.amountMinor, creditMinor: 0 }, { accountCode: settlementAccounts[input.method]!, debitMinor: 0, creditMinor: input.amountMinor }];
+    writeJournal(transaction, actor, { journal, counter: journalCounter, sequence: Number(journalCounterSnapshot!.get("value") ?? 0) + 1, journalType: "expense_payment", referenceType: "expensePayment", referenceId: payment.id, referenceNumber: paymentNumber, description: `Payment for ${String(current!.get("expenseNumber"))}`, branchId: current!.get("branchId") || undefined, warehouseId: current!.get("warehouseId") || undefined, effectiveAt, lines });
     transaction.update(expense, { outstandingAmountMinor: nextOutstanding, status: nextOutstanding === 0 ? "paid" : "partially_paid", lastPaymentId: payment.id, updatedAt: now });
-    transaction.create(payment, clean({ organizationId: actor.organizationId, expenseId: expense.id, expenseNumber: current!.get("expenseNumber"), paymentNumber, branchId: current!.get("branchId"), warehouseId: current!.get("warehouseId"), payeeName: current!.get("payeeName"), method: input.method, reference: input.reference, amountMinor: input.amountMinor, currency: "NGN", paidAt: Timestamp.fromDate(new Date(input.paidAt)), notes: input.notes, journalEntryId: journal.id, recordedAt: now, recordedBy: actor.userId, createdAt: now }));
+    transaction.create(payment, clean({ organizationId: actor.organizationId, expenseId: expense.id, expenseNumber: current!.get("expenseNumber"), paymentNumber, branchId: current!.get("branchId"), warehouseId: current!.get("warehouseId"), payeeName: current!.get("payeeName"), method: input.method, reference: input.reference, amountMinor: input.amountMinor, currency: "NGN", paidAt: effectiveAt, notes: input.notes, journalEntryId: journal.id, recordedAt: now, recordedBy: actor.userId, createdAt: now }));
     transaction.create(operation, { organizationId: actor.organizationId, action: "recordExpensePayment", entityId: payment.id, status: "completed", createdAt: now, createdBy: actor.userId });
     writeAuditLog(transaction, actor, { action: "expense.payment_recorded", entityType: "expense", entityId: expense.id, correlationId: correlationId(), sourceFunction: "recordExpensePayment", after: { paymentId: payment.id, amountMinor: input.amountMinor, method: input.method, outstandingAmountMinor: nextOutstanding } });
   });

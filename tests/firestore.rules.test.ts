@@ -269,6 +269,11 @@ async function seed() {
       bankAccountId: "bank-account-1",
       status: "prepared",
     });
+    await db.doc("accountingPeriods/accounting-period-1").set({
+      organizationId: "org-1",
+      periodKey: "2026-07",
+      status: "prepared",
+    });
     await db
       .doc("inventoryTransactions/branch-1-tx")
       .set({ organizationId: "org-1", branchId: "branch-1", status: "posted" });
@@ -391,6 +396,18 @@ async function seed() {
 }
 
 describe("Firestore baseline rules", () => {
+  it("limits accounting period evidence to authorized read-only roles", async () => {
+    await seed();
+    const adminDb = environment.authenticatedContext("admin").firestore();
+    const financeDb = environment.authenticatedContext("finance").firestore();
+    const auditorDb = environment.authenticatedContext("auditor").firestore();
+    const branchDb = environment.authenticatedContext("branch-manager").firestore();
+    await assertSucceeds(adminDb.doc("accountingPeriods/accounting-period-1").get());
+    await assertSucceeds(financeDb.doc("accountingPeriods/accounting-period-1").get());
+    await assertSucceeds(auditorDb.doc("accountingPeriods/accounting-period-1").get());
+    await assertFails(branchDb.doc("accountingPeriods/accounting-period-1").get());
+    await assertFails(financeDb.doc("accountingPeriods/accounting-period-1").update({ status: "closed" }));
+  });
   it("allows a branch user to read only an assigned branch", async () => {
     await seed();
     const db = environment.authenticatedContext("branch-user").firestore();

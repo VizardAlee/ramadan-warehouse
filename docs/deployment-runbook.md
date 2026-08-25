@@ -15,9 +15,11 @@ Phase 5 adds five callable Functions for the expense workspace, draft creation,
 submission, independent approval, and controlled payment. The source checkpoint
 contains 125 Functions. Phase 6 adds seven callable Functions for bank-account
 setup, statement import, matching/unmatching, reconciliation preparation, and
-independent completion. The source checkpoint now contains 132 Functions. A later
+independent completion. Phase 7 adds three callable Functions for close review,
+race-safe preparation, and independent completion. The source checkpoint now
+contains 135 Functions. A later
 approved release must pass the full production predeploy gate, deploy web,
-Functions, rules, and indexes together, and verify 132 ACTIVE Functions plus a
+Functions, rules, and indexes together, and verify 135 ACTIVE Functions plus a
 real paid sale, reconnecting-offline paid sale, approved credit sale, limit
 rejection, customer repayment, restockable and non-restockable returns,
 maker-checker rejection, one-time exchange-credit redemption, independently
@@ -25,8 +27,10 @@ approved purchase order, idempotent goods receipt, received-quantity invoice
 match, balanced AP journal, supplier payment, independently approved operating
 expense, overpayment rejection, partial/final expense disbursement, duplicate
 statement protection, exact statement/journal matching, preparer self-completion
-rejection, and a closed zero-difference bank reconciliation before this section can be reclassified as
-deployed. Never infer deployment from a Git push.
+rejection, a closed zero-difference bank reconciliation, a balanced monthly
+trial balance, close-preparer self-completion rejection, and rejection of every
+journal-producing workflow against a prepared/closed effective month before
+this section can be reclassified as deployed. Never infer deployment from a Git push.
 
 ## Production checkpoint (2026-08-12)
 

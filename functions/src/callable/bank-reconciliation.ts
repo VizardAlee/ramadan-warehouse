@@ -178,7 +178,6 @@ async function periodEvidence(organizationId: string, bankAccountId: string, per
   if (statements.length > 200 || lines.length > 200) throw new HttpsError("resource-exhausted", "Reconcile a shorter period containing at most 200 statement and ledger rows.");
   const overlap = reconciliationQuery.docs.some((document) => document.get("status") === "closed" && String(document.get("periodStart")) <= periodEnd && String(document.get("periodEnd")) >= periodStart);
   if (overlap) throw new HttpsError("failed-precondition", "This period overlaps a closed bank reconciliation.");
-  if (statements.length === 0 && lines.length === 0) throw new HttpsError("failed-precondition", "There are no statement or ledger transactions in this period.");
   const statementIds = new Set(statements.map((document) => document.id)), lineIds = new Set(lines.map((document) => document.id));
   if (statements.some((document) => document.get("status") !== "matched" || !lineIds.has(String(document.get("journalLineId"))))) throw new HttpsError("failed-precondition", "Match every statement transaction in the period before preparing reconciliation.");
   if (lines.some((document) => !statementIds.has(String(document.get("bankStatementTransactionId"))))) throw new HttpsError("failed-precondition", "Match every bank-ledger line in the period before preparing reconciliation.");

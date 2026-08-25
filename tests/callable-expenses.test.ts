@@ -54,6 +54,9 @@ describe.sequential("expense callables", () => {
     expect(approvedSnapshot.data()).toMatchObject({ status: "approved", grossAmountMinor: 53_750, outstandingAmountMinor: 53_750 });
     const approvalJournal = await adminDb.collection("journalEntries").where("referenceId", "==", expense.expenseId).get();
     expect(approvalJournal.docs[0]!.get("totalDebitMinor")).toBe(approvalJournal.docs[0]!.get("totalCreditMinor"));
+    const approvalLines = await adminDb.collection("journalLines").where("journalEntryId", "==", approvalJournal.docs[0]!.id).get();
+    expect(approvalLines.docs.map((line) => line.get("accountCode"))).toEqual(expect.arrayContaining(["1300", "2300", "6000"]));
+    expect(approvalLines.docs.map((line) => line.get("accountCode"))).not.toContain("2100");
 
     await expect(call(financeOfficer, "recordExpensePayment", { expenseId: expense.expenseId, method: "bank_transfer", reference: "BANK-TOO-MUCH", amountMinor: 60_000, paidAt: new Date().toISOString(), idempotencyKey: crypto.randomUUID() })).rejects.toMatchObject({ code: "functions/failed-precondition" });
     expect((await approved.get()).get("outstandingAmountMinor")).toBe(53_750);
@@ -63,5 +66,7 @@ describe.sequential("expense callables", () => {
     expect((await approved.get()).data()).toMatchObject({ status: "paid", outstandingAmountMinor: 0 });
     const paymentJournal = await adminDb.collection("journalEntries").where("referenceId", "==", firstPayment.paymentId).get();
     expect(paymentJournal.docs[0]!.get("totalDebitMinor")).toBe(paymentJournal.docs[0]!.get("totalCreditMinor"));
+    const paymentLines = await adminDb.collection("journalLines").where("journalEntryId", "==", paymentJournal.docs[0]!.id).get();
+    expect(paymentLines.docs.map((line) => line.get("accountCode"))).toContain("2300");
   });
 });

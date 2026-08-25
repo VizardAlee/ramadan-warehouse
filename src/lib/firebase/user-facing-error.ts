@@ -20,6 +20,9 @@ const messages: Record<string, string> = {
   SUPPLIER_INVOICE_SELF_APPROVAL_FORBIDDEN: "The person who entered this supplier invoice cannot approve it. Ask another authorized finance approver.",
   EXPENSE_SELF_APPROVAL_FORBIDDEN: "The person who entered this expense cannot approve it. Ask another authorized approver.",
   BANK_RECONCILIATION_SELF_APPROVAL_FORBIDDEN: "The person who prepared this bank reconciliation cannot complete it. Ask another authorized administrator or finance officer.",
+  ACCOUNTING_CLOSE_SELF_APPROVAL_FORBIDDEN: "The person who prepared this accounting close cannot complete it. Ask another authorized administrator or finance officer.",
+  ACCOUNTING_PERIOD_LOCKED: "That accounting month is prepared or closed. Use an open accounting date instead.",
+  ACCOUNTING_CLOSE_BLOCKED: "This month is not ready to close. Review and resolve every blocker shown in the close workspace.",
 };
 export class UserFacingError extends Error { constructor(message: string, readonly diagnosticCode?: string) { super(message); this.name = "UserFacingError"; } }
 export function toUserFacingError(error: unknown, fallback = "The operation could not be completed. Refresh and try again."): UserFacingError {

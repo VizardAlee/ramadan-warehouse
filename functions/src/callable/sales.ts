@@ -2,6 +2,7 @@ import { FieldValue, Timestamp } from "firebase-admin/firestore";
 import { logger } from "firebase-functions";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
 import { db } from "../admin.js";
+import { accountingPeriodReference, assertAccountingPeriodOpen } from "../accounting/period-lock.js";
 import { writeAuditLog } from "../audit/write-audit-log.js";
 import {
   hasRole,
@@ -608,6 +609,8 @@ export const commitPosSale = onCall(
     const journalCounter = db.doc(
       `journalCounters/${uniquenessDocumentId(actor.organizationId, "general")}`,
     );
+    const recordedAt = Timestamp.fromDate(new Date(input.recordedAt));
+    const accountingPeriod = accountingPeriodReference(actor.organizationId, recordedAt);
     const customer = db.doc(
       `customers/${input.customerId ?? "no-credit-customer-placeholder"}`,
     );
@@ -641,6 +644,7 @@ export const commitPosSale = onCall(
         salesCounter,
         inventoryCounter,
         journalCounter,
+        accountingPeriod,
         customer,
         ...salesCreditReferences,
         ...productReferences,
@@ -656,6 +660,7 @@ export const commitPosSale = onCall(
       const salesCounterSnapshot = snapshots[cursor++]!;
       const inventoryCounterSnapshot = snapshots[cursor++]!;
       const journalCounterSnapshot = snapshots[cursor++]!;
+      const accountingPeriodSnapshot = snapshots[cursor++]!;
       const customerSnapshot = snapshots[cursor++]!;
       const salesCreditSnapshots = snapshots.slice(cursor, (cursor += input.payments.length));
       const products = snapshots.slice(cursor, (cursor += input.lines.length));
@@ -671,6 +676,7 @@ export const commitPosSale = onCall(
         };
         return;
       }
+      assertAccountingPeriodOpen(accountingPeriodSnapshot);
       if (
         !branchSnapshot.exists ||
         branchSnapshot.get("organizationId") !== actor.organizationId ||
@@ -868,7 +874,6 @@ export const commitPosSale = onCall(
         );
       }
       const now = FieldValue.serverTimestamp();
-      const recordedAt = Timestamp.fromDate(new Date(input.recordedAt));
       const year = new Date(input.recordedAt).getUTCFullYear();
       const salesSequence = Number(salesCounterSnapshot.get("value") ?? 0) + 1;
       const inventorySequence =

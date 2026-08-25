@@ -19,6 +19,7 @@
 | Expense categories and operating expenses | administrative/finance/auditor or assigned manager | denied | organization plus branch/warehouse |
 | Expense payments | system administrator, finance, auditor | denied | organization |
 | Bank accounts, statement transactions, reconciliations | system administrator, finance, auditor | denied | organization |
+| Accounting periods and close evidence | system administrator, finance, auditor | denied | organization |
 | Notifications, outbox, idempotency, rate limits | denied | denied | server only |
 
 For multi-role profiles, read authority is the union of assigned roles while every organization, branch, warehouse, and related-record scope check still applies. Legacy single-`roleId` profiles and canonical `roleIds` profiles are both recognized during migration.
