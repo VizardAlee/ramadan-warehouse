@@ -73,3 +73,23 @@ for both warehouse locations and store/branch stock locations.
    the receiving branch, actual method, amount, and external reference where
    applicable. The payment reduces the receivable and creates its own journal;
    it does not rewrite the original sale.
+
+## Returns, refunds, and exchanges
+
+1. Open **Returns** for the selling branch and enter the receipt number. The
+   app loads the original products, prices, VAT, and remaining returnable
+   quantities; do not re-enter catalogue or price information.
+2. Enter only the quantity physically returned. Choose **Restockable** only
+   after confirming the item can be sold again; choose **Damaged / do not
+   restock** when branch saleable stock must remain unchanged.
+3. Choose the real resolution: cash, card/POS, bank transfer, reduction of the
+   named customer's receivable, or exchange credit for a later POS sale. Add a
+   clear reason and submit. For cash, select the open till that physically pays
+   the customer; the approved refund reduces that shift's expected closing cash.
+4. Submission changes nothing financially. A different authorized manager or
+   finance/administrative approver reviews and posts it. The app rejects
+   creator self-approval and quantities already returned on another approval.
+5. For an exchange, open a new online POS sale and select the active exchange
+   credit. Its balance is applied first and any sale remainder is recorded as
+   cash. The credit is checked and consumed atomically; it cannot be used
+   offline or reused after exhaustion.

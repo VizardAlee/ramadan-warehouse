@@ -37,6 +37,7 @@ const accountNames: Readonly<Record<string, string>> = {
   "1100": "Accounts receivable",
   "1200": "Inventory asset",
   "2100": "VAT payable",
+  "2200": "Customer exchange credits",
   "4000": "Sales revenue",
   "5000": "Cost of goods sold",
 };
@@ -45,6 +46,7 @@ const paymentAccount: Readonly<Record<string, string>> = {
   cash: "1010",
   card: "1020",
   bank_transfer: "1030",
+  exchange_credit: "2200",
 };
 
 function clean(values: Record<string, unknown>) {
@@ -284,7 +286,7 @@ export const getPosWorkspace = onCall(
     const input = parseInput(posWorkspaceInput, request.data);
     requireBranchScope(actor, input.branchId);
     const location = await activeBranchLocation(actor.organizationId, input.branchId);
-    const [branch, products, prices, branchPrices, balances, shifts, customers] =
+    const [branch, products, prices, branchPrices, balances, shifts, customers, salesCredits] =
       await Promise.all([
         db.doc(`branches/${input.branchId}`).get(),
         db
@@ -323,6 +325,8 @@ export const getPosWorkspace = onCall(
           .where("creditStatus", "==", "approved")
           .limit(200)
           .get(),
+        db.collection("salesCredits").where("organizationId", "==", actor.organizationId)
+          .where("branchId", "==", input.branchId).where("status", "==", "active").limit(100).get(),
       ]);
     if (
       !branch.exists ||
@@ -399,6 +403,12 @@ export const getPosWorkspace = onCall(
         outstandingBalanceMinor: Number(customer.get("outstandingBalanceMinor") ?? 0),
         availableCreditMinor: Number(customer.get("availableCreditMinor") ?? 0),
       })),
+      salesCredits: salesCredits.docs.map((credit) => ({
+        id: credit.id,
+        creditNumber: credit.get("creditNumber"),
+        remainingAmountMinor: Number(credit.get("remainingAmountMinor") ?? 0),
+        returnId: credit.get("returnId"),
+      })),
       refreshedAt: new Date().toISOString(),
     };
   },
@@ -450,6 +460,7 @@ export const openPosShift = onCall(
         status: "open",
         openingCashMinor: input.openingCashMinor,
         cashSalesMinor: 0,
+        cashRefundsMinor: 0,
         nonCashSalesMinor: 0,
         creditSalesMinor: 0,
         grossSalesMinor: 0,
@@ -522,7 +533,8 @@ export const closePosShift = onCall(
         );
       const expectedCashMinor =
         Number(current!.get("openingCashMinor")) +
-        Number(current!.get("cashSalesMinor"));
+        Number(current!.get("cashSalesMinor")) -
+        Number(current!.get("cashRefundsMinor") ?? 0);
       const now = FieldValue.serverTimestamp();
       transaction.update(shift, {
         status: "closed",
@@ -599,6 +611,9 @@ export const commitPosSale = onCall(
     const customer = db.doc(
       `customers/${input.customerId ?? "no-credit-customer-placeholder"}`,
     );
+    const salesCreditReferences = input.payments.map((payment, index) =>
+      db.doc(`salesCredits/${payment.method === "exchange_credit" ? payment.reference : `no-sales-credit-${index}`}`),
+    );
     const productReferences = input.lines.map((line) =>
       db.doc(`products/${line.productId}`),
     );
@@ -627,6 +642,7 @@ export const commitPosSale = onCall(
         inventoryCounter,
         journalCounter,
         customer,
+        ...salesCreditReferences,
         ...productReferences,
         ...centralPriceReferences,
         ...branchPriceReferences,
@@ -641,6 +657,7 @@ export const commitPosSale = onCall(
       const inventoryCounterSnapshot = snapshots[cursor++]!;
       const journalCounterSnapshot = snapshots[cursor++]!;
       const customerSnapshot = snapshots[cursor++]!;
+      const salesCreditSnapshots = snapshots.slice(cursor, (cursor += input.payments.length));
       const products = snapshots.slice(cursor, (cursor += input.lines.length));
       const centralPrices = snapshots.slice(cursor, (cursor += input.lines.length));
       const branchPrices = snapshots.slice(cursor, (cursor += input.lines.length));
@@ -715,6 +732,12 @@ export const commitPosSale = onCall(
             { code: "CUSTOMER_CREDIT_LIMIT_EXCEEDED", customerId: customer.id },
           );
       }
+      input.payments.forEach((payment, index) => {
+        if (payment.method !== "exchange_credit") return;
+        const credit = salesCreditSnapshots[index]!;
+        if (!credit.exists || credit.get("organizationId") !== actor.organizationId || credit.get("branchId") !== input.branchId || credit.get("status") !== "active" || Number(credit.get("remainingAmountMinor") ?? 0) < payment.amountMinor)
+          throw new HttpsError("failed-precondition", "The selected exchange credit is unavailable or insufficient.", { code: "EXCHANGE_CREDIT_UNAVAILABLE" });
+      });
       const resolvedLines = input.lines.map((line, index) => {
         const product = products[index]!;
         const central = centralPrices[index]!;
@@ -1055,6 +1078,18 @@ export const commitPosSale = onCall(
           recordedBy: actor.userId,
           createdAt: now,
         }));
+      });
+      input.payments.forEach((payment, index) => {
+        if (payment.method !== "exchange_credit") return;
+        const credit = salesCreditSnapshots[index]!;
+        const remaining = Number(credit.get("remainingAmountMinor")) - payment.amountMinor;
+        transaction.update(salesCreditReferences[index]!, {
+          remainingAmountMinor: remaining,
+          status: remaining === 0 ? "redeemed" : "active",
+          lastRedeemedSaleId: sale.id,
+          updatedAt: now,
+          updatedBy: actor.userId,
+        });
       });
       if (input.creditAmountMinor > 0) {
         const outstanding = Number(

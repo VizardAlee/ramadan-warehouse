@@ -307,10 +307,21 @@ export default function PosPage() {
       setError("Select an administrator-approved customer for this credit sale.");
       return;
     }
+    if (paymentMethod === "exchange_credit" && (!online || !paymentReference)) {
+      setError("Select an available exchange credit while online.");
+      return;
+    }
     setBusy(true);
     setError(null);
     const idempotencyKey = crypto.randomUUID();
     const provisional = provisionalReceiptReference(workspace.branch.code);
+    const selectedExchangeCredit = workspace.salesCredits.find(
+      (credit) => credit.id === paymentReference,
+    );
+    const exchangeCreditAmount = Math.min(
+      selectedExchangeCredit?.remainingAmountMinor ?? 0,
+      totals.grossAmountMinor,
+    );
     const payload: PosSalePayload = {
       branchId: workspace.branch.id,
       shiftId: workspace.openShift.id,
@@ -332,6 +343,20 @@ export default function PosPage() {
       payments:
         paymentMethod === "customer_credit"
           ? []
+          : paymentMethod === "exchange_credit"
+            ? [
+                {
+                  method: "exchange_credit" as const,
+                  amountMinor: exchangeCreditAmount,
+                  reference: paymentReference,
+                },
+                ...(exchangeCreditAmount < totals.grossAmountMinor
+                  ? [{
+                      method: "cash" as const,
+                      amountMinor: totals.grossAmountMinor - exchangeCreditAmount,
+                    }]
+                  : []),
+              ]
           : [
               {
                 method: paymentMethod as PosPaymentMethod,
@@ -595,6 +620,7 @@ export default function PosPage() {
               <select value={paymentMethod} onChange={(event) => { setPaymentMethod(event.target.value as PosCheckoutMethod); setPaymentReference(""); if (event.target.value !== "customer_credit") setCustomerId(""); }} className="mt-1 w-full rounded-lg border p-3">
                 <option value="cash">Cash</option><option value="card">Card / POS terminal</option><option value="bank_transfer">Bank transfer</option>
                 {canCreateCredit && <option value="customer_credit" disabled={!online}>Approved customer credit</option>}
+                <option value="exchange_credit" disabled={!online}>Exchange credit</option>
               </select>
             </label>
             {paymentMethod === "customer_credit" ? (
@@ -609,8 +635,8 @@ export default function PosPage() {
                 </select>
                 <span className="mt-1 block text-xs font-normal text-[var(--muted)]">Credit is checked live and posted to Accounts Receivable. Only administrator-approved customers appear.</span>
               </label>
-            ) : paymentMethod !== "cash" ? <label className="mt-3 block text-sm font-medium">Payment reference (optional)<input value={paymentReference} onChange={(event) => setPaymentReference(event.target.value)} className="mt-1 w-full rounded-lg border p-3" placeholder="Terminal or transfer reference" /></label> : null}
-            <Button className="mt-5 w-full" disabled={busy || cart.length === 0 || (paymentMethod === "customer_credit" && (!online || !customerId))} onClick={() => void checkout()}>
+            ) : paymentMethod === "exchange_credit" ? <label className="mt-3 block text-sm font-medium">Exchange credit<select value={paymentReference} onChange={(event) => setPaymentReference(event.target.value)} className="mt-1 w-full rounded-lg border p-3"><option value="">Select credit</option>{(workspace.salesCredits ?? []).map((credit) => <option key={credit.id} value={credit.id}>{credit.creditNumber} · {formatNaira(credit.remainingAmountMinor)} remaining</option>)}</select><span className="mt-1 block text-xs font-normal text-[var(--muted)]">The credit is applied first. If it is below the sale total, the remaining amount is recorded as cash.</span></label> : paymentMethod !== "cash" ? <label className="mt-3 block text-sm font-medium">Payment reference (optional)<input value={paymentReference} onChange={(event) => setPaymentReference(event.target.value)} className="mt-1 w-full rounded-lg border p-3" placeholder="Terminal or transfer reference" /></label> : null}
+            <Button className="mt-5 w-full" disabled={busy || cart.length === 0 || (paymentMethod === "customer_credit" && (!online || !customerId)) || (paymentMethod === "exchange_credit" && (!online || !paymentReference))} onClick={() => void checkout()}>
               {online ? "Complete sale" : "Save offline sale"} · {formatNaira(totals.grossAmountMinor)}
             </Button>
             <p className="mt-2 text-center text-xs text-[var(--muted)]">{paymentMethod === "customer_credit" ? "Stock, receipt, VAT and the customer receivable post together online." : online ? "Stock, receipt, payment, VAT and accounts post together." : "A provisional receipt is issued now; posting occurs after sync."}</p>

@@ -19,6 +19,13 @@ branch managers may record repayments. Finance officers and auditors can read
 sales, customer balances, and journals organization-wide, but no role may
 mutate authoritative records directly from a client.
 
+Sales cashiers and branch managers may submit receipt-linked returns for their
+assigned branch. Branch managers, operations administrators, finance officers,
+and system administrators may approve returns within their authority, but the
+server always rejects approval by the creator. Restocking, refund/receivable
+posting, and exchange-credit issuance happen only through the approval
+callable; Firestore clients cannot write these records directly.
+
 Custom claims contain only `organizationId`, an optional broad bootstrap platform marker, and `authorizationVersion`. Claims improve routing and token invalidation but never replace a fresh trusted-profile check for sensitive operations.
 
 Server controls are centralized in `functions/src/auth/authorize.ts`:

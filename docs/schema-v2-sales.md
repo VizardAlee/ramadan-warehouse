@@ -11,6 +11,8 @@ their meaning.
 | Customer master and credit authority | `customers`, `customerCounters` |
 | Customer receivables evidence | `customerAccountEntries`, `customerPayments`, `customerPaymentCounters` |
 | Immutable sale evidence | `sales`, `saleItems`, `salePayments`, `salesReceipts` |
+| Return/refund evidence | `saleReturns`, `saleReturnItems`, `saleReturnItemCounters`, `saleRefunds` |
+| Exchange value | `salesCredits` |
 | Accounting | `chartOfAccounts`, `journalCounters`, `journalEntries`, `journalLines` |
 | Existing ledger integration | `inventoryTransactions` and `inventoryEntries` using `branch_sale`; `inventoryBalances` remains the mutable projection |
 | Reliability/control | existing `idempotencyKeys`, `auditLogs`, plus browser-local queued drafts that are not authoritative records |
@@ -18,7 +20,19 @@ their meaning.
 Every confirmed sale is created in one Firestore transaction with its receipt,
 payment, paired inventory entries, balance update, COGS, journal, audit record,
 and idempotency record. Confirmed records are append-only. Later returns and
-refunds must add linked correcting records rather than editing the original.
+refunds add linked correcting records rather than editing the original.
+
+`saleReturnItemCounters` is the transactional projection that prevents all
+approved returns for one sale item from exceeding its sold quantity. Submitted
+requests do not reserve quantity; approval rechecks the counter and either
+posts the complete correction or writes nothing. `salesCredits` stores an
+issued/remaining NGN minor-unit balance and changes from `active` to `redeemed`
+when exhausted. The credit is valid only for its issuing branch and is consumed
+inside the replacement sale transaction.
+
+Cash refunds reference an open `posShifts` document. Approval increments the
+shift's `cashRefundsMinor`; closing cash is reconciled as opening cash plus cash
+sales minus approved cash refunds.
 
 An approved customer's `outstandingBalanceMinor` and `availableCreditMinor`
 are transactional projections. Every change is backed by an immutable

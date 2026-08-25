@@ -126,3 +126,9 @@ export {
   decideCustomerCredit,
   recordCustomerPayment,
 } from "./callable/customers.js";
+export {
+  getSaleReturnWorkspace,
+  listSaleReturns,
+  createSaleReturn,
+  approveSaleReturn,
+} from "./callable/sales-returns.js";

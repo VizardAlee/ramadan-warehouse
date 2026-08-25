@@ -283,6 +283,22 @@ service cloud.firestore {
       allow read: if sameOrganization(resource.data) && salesScope(resource.data);
       allow create, update, delete: if false;
     }
+    match /saleReturns/{documentId} {
+      allow read: if sameOrganization(resource.data) && salesScope(resource.data);
+      allow create, update, delete: if false;
+    }
+    match /saleReturnItems/{documentId} {
+      allow read: if sameOrganization(resource.data) && salesScope(resource.data);
+      allow create, update, delete: if false;
+    }
+    match /saleRefunds/{documentId} {
+      allow read: if sameOrganization(resource.data) && salesScope(resource.data);
+      allow create, update, delete: if false;
+    }
+    match /salesCredits/{documentId} {
+      allow read: if sameOrganization(resource.data) && salesScope(resource.data);
+      allow create, update, delete: if false;
+    }
     match /customers/{documentId} {
       allow read: if sameOrganization(resource.data) && hasAnyRole(["system_administrator", "operations_administrator", "branch_manager", "finance_officer", "auditor"]);
       allow create, update, delete: if false;

@@ -14,6 +14,8 @@ const messages: Record<string, string> = {
   STALE_POS_PRICE: "An offline sale uses an outdated price. Review and refresh it before posting.",
   POS_STOCK_RECONCILIATION_REQUIRED: "An offline sale exceeds current branch stock. A manager must reconcile stock before posting it.",
   CUSTOMER_CREDIT_LIMIT_EXCEEDED: "This sale exceeds the customer's currently available credit. Reduce the sale, collect a payment, or ask an administrator to review the limit.",
+  EXCHANGE_CREDIT_UNAVAILABLE: "That exchange credit is no longer available or does not cover this amount. Refresh the POS and review the balance.",
+  RETURN_SELF_APPROVAL_FORBIDDEN: "The person who submitted this return cannot approve it. Ask another authorized manager or administrator to review it.",
 };
 export class UserFacingError extends Error { constructor(message: string, readonly diagnosticCode?: string) { super(message); this.name = "UserFacingError"; } }
 export function toUserFacingError(error: unknown, fallback = "The operation could not be completed. Refresh and try again."): UserFacingError {

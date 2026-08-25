@@ -11,8 +11,9 @@ units. VAT is calculated and displayed separately using an organization-
 configurable rate stored in basis points.
 
 Only active customers approved by a system administrator may use credit.
-Credit sales, returns, refunds, below-base price changes, and other actions that
-depend on current balances or approval remain online-only.
+Credit sales, returns, refunds, exchange-credit redemption, below-base price
+changes, and other actions that depend on current balances or approval remain
+online-only.
 
 ## Phase 1 boundary — complete
 
@@ -43,8 +44,31 @@ Credit checkout, credit decisions, and repayments are online-only because the
 server must validate the current customer status, outstanding balance, and
 available limit in one transaction.
 
-Serialized and batch checkout, returns/exchanges, refunds,
-procurement/accounts payable, expenses, bank reconciliation, period
+## Phase 3 boundary — controlled returns, refunds, and exchanges
+
+A return begins by loading the original completed branch receipt. The return
+reuses its product, quantity, sale price, VAT, and inventory cost snapshots.
+The user selects only the quantity, physical condition, resolution, and reason.
+Submission changes no stock or money. A different authorized user must approve
+and post it; the creator cannot self-approve even when they hold another role.
+
+The server transaction rechecks the remaining returnable quantity. A
+restockable item increases the original branch sales-stock balance at original
+cost and reverses COGS. A damaged/non-restockable item does not increase stock.
+The sales and VAT correction is balanced against the selected refund clearing
+account, Accounts Receivable, or an exchange-credit liability. Exchange credit
+is branch-bound, balance checked online, and reduced atomically when used on a
+new POS sale. A cash refund must reference an open branch till and reduces that
+shift's expected closing cash. The original sale and receipt remain immutable.
+
+```text
+approved returned quantity <= sold quantity - previously approved returns
+restockable return: branch stock + returned quantity
+non-restockable return: branch stock unchanged
+return debits = return credits
+```
+
+Serialized and batch checkout, procurement/accounts payable, expenses, bank reconciliation, period
 closing, and complete financial statements follow in later phases. The schema
 and journals introduced here are designed for those extensions.
 
@@ -73,8 +97,8 @@ Debit  cost of goods sold                      inventory cost
 Credit inventory asset                         inventory cost
 ```
 
-Confirmed sales are never edited or deleted. Later corrections use returns,
-refunds, reversals, or reconciliation records linked to the original sale.
+Confirmed sales are never edited or deleted. Returns and refunds add linked
+correcting records; reconciliation never rewrites the original sale.
 
 ## Pricing
 
@@ -125,6 +149,9 @@ only path to confirmed sales, inventory balances, journals, or receipts.
 - Only system administrators approve or change customer credit authority.
 - Authorized branch managers and finance staff may record real customer
   repayments; all users remain scoped to their assigned authority.
+- Sales cashiers and branch managers may submit branch receipt returns. Branch
+  managers, operations administrators, finance officers, and system
+  administrators may approve within scope, but never their own submission.
 - Finance officers and auditors receive organization-scoped read/report access.
 
 Operating-context selection narrows multi-role users to the selected branch or

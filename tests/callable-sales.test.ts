@@ -525,4 +525,238 @@ describe.sequential("sales callables", () => {
       }),
     ).rejects.toMatchObject({ code: "functions/invalid-argument" });
   });
+
+  it("uses independent approval to restock a receipt return and redeem its exchange credit once", async () => {
+    const originalPayment = await adminDb
+      .collection("salePayments")
+      .where("amountMinor", "==", 23_650)
+      .limit(1)
+      .get();
+    const originalSaleId = String(originalPayment.docs[0]!.get("saleId"));
+    const originalSale = await adminDb.doc(`sales/${originalSaleId}`).get();
+    const originalItems = await adminDb
+      .collection("saleItems")
+      .where("saleId", "==", originalSaleId)
+      .get();
+    const originalItem = originalItems.docs[0]!;
+    const workspace = await call<{
+      items: Array<{ id: string; returnableQuantity: number }>;
+    }>(branchManager, "getSaleReturnWorkspace", {
+      branchId,
+      receiptNumber: originalSale.get("receiptNumber"),
+      operatingContext: { type: "branch", id: branchId },
+    });
+    expect(workspace.items).toContainEqual(
+      expect.objectContaining({ id: originalItem.id, returnableQuantity: 2 }),
+    );
+
+    const submitted = await call<{ returnId: string; returnNumber: string }>(
+      branchManager,
+      "createSaleReturn",
+      {
+        branchId,
+        saleId: originalSaleId,
+        lines: [
+          {
+            saleItemId: originalItem.id,
+            quantity: 1,
+            condition: "restockable",
+          },
+        ],
+        resolution: "exchange_credit",
+        reason: "Customer exchanges one unopened panel",
+        idempotencyKey: crypto.randomUUID(),
+        operatingContext: { type: "branch", id: branchId },
+      },
+    );
+    expect(submitted.returnNumber).toMatch(/^RTN-IRB-/);
+    await expect(
+      call(branchManager, "approveSaleReturn", {
+        returnId: submitted.returnId,
+        idempotencyKey: crypto.randomUUID(),
+        operatingContext: { type: "branch", id: branchId },
+      }),
+    ).rejects.toMatchObject({ code: "functions/permission-denied" });
+
+    const balanceReference = adminDb.doc(
+      `inventoryBalances/${balanceDocumentId(organizationId, productId, locationId)}`,
+    );
+    const beforeApproval = await balanceReference.get();
+    const approved = await call<{ creditId: string; approved: boolean }>(
+      administrator,
+      "approveSaleReturn",
+      {
+        returnId: submitted.returnId,
+        notes: "Item inspected and sealed",
+        idempotencyKey: crypto.randomUUID(),
+      },
+    );
+    expect(approved).toMatchObject({ approved: true });
+    expect(approved.creditId).toBeTruthy();
+    const [afterApproval, returnRecord, creditRecord, returnInventory, returnJournal] =
+      await Promise.all([
+        balanceReference.get(),
+        adminDb.doc(`saleReturns/${submitted.returnId}`).get(),
+        adminDb.doc(`salesCredits/${approved.creditId}`).get(),
+        adminDb
+          .collection("inventoryTransactions")
+          .where("referenceId", "==", submitted.returnId)
+          .get(),
+        adminDb
+          .collection("journalEntries")
+          .where("referenceId", "==", submitted.returnId)
+          .get(),
+      ]);
+    expect(afterApproval.get("onHandQuantity")).toBe(
+      beforeApproval.get("onHandQuantity") + 1,
+    );
+    expect(returnRecord.data()).toMatchObject({ status: "approved" });
+    expect(creditRecord.data()).toMatchObject({
+      originalAmountMinor: 11_825,
+      remainingAmountMinor: 11_825,
+      status: "active",
+    });
+    expect(returnInventory.docs[0]!.get("transactionType")).toBe("sale_return");
+    expect(returnJournal.docs[0]!.get("totalDebitMinor")).toBe(
+      returnJournal.docs[0]!.get("totalCreditMinor"),
+    );
+
+    const openShift = await adminDb
+      .collection("posShifts")
+      .where("branchId", "==", branchId)
+      .where("status", "==", "open")
+      .limit(1)
+      .get();
+    const shift = openShift.docs[0]!;
+    const replacement = await call<{ saleId: string; posted: boolean }>(
+      branchManager,
+      "commitPosSale",
+      {
+        branchId,
+        shiftId: shift.id,
+        deviceId: shift.get("deviceId"),
+        recordedAt: new Date().toISOString(),
+        offline: false,
+        lines: [{ productId, quantity: 1 }],
+        payments: [
+          {
+            method: "exchange_credit",
+            amountMinor: 11_825,
+            reference: approved.creditId,
+          },
+          { method: "cash", amountMinor: 1_075 },
+        ],
+        idempotencyKey: crypto.randomUUID(),
+        operatingContext: { type: "branch", id: branchId },
+      },
+    );
+    expect(replacement.posted).toBe(true);
+    expect((await creditRecord.ref.get()).data()).toMatchObject({
+      remainingAmountMinor: 0,
+      status: "redeemed",
+      lastRedeemedSaleId: replacement.saleId,
+    });
+    await expect(
+      call(branchManager, "commitPosSale", {
+        branchId,
+        shiftId: shift.id,
+        deviceId: shift.get("deviceId"),
+        recordedAt: new Date().toISOString(),
+        offline: false,
+        lines: [{ productId, quantity: 1 }],
+        payments: [
+          {
+            method: "exchange_credit",
+            amountMinor: 11_825,
+            reference: approved.creditId,
+          },
+          { method: "cash", amountMinor: 1_075 },
+        ],
+        idempotencyKey: crypto.randomUUID(),
+        operatingContext: { type: "branch", id: branchId },
+      }),
+    ).rejects.toMatchObject({ code: "functions/failed-precondition" });
+
+    await expect(
+      call(branchManager, "createSaleReturn", {
+        branchId,
+        saleId: originalSaleId,
+        lines: [
+          {
+            saleItemId: originalItem.id,
+            quantity: 2,
+            condition: "restockable",
+          },
+        ],
+        resolution: "exchange_credit",
+        reason: "Attempt to exceed the receipt remainder",
+        idempotencyKey: crypto.randomUUID(),
+        operatingContext: { type: "branch", id: branchId },
+      }),
+    ).rejects.toMatchObject({ code: "functions/failed-precondition" });
+
+    const nonRestockable = await call<{ returnId: string }>(
+      branchManager,
+      "createSaleReturn",
+      {
+        branchId,
+        saleId: originalSaleId,
+        lines: [
+          {
+            saleItemId: originalItem.id,
+            quantity: 1,
+            condition: "non_restockable",
+          },
+        ],
+        resolution: "cash",
+        refundShiftId: shift.id,
+        reason: "Panel was returned physically damaged",
+        idempotencyKey: crypto.randomUUID(),
+        operatingContext: { type: "branch", id: branchId },
+      },
+    );
+    const beforeNonRestockable = await balanceReference.get();
+    const shiftBeforeRefund = await shift.ref.get();
+    await expect(
+      call(administrator, "approveSaleReturn", {
+        returnId: nonRestockable.returnId,
+        notes: "Damage confirmed; do not return to saleable stock",
+        idempotencyKey: crypto.randomUUID(),
+      }),
+    ).resolves.toMatchObject({ approved: true, creditId: null });
+    expect((await balanceReference.get()).get("onHandQuantity")).toBe(
+      beforeNonRestockable.get("onHandQuantity"),
+    );
+    expect((await shift.ref.get()).get("cashRefundsMinor")).toBe(
+      Number(shiftBeforeRefund.get("cashRefundsMinor") ?? 0) + 11_825,
+    );
+    const finalWorkspace = await call<{
+      items: Array<{ id: string; returnableQuantity: number }>;
+    }>(branchManager, "getSaleReturnWorkspace", {
+      branchId,
+      receiptNumber: originalSale.get("receiptNumber"),
+      operatingContext: { type: "branch", id: branchId },
+    });
+    expect(finalWorkspace.items).toContainEqual(
+      expect.objectContaining({ id: originalItem.id, returnableQuantity: 0 }),
+    );
+    const shiftBeforeClose = await shift.ref.get();
+    const expectedClosingCash =
+      Number(shiftBeforeClose.get("openingCashMinor")) +
+      Number(shiftBeforeClose.get("cashSalesMinor")) -
+      Number(shiftBeforeClose.get("cashRefundsMinor"));
+    await expect(
+      call(branchManager, "closePosShift", {
+        shiftId: shift.id,
+        closingCashMinor: expectedClosingCash,
+        idempotencyKey: crypto.randomUUID(),
+        operatingContext: { type: "branch", id: branchId },
+      }),
+    ).resolves.toMatchObject({ closed: true });
+    expect((await shift.ref.get()).data()).toMatchObject({
+      expectedCashMinor: expectedClosingCash,
+      cashVarianceMinor: 0,
+      status: "closed",
+    });
+  });
 });

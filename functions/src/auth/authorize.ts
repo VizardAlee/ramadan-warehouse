@@ -92,6 +92,9 @@ export type Permission =
   | "customers.credit.approve"
   | "customers.payment.record"
   | "sales.credit.create"
+  | "sales.returns.read"
+  | "sales.returns.create"
+  | "sales.returns.approve"
   | "reports.sales.read"
   | "finance.journal.read";
 
@@ -170,6 +173,9 @@ const rolePermissions: Readonly<Record<RoleId, readonly Permission[]>> = {
     "customers.credit.approve",
     "customers.payment.record",
     "sales.credit.create",
+    "sales.returns.read",
+    "sales.returns.create",
+    "sales.returns.approve",
     "reports.sales.read",
     "finance.journal.read",
   ],
@@ -214,6 +220,9 @@ const rolePermissions: Readonly<Record<RoleId, readonly Permission[]>> = {
     "customers.manage",
     "customers.payment.record",
     "sales.credit.create",
+    "sales.returns.read",
+    "sales.returns.create",
+    "sales.returns.approve",
     "reports.sales.read",
   ],
   warehouse_manager: [
@@ -324,6 +333,9 @@ const rolePermissions: Readonly<Record<RoleId, readonly Permission[]>> = {
     "customers.manage",
     "customers.payment.record",
     "sales.credit.create",
+    "sales.returns.read",
+    "sales.returns.create",
+    "sales.returns.approve",
     "reports.sales.read",
   ],
   sales_cashier: [
@@ -333,6 +345,8 @@ const rolePermissions: Readonly<Record<RoleId, readonly Permission[]>> = {
     "sales.create",
     "sales.shift.manage",
     "sales.credit.create",
+    "sales.returns.read",
+    "sales.returns.create",
   ],
   logistics_officer: [
     "transfers.read.all",
@@ -362,6 +376,8 @@ const rolePermissions: Readonly<Record<RoleId, readonly Permission[]>> = {
     "sales.read.all",
     "customers.read",
     "customers.payment.record",
+    "sales.returns.read",
+    "sales.returns.approve",
     "reports.sales.read",
     "finance.journal.read",
   ],
@@ -382,6 +398,7 @@ const rolePermissions: Readonly<Record<RoleId, readonly Permission[]>> = {
     "reports.transfers.export",
     "sales.read.all",
     "customers.read",
+    "sales.returns.read",
     "reports.sales.read",
     "finance.journal.read",
   ],

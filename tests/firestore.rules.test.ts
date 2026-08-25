@@ -159,6 +159,23 @@ async function seed() {
         branchId,
         status: "open",
       });
+      await db.doc(`saleReturns/${id}-return`).set({
+        organizationId: "org-1",
+        branchId,
+        saleId: id,
+        status: "submitted",
+      });
+      await db.doc(`saleReturnItems/${id}-return-item`).set({
+        organizationId: "org-1",
+        branchId,
+        saleId: id,
+        returnId: `${id}-return`,
+      });
+      await db.doc(`salesCredits/${id}-credit`).set({
+        organizationId: "org-1",
+        branchId,
+        status: "active",
+      });
     }
     await db.doc("chartOfAccounts/account-1").set({
       organizationId: "org-1",
@@ -572,6 +589,11 @@ describe("Firestore baseline rules", () => {
     await assertSucceeds(cashierDb.doc("salePayments/sale-1-payment").get());
     await assertSucceeds(cashierDb.doc("salesReceipts/sale-1-receipt").get());
     await assertSucceeds(cashierDb.doc("posShifts/sale-1-shift").get());
+    await assertSucceeds(cashierDb.doc("saleReturns/sale-1-return").get());
+    await assertSucceeds(cashierDb.doc("saleReturnItems/sale-1-return-item").get());
+    await assertSucceeds(cashierDb.doc("salesCredits/sale-1-credit").get());
+    await assertFails(cashierDb.doc("saleReturns/sale-2-return").get());
+    await assertFails(cashierDb.doc("salesCredits/sale-2-credit").get());
     await assertFails(cashierDb.doc("journalEntries/journal-1").get());
     await assertSucceeds(financeDb.doc("journalEntries/journal-1").get());
     await assertSucceeds(adminDb.doc("chartOfAccounts/account-1").get());
@@ -585,6 +607,16 @@ describe("Firestore baseline rules", () => {
         organizationId: "org-1",
         branchId: "branch-1",
       }),
+    );
+    await assertFails(
+      cashierDb.doc("saleReturns/new-return").set({
+        organizationId: "org-1",
+        branchId: "branch-1",
+        status: "submitted",
+      }),
+    );
+    await assertFails(
+      adminDb.doc("salesCredits/sale-1-credit").update({ remainingAmountMinor: 0 }),
     );
     await assertFails(
       adminDb.doc("journalEntries/journal-1").update({ status: "void" }),

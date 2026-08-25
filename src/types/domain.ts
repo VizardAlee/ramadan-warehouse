@@ -100,6 +100,9 @@ export const permissionIds = [
   "customers.credit.approve",
   "customers.payment.record",
   "sales.credit.create",
+  "sales.returns.read",
+  "sales.returns.create",
+  "sales.returns.approve",
   "reports.sales.read",
   "finance.journal.read",
 ] as const;
@@ -121,6 +124,27 @@ export interface Customer {
   availableCreditMinor: number;
   createdAt: DateTimeValue;
   updatedAt: DateTimeValue;
+}
+
+export interface SaleReturn {
+  id: string;
+  organizationId: string;
+  branchId: string;
+  saleId: string;
+  saleNumber: string;
+  receiptNumber: string;
+  returnNumber: string;
+  customerId?: string | null;
+  customerName?: string | null;
+  status: "submitted" | "approved";
+  resolution: "cash" | "card" | "bank_transfer" | "customer_account" | "exchange_credit";
+  reason: string;
+  netAmountMinor: number;
+  vatAmountMinor: number;
+  grossAmountMinor: number;
+  restockCostMinor: number;
+  createdBy: string;
+  createdAt: DateTimeValue;
 }
 export type EntityStatus = "active" | "inactive";
 export type UserStatus = EntityStatus | "suspended";

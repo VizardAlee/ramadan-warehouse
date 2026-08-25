@@ -32,6 +32,7 @@ export type PostingType =
   | "transfer_receipt"
   | "discrepancy_resolution"
   | "branch_sale"
+  | "sale_return"
   | "reversal";
 export interface PostingRequest {
   readonly transactionType: PostingType;

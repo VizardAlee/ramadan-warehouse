@@ -83,7 +83,45 @@ export const salePaymentMethods = [
   "cash",
   "card",
   "bank_transfer",
+  "exchange_credit",
 ] as const;
+
+export const saleReturnWorkspaceInput = z.object({
+  branchId: id,
+  receiptNumber: z.string().trim().min(6).max(160),
+});
+export const listSaleReturnsInput = z.object({
+  branchId: id,
+  status: z.enum(["submitted", "approved"]).default("submitted"),
+  limit: z.number().int().min(1).max(200).default(100),
+});
+
+export const createSaleReturnInput = z.object({
+  branchId: id,
+  saleId: id,
+  lines: z.array(z.object({
+    saleItemId: id,
+    quantity: z.number().int().positive().max(100_000),
+    condition: z.enum(["restockable", "non_restockable"]),
+  })).min(1).max(50),
+  resolution: z.enum(["cash", "card", "bank_transfer", "customer_account", "exchange_credit"]),
+  refundShiftId: id.optional(),
+  reason: z.string().trim().min(5).max(500),
+  idempotencyKey: z.string().uuid(),
+}).superRefine((value, context) => {
+  if (value.resolution === "cash" && !value.refundShiftId)
+    context.addIssue({
+      code: "custom",
+      path: ["refundShiftId"],
+      message: "Select the open POS shift funding this cash refund.",
+    });
+});
+
+export const approveSaleReturnInput = z.object({
+  returnId: id,
+  notes: z.string().trim().max(500).optional(),
+  idempotencyKey: z.string().uuid(),
+});
 
 export const commitSaleInput = z.object({
   branchId: id,
@@ -139,6 +177,22 @@ export const commitSaleInput = z.object({
       path: ["offline"],
       message: "Credit sales require a live online authorization check.",
     });
+  if (value.offline && value.payments.some((payment) => payment.method === "exchange_credit"))
+    context.addIssue({
+      code: "custom",
+      path: ["payments"],
+      message: "Exchange credit requires a live online balance check.",
+    });
+  for (const [index, payment] of value.payments.entries())
+    if (payment.method === "exchange_credit" && !payment.reference)
+      context.addIssue({
+        code: "custom",
+        path: ["payments", index, "reference"],
+        message: "Select an exchange credit.",
+      });
+  const creditReferences = value.payments.filter((payment) => payment.method === "exchange_credit").map((payment) => payment.reference);
+  if (new Set(creditReferences).size !== creditReferences.length)
+    context.addIssue({ code: "custom", path: ["payments"], message: "An exchange credit may be used only once per sale." });
   if (value.creditAmountMinor === 0 && value.payments.length === 0)
     context.addIssue({
       code: "custom",
