@@ -6,9 +6,27 @@ import { readStoredOperatingContext } from "@/features/auth/operating-context";
 export function sanitizeCallableInput<TInput extends object>(
   input: TInput,
 ): TInput {
-  return Object.fromEntries(
-    Object.entries(input).filter(([, value]) => value !== undefined),
-  ) as TInput;
+  return sanitizeCallableValue(input) as TInput;
+}
+
+function sanitizeCallableValue(value: unknown): unknown {
+  if (Array.isArray(value))
+    return value
+      .filter((item) => item !== undefined)
+      .map((item) => sanitizeCallableValue(item));
+
+  if (
+    value !== null &&
+    typeof value === "object" &&
+    Object.getPrototypeOf(value) === Object.prototype
+  )
+    return Object.fromEntries(
+      Object.entries(value)
+        .filter(([, item]) => item !== undefined)
+        .map(([key, item]) => [key, sanitizeCallableValue(item)]),
+    );
+
+  return value;
 }
 
 function isOutdatedAuthorization(error: unknown) {

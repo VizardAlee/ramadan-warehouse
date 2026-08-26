@@ -34,4 +34,33 @@ describe("administration callable input", () => {
       code: "",
     });
   });
+
+  it("omits nested optional POS fields before Firebase converts them to null", () => {
+    expect(
+      sanitizeCallableInput({
+        branchId: "branch-1",
+        lines: [
+          {
+            productId: "product-1",
+            quantity: 3,
+            priceVersion: undefined,
+          },
+        ],
+        payments: [
+          {
+            method: "cash",
+            amountMinor: 41_925_000,
+            reference: undefined,
+          },
+        ],
+        customerId: undefined,
+        creditAmountMinor: 0,
+      }),
+    ).toEqual({
+      branchId: "branch-1",
+      lines: [{ productId: "product-1", quantity: 3 }],
+      payments: [{ method: "cash", amountMinor: 41_925_000 }],
+      creditAmountMinor: 0,
+    });
+  });
 });
