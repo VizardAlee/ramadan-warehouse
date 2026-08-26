@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { summarizeDashboard, summarizeTransferPipeline } from "@/features/dashboard/summary";
+import {
+  scopeDashboardRecords,
+  summarizeDashboard,
+  summarizeTransferPipeline,
+} from "@/features/dashboard/summary";
 import type { BranchRequest, Product, WarehouseTransfer } from "@/types/domain";
 
 describe("dashboard summary", () => {
@@ -41,5 +45,29 @@ describe("dashboard summary", () => {
       { label: "In transit", value: 1 },
       { label: "Receiving & issues", value: 1 },
     ]);
+  });
+
+  it("filters dashboard records without changing authorization", () => {
+    const requests = [
+      { branchId: "branch-1" },
+      { branchId: "branch-2" },
+    ] as BranchRequest[];
+    const transfers = [
+      { originWarehouseId: "warehouse-1", destinationBranchId: "branch-1" },
+      { originWarehouseId: "warehouse-2", destinationBranchId: "branch-2" },
+    ] as WarehouseTransfer[];
+
+    expect(
+      scopeDashboardRecords(requests, transfers, {
+        type: "branch",
+        id: "branch-2",
+      }),
+    ).toEqual({ requests: [requests[1]], transfers: [transfers[1]] });
+    expect(
+      scopeDashboardRecords(requests, transfers, {
+        type: "warehouse",
+        id: "warehouse-1",
+      }),
+    ).toEqual({ requests, transfers: [transfers[0]] });
   });
 });

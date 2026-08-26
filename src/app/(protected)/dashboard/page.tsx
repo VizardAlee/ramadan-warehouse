@@ -19,7 +19,11 @@ import { useOrganizationCollection } from "@/features/administration/use-organiz
 import { useAuth } from "@/features/auth/auth-context";
 import { OperationalMixChart, TransferPipelineChart } from "@/features/dashboard/charts";
 import { DashboardLocationSwitcher } from "@/features/dashboard/location-switcher";
-import { summarizeDashboard, summarizeTransferPipeline } from "@/features/dashboard/summary";
+import {
+  scopeDashboardRecords,
+  summarizeDashboard,
+  summarizeTransferPipeline,
+} from "@/features/dashboard/summary";
 import type { BranchRequest, Product, WarehouseTransfer } from "@/types/domain";
 
 interface PageResult<T> {
@@ -79,9 +83,18 @@ export default function DashboardPage() {
 
   const loading = registersLoading || products.loading;
   const failed = registerError || products.error;
+  const scopedRecords = scopeDashboardRecords(
+    requests,
+    transfers,
+    operatingContext,
+  );
   const summary = loading
     ? null
-    : summarizeDashboard(requests, transfers, products.data);
+    : summarizeDashboard(
+        scopedRecords.requests,
+        scopedRecords.transfers,
+        products.data,
+      );
   const cards = [
     { label: "Open branch requests", value: summary?.requests, icon: ClipboardClock, href: "/requests", emphasis: false },
     { label: "Transfers in progress", value: summary?.transfers, icon: Truck, href: "/transfers", emphasis: false },
@@ -95,7 +108,7 @@ export default function DashboardPage() {
     { label: "Discrepancies", value: summary.discrepancies, color: "#c8563d" },
   ] : [];
   const pipelineColors = ["#116149", "#2a8b72", "#e7aa2d", "#c8563d"];
-  const pipelineData = summarizeTransferPipeline(transfers).map((item, index) => ({
+  const pipelineData = summarizeTransferPipeline(scopedRecords.transfers).map((item, index) => ({
     ...item,
     color: pipelineColors[index]!,
   }));

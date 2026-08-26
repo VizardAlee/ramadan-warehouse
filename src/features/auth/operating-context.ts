@@ -22,6 +22,12 @@ const branchRoles: readonly RoleId[] = [
   "sales_cashier",
 ];
 
+export function hasOrganizationWideOperatingAccess(profile: UserProfile) {
+  return assignedRoles(profile).some((role) =>
+    organizationWideRoles.includes(role),
+  );
+}
+
 function assignedRoles(profile: UserProfile): RoleId[] {
   return profile.roleIds?.length ? profile.roleIds : [profile.roleId];
 }
@@ -30,7 +36,7 @@ export function availableOperatingContexts(
   profile: UserProfile,
 ): OperatingContext[] {
   const roles = assignedRoles(profile);
-  if (roles.some((role) => organizationWideRoles.includes(role))) return [];
+  if (hasOrganizationWideOperatingAccess(profile)) return [];
   const contexts: OperatingContext[] = [];
   if (roles.some((role) => warehouseRoles.includes(role))) {
     contexts.push(
@@ -49,6 +55,7 @@ export function isAvailableOperatingContext(
   context: OperatingContext | null,
   profile: UserProfile,
 ): context is OperatingContext {
+  if (context && hasOrganizationWideOperatingAccess(profile)) return true;
   return Boolean(
     context &&
       availableOperatingContexts(profile).some(
@@ -62,6 +69,7 @@ export function narrowProfileToOperatingContext(
   profile: UserProfile,
   context: OperatingContext | null,
 ): UserProfile {
+  if (hasOrganizationWideOperatingAccess(profile)) return profile;
   if (!context || !isAvailableOperatingContext(context, profile)) return profile;
   const roles = assignedRoles(profile).filter((role) =>
     context.type === "warehouse"

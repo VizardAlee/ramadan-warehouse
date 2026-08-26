@@ -97,7 +97,6 @@ export function AppShell({ children }: { children: ReactNode }) {
   const {
     user,
     profile,
-    operatingContext,
     loading,
     error,
     logout,
@@ -106,8 +105,16 @@ export function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const [open, setOpen] = useState(false);
-  const { options: contexts, activeValue: contextValue, activeOption, selectValue } =
-    useOperatingContextOptions();
+  const {
+    options: contexts,
+    activeValue: contextValue,
+    activeOption,
+    canSelectAll,
+    selectValue,
+  } = useOperatingContextOptions();
+  const showContextSwitcher = canSelectAll
+    ? contexts.length > 0
+    : contexts.length > 1;
   const visibleNavigation = useMemo(
     () =>
       profile
@@ -279,7 +286,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             </p>
           </div>
           <div className="ml-auto flex min-w-0 items-center gap-1">
-            {contexts.length > 1 && operatingContext && (
+            {showContextSwitcher && (
               <label className="min-w-0">
                 <span className="sr-only">Working location</span>
                 <select
@@ -290,6 +297,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                   }}
                   className="min-h-10 max-w-[10rem] rounded-lg border border-slate-300 bg-white px-2 text-xs font-semibold text-slate-800 sm:max-w-[16rem] sm:text-sm"
                 >
+                  {canSelectAll && <option value="">All locations</option>}
                   {contexts.map((context) => {
                     return (
                       <option key={context.value} value={context.value}>

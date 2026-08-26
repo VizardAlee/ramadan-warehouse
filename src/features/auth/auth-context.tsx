@@ -7,6 +7,7 @@ import { getFirebaseServices } from "@/lib/firebase/client";
 import type { UserProfile } from "@/types/domain";
 import {
   availableOperatingContexts,
+  hasOrganizationWideOperatingAccess,
   isAvailableOperatingContext,
   narrowProfileToOperatingContext,
   readStoredOperatingContext,
@@ -19,7 +20,7 @@ interface AuthContextValue {
   profile: UserProfile | null;
   accessProfile: UserProfile | null;
   operatingContext: OperatingContext | null;
-  setOperatingContext(context: OperatingContext): void;
+  setOperatingContext(context: OperatingContext | null): void;
   loading: boolean;
   error: string | null;
   login(email: string, password: string): Promise<void>;
@@ -187,8 +188,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [accessProfile, operatingContext],
   );
   const setOperatingContext = useCallback(
-    (context: OperatingContext) => {
-      if (!accessProfile || !isAvailableOperatingContext(context, accessProfile))
+    (context: OperatingContext | null) => {
+      if (!accessProfile) return;
+      if (!context) {
+        if (!hasOrganizationWideOperatingAccess(accessProfile)) return;
+        storeOperatingContext(null);
+        setOperatingContextState(null);
+        return;
+      }
+      if (!isAvailableOperatingContext(context, accessProfile))
         return;
       storeOperatingContext(context);
       setOperatingContextState(context);

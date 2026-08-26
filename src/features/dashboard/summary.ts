@@ -1,3 +1,4 @@
+import type { OperatingContext } from "@/features/auth/operating-context";
 import type { BranchRequest, Product, WarehouseTransfer } from "@/types/domain";
 
 const completedRequestStatuses = new Set([
@@ -7,6 +8,28 @@ const completedRequestStatuses = new Set([
   "rejected",
 ]);
 const completedTransferStatuses = new Set(["closed", "cancelled"]);
+
+export function scopeDashboardRecords(
+  requests: readonly BranchRequest[],
+  transfers: readonly WarehouseTransfer[],
+  context: OperatingContext | null,
+) {
+  if (!context) return { requests, transfers };
+  if (context.type === "branch") {
+    return {
+      requests: requests.filter((request) => request.branchId === context.id),
+      transfers: transfers.filter(
+        (transfer) => transfer.destinationBranchId === context.id,
+      ),
+    };
+  }
+  return {
+    requests,
+    transfers: transfers.filter(
+      (transfer) => transfer.originWarehouseId === context.id,
+    ),
+  };
+}
 
 export function summarizeDashboard(
   requests: readonly BranchRequest[],

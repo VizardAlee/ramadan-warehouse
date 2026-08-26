@@ -4,8 +4,9 @@ import { Check, Store, Warehouse } from "lucide-react";
 import { useOperatingContextOptions } from "@/features/auth/use-operating-context-options";
 
 export function DashboardLocationSwitcher() {
-  const { options, activeValue, selectValue } = useOperatingContextOptions();
-  if (options.length < 2) return null;
+  const { options, activeValue, canSelectAll, selectValue } =
+    useOperatingContextOptions();
+  if (canSelectAll ? options.length === 0 : options.length < 2) return null;
 
   return (
     <section
@@ -20,8 +21,8 @@ export function DashboardLocationSwitcher() {
           Switch branch or warehouse
         </h2>
         <p className="mt-1 max-w-3xl text-sm leading-6 text-[var(--muted)]">
-          The dashboard, queues, and permitted actions update to the selected
-          assignment. You can only choose locations granted to your user.
+          Dashboard totals update to the selected assignment. Your authorized
+          roles and actions do not change when you switch the view.
         </p>
       </div>
       <div
@@ -29,6 +30,36 @@ export function DashboardLocationSwitcher() {
         aria-label="Choose working location"
         className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3"
       >
+        {canSelectAll && (
+          <button
+            type="button"
+            role="radio"
+            aria-checked={!activeValue}
+            onClick={() => selectValue("")}
+            className={`flex min-h-20 items-center gap-3 rounded-xl border p-4 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 ${
+              !activeValue
+                ? "border-emerald-500 bg-emerald-50 text-emerald-950"
+                : "bg-white hover:border-emerald-300 hover:bg-emerald-50/40"
+            }`}
+          >
+            <span className="grid size-11 shrink-0 place-items-center rounded-xl bg-white text-[var(--brand)] shadow-sm">
+              <Warehouse className="size-5" />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
+                Organization
+              </span>
+              <span className="mt-1 block truncate font-semibold">
+                All locations
+              </span>
+            </span>
+            {!activeValue && (
+              <span className="grid size-7 shrink-0 place-items-center rounded-full bg-[var(--brand)] text-white">
+                <Check className="size-4" />
+              </span>
+            )}
+          </button>
+        )}
         {options.map((option) => {
           const selected = option.value === activeValue;
           const Icon = option.type === "warehouse" ? Warehouse : Store;

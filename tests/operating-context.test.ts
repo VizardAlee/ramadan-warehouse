@@ -3,6 +3,7 @@ import {
   availableOperatingContexts,
   isAvailableOperatingContext,
   narrowProfileToOperatingContext,
+  hasOrganizationWideOperatingAccess,
 } from "@/features/auth/operating-context";
 import type { UserProfile } from "@/types/domain";
 
@@ -63,12 +64,18 @@ describe("operating context", () => {
   });
 
   it("does not scope organization-wide administrators", () => {
+    const administrator = {
+      ...profile,
+      roleId: "system_administrator",
+      roleIds: ["system_administrator", "warehouse_manager"],
+    } satisfies UserProfile;
+    expect(availableOperatingContexts(administrator)).toEqual([]);
+    expect(hasOrganizationWideOperatingAccess(administrator)).toBe(true);
     expect(
-      availableOperatingContexts({
-        ...profile,
-        roleId: "system_administrator",
-        roleIds: ["system_administrator", "warehouse_manager"],
+      narrowProfileToOperatingContext(administrator, {
+        type: "branch",
+        id: "any-organization-branch",
       }),
-    ).toEqual([]);
+    ).toBe(administrator);
   });
 });
