@@ -17,6 +17,7 @@ import {
   nairaToKobo,
 } from "@/features/inventory/format";
 import { hasPermission } from "@/lib/permissions/roles";
+import { CatalogImportDialog } from "@/features/products/catalog-import-dialog";
 import {
   productTrackingTypes,
   type Product,
@@ -231,7 +232,7 @@ export default function ProductsPage() {
   });
   return (
     <div className="space-y-5">
-      <div className="flex items-end justify-between">
+      <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-3xl font-semibold">Product catalogue</h1>
           <p className="text-[var(--muted)]">
@@ -239,10 +240,19 @@ export default function ProductsPage() {
           </p>
         </div>
         {canCreate && (
-          <Button onClick={() => edit()}>
-            <Plus className="mr-2 size-4" />
-            Create product
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <CatalogImportDialog
+              onImported={(count) =>
+                setMessage(
+                  `${count} product${count === 1 ? " was" : "s were"} imported securely.`,
+                )
+              }
+            />
+            <Button onClick={() => edit()}>
+              <Plus className="mr-2 size-4" />
+              Create product
+            </Button>
+          </div>
         )}
       </div>
       <div className="grid gap-3 rounded-xl border bg-white p-4 md:grid-cols-2">

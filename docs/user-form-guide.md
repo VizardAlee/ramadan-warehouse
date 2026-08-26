@@ -26,6 +26,25 @@ first-time explainer with a direct link to the Picking queue.
 - **VAT rate** is entered as a percentage and appears separately on POS totals
   and receipts.
 
+### Import product catalogue
+
+1. Open **Products** and select **Import catalogue**. Upload a UTF-8 CSV or
+   Excel `.xlsx` file whose first row contains column headings.
+2. Review the automatic column matches. For a different heading such as
+   `Item Description`, select the corresponding system field from the mapping
+   control. One imported column cannot supply two system fields.
+3. Product name, unit of measure, and tracking type are required. SKU may be
+   unmapped or blank for automatic generation. Category should be mapped to a
+   category name, which is reused or created automatically.
+4. Costs and central prices use naira with two decimal places for kobo. VAT is
+   mapped separately as a percentage.
+5. Review the mapped sample, select **Validate rows**, and correct every
+   reported row/field error in the source file. Nothing is created during
+   preview.
+6. Select **Import validated products** once validation passes. The confirmed
+   import is idempotent, enforces SKU uniqueness and permissions, and records
+   audit evidence.
+
 ## Opening stock form
 
 Opening stock accounts for goods the existing business already holds. It works

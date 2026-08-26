@@ -40,13 +40,86 @@ export function parseCsv(csv: string): string[][] {
   return rows;
 }
 
+const optionalValue = (maximum: number) =>
+  z.union([z.literal(""), z.string().trim().max(maximum)]).optional();
+const optionalInteger = z
+  .union([z.literal(""), z.string().regex(/^\d+$/)])
+  .optional();
+const optionalNaira = z
+  .union([z.literal(""), z.string().regex(/^\d+(?:\.\d{1,2})?$/)])
+  .optional();
+const optionalPositiveNaira = z
+  .union([
+    z.literal(""),
+    z
+      .string()
+      .regex(/^\d+(?:\.\d{1,2})?$/)
+      .refine((value) => Number(value) > 0),
+  ])
+  .optional();
+
 const productRow = z.object({
-  sku: z.string().trim().min(2).max(40),
+  sku: z.union([z.literal(""), z.string().trim().min(2).max(40)]).optional(),
   name: z.string().trim().min(2).max(180),
   unitOfMeasure: z.string().trim().min(1).max(40),
-  trackingType: z.enum(["quantity", "batch", "serial"]),
-  categoryId: z.string().trim().optional(),
-  defaultUnitCostMinor: z.string().regex(/^\d+$/),
+  trackingType: z.preprocess((value) => {
+    if (typeof value !== "string") return value;
+    const normalized = value.trim().toLowerCase();
+    if (["serialized", "serialised", "serial number"].includes(normalized))
+      return "serial";
+    if (["lot", "lot number"].includes(normalized)) return "batch";
+    return normalized;
+  }, z.enum(["quantity", "batch", "serial"])),
+  categoryId: optionalValue(160),
+  categoryName: optionalValue(120),
+  brand: optionalValue(120),
+  model: optionalValue(120),
+  description: optionalValue(2000),
+  defaultUnitCostMinor: optionalInteger,
+  defaultUnitCostNaira: optionalNaira,
+  baseSellingPriceNaira: optionalPositiveNaira,
+  vatPercent: z
+    .union([
+      z.literal(""),
+      z
+        .string()
+        .regex(/^\d+(?:\.\d{1,2})?$/)
+        .refine((value) => Number(value) <= 100),
+    ])
+    .optional(),
+  minimumStockLevel: optionalInteger,
+  reorderLevel: optionalInteger,
+  active: z.preprocess(
+    (value) => (typeof value === "string" ? value.trim().toLowerCase() : value),
+    z
+      .union([
+        z.literal(""),
+        z.enum([
+          "true",
+          "false",
+          "yes",
+          "no",
+          "1",
+          "0",
+          "active",
+          "inactive",
+        ]),
+      ])
+      .optional(),
+  ),
+}).superRefine((value, context) => {
+  if (value.vatPercent && !value.baseSellingPriceNaira)
+    context.addIssue({
+      code: "custom",
+      path: ["baseSellingPriceNaira"],
+      message: "A VAT rate requires a central base selling price.",
+    });
+  if (value.categoryId && value.categoryName)
+    context.addIssue({
+      code: "custom",
+      path: ["categoryName"],
+      message: "Map either category name or category ID, not both.",
+    });
 });
 const openingRow = z.object({
   productId: z.string().trim().min(1),
@@ -64,7 +137,7 @@ const serialRow = z.object({
 });
 
 const requiredHeaders: Record<CsvImportKind, readonly string[]> = {
-  products: ["sku", "name", "unitOfMeasure", "trackingType", "defaultUnitCostMinor"],
+  products: ["name", "unitOfMeasure", "trackingType"],
   opening_stock: ["productId", "locationId", "quantity", "unitCostMinor"],
   serial_numbers: ["productId", "locationId", "serialNumber", "unitCostMinor"],
 };
@@ -91,9 +164,11 @@ export function previewCsvImport(kind: CsvImportKind, csv: string, context: CsvV
     }
     const value = result.data as Record<string, string>;
     if (kind === "products") {
-      const sku = value.sku!.trim().toUpperCase();
-      if (seenSkus.has(sku) || context.existingSkus?.has(sku)) errors.push({ row: index + 1, field: "sku", code: "DUPLICATE_SKU", message: "SKU already exists in this file or organization." });
-      else seenSkus.add(sku);
+      const sku = value.sku?.trim().toUpperCase();
+      if (sku) {
+        if (seenSkus.has(sku) || context.existingSkus?.has(sku)) errors.push({ row: index + 1, field: "sku", code: "DUPLICATE_SKU", message: "SKU already exists in this file or organization." });
+        else seenSkus.add(sku);
+      }
     } else {
       if (context.locationIds && !context.locationIds.has(value.locationId!)) errors.push({ row: index + 1, field: "locationId", code: "INVALID_LOCATION", message: "Location does not belong to the organization." });
       const tracking = context.productTracking?.get(value.productId!);

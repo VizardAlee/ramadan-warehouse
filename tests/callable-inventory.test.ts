@@ -190,6 +190,70 @@ describe.sequential("inventory callables", () => {
     expect(lock.get("productId")).toBe(created.productId);
   });
 
+  it("previews and imports a mapped product catalogue idempotently", async () => {
+    const csv = [
+      "name,sku,categoryName,brand,model,description,unitOfMeasure,trackingType,defaultUnitCostNaira,baseSellingPriceNaira,vatPercent,minimumStockLevel,reorderLevel,active",
+      '"Imported Inverter","","Imported Power","SVolt","INV-5K","Catalogue import","unit","serial","120000.50","150000.00","7.50","2","4","true"',
+    ].join("\n");
+    const preview = await call<{
+      valid: boolean;
+      totalRows: number;
+      errors: unknown[];
+    }>(administrator, "previewCsvImport", { kind: "products", csv });
+    expect(preview).toMatchObject({ valid: true, totalRows: 1, errors: [] });
+
+    const idempotencyKey = crypto.randomUUID();
+    const first = await call<{
+      imported: boolean;
+      summary: { imported: number };
+    }>(administrator, "confirmCsvImport", {
+      kind: "products",
+      csv,
+      idempotencyKey,
+    });
+    const duplicate = await call<{
+      imported: boolean;
+      summary: { imported: number };
+    }>(administrator, "confirmCsvImport", {
+      kind: "products",
+      csv,
+      idempotencyKey,
+    });
+    expect(first).toMatchObject({ imported: true, summary: { imported: 1 } });
+    expect(duplicate).toMatchObject({
+      imported: false,
+      summary: { imported: 1 },
+    });
+
+    const imported = await adminDb
+      .collection("products")
+      .where("organizationId", "==", organizationId)
+      .where("name", "==", "Imported Inverter")
+      .limit(1)
+      .get();
+    expect(imported.size).toBe(1);
+    const product = imported.docs[0]!;
+    expect(product.data()).toMatchObject({
+      sku: `SKU-${product.id.toUpperCase()}`,
+      categoryName: "Imported Power",
+      brand: "SVolt",
+      model: "INV-5K",
+      trackingType: "serial",
+      minimumStockLevel: 2,
+      reorderLevel: 4,
+    });
+    expect(
+      (await adminDb.doc(`productCosts/${product.id}`).get()).data(),
+    ).toMatchObject({ defaultUnitCostMinor: 12_000_050 });
+    expect(
+      (await adminDb.doc(`productSalesPrices/${product.id}`).get()).data(),
+    ).toMatchObject({
+      basePriceMinor: 15_000_000,
+      vatRateBasisPoints: 750,
+      active: true,
+    });
+  });
+
   it("creates and concurrently reuses categories entered in the product form", async () => {
     const standalone = await call<{ categoryId: string }>(
       administrator,
