@@ -26,16 +26,14 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { doc, getDoc } from "firebase/firestore";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { Feedback } from "@/components/ui/feedback";
 import { useDialogFocus } from "@/components/ui/use-dialog-focus";
 import { useAuth } from "@/features/auth/auth-context";
-import { availableOperatingContexts } from "@/features/auth/operating-context";
+import { useOperatingContextOptions } from "@/features/auth/use-operating-context-options";
 import { PwaControls } from "@/features/pwa/pwa-controls";
 import { useConnectivity } from "@/lib/connectivity";
-import { getFirebaseServices } from "@/lib/firebase/client";
 import { hasAnyPermission } from "@/lib/permissions/roles";
 import { cn } from "@/lib/utils";
 import type { PermissionId } from "@/types/domain";
@@ -99,9 +97,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const {
     user,
     profile,
-    accessProfile,
     operatingContext,
-    setOperatingContext,
     loading,
     error,
     logout,
@@ -110,11 +106,8 @@ export function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const [open, setOpen] = useState(false);
-  const [contextNames, setContextNames] = useState<Record<string, string>>({});
-  const contexts = useMemo(
-    () => (accessProfile ? availableOperatingContexts(accessProfile) : []),
-    [accessProfile],
-  );
+  const { options: contexts, activeValue: contextValue, activeOption, selectValue } =
+    useOperatingContextOptions();
   const visibleNavigation = useMemo(
     () =>
       profile
@@ -136,36 +129,6 @@ export function AppShell({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!loading && !user) router.replace("/login");
   }, [loading, user, router]);
-  useEffect(() => {
-    let active = true;
-    if (contexts.length === 0) return;
-    void Promise.all(
-      contexts.map(async (context) => {
-        const snapshot = await getDoc(
-          doc(
-            getFirebaseServices().db,
-            context.type === "warehouse" ? "warehouses" : "branches",
-            context.id,
-          ),
-        );
-        return [
-          `${context.type}:${context.id}`,
-          snapshot.exists()
-            ? String(snapshot.get("name") || snapshot.get("code") || context.id)
-            : context.id,
-        ] as const;
-      }),
-    )
-      .then((entries) => {
-        if (active) setContextNames(Object.fromEntries(entries));
-      })
-      .catch(() => {
-        if (active) setContextNames({});
-      });
-    return () => {
-      active = false;
-    };
-  }, [contexts]);
   if (loading)
     return (
       <main className="grid min-h-dvh place-items-center p-6">
@@ -202,11 +165,8 @@ export function AppShell({ children }: { children: ReactNode }) {
   const active = (href: string) =>
     pathname === href ||
     (href !== "/dashboard" && pathname.startsWith(`${href}/`));
-  const contextValue = operatingContext
-    ? `${operatingContext.type}:${operatingContext.id}`
-    : "";
-  const contextLabel = operatingContext
-    ? `${operatingContext.type === "warehouse" ? "Warehouse" : "Branch"}: ${contextNames[contextValue] ?? operatingContext.id}`
+  const contextLabel = activeOption
+    ? `${activeOption.typeLabel}: ${activeOption.name}`
     : null;
   const desktopNav = (
     <nav aria-label="Desktop navigation" className="space-y-1">
@@ -326,21 +286,14 @@ export function AppShell({ children }: { children: ReactNode }) {
                   aria-label="Working location"
                   value={contextValue}
                   onChange={(event) => {
-                    const selected = contexts.find(
-                      (context) =>
-                        `${context.type}:${context.id}` === event.target.value,
-                    );
-                    if (selected) setOperatingContext(selected);
+                    selectValue(event.target.value);
                   }}
                   className="min-h-10 max-w-[10rem] rounded-lg border border-slate-300 bg-white px-2 text-xs font-semibold text-slate-800 sm:max-w-[16rem] sm:text-sm"
                 >
                   {contexts.map((context) => {
-                    const value = `${context.type}:${context.id}`;
-                    const type =
-                      context.type === "warehouse" ? "Warehouse" : "Branch";
                     return (
-                      <option key={value} value={value}>
-                        {type}: {contextNames[value] ?? context.id}
+                      <option key={context.value} value={context.value}>
+                        {context.typeLabel}: {context.name}
                       </option>
                     );
                   })}

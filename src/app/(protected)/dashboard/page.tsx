@@ -18,6 +18,7 @@ import { callAdministration } from "@/features/administration/api";
 import { useOrganizationCollection } from "@/features/administration/use-organization-collection";
 import { useAuth } from "@/features/auth/auth-context";
 import { OperationalMixChart, TransferPipelineChart } from "@/features/dashboard/charts";
+import { DashboardLocationSwitcher } from "@/features/dashboard/location-switcher";
 import { summarizeDashboard, summarizeTransferPipeline } from "@/features/dashboard/summary";
 import type { BranchRequest, Product, WarehouseTransfer } from "@/types/domain";
 
@@ -103,9 +104,16 @@ export default function DashboardPage() {
     <div className="page-stack">
       <PageHeader
         eyebrow="Operations control"
-        title={operatingContext?.type === "branch" ? "Branch overview" : "Warehouse overview"}
+        title={
+          operatingContext?.type === "branch"
+            ? "Branch overview"
+            : operatingContext?.type === "warehouse"
+              ? "Warehouse overview"
+              : "Organization overview"
+        }
         description={`Welcome, ${profile?.displayName ?? "administrator"}. Priorities and operational queues appear here as real master data and stock are configured.`}
       />
+      <DashboardLocationSwitcher />
       <aside className="flex flex-wrap items-center gap-4 rounded-xl border border-emerald-200 bg-emerald-50 p-4">
         <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-white text-[var(--brand)]">
           <BookOpenCheck className="size-5" />
