@@ -23,7 +23,7 @@ export function transferNextStepCopy(
   if (["approved", "partially_reserved"].includes(status))
     return "Reserve the approved stock so warehouse preparation can begin.";
   if (status === "reserved")
-    return "Reservation is complete. Open the Picking queue and collect the reserved goods.";
+    return "Reservation is complete. Start picking, then record the goods physically collected from the warehouse.";
   if (["picking", "partially_picked"].includes(status))
     return "Finish collecting the reserved goods, then verify the picked quantities.";
   if (status === "picked")

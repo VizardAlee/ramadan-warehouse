@@ -183,11 +183,11 @@ export function AppShell({ children }: { children: ReactNode }) {
           href={href}
           aria-current={active(href) ? "page" : undefined}
           className={cn(
-            "flex min-h-11 items-center gap-3 rounded-lg px-3 text-sm text-emerald-50 transition-colors hover:bg-white/10",
-            active(href) && "bg-white/15 font-semibold text-white",
+            "group relative flex min-h-11 items-center gap-3 rounded-xl px-3 text-sm text-emerald-50 transition-all hover:translate-x-0.5 hover:bg-white/10",
+            active(href) && "bg-white/15 font-semibold text-white shadow-[inset_3px_0_0_#fbbf24]",
           )}
         >
-          <Icon className="size-4 shrink-0" />
+          <span className={cn("grid size-8 shrink-0 place-items-center rounded-lg transition-colors group-hover:bg-white/10", active(href) && "bg-white/10")}><Icon className="size-4" /></span>
           <span>{label}</span>
         </Link>
       ))}
@@ -274,7 +274,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         </div>
       )}
       <div className="min-w-0 xl:col-start-2">
-        <header className="sticky top-0 z-30 flex min-h-16 items-center gap-3 border-b bg-white/95 px-[var(--page-gutter)] backdrop-blur">
+        <header className="sticky top-0 z-30 flex min-h-16 items-center gap-3 border-b bg-white/88 px-[var(--page-gutter)] shadow-[0_1px_12px_rgb(16_41_31_/_0.04)] backdrop-blur-xl">
           <div className="min-w-0 flex-1">
             <p className="truncate text-sm font-semibold md:text-base">
               {titleFromPath(pathname)}
@@ -346,7 +346,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           </div>
         )}
         <main className="min-w-0 px-[var(--page-gutter)] py-[clamp(1rem,2.4vw,2rem)] pb-[calc(5.5rem+env(safe-area-inset-bottom))] xl:pb-8">
-          <div key={contextValue || "organization"}>{children}</div>
+          <div key={contextValue || "organization"} className="app-view">{children}</div>
         </main>
         <nav
           aria-label="Mobile and tablet navigation"
@@ -361,8 +361,8 @@ export function AppShell({ children }: { children: ReactNode }) {
               href={href}
               aria-current={active(href) ? "page" : undefined}
               className={cn(
-                "flex min-h-14 flex-col items-center justify-center gap-1 rounded-lg px-1 text-[.65rem] font-medium text-slate-600",
-                active(href) && "bg-emerald-50 text-[var(--brand-dark)]",
+                "flex min-h-14 flex-col items-center justify-center gap-1 rounded-xl px-1 text-[.65rem] font-medium text-slate-600 transition-all active:scale-95",
+                active(href) && "bg-emerald-50 text-[var(--brand-dark)] shadow-[inset_0_2px_0_#34d399]",
               )}
             >
               <Icon className="size-5" />

@@ -1,6 +1,16 @@
 "use client";
 
-import { Loader2, RefreshCw } from "lucide-react";
+import {
+  ArrowRight,
+  Boxes,
+  Loader2,
+  MapPin,
+  Play,
+  RefreshCw,
+  Sparkles,
+  Store,
+  Warehouse as WarehouseIcon,
+} from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -216,39 +226,49 @@ export function TransferDetail({ transferId }: { transferId: string }) {
       {message && (
         <p className="rounded-lg bg-amber-50 p-3 text-sm">{message}</p>
       )}
-      <section className="rounded-xl border bg-white p-5">
-        <p className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
+      <section className="brand-hero rounded-2xl p-5 sm:p-6">
+        <p className="text-xs font-semibold uppercase tracking-wide text-emerald-100">
           Transfer route
         </p>
         <div className="mt-3 grid items-center gap-3 sm:grid-cols-[1fr_auto_1fr]">
-          <div className="rounded-lg bg-slate-50 p-4">
-            <span className="block text-xs text-[var(--muted)]">From warehouse</span>
-            <strong className="mt-1 block text-lg">
-              {originWarehouse?.name ?? originLocation?.name ?? "Loading warehouse…"}
-            </strong>
-            {originLocation && originLocation.name !== originWarehouse?.name && (
-              <span className="block text-xs text-[var(--muted)]">{originLocation.name}</span>
-            )}
+          <div className="rounded-xl border border-white/15 bg-white/10 p-4 backdrop-blur-sm">
+            <div className="flex items-start gap-3">
+              <span className="grid size-11 shrink-0 place-items-center rounded-xl bg-white/15"><WarehouseIcon className="size-5" /></span>
+              <div>
+                <span className="block text-xs text-emerald-100">From warehouse</span>
+                <strong className="mt-1 block text-lg">
+                  {originWarehouse?.name ?? originLocation?.name ?? "Loading warehouse…"}
+                </strong>
+                {originLocation && originLocation.name !== originWarehouse?.name && (
+                  <span className="mt-1 flex items-center gap-1 text-xs text-emerald-100"><MapPin className="size-3" />{originLocation.name}</span>
+                )}
+              </div>
+            </div>
           </div>
-          <span className="text-center text-xl text-[var(--brand)]" aria-hidden>→</span>
-          <div className="rounded-lg bg-emerald-50 p-4">
-            <span className="block text-xs text-[var(--muted)]">To store / branch</span>
-            <strong className="mt-1 block text-lg">
-              {destinationBranch?.name ?? destinationLocation?.name ?? "Loading destination…"}
-            </strong>
-            {destinationLocation && destinationLocation.name !== destinationBranch?.name && (
-              <span className="block text-xs text-[var(--muted)]">{destinationLocation.name}</span>
-            )}
+          <span className="mx-auto grid size-9 place-items-center rounded-full bg-amber-300 text-emerald-950" aria-hidden><ArrowRight className="size-4" /></span>
+          <div className="rounded-xl border border-white/20 bg-white p-4 text-[var(--foreground)] shadow-lg">
+            <div className="flex items-start gap-3">
+              <span className="grid size-11 shrink-0 place-items-center rounded-xl bg-emerald-100 text-emerald-800"><Store className="size-5" /></span>
+              <div>
+                <span className="block text-xs text-[var(--muted)]">To store / branch</span>
+                <strong className="mt-1 block text-lg">
+                  {destinationBranch?.name ?? destinationLocation?.name ?? "Loading destination…"}
+                </strong>
+                {destinationLocation && destinationLocation.name !== destinationBranch?.name && (
+                  <span className="mt-1 flex items-center gap-1 text-xs text-[var(--muted)]"><MapPin className="size-3" />{destinationLocation.name}</span>
+                )}
+              </div>
+            </div>
           </div>
         </div>
         {transfer.purpose && (
-          <p className="mt-4 text-sm"><span className="text-[var(--muted)]">Purpose:</span> {transfer.purpose}</p>
+          <p className="mt-4 text-sm text-emerald-50"><span className="text-emerald-200">Purpose:</span> {transfer.purpose}</p>
         )}
       </section>
-      <section className="rounded-xl border border-emerald-200 bg-emerald-50 p-5">
+      <section className="soft-grid rounded-2xl border border-emerald-200 bg-emerald-50 p-5 shadow-[var(--shadow-sm)]">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-wide text-emerald-800">Next step</p>
+            <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-emerald-800"><Sparkles className="size-4" />Next step</p>
             <p className="mt-1 max-w-2xl font-medium text-emerald-950">
               {transferNextStepCopy(transfer.status, selfApprovalBlocked)}
             </p>
@@ -290,6 +310,13 @@ export function TransferDetail({ transferId }: { transferId: string }) {
               Reserve stock
             </Button>
           )}
+        {["reserved", "partially_reserved"].includes(transfer.status) &&
+          hasPermission(profile, "transfers.pick") && (
+            <Button disabled={sensitiveActionDisabled(online, loading)} onClick={() => void action("startTransferPicking")}>
+              <Play className="mr-2 size-4" />
+              Start picking
+            </Button>
+          )}
         {["received", "cost_reconciliation"].includes(transfer.status) &&
           hasPermission(profile, "transfers.close") && (
             <Button disabled={sensitiveActionDisabled(online, loading)} onClick={() => void action("closeTransfer")}>
@@ -299,7 +326,7 @@ export function TransferDetail({ transferId }: { transferId: string }) {
           </div>
         </div>
       </section>
-      <section className="rounded-xl border bg-white p-5">
+      <section className="surface p-5">
         <h2 className="text-lg font-semibold">Progress</h2>
         <ol className="mt-4 grid grid-cols-3 gap-2 sm:grid-cols-6">
           {progressSteps.map((step, index) => (
@@ -313,8 +340,9 @@ export function TransferDetail({ transferId }: { transferId: string }) {
         </ol>
       </section>
       <section className="grid grid-cols-2 gap-3 lg:grid-cols-5">
-        {keyQuantities.map(([label, value]) => (
-          <div key={label} className="rounded-xl border bg-white p-4">
+        {keyQuantities.map(([label, value], index) => (
+          <div key={label} className="interactive-card rounded-2xl border bg-white p-4 shadow-[var(--shadow-sm)]">
+            <span className={`mb-3 grid size-9 place-items-center rounded-xl ${index === 4 ? "bg-amber-100 text-amber-800" : "bg-emerald-50 text-emerald-700"}`}><Boxes className="size-4" /></span>
             <p className="text-2xl font-semibold">
               {formatQuantity(value)}
             </p>

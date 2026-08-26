@@ -5,11 +5,14 @@ import {
   CheckCircle2,
   CircleAlert,
   Minus,
+  PackagePlus,
   Plus,
   Printer,
   RefreshCw,
   Search,
   ShoppingCart,
+  Sparkles,
+  Wifi,
   WifiOff,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -458,13 +461,17 @@ export default function PosPage() {
 
   return (
     <div className="space-y-5">
-      <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+      <header className="brand-hero flex flex-col gap-5 rounded-2xl p-5 sm:flex-row sm:items-end sm:justify-between sm:p-7">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-[.16em] text-[var(--brand)]">Branch sales</p>
-          <h1 className="text-3xl font-semibold">Point of sale</h1>
-          <p className="text-[var(--muted)]">
+          <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[.16em] text-emerald-100"><Sparkles className="size-4" />Branch sales</p>
+          <h1 className="mt-2 text-3xl font-semibold sm:text-4xl">Point of sale</h1>
+          <p className="mt-2 max-w-2xl text-sm leading-6 text-emerald-50">
             Sell from branch stock. VAT is shown separately and every confirmed sale posts inventory and accounts together.
           </p>
+          <span className={`mt-4 inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-semibold ${online ? "bg-white/15 text-white" : "bg-amber-300 text-amber-950"}`}>
+            {online ? <Wifi className="size-3.5" /> : <WifiOff className="size-3.5" />}
+            {online ? "Connected and ready" : "Offline sales available"}
+          </span>
         </div>
         {!branchContextId && !assignedBranchId && (
           <label className="text-sm font-medium">
@@ -476,7 +483,7 @@ export default function PosPage() {
                 setCart([]);
                 setWorkspace(null);
               }}
-              className="mt-1 block min-h-11 min-w-56 rounded-lg border bg-white px-3"
+              className="mt-1 block min-h-11 min-w-56 rounded-lg border border-white/30 bg-white px-3 text-slate-900"
             >
               {branches.data
                 .filter((branch) => branch.status === "active")
@@ -548,7 +555,7 @@ export default function PosPage() {
       ) : (
         <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_24rem]">
           <section className="space-y-4">
-            <div className="rounded-xl border bg-white p-4">
+            <div className="glass-panel rounded-2xl p-4">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
                   <h2 className="font-semibold">{workspace.branch.name}</h2>
@@ -567,12 +574,16 @@ export default function PosPage() {
               {visibleProducts.map((product) => {
                 const available = Math.max(0, product.availableQuantity - (queuedQuantityByProduct.get(product.id) ?? 0));
                 return (
-                  <article key={product.id} className="min-h-40 rounded-xl border bg-white p-4 text-left transition hover:border-emerald-400 hover:shadow-sm">
-                    <span className="block font-semibold">{product.name}</span>
-                    <span className="mt-1 block font-mono text-xs text-[var(--muted)]">{product.sku}</span>
-                    <span className="mt-4 block text-xl font-semibold">{formatNaira(product.unitPriceMinor)}</span>
+                  <article key={product.id} className="interactive-card relative min-h-44 overflow-hidden rounded-2xl border bg-white p-4 text-left shadow-[var(--shadow-sm)]">
+                    <div className="flex items-start gap-3">
+                      <span className="grid size-11 shrink-0 place-items-center rounded-xl bg-emerald-50 text-emerald-700"><PackagePlus className="size-5" /></span>
+                      <div className="min-w-0"><span className="block font-semibold">{product.name}</span>
+                      <span className="mt-1 block truncate font-mono text-xs text-[var(--muted)]">{product.sku}</span></div>
+                    </div>
+                    <span className="mt-4 block text-2xl font-semibold tracking-tight">{formatNaira(product.unitPriceMinor)}</span>
                     <span className="block text-xs text-[var(--muted)]">before VAT · {product.priceSource} price</span>
-                    <span className="mt-3 block text-sm">{available} {product.unitOfMeasure} available</span>
+                    <div className="mt-3 flex items-center justify-between gap-2 text-sm"><span>{available} {product.unitOfMeasure} available</span><span className={`size-2.5 rounded-full ${available > 0 ? "bg-emerald-500" : "bg-red-400"}`} /></div>
+                    <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-100"><span className={`block h-full rounded-full ${available > 0 ? "bg-emerald-500" : "bg-red-400"}`} style={{ width: available > 0 ? `${Math.min(100, Math.max(12, available * 5))}%` : "100%" }} /></div>
                     <div className="mt-3 flex gap-2">
                       <Button className="flex-1" disabled={available <= 0} onClick={() => addProduct(product.id)}>Add</Button>
                       {canManageBranchPrice && online && (
@@ -599,7 +610,7 @@ export default function PosPage() {
             </div>
           </section>
 
-          <aside className="h-fit rounded-2xl border bg-white p-5 lg:sticky lg:top-20">
+          <aside className="glass-panel h-fit overflow-hidden rounded-2xl p-5 lg:sticky lg:top-20">
             <div className="flex items-center justify-between">
               <h2 className="flex items-center gap-2 text-xl font-semibold"><ShoppingCart className="size-5" /> Current sale</h2>
               <span className="text-sm text-[var(--muted)]">{totals.totalQuantity} items</span>
@@ -621,10 +632,10 @@ export default function PosPage() {
                 </div>
               ))}
             </div>
-            <dl className="space-y-2 border-y py-4 text-sm">
+            <dl className="space-y-2 rounded-xl bg-gradient-to-br from-emerald-950 to-emerald-700 p-4 text-sm text-white shadow-lg">
               <div className="flex justify-between"><dt>Products</dt><dd>{formatNaira(totals.netAmountMinor)}</dd></div>
               <div className="flex justify-between"><dt>VAT</dt><dd>{formatNaira(totals.vatAmountMinor)}</dd></div>
-              <div className="flex justify-between text-lg font-semibold"><dt>Total</dt><dd>{formatNaira(totals.grossAmountMinor)}</dd></div>
+              <div className="flex justify-between border-t border-white/20 pt-3 text-xl font-semibold"><dt>Total</dt><dd>{formatNaira(totals.grossAmountMinor)}</dd></div>
             </dl>
             <label className="mt-4 block text-sm font-medium">Payment method
               <select value={paymentMethod} onChange={(event) => { setPaymentMethod(event.target.value as PosCheckoutMethod); setPaymentReference(""); if (event.target.value !== "customer_credit") setCustomerId(""); }} className="mt-1 w-full rounded-lg border p-3">

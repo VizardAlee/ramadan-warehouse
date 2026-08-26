@@ -30,7 +30,7 @@ describe("transfer approval guidance", () => {
   });
 
   it("directs reserved stock to picking before packing or dispatch", () => {
-    expect(transferNextStepCopy("reserved")).toContain("Picking queue");
-    expect(transferNextStepCopy("reserved")).toContain("collect");
+    expect(transferNextStepCopy("reserved")).toContain("Start picking");
+    expect(transferNextStepCopy("reserved")).toContain("physically collected");
   });
 });
