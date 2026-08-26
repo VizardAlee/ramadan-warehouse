@@ -16,7 +16,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { callAdministration } from "@/features/administration/api";
 import { useOrganizationCollection } from "@/features/administration/use-organization-collection";
 import { useAuth } from "@/features/auth/auth-context";
-import { summarizeDashboard } from "@/features/dashboard/summary";
+import { OperationalMixChart, TransferPipelineChart } from "@/features/dashboard/charts";
+import { summarizeDashboard, summarizeTransferPipeline } from "@/features/dashboard/summary";
 import type { BranchRequest, Product, WarehouseTransfer } from "@/types/domain";
 
 interface PageResult<T> {
@@ -85,6 +86,17 @@ export default function DashboardPage() {
     { label: "Active products", value: summary?.products, icon: Boxes, href: "/products", emphasis: false },
     { label: "Open discrepancies", value: summary?.discrepancies, icon: AlertTriangle, href: "/transfers/discrepancies", emphasis: Boolean(summary?.discrepancies) },
   ];
+  const mixData = summary ? [
+    { label: "Open requests", value: summary.requests, color: "#116149" },
+    { label: "Transfers on track", value: Math.max(0, summary.transfers - summary.discrepancies), color: "#2a8b72" },
+    { label: "Active products", value: summary.products, color: "#e7aa2d" },
+    { label: "Discrepancies", value: summary.discrepancies, color: "#c8563d" },
+  ] : [];
+  const pipelineColors = ["#116149", "#2a8b72", "#e7aa2d", "#c8563d"];
+  const pipelineData = summarizeTransferPipeline(transfers).map((item, index) => ({
+    ...item,
+    color: pipelineColors[index]!,
+  }));
 
   return (
     <div className="page-stack">
@@ -112,6 +124,12 @@ export default function DashboardPage() {
           </Link>
         ))}
       </section>
+      {summary && (
+        <section aria-label="Operational charts" className="grid gap-4 lg:grid-cols-2">
+          <OperationalMixChart data={mixData} />
+          <TransferPipelineChart data={pipelineData} />
+        </section>
+      )}
       {summary && summary.products === 0 && summary.requests === 0 && summary.transfers === 0 ? (
         <EmptyState
           icon={PackageCheck}

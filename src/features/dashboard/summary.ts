@@ -25,3 +25,35 @@ export function summarizeDashboard(
       .length,
   };
 }
+
+const transferStageStatuses: Readonly<Record<string, ReadonlySet<string>>> = {
+  Review: new Set(["draft", "submitted", "under_review", "changes_requested"]),
+  Preparation: new Set([
+    "approved",
+    "partially_reserved",
+    "reserved",
+    "picking",
+    "partially_picked",
+    "picked",
+    "packing",
+    "packed",
+    "ready_for_dispatch",
+  ]),
+  "In transit": new Set(["partially_dispatched", "dispatched"]),
+  "Receiving & issues": new Set([
+    "partially_received",
+    "received",
+    "disputed",
+    "cost_reconciliation",
+  ]),
+} as const;
+
+export function summarizeTransferPipeline(
+  transfers: readonly WarehouseTransfer[],
+) {
+  return Object.entries(transferStageStatuses).map(([label, statuses]) => ({
+    label,
+    value: transfers.filter((transfer) => statuses.has(transfer.status))
+      .length,
+  }));
+}

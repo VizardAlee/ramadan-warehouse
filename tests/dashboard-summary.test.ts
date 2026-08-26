@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { summarizeDashboard } from "@/features/dashboard/summary";
+import { summarizeDashboard, summarizeTransferPipeline } from "@/features/dashboard/summary";
 import type { BranchRequest, Product, WarehouseTransfer } from "@/types/domain";
 
 describe("dashboard summary", () => {
@@ -22,5 +22,24 @@ describe("dashboard summary", () => {
       products: 1,
       discrepancies: 1,
     });
+  });
+
+  it("groups active transfers into dashboard pipeline stages", () => {
+    const transfers = [
+      { status: "under_review" },
+      { status: "reserved" },
+      { status: "packing" },
+      { status: "dispatched" },
+      { status: "disputed" },
+      { status: "closed" },
+      { status: "cancelled" },
+    ] as WarehouseTransfer[];
+
+    expect(summarizeTransferPipeline(transfers)).toEqual([
+      { label: "Review", value: 1 },
+      { label: "Preparation", value: 2 },
+      { label: "In transit", value: 1 },
+      { label: "Receiving & issues", value: 1 },
+    ]);
   });
 });
