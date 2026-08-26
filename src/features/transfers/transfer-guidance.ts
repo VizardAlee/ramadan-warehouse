@@ -25,15 +25,15 @@ export function transferNextStepCopy(
   if (status === "reserved")
     return "Reservation is complete. Start picking, then record the goods physically collected from the warehouse.";
   if (["picking", "partially_picked"].includes(status))
-    return "Finish collecting the reserved goods, then verify the picked quantities.";
+    return "Record the reserved goods physically collected from the warehouse.";
   if (status === "picked")
-    return "Picking is verified. Pack the goods for their destination.";
+    return "Picking is recorded. Pack and seal the goods for their destination.";
   if (["packing", "partially_packed"].includes(status))
-    return "Finish packing the picked goods, then verify the package.";
+    return "Finish packing and seal the package for dispatch.";
   if (status === "packed")
-    return "Packing is complete. Verify the package before dispatch.";
+    return "Packing is complete. Seal the package before dispatch.";
   if (status === "ready_for_dispatch")
-    return "The package is verified and ready. Confirm dispatch when it physically leaves the warehouse.";
+    return "The package is sealed and ready. Enter delivery details and confirm when it physically leaves the warehouse.";
   if (
     ["partially_dispatched", "dispatched", "partially_received"].includes(
       status,

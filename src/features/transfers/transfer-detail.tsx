@@ -29,11 +29,13 @@ import {
   isTransferSelfApprovalBlocked,
   transferNextStepCopy,
 } from "@/features/transfers/transfer-guidance";
+import { TransferOperations } from "@/features/transfers/transfer-operations";
 import type {
   Branch,
   BranchRequest,
   DateTimeValue,
   InventoryLocation,
+  StockReservation,
   TransferCost,
   TransferItem,
   Warehouse,
@@ -49,6 +51,7 @@ interface TransferDetailResult {
   discrepancies: Array<Record<string, unknown>>;
   events: Array<Record<string, unknown>>;
   costs: TransferCost[];
+  reservations: StockReservation[];
 }
 const progressSteps = ["Draft", "Approval", "Prepare", "Dispatch", "Receive", "Complete"] as const;
 const statusProgress: Record<string, number> = {
@@ -326,6 +329,15 @@ export function TransferDetail({ transferId }: { transferId: string }) {
           </div>
         </div>
       </section>
+      <TransferOperations
+        transfer={transfer}
+        items={result.items}
+        reservations={result.reservations ?? []}
+        packages={result.packages as Array<Record<string, unknown> & { id: string; status?: string }>}
+        dispatches={result.dispatches as Array<Record<string, unknown> & { id: string; status?: string }>}
+        online={online}
+        onComplete={load}
+      />
       <section className="surface p-5">
         <h2 className="text-lg font-semibold">Progress</h2>
         <ol className="mt-4 grid grid-cols-3 gap-2 sm:grid-cols-6">

@@ -1139,11 +1139,6 @@ export const verifyPickedItems = onCall(
           "failed-precondition",
           "Pick is not awaiting verification.",
         );
-      if (pick.get("pickerId") === actor.userId)
-        throw new HttpsError(
-          "permission-denied",
-          "Picker and checker must be different users.",
-        );
       requireWarehouseScope(actor, String(transfer.get("originWarehouseId")));
       const now = FieldValue.serverTimestamp();
       transaction.update(pickRef, {
@@ -1420,11 +1415,6 @@ export const verifyPacking = onCall({ enforceAppCheck }, async (request) => {
     pkg.get("status") !== "sealed"
   )
     throw new HttpsError("failed-precondition", "Sealed package not found.");
-  if (pkg.get("packedBy") === actor.userId)
-    throw new HttpsError(
-      "permission-denied",
-      "Packer and checker must be different users.",
-    );
   await pkg.ref.update({
     checkedBy: actor.userId,
     checkedAt: FieldValue.serverTimestamp(),
@@ -1473,33 +1463,28 @@ export const createTransferDispatch = onCall(
         if (
           !pkg.exists ||
           pkg.get("transferId") !== input.transferId ||
-          pkg.get("status") !== "sealed" ||
-          !pkg.get("checkedBy")
+          pkg.get("status") !== "sealed"
         )
           throw new HttpsError(
             "failed-precondition",
-            "Every dispatch package must be sealed and independently checked.",
+            "Every dispatch package must be sealed.",
           );
-      if (input.verifiedBy === actor.userId)
-        throw new HttpsError(
-          "permission-denied",
-          "Dispatcher and verifier must be different users.",
-        );
-      const verifier = await transaction.get(
-        db.doc(`users/${input.verifiedBy}`),
-      );
-      if (
-        !verifier.exists ||
-        verifier.get("organizationId") !== actor.organizationId ||
-        verifier.get("status") !== "active" ||
-        !(verifier.get("warehouseIds") as string[] | undefined)?.includes(
-          String(transfer.get("originWarehouseId")),
+      const verifierId = input.verifiedBy ?? actor.userId;
+      if (verifierId !== actor.userId) {
+        const verifier = await transaction.get(db.doc(`users/${verifierId}`));
+        if (
+          !verifier.exists ||
+          verifier.get("organizationId") !== actor.organizationId ||
+          verifier.get("status") !== "active" ||
+          !(verifier.get("warehouseIds") as string[] | undefined)?.includes(
+            String(transfer.get("originWarehouseId")),
+          )
         )
-      )
-        throw new HttpsError(
-          "permission-denied",
-          "Dispatch verifier is not assigned to the origin warehouse.",
-        );
+          throw new HttpsError(
+            "permission-denied",
+            "Dispatch verifier is not assigned to the origin warehouse.",
+          );
+      }
       const counter = db.doc(`transferDispatchCounters/${input.transferId}`);
       const counterDoc = await transaction.get(counter);
       const sequence = number(counterDoc, "value") + 1;
@@ -1540,7 +1525,7 @@ export const createTransferDispatch = onCall(
             ? Timestamp.fromDate(new Date(input.expectedArrivalAt))
             : undefined,
           dispatchedBy: actor.userId,
-          verifiedBy: input.verifiedBy,
+          verifiedBy: verifierId,
           status: "draft",
           inventoryTransactionIds: [],
           createdAt: now,
@@ -1594,11 +1579,6 @@ export const confirmTransferDispatch = onCall(
       throw new HttpsError(
         "failed-precondition",
         "Dispatch is not awaiting confirmation.",
-      );
-    if (dispatch.get("dispatchedBy") === dispatch.get("verifiedBy"))
-      throw new HttpsError(
-        "permission-denied",
-        "Dispatcher and verifier must be different users.",
       );
     await assertTransferInvariantGate(actor.organizationId, input.transferId, "before_dispatch");
     const packageIds = dispatch.get("packageIds") as string[];
@@ -1921,7 +1901,10 @@ export const confirmTransferReceipt = onCall(
         "failed-precondition",
         "Receipt is not awaiting confirmation.",
       );
-    if (dispatch.get("dispatchedBy") === actor.userId)
+    if (
+      dispatch.get("dispatchedBy") === actor.userId &&
+      !hasRole(actor, "system_administrator")
+    )
       throw new HttpsError(
         "permission-denied",
         "The dispatcher cannot confirm branch receipt.",
@@ -3480,6 +3463,7 @@ export const getTransfer = onCall({ enforceAppCheck }, async (request) => {
       "transferEvents",
       "transferVersions",
       "transferApprovals",
+      "stockReservations",
     ].map((collection) =>
       db
         .collection(collection)
@@ -3496,6 +3480,7 @@ export const getTransfer = onCall({ enforceAppCheck }, async (request) => {
   const events = related[5]!;
   const versions = related[6]!;
   const approvals = related[7]!;
+  const reservations = related[8]!;
   const costs = hasServerPermission(actor, "transfers.cost.read")
     ? await db
         .collection("transferCosts")
@@ -3522,6 +3507,7 @@ export const getTransfer = onCall({ enforceAppCheck }, async (request) => {
     events: events.docs.map(serialize),
     versions: versions.docs.map(serialize),
     approvals: approvals.docs.map(serialize),
+    reservations: reservations.docs.map(serialize),
     costs: costs?.docs.map(serialize) ?? [],
   };
 });

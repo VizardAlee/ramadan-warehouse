@@ -342,6 +342,7 @@ const rolePermissions: Readonly<Record<RoleId, readonly Permission[]>> = {
     "transfers.read.assigned_warehouse",
     "transfers.pick",
     "transfers.pack",
+    "transfers.dispatch",
     "transfers.report_discrepancy",
     "suppliers.read",
     "procurement.read",

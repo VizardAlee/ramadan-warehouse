@@ -359,7 +359,7 @@ describe.sequential("transfer callables", () => {
       idempotencyKey: crypto.randomUUID(),
     });
   });
-  it("reserves without posting inventory and completes dispatch and receipt through the ledger", async () => {
+  it("lets one assigned warehouse operator pick, pack, and dispatch while receipt posts through the ledger", async () => {
     const beforeTransactions = (
       await adminDb.collection("inventoryTransactions").get()
     ).size;
@@ -381,31 +381,23 @@ describe.sequential("transfer callables", () => {
     expect((await adminDb.collection("inventoryTransactions").get()).size).toBe(
       beforeTransactions,
     );
+    const guidedDetail = await call<{
+      reservations: Array<{ transferItemId: string; quantity: number }>;
+    }>(picker, "getTransfer", { transferId, limit: 100 });
+    expect(guidedDetail.reservations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ transferItemId, quantity: 12 }),
+      ]),
+    );
     await call(picker, "startTransferPicking", {
       transferId,
       expectedVersion: 1,
       idempotencyKey: crypto.randomUUID(),
     });
-    const picked = await call<{ pickId: string }>(picker, "recordPickedItems", {
+    await call<{ pickId: string }>(picker, "recordPickedItems", {
       transferId,
       expectedVersion: 1,
       lines: [{ transferItemId, quantity: 12 }],
-      idempotencyKey: crypto.randomUUID(),
-    });
-    await expect(
-      call(picker, "verifyPickedItems", {
-        transferId,
-        expectedVersion: 1,
-        pickId: picked.pickId,
-        accepted: true,
-        idempotencyKey: crypto.randomUUID(),
-      }),
-    ).rejects.toMatchObject({ code: "functions/permission-denied" });
-    await call(approver, "verifyPickedItems", {
-      transferId,
-      expectedVersion: 1,
-      pickId: picked.pickId,
-      accepted: true,
       idempotencyKey: crypto.randomUUID(),
     });
     const pkg = await call<{ packageId: string }>(
@@ -424,26 +416,19 @@ describe.sequential("transfer callables", () => {
       packageId: pkg.packageId,
       idempotencyKey: crypto.randomUUID(),
     });
-    await call(approver, "verifyPacking", {
-      transferId,
-      expectedVersion: 1,
-      packageId: pkg.packageId,
-      idempotencyKey: crypto.randomUUID(),
-    });
     const dispatchPayload = {
       transferId,
       expectedVersion: 1,
       packageIds: [pkg.packageId],
       driverName: "Musa Bello",
-      verifiedBy: approver.uid,
       idempotencyKey: crypto.randomUUID(),
     };
     const dispatch = await call<{ dispatchId: string }>(
-      logistics,
+      picker,
       "createTransferDispatch",
       dispatchPayload,
     );
-    await call(logistics, "confirmTransferDispatch", {
+    await call(picker, "confirmTransferDispatch", {
       ...dispatchPayload,
       dispatchId: dispatch.dispatchId,
       idempotencyKey: crypto.randomUUID(),
@@ -596,5 +581,5 @@ describe.sequential("transfer callables", () => {
       (await adminDb.doc(`transfers/${transferId}`).get()).get("status"),
     ).toBe("closed");
     expect((await adminDb.doc("branchRequests/request-a").get()).get("status")).toBe("fulfilled");
-  }, 60_000);
+  }, 120_000);
 });

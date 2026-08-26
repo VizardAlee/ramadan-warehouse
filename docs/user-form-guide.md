@@ -69,14 +69,18 @@ for both warehouse locations and store/branch stock locations.
    does not move stock.
 3. Reserve the approved quantity. Reservation locks available warehouse stock
    to the transfer but does not mean the goods have been collected or sent.
-4. Open the **Picking queue**, physically collect the reserved goods, and
-   verify the picked quantities.
-5. Pack the picked goods for the named destination and independently verify the
-   package.
-6. Confirm dispatch only when the goods physically leave the warehouse.
+4. Open the transfer from the **Picking queue** and use the guided workspace to
+   record the goods physically collected.
+5. Choose **Pack and seal**. A normal transfer does not require another user to
+   repeat the warehouse preparation.
+6. Enter the driver and any available vehicle or waybill details, then choose
+   **Confirm dispatch** when the goods physically leave the warehouse. The same
+   assigned warehouse operator may complete steps 4–6.
    Confirmed dispatched quantities are immutable.
-7. At the destination store/branch, record the quantities received, damaged,
-   or missing. Do not record a receipt before the goods arrive.
+7. At the destination store/branch, confirm a complete good-condition receipt
+   or record quantities received, damaged, or missing. Optional independent
+   checks remain available for exceptional or high-risk movements. Do not
+   record a receipt before the goods arrive.
 8. Resolve discrepancies and transfer costs, validate the movement, and close
    the transfer. Closing a transfer does not silently cancel any remaining
    approved demand on its originating branch request.

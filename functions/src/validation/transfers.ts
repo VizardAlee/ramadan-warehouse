@@ -121,7 +121,7 @@ export const dispatchInput = transferActionInput.extend({
   transportCompany: z.string().trim().max(160).optional(),
   waybillNumber: z.string().trim().max(100).optional(),
   expectedArrivalAt: z.string().datetime().optional(),
-  verifiedBy: id,
+  verifiedBy: id.optional(),
 });
 export const receiptInput = transferActionInput.extend({
   dispatchId: id,
