@@ -4,6 +4,10 @@ The UI explains the immediate purpose beside sensitive fields; this guide is
 the longer operational reference. Values marked optional may be left blank.
 Never invent quantities, costs, payment references, or approvals.
 
+The application also provides an in-app visual guide at **User guide** in the
+main navigation and at `/guide`. The Transfers register includes a focused
+first-time explainer with a direct link to the Picking queue.
+
 ## Product form
 
 - **Name, brand, model and unit** identify what the business buys, stores and
@@ -37,6 +41,26 @@ for both warehouse locations and store/branch stock locations.
    requires them.
 5. Review and post once. Opening stock creates immutable ledger evidence and is
    not a transfer from the central warehouse.
+
+## Warehouse-to-branch transfers
+
+1. Create a transfer from an approved branch request or as an authorized direct
+   allocation, then submit it for review.
+2. A different authorized person approves it. Approval confirms the plan but
+   does not move stock.
+3. Reserve the approved quantity. Reservation locks available warehouse stock
+   to the transfer but does not mean the goods have been collected or sent.
+4. Open the **Picking queue**, physically collect the reserved goods, and
+   verify the picked quantities.
+5. Pack the picked goods for the named destination and independently verify the
+   package.
+6. Confirm dispatch only when the goods physically leave the warehouse.
+   Confirmed dispatched quantities are immutable.
+7. At the destination store/branch, record the quantities received, damaged,
+   or missing. Do not record a receipt before the goods arrive.
+8. Resolve discrepancies and transfer costs, validate the movement, and close
+   the transfer. Closing a transfer does not silently cancel any remaining
+   approved demand on its originating branch request.
 
 ## Branch POS
 

@@ -28,4 +28,9 @@ describe("transfer approval guidance", () => {
       isTransferSelfApprovalBlocked("approved", "admin-1", "admin-1"),
     ).toBe(false);
   });
+
+  it("directs reserved stock to picking before packing or dispatch", () => {
+    expect(transferNextStepCopy("reserved")).toContain("Picking queue");
+    expect(transferNextStepCopy("reserved")).toContain("collect");
+  });
 });

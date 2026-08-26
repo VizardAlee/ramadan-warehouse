@@ -22,17 +22,18 @@ export function transferNextStepCopy(
     return "This transfer is waiting for review and approval.";
   if (["approved", "partially_reserved"].includes(status))
     return "Reserve the approved stock so warehouse preparation can begin.";
-  if (
-    [
-      "reserved",
-      "picking",
-      "picked",
-      "packing",
-      "packed",
-      "ready_for_dispatch",
-    ].includes(status)
-  )
-    return "The warehouse should prepare and dispatch the approved stock.";
+  if (status === "reserved")
+    return "Reservation is complete. Open the Picking queue and collect the reserved goods.";
+  if (["picking", "partially_picked"].includes(status))
+    return "Finish collecting the reserved goods, then verify the picked quantities.";
+  if (status === "picked")
+    return "Picking is verified. Pack the goods for their destination.";
+  if (["packing", "partially_packed"].includes(status))
+    return "Finish packing the picked goods, then verify the package.";
+  if (status === "packed")
+    return "Packing is complete. Verify the package before dispatch.";
+  if (status === "ready_for_dispatch")
+    return "The package is verified and ready. Confirm dispatch when it physically leaves the warehouse.";
   if (
     ["partially_dispatched", "dispatched", "partially_received"].includes(
       status,

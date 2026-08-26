@@ -5,6 +5,7 @@ import {
   Boxes,
   ClipboardList,
   ContactRound,
+  CircleHelp,
   FileBarChart,
   Gauge,
   HandCoins,
@@ -56,6 +57,7 @@ const navigation = [
   { href: "/reports", label: "Reports", icon: FileBarChart, permissions: ["reports.inventory.read", "reports.requests.read", "reports.transfers.read", "reports.sales.read"] },
   { href: "/administration", label: "Administration", icon: Settings, permissions: ["organization.manage", "branch.manage", "warehouse.manage", "location.manage", "user.manage", "role.manage"] },
   { href: "/audit", label: "Audit", icon: History, permissions: ["audit.read"] },
+  { href: "/guide", label: "User guide", icon: CircleHelp, permissions: [] },
 ] as const;
 const titleFromPath = (pathname: string) => {
   const segments = pathname.split("/").filter(Boolean);
@@ -266,7 +268,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                   More destinations
                 </h2>
                 <p className="mt-1 text-sm text-[var(--muted)]">
-                  Administration, reporting, costs, and audit history.
+                  Guidance, administration, reporting, costs, and audit history.
                 </p>
               </div>
               <Button
@@ -346,6 +348,14 @@ export function AppShell({ children }: { children: ReactNode }) {
               </label>
             )}
             <PwaControls />
+            <Link
+              href="/guide"
+              title="Open user guide"
+              aria-label="Open visual user guide"
+              className="inline-flex size-10 shrink-0 items-center justify-center rounded-lg text-slate-700 transition-colors hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600"
+            >
+              <CircleHelp className="size-4" />
+            </Link>
             <Button
               size="icon"
               variant="ghost"

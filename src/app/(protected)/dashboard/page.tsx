@@ -4,6 +4,7 @@ import {
   AlertTriangle,
   ArrowRight,
   Boxes,
+  BookOpenCheck,
   ClipboardClock,
   PackageCheck,
   Truck,
@@ -105,6 +106,18 @@ export default function DashboardPage() {
         title={operatingContext?.type === "branch" ? "Branch overview" : "Warehouse overview"}
         description={`Welcome, ${profile?.displayName ?? "administrator"}. Priorities and operational queues appear here as real master data and stock are configured.`}
       />
+      <aside className="flex flex-wrap items-center gap-4 rounded-xl border border-emerald-200 bg-emerald-50 p-4">
+        <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-white text-[var(--brand)]">
+          <BookOpenCheck className="size-5" />
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="font-semibold text-emerald-950">New to ABR Warehouse?</p>
+          <p className="mt-1 text-sm text-emerald-900">Follow the visual setup, stock movement, sales, and accounting workflows.</p>
+        </div>
+        <Link href="/guide" className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-[var(--brand)] px-4 text-sm font-semibold text-white">
+          Open user guide <ArrowRight className="size-4" />
+        </Link>
+      </aside>
       {failed && (
         <p role="alert" className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950">
           Some dashboard totals could not be refreshed. Use the linked registers for current operational detail.

@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { callAdministration } from "@/features/administration/api";
 import { useAuth } from "@/features/auth/auth-context";
+import { TransferQuickGuide } from "@/features/guidance/workflow-track";
 import { hasPermission, hasRole } from "@/lib/permissions/roles";
 import type { WarehouseTransfer } from "@/types/domain";
 
@@ -175,6 +176,7 @@ export function TransferList({ view = "all" }: { view?: string }) {
           )}
         </div>
       </header>
+      {view === "all" && <TransferQuickGuide />}
       <nav aria-label="Transfer queues" className="scroll-tabs pb-1">
         {Object.entries(labels).map(([key, label]) => (
           <Link
