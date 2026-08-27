@@ -2,6 +2,7 @@
 
 import { getIdTokenResult, onAuthStateChanged, signInWithEmailAndPassword, signOut, type User } from "firebase/auth";
 import { doc, getDoc } from "firebase/firestore";
+import { httpsCallable } from "firebase/functions";
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { getFirebaseServices } from "@/lib/firebase/client";
 import type { UserProfile } from "@/types/domain";
@@ -112,6 +113,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               (typeof tokenOrganization === "string" && tokenOrganization !== nextProfile.organizationId)
             ) {
               await nextUser.getIdToken(true);
+            }
+            if (["pending", "expired"].includes(String(nextProfile.invitationStatus))) {
+              void httpsCallable(getFirebaseServices().functions, "getMyAccessContext")({}).catch(() => undefined);
             }
           }
           const contexts = availableOperatingContexts(nextProfile);

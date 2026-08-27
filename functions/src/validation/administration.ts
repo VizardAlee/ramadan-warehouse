@@ -39,6 +39,7 @@ export const updateUserInput = userFields.omit({ email: true, idempotencyKey: tr
   if (value.roleIds && new Set(value.roleIds).size !== value.roleIds.length) context.addIssue({ code: "custom", path: ["roleIds"], message: "Roles must be unique" });
 });
 export const revokeSessionsInput = z.object({ userId: id, reason: z.string().trim().min(3).max(500) });
+export const reissueInvitationInput = z.object({ userId: id, idempotencyKey: z.string().uuid() });
 const baseMaster = z.object({ id: optionalId, name: z.string().trim().min(2).max(120), code, status: z.enum(["active", "inactive"]).default("active"), address: text(500), state: text(80) });
 export const branchInput = baseMaster.extend({ contactEmail: optionalEmail, contactPhone: text(24), managerUserId: optionalId, idempotencyKey: z.string().uuid() });
 export const warehouseInput = baseMaster.extend({ managerIds: z.array(id).max(20).default([]), idempotencyKey: z.string().uuid() });

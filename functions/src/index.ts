@@ -3,6 +3,7 @@ export { getMyAccessContext } from "./callable/get-my-access-context.js";
 export { bootstrapOrganization } from "./callable/bootstrap-organization.js";
 export {
   createOrganizationUser,
+  reissueOrganizationUserInvitation,
   updateOrganizationUser,
   revokeUserSessions,
 } from "./callable/manage-users.js";

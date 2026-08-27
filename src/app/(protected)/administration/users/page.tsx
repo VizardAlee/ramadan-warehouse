@@ -1,7 +1,7 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Search, UserPlus } from "lucide-react";
+import { MailPlus, Search, UserPlus } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
@@ -13,11 +13,27 @@ import { callAdministration } from "@/features/administration/api";
 import { useOrganizationCollection } from "@/features/administration/use-organization-collection";
 import { hasPermission, roleIdsForProfile } from "@/lib/permissions/roles";
 import {
+  type DateTimeValue,
   roleIds,
   type Branch,
   type UserProfile,
   type Warehouse,
 } from "@/types/domain";
+
+function dateValue(value: DateTimeValue | undefined) {
+  if (!value) return null;
+  const date = typeof value === "string" ? new Date(value) : new Date(value.seconds * 1_000);
+  return Number.isNaN(date.valueOf()) ? null : date;
+}
+
+function invitationLabel(user: UserProfile) {
+  if (user.invitationStatus === "accepted") return "Invitation accepted";
+  if (user.invitationStatus === "pending") {
+    const expiresAt = dateValue(user.invitationExpiresAt);
+    return expiresAt && expiresAt.valueOf() <= Date.now() ? "Invitation expired" : "Invitation pending";
+  }
+  return null;
+}
 
 const formSchema = z.object({
   email: z.string().email(),
@@ -48,7 +64,7 @@ const defaults: Values = {
 };
 
 export default function UsersPage() {
-  const { profile } = useAuth();
+  const { profile, user: authenticatedUser } = useAuth();
   const users = useOrganizationCollection<UserProfile>("users");
   const branches = useOrganizationCollection<Branch>("branches");
   const warehouses = useOrganizationCollection<Warehouse>("warehouses");
@@ -61,6 +77,7 @@ export default function UsersPage() {
   const [showForm, setShowForm] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [invitationLink, setInvitationLink] = useState<string | null>(null);
+  const [reissuingUserId, setReissuingUserId] = useState<string | null>(null);
   const dialogRef = useDialogFocus<HTMLFormElement>(showForm, () =>
     setShowForm(false),
   );
@@ -143,6 +160,34 @@ export default function UsersPage() {
       );
     }
   });
+  async function reissueInvitation(user: UserProfile) {
+    setMessage(null);
+    setInvitationLink(null);
+    setReissuingUserId(user.id);
+    try {
+      const result = await callAdministration<
+        { userId: string; idempotencyKey: string },
+        { invitationLink: string | null; invitationExpiresAt: string | null }
+      >("reissueOrganizationUserInvitation", {
+        userId: user.id,
+        idempotencyKey: crypto.randomUUID(),
+      });
+      setInvitationLink(result.invitationLink);
+      setMessage(
+        result.invitationLink
+          ? `A fresh one-time invitation link was issued for ${user.displayName}. Send it through an approved channel; the previous expired link should not be reused.`
+          : "The invitation was already re-issued for this request. Refresh before trying again.",
+      );
+    } catch (cause) {
+      setMessage(
+        cause instanceof Error
+          ? cause.message
+          : "The invitation could not be re-issued.",
+      );
+    } finally {
+      setReissuingUserId(null);
+    }
+  }
   if (!allowed)
     return (
       <div className="rounded-xl border bg-white p-8">
@@ -310,11 +355,30 @@ export default function UsersPage() {
                   <td data-label="Warehouses">{user.warehouseIds.length}</td>
                   <td data-label="Status">
                     <StatusBadge status={user.status} />
+                    {invitationLabel(user) && (
+                      <span className="mt-1 block text-xs text-[var(--muted)]">
+                        {invitationLabel(user)}
+                      </span>
+                    )}
                   </td>
                   <td data-label="Actions" data-actions="true">
-                    <Button variant="ghost" onClick={() => open(user)}>
-                      Edit
-                    </Button>
+                    <div className="flex flex-wrap justify-end gap-1">
+                      {user.id !== authenticatedUser?.uid &&
+                        user.status === "active" &&
+                        user.invitationStatus !== "accepted" && (
+                          <Button
+                            variant="ghost"
+                            disabled={reissuingUserId === user.id}
+                            onClick={() => void reissueInvitation(user)}
+                          >
+                            <MailPlus className="size-4" />
+                            {reissuingUserId === user.id ? "Issuing…" : "Re-invite"}
+                          </Button>
+                        )}
+                      <Button variant="ghost" onClick={() => open(user)}>
+                        Edit
+                      </Button>
+                    </div>
                   </td>
                 </tr>
               ))

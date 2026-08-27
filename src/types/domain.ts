@@ -332,6 +332,11 @@ export interface UserProfile {
   warehouseIds: string[];
   authDisabled: boolean;
   authorizationVersion: number;
+  invitationStatus?: "pending" | "expired" | "accepted";
+  invitationIssuedAt?: DateTimeValue;
+  invitationExpiresAt?: DateTimeValue;
+  invitationAcceptedAt?: DateTimeValue;
+  invitationAttemptCount?: number;
   createdAt: DateTimeValue;
   createdBy: string;
   updatedAt: DateTimeValue;

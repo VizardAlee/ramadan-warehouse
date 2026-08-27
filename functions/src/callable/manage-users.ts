@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { FieldValue } from "firebase-admin/firestore";
+import { FieldValue, Timestamp } from "firebase-admin/firestore";
 import { logger } from "firebase-functions";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
 import { adminAuth, db } from "../admin.js";
@@ -7,12 +7,20 @@ import { assertAssignableRoles, normalizeRoleIds, requireAccess, requireOrganiza
 import { writeAuditLog } from "../audit/write-audit-log.js";
 import { enforceAppCheck } from "../config.js";
 import { validateAssignments } from "../services/assignments.js";
-import { revokeSessionsInput, updateUserInput, userInput } from "../validation/administration.js";
+import { reissueInvitationInput, revokeSessionsInput, updateUserInput, userInput } from "../validation/administration.js";
 import { correlationId, parseInput } from "../utils/callable.js";
 import { toFirebasePhoneNumber } from "../utils/nigerian-phone.js";
 
 function operationRef(organizationId: string, action: string, key: string) { return db.collection("idempotencyKeys").doc(`${organizationId}_${action}_${key}`); }
 function emailRef(email: string) { return db.collection("userEmails").doc(encodeURIComponent(email)); }
+const invitationTtlMs = 60 * 60 * 1_000;
+
+function hasUsedInvitation(authUser: Awaited<ReturnType<typeof adminAuth.getUser>>) {
+  if (!authUser.metadata.lastSignInTime) return false;
+  const createdAt = Date.parse(authUser.metadata.creationTime);
+  const lastSignedInAt = Date.parse(authUser.metadata.lastSignInTime);
+  return Number.isFinite(createdAt) && Number.isFinite(lastSignedInAt) && lastSignedInAt > createdAt;
+}
 
 export const createOrganizationUser = onCall({ enforceAppCheck }, async (request) => {
   const actor = await requireAccess(request); requirePermission(actor, "user.manage");
@@ -29,12 +37,20 @@ export const createOrganizationUser = onCall({ enforceAppCheck }, async (request
   const temporaryPassword = randomBytes(48).toString("base64url");
   const authUser = await adminAuth.createUser({ email: input.email, displayName: input.displayName, phoneNumber: toFirebasePhoneNumber(input.phoneNumber), password: temporaryPassword, disabled: input.status !== "active", emailVerified: false });
   const requestId = correlationId();
+  const invitationExpiresAt = Timestamp.fromMillis(Date.now() + invitationTtlMs);
+  let invitationLink: string;
+  try { invitationLink = await adminAuth.generatePasswordResetLink(input.email); }
+  catch (error) {
+    await adminAuth.deleteUser(authUser.uid).catch(() => undefined);
+    logger.error("Unable to generate invitation link", { organizationId: actor.organizationId, actorUserId: actor.userId, targetUserId: authUser.uid, correlationId: requestId, error });
+    throw new HttpsError("unavailable", "The invitation link could not be generated. Try again.");
+  }
   try {
     await db.runTransaction(async (transaction) => {
       const [existingOperation, existingEmail] = await Promise.all([transaction.get(operation), transaction.get(emailRef(input.email))]);
       if (existingOperation.exists || existingEmail.exists) throw new HttpsError("already-exists", "This user provisioning request has already been processed.");
       const now = FieldValue.serverTimestamp();
-      transaction.create(db.collection("users").doc(authUser.uid), { uid: authUser.uid, organizationId: actor.organizationId, email: input.email, displayName: input.displayName, phoneNumber: input.phoneNumber ?? null, employeeReference: input.employeeReference ?? null, roleId: roleIds[0], roleIds, branchIds: input.branchIds, warehouseIds: input.warehouseIds, status: input.status, authDisabled: input.status !== "active", authorizationVersion: 1, createdAt: now, createdBy: actor.userId, updatedAt: now, updatedBy: actor.userId, lastRoleChangeAt: now, lastRoleChangedBy: actor.userId });
+      transaction.create(db.collection("users").doc(authUser.uid), { uid: authUser.uid, organizationId: actor.organizationId, email: input.email, displayName: input.displayName, phoneNumber: input.phoneNumber ?? null, employeeReference: input.employeeReference ?? null, roleId: roleIds[0], roleIds, branchIds: input.branchIds, warehouseIds: input.warehouseIds, status: input.status, authDisabled: input.status !== "active", authorizationVersion: 1, invitationStatus: "pending", invitationIssuedAt: now, invitationExpiresAt, invitationAttemptCount: 1, createdAt: now, createdBy: actor.userId, updatedAt: now, updatedBy: actor.userId, lastRoleChangeAt: now, lastRoleChangedBy: actor.userId });
       transaction.create(emailRef(input.email), { uid: authUser.uid, organizationId: actor.organizationId, createdAt: now });
       transaction.create(operation, { organizationId: actor.organizationId, action: "createUser", userId: authUser.uid, status: "completed", createdAt: now, createdBy: actor.userId });
       writeAuditLog(transaction, actor, { action: "user.created", entityType: "user", entityId: authUser.uid, correlationId: requestId, sourceFunction: "createOrganizationUser", after: { email: input.email, roleId: roleIds[0], roleIds, branchIds: input.branchIds, warehouseIds: input.warehouseIds, status: input.status } });
@@ -42,9 +58,47 @@ export const createOrganizationUser = onCall({ enforceAppCheck }, async (request
   } catch (error) { await adminAuth.deleteUser(authUser.uid).catch(() => undefined); throw error; }
   await adminAuth.setCustomUserClaims(authUser.uid, { organizationId: actor.organizationId, authorizationVersion: 1 });
   await db.runTransaction(async (transaction) => writeAuditLog(transaction, actor, { action: "custom_claim.updated", entityType: "user", entityId: authUser.uid, correlationId: requestId, sourceFunction: "createOrganizationUser", after: { organizationId: actor.organizationId, authorizationVersion: 1 } }));
-  const invitationLink = await adminAuth.generatePasswordResetLink(input.email).catch(() => null);
   logger.info("Organization user provisioned", { organizationId: actor.organizationId, actorUserId: actor.userId, targetUserId: authUser.uid, correlationId: requestId });
-  return { userId: authUser.uid, created: true, invitationLink };
+  return { userId: authUser.uid, created: true, invitationLink, invitationExpiresAt: invitationExpiresAt.toDate().toISOString() };
+});
+
+export const reissueOrganizationUserInvitation = onCall({ enforceAppCheck }, async (request) => {
+  const actor = await requireAccess(request); requirePermission(actor, "user.manage");
+  const input = parseInput(reissueInvitationInput, request.data);
+  if (input.userId === actor.userId) throw new HttpsError("failed-precondition", "You cannot re-issue an invitation for your own active account.", { code: "INVITATION_ALREADY_ACCEPTED" });
+  const targetRef = db.collection("users").doc(input.userId);
+  const target = await targetRef.get();
+  if (!target.exists) throw new HttpsError("not-found", "User profile not found.");
+  const profile = target.data() as Record<string, unknown>;
+  requireOrganizationAccess(actor, String(profile.organizationId));
+  if (profile.status !== "active" || profile.authDisabled === true) throw new HttpsError("failed-precondition", "Activate this user before issuing a new invitation.", { code: "INVITATION_USER_INACTIVE" });
+  const isRecordedInvite = profile.invitationStatus === "pending" || profile.invitationStatus === "expired";
+  const isLegacyInvite = profile.invitationStatus == null && typeof profile.createdBy === "string" && profile.createdBy !== input.userId;
+  if (!isRecordedInvite && !isLegacyInvite) throw new HttpsError("failed-precondition", "This account is not awaiting invitation acceptance.", { code: "INVITATION_ALREADY_ACCEPTED" });
+  const authUser = await adminAuth.getUser(input.userId).catch(() => { throw new HttpsError("not-found", "The invitation Authentication account no longer exists."); });
+  if (!authUser.email) throw new HttpsError("failed-precondition", "The invited account has no email address.");
+  if (hasUsedInvitation(authUser)) throw new HttpsError("failed-precondition", "This user has already activated or used the account.", { code: "INVITATION_ALREADY_ACCEPTED" });
+  const operation = operationRef(actor.organizationId, "reissueUserInvitation", input.idempotencyKey);
+  const prior = await operation.get();
+  if (prior.exists && prior.get("status") === "completed") return { userId: input.userId, reissued: false, invitationLink: null, invitationExpiresAt: prior.get("invitationExpiresAt")?.toDate?.()?.toISOString?.() ?? null };
+  const invitationLink = await adminAuth.generatePasswordResetLink(authUser.email).catch((error) => {
+    logger.error("Unable to re-issue invitation link", { organizationId: actor.organizationId, actorUserId: actor.userId, targetUserId: input.userId, error });
+    throw new HttpsError("unavailable", "The invitation link could not be generated. Try again.");
+  });
+  const refreshedAuthUser = await adminAuth.getUser(input.userId);
+  if (hasUsedInvitation(refreshedAuthUser)) throw new HttpsError("failed-precondition", "This user has already activated or used the account.", { code: "INVITATION_ALREADY_ACCEPTED" });
+  const invitationExpiresAt = Timestamp.fromMillis(Date.now() + invitationTtlMs); const requestId = correlationId();
+  await db.runTransaction(async (transaction) => {
+    const [fresh, previousOperation] = await Promise.all([transaction.get(targetRef), transaction.get(operation)]);
+    if (previousOperation.exists) return;
+    if (!fresh.exists || fresh.get("organizationId") !== actor.organizationId) throw new HttpsError("not-found", "User profile not found.");
+    const now = FieldValue.serverTimestamp();
+    transaction.update(targetRef, { invitationStatus: "pending", invitationIssuedAt: now, invitationExpiresAt, invitationAttemptCount: FieldValue.increment(1), updatedAt: now, updatedBy: actor.userId });
+    transaction.create(operation, { organizationId: actor.organizationId, action: "reissueUserInvitation", userId: input.userId, status: "completed", invitationExpiresAt, createdAt: now, createdBy: actor.userId });
+    writeAuditLog(transaction, actor, { action: "user.invitation_reissued", entityType: "user", entityId: input.userId, correlationId: requestId, sourceFunction: "reissueOrganizationUserInvitation", before: { invitationStatus: profile.invitationStatus ?? "legacy" }, after: { invitationStatus: "pending", invitationExpiresAt: invitationExpiresAt.toDate().toISOString() } });
+  });
+  logger.info("Organization user invitation re-issued", { organizationId: actor.organizationId, actorUserId: actor.userId, targetUserId: input.userId, correlationId: requestId });
+  return { userId: input.userId, reissued: true, invitationLink, invitationExpiresAt: invitationExpiresAt.toDate().toISOString() };
 });
 
 export const updateOrganizationUser = onCall({ enforceAppCheck }, async (request) => {

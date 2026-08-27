@@ -23,6 +23,8 @@ const messages: Record<string, string> = {
   ACCOUNTING_CLOSE_SELF_APPROVAL_FORBIDDEN: "The person who prepared this accounting close cannot complete it. Ask another authorized administrator or finance officer.",
   ACCOUNTING_PERIOD_LOCKED: "That accounting month is prepared or closed. Use an open accounting date instead.",
   ACCOUNTING_CLOSE_BLOCKED: "This month is not ready to close. Review and resolve every blocker shown in the close workspace.",
+  INVITATION_ALREADY_ACCEPTED: "This user has already activated the account, so a new invitation link cannot be issued. Use password recovery if they cannot sign in.",
+  INVITATION_USER_INACTIVE: "Activate this user before issuing a new invitation link.",
 };
 export class UserFacingError extends Error { constructor(message: string, readonly diagnosticCode?: string) { super(message); this.name = "UserFacingError"; } }
 export function toUserFacingError(error: unknown, fallback = "The operation could not be completed. Refresh and try again."): UserFacingError {
