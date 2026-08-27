@@ -62,6 +62,20 @@ describe("callAdministration", () => {
     expect(mocks.callable).toHaveBeenCalledTimes(1);
   });
 
+  it("refreshes an existing session once after an unauthenticated callable response", async () => {
+    mocks.callable
+      .mockRejectedValueOnce({ code: "functions/unauthenticated" })
+      .mockResolvedValueOnce({ data: { invitationLink: "https://example.test/invite" } });
+
+    await expect(
+      callAdministration("createOrganizationUser", {
+        email: "invitee@example.test",
+      }),
+    ).resolves.toEqual({ invitationLink: "https://example.test/invite" });
+    expect(mocks.getIdToken).toHaveBeenCalledWith(true);
+    expect(mocks.callable).toHaveBeenCalledTimes(2);
+  });
+
   it("includes the selected operating context in callable requests", async () => {
     vi.stubGlobal("window", {
       localStorage: {

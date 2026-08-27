@@ -1,5 +1,5 @@
 const messages: Record<string, string> = {
-  "functions/unauthenticated": "Your session has expired. Sign in again.",
+  "functions/unauthenticated": "Your sign-in or device verification could not be confirmed. Refresh and try again; sign in again only if the app asks you to.",
   "functions/permission-denied": "You do not have permission to perform this action.",
   "functions/invalid-argument": "Some submitted information is invalid. Review the form and try again.",
   "functions/failed-precondition": "This action is not available in the record's current state. Refresh and review it.",

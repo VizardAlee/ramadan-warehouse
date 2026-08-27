@@ -41,6 +41,15 @@ function isOutdatedAuthorization(error: unknown) {
   );
 }
 
+function isUnauthenticated(error: unknown) {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    error.code === "functions/unauthenticated"
+  );
+}
+
 export async function callAdministration<TInput extends object, TResult>(name: string, input: TInput): Promise<TResult> {
   const callable = httpsCallable<TInput & { operatingContext?: ReturnType<typeof readStoredOperatingContext> }, TResult>(getFirebaseServices().functions, name);
   const operatingContext = readStoredOperatingContext();
@@ -51,7 +60,10 @@ export async function callAdministration<TInput extends object, TResult>(name: s
   try { return (await callable(sanitizedInput)).data; }
   catch (error) {
     const currentUser = getFirebaseServices().auth.currentUser;
-    if (currentUser && isOutdatedAuthorization(error)) {
+    if (
+      currentUser &&
+      (isOutdatedAuthorization(error) || isUnauthenticated(error))
+    ) {
       try {
         await currentUser.getIdToken(true);
         return (await callable(sanitizedInput)).data;
