@@ -4,6 +4,7 @@ import { db } from "../admin.js";
 import { environment } from "../config.js";
 import { attemptIntegrationDelivery, integrationEventSchema, MockIntegrationAdapter, NoopIntegrationAdapter } from "../integrations/outbox.js";
 import { attemptNotificationDelivery, EmulatorNotificationAdapter, LogNotificationAdapter, NoopNotificationAdapter, type NotificationEvent } from "../notifications/delivery.js";
+import { scheduledJobReliability } from "./schedule-options.js";
 
 const notificationAdapter = () => environment.NOTIFICATION_ADAPTER_MODE === "log" ? new LogNotificationAdapter() : environment.NOTIFICATION_ADAPTER_MODE === "emulator" ? new EmulatorNotificationAdapter() : new NoopNotificationAdapter();
 const integrationAdapter = () => environment.INTEGRATION_ADAPTER_MODE === "mock" ? new MockIntegrationAdapter() : new NoopIntegrationAdapter();
@@ -37,5 +38,11 @@ export async function runIntegrationOutboxJob(limit = 100) {
   return summary;
 }
 
-export const deliverPendingNotifications = onSchedule("every 15 minutes", async () => { await runNotificationDeliveryJob(); });
-export const deliverIntegrationOutbox = onSchedule("every 15 minutes", async () => { await runIntegrationOutboxJob(); });
+export const deliverPendingNotifications = onSchedule(
+  { schedule: "every 15 minutes", ...scheduledJobReliability },
+  async () => { await runNotificationDeliveryJob(); },
+);
+export const deliverIntegrationOutbox = onSchedule(
+  { schedule: "every 15 minutes", ...scheduledJobReliability },
+  async () => { await runIntegrationOutboxJob(); },
+);

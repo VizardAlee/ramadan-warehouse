@@ -88,6 +88,7 @@ The enabled email notification channel for `servicegurunigeria@gmail.com` is att
 4. Deploy through the scoped production scripts in `package.json`. Do not bypass their environment and project guards.
 5. Verify 98 ACTIVE Node 22 Functions, three enabled Scheduler jobs, production runtime flags, rules/indexes, Monitoring policies, uptime, and backup schedule.
 6. Verify the generated Hosting URL and callable App Check behavior. Service-level App Check remains metrics-first unless a separately approved enforcement change is made.
+7. Verify all three scheduled Functions retain three retries within ten minutes, 30-120 second bounded backoff, a 120-second timeout, and `minInstances: 0`. Verify the incident-oriented alert thresholds documented in `monitoring-and-alerting.md`; do not weaken the App Check or warehouse-operation policies.
 
 ## Stop conditions
 

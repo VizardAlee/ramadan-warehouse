@@ -3,6 +3,7 @@ import { logger } from "firebase-functions";
 import { onSchedule } from "firebase-functions/v2/scheduler";
 import { db } from "../admin.js";
 import { environment } from "../config.js";
+import { scheduledJobReliability } from "../jobs/schedule-options.js";
 
 export function operationalNotificationId(
   organizationId: string,
@@ -108,6 +109,6 @@ export async function runTransferExceptionMonitoring(now = new Date()): Promise<
 }
 
 export const monitorTransferExceptions = onSchedule(
-  { schedule: "every day 08:00", timeZone: "Africa/Lagos" },
+  { schedule: "every day 08:00", timeZone: "Africa/Lagos", ...scheduledJobReliability },
   async () => { await runTransferExceptionMonitoring(); },
 );
