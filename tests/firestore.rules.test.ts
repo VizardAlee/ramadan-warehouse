@@ -438,6 +438,15 @@ describe("Firestore baseline rules", () => {
     const db = environment.unauthenticatedContext().firestore();
     await assertFails(db.doc("branches/branch-1").get());
   });
+
+  it("keeps simple transfer state and receipts callable-only, even for administrators", async () => {
+    await seed();
+    const client = environment.authenticatedContext("admin").firestore();
+    for (const collection of ["stockTransfers", "stockTransferEvents", "stockTransferReceipts"]) {
+      await assertFails(client.doc(`${collection}/example`).set({ organizationId: "org-1", status: "completed" }));
+      await assertFails(client.doc(`${collection}/example`).get());
+    }
+  });
   it("prevents direct profile privilege escalation and bootstrap reads", async () => {
     await seed();
     const db = environment.authenticatedContext("admin").firestore();

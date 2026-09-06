@@ -30,13 +30,36 @@ export const setupWorkflowSteps: readonly WorkflowStep[] = [
 
 export const transferWorkflowSteps: readonly WorkflowStep[] = [
   {
+    title: "Request stock",
+    detail:
+      "Choose the sending warehouse or branch, the receiving branch, and products. Either location manager can start.",
+    href: "/transfers/create/direct",
+  },
+  {
+    title: "Administrator approves",
+    detail:
+      "The administrator reviews quantities. Approved stock is held automatically and cannot be sold twice.",
+    href: "/transfers",
+  },
+  {
+    title: "Confirm arrival",
+    detail:
+      "The receiving manager counts the goods and confirms what arrived. Full receipt completes the transfer automatically.",
+    href: "/transfers",
+  },
+];
+
+// Existing detailed transfers keep their original physical-event history and controls.
+export const detailedTransferWorkflowSteps: readonly WorkflowStep[] = [
+  {
     title: "Create",
     detail: "Start from an approved branch request or a direct allocation.",
     href: "/transfers",
   },
   {
     title: "Approve",
-    detail: "A different authorized person reviews quantities and route.",
+    detail:
+      "A different authorized person reviews quantities and route. Earlier detailed transfers retain their original approval control.",
     href: "/transfers/review",
   },
   {
@@ -51,7 +74,8 @@ export const transferWorkflowSteps: readonly WorkflowStep[] = [
   },
   {
     title: "Pack & verify",
-    detail: "Package the picked goods and independently verify the package.",
+    detail:
+      "Record and seal packages. Independent packing verification is optional.",
     href: "/transfers/packing",
   },
   {
@@ -77,7 +101,8 @@ export const transferWorkflowSteps: readonly WorkflowStep[] = [
 export const salesWorkflowSteps: readonly WorkflowStep[] = [
   {
     title: "Price & stock",
-    detail: "Set the central price and ensure saleable stock exists at the branch.",
+    detail:
+      "Set the central price and ensure saleable stock exists at the branch.",
     href: "/products",
   },
   {
@@ -87,12 +112,14 @@ export const salesWorkflowSteps: readonly WorkflowStep[] = [
   },
   {
     title: "Sell",
-    detail: "Select products and payment; VAT remains separate from the net price.",
+    detail:
+      "Select products and payment; VAT remains separate from the net price.",
     href: "/pos",
   },
   {
     title: "Documents",
-    detail: "The posted sale produces its controlled receipt and invoice evidence.",
+    detail:
+      "The posted sale produces its controlled receipt and invoice evidence.",
     href: "/reports",
   },
   {
@@ -103,7 +130,8 @@ export const salesWorkflowSteps: readonly WorkflowStep[] = [
   },
   {
     title: "Reconcile",
-    detail: "Download reports, reconcile banking, and complete the monthly close.",
+    detail:
+      "Download reports, reconcile banking, and complete the monthly close.",
     href: "/accounting",
   },
 ];

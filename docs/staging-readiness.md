@@ -1,5 +1,7 @@
 # Staging readiness
 
+Current development note (2026-09-06): the simplified transfer implementation is being verified in the local `demo-ramadan-warehouse` emulators, including test-only administrator and manager accounts. It does not alter the historical acceptance evidence below or create a new staging cloud project. Refer to [Simple stock transfers](simple-stock-transfers.md) and the current release-candidate section of the deployment runbook; do not infer live deployment from these local changes.
+
 Historical staging acceptance record, verified 2026-08-12 against immutable project ID `ramadan-warehouse-staging`. All statements below describe the environment before its owner-approved conversion. The representative-data recovery gate subsequently passed, and this same immutable project is now configured as production. See `production-conversion.md` for current state.
 
 ## Status

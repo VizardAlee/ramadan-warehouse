@@ -160,6 +160,8 @@ export const reverseInventoryTransaction = onCall(
           "permission-denied",
           "Organization-wide transaction reversal requires system-administrator authority.",
         );
+      if (original.get("transactionType") === "stock_transfer_receipt")
+        throw new HttpsError("failed-precondition", "Direct reversal would invalidate the branch acknowledgement. Ask an administrator to record a controlled return or stock adjustment.");
       if (original.get("transactionType") === "reversal")
         throw new HttpsError(
           "failed-precondition",

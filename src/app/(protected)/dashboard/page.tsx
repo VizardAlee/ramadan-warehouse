@@ -23,21 +23,24 @@ import {
   scopeDashboardRecords,
   summarizeDashboard,
   summarizeTransferPipeline,
+  type DashboardTransfer,
 } from "@/features/dashboard/summary";
 import type { BranchRequest, Product, WarehouseTransfer } from "@/types/domain";
+import type { StockTransfer } from "../../../../functions/src/transfers/simple-model";
 
 interface PageResult<T> {
   rows: T[];
   nextCursor: string | null;
 }
 
-async function loadScopedRegister<T>(callable: string): Promise<T[]> {
+async function loadScopedRegister<T>(callable: string, extra: object = {}): Promise<T[]> {
   const rows: T[] = [];
   let cursor: string | undefined;
   for (let page = 0; page < 100; page += 1) {
     const result = await callAdministration<object, PageResult<T>>(callable, {
       cursor,
       limit: 100,
+      ...extra,
     });
     rows.push(...result.rows);
     if (!result.nextCursor) return rows;
@@ -50,7 +53,7 @@ export default function DashboardPage() {
   const { profile, operatingContext } = useAuth();
   const products = useOrganizationCollection<Product>("products");
   const [requests, setRequests] = useState<BranchRequest[]>([]);
-  const [transfers, setTransfers] = useState<WarehouseTransfer[]>([]);
+  const [transfers, setTransfers] = useState<DashboardTransfer[]>([]);
   const [registersLoading, setRegistersLoading] = useState(true);
   const [registerError, setRegisterError] = useState<string | null>(null);
 
@@ -60,11 +63,12 @@ export default function DashboardPage() {
     void Promise.all([
       loadScopedRegister<BranchRequest>("listBranchRequests"),
       loadScopedRegister<WarehouseTransfer>("listTransfers"),
+      (profile.roleIds?.length ? profile.roleIds : [profile.roleId]).some(r => ["system_administrator", "operations_administrator", "warehouse_manager", "branch_manager", "auditor", "finance_officer"].includes(r)) ? loadScopedRegister<StockTransfer>("stockTransfers", { action: "list" }) : Promise.resolve([] as StockTransfer[]),
     ])
-      .then(([requestRows, transferRows]) => {
+      .then(([requestRows, transferRows, simpleRows]) => {
         if (!active) return;
         setRequests(requestRows);
-        setTransfers(transferRows);
+        setTransfers([...transferRows, ...simpleRows.map(t => ({ status: t.status, originWarehouseId: t.sourceWarehouseId, sourceBranchId: t.sourceBranchId, destinationBranchId: t.destinationBranchId }))]);
         setRegisterError(null);
       })
       .catch(() => {
@@ -99,7 +103,7 @@ export default function DashboardPage() {
     { label: "Open branch requests", value: summary?.requests, icon: ClipboardClock, href: "/requests", emphasis: false },
     { label: "Transfers in progress", value: summary?.transfers, icon: Truck, href: "/transfers", emphasis: false },
     { label: "Active products", value: summary?.products, icon: Boxes, href: "/products", emphasis: false },
-    { label: "Open discrepancies", value: summary?.discrepancies, icon: AlertTriangle, href: "/transfers/discrepancies", emphasis: Boolean(summary?.discrepancies) },
+    { label: "Open discrepancies", value: summary?.discrepancies, icon: AlertTriangle, href: "/transfers", emphasis: Boolean(summary?.discrepancies) },
   ];
   const mixData = summary ? [
     { label: "Open requests", value: summary.requests, color: "#116149" },

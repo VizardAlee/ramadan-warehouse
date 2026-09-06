@@ -1,5 +1,19 @@
 # Transfer quantity invariants
 
+## Simplified transfers (2026-09-06)
+
+New `stockTransfers` use a receipt-driven model, separate from the legacy dispatch-driven formulas below. See [Simple stock transfers](simple-stock-transfers.md).
+
+`transferOutstanding = approved - receivedGood - receivedDamaged - cancelledNeverLeft - confirmedLost`
+
+Every term is a nonnegative integer; outstanding must be nonnegative. Approval holds stock but posts no departure. Each actual good/damaged receipt or confirmed loss reduces the source hold and posts balanced inventory entries atomically. Cancellation releases a hold only after explicit confirmation that the remainder never left. Complete transfers have zero outstanding; damaged-stock issues also require administrator review.
+
+`requestOutstanding = approvedRequestQuantity - fulfilledGoodReceiptQuantity`
+
+Only good receipt fulfils linked request demand. Damaged, lost and cancelled quantities release their allocation but do not fulfil or automatically reduce approved demand. Thus approval 20, receipt 12, cancellation 8 permits transfer completion and another allocation of up to 8 against the still-outstanding request. There is no inferred `dispatched` quantity in this model.
+
+## Legacy detailed transfers
+
 These formulas are the frozen version-1 accounting model. All quantities are non-negative integers and are evaluated per transfer item before being summed to the header.
 
 `terminalDisposed = received + damaged + returned + writtenOff`

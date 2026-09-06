@@ -1,4 +1,4 @@
-import { TransferForm } from "@/features/transfers/transfer-form";
+import { StockTransferForm } from "@/features/transfers/stock-transfer-workspace";
 export default function CreateDirectTransferPage() {
-  return <TransferForm source="direct" />;
+  return <StockTransferForm />;
 }

@@ -2,6 +2,10 @@ import { describe, expect, it } from "vitest";
 import { toUserFacingError } from "@/lib/firebase/user-facing-error";
 
 describe("user-facing Firebase errors", () => {
+  it("shows explicitly safe transfer guidance but never an arbitrary server message", () => {
+    expect(toUserFacingError({ details: { code: "STOCK_TRANSFER_ACTION_REQUIRED", userMessage: "Choose the serial numbers that arrived." } }).message).toBe("Choose the serial numbers that arrived.");
+    expect(toUserFacingError({ details: { code: "UNKNOWN", userMessage: "secret" } }).message).not.toContain("secret");
+  });
   it("maps stable permission and conflict codes without exposing backend messages", () => {
     expect(toUserFacingError({ code: "functions/permission-denied", message: "sensitive" }).message).toBe("You do not have permission to perform this action.");
     expect(toUserFacingError({ code: "functions/invalid-argument" }).message).toBe("Some submitted information is invalid. Review the form and try again.");

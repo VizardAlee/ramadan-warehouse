@@ -1,5 +1,11 @@
 import type { OperatingContext } from "@/features/auth/operating-context";
-import type { BranchRequest, Product, WarehouseTransfer } from "@/types/domain";
+import type { BranchRequest, Product } from "@/types/domain";
+export interface DashboardTransfer {
+  status: string;
+  originWarehouseId?: string;
+  destinationBranchId: string;
+  sourceBranchId?: string;
+}
 
 const completedRequestStatuses = new Set([
   "fulfilled",
@@ -7,11 +13,11 @@ const completedRequestStatuses = new Set([
   "closed",
   "rejected",
 ]);
-const completedTransferStatuses = new Set(["closed", "cancelled"]);
+const completedTransferStatuses = new Set(["closed", "cancelled", "completed"]);
 
 export function scopeDashboardRecords(
   requests: readonly BranchRequest[],
-  transfers: readonly WarehouseTransfer[],
+  transfers: readonly DashboardTransfer[],
   context: OperatingContext | null,
 ) {
   if (!context) return { requests, transfers };
@@ -19,7 +25,9 @@ export function scopeDashboardRecords(
     return {
       requests: requests.filter((request) => request.branchId === context.id),
       transfers: transfers.filter(
-        (transfer) => transfer.destinationBranchId === context.id,
+        (transfer) =>
+          transfer.destinationBranchId === context.id ||
+          transfer.sourceBranchId === context.id,
       ),
     };
   }
@@ -33,7 +41,7 @@ export function scopeDashboardRecords(
 
 export function summarizeDashboard(
   requests: readonly BranchRequest[],
-  transfers: readonly WarehouseTransfer[],
+  transfers: readonly DashboardTransfer[],
   products: readonly Product[],
 ) {
   return {
@@ -44,13 +52,20 @@ export function summarizeDashboard(
       (transfer) => !completedTransferStatuses.has(transfer.status),
     ).length,
     products: products.filter((product) => product.active).length,
-    discrepancies: transfers.filter((transfer) => transfer.status === "disputed")
-      .length,
+    discrepancies: transfers.filter((transfer) =>
+      ["disputed", "problem"].includes(transfer.status),
+    ).length,
   };
 }
 
 const transferStageStatuses: Readonly<Record<string, ReadonlySet<string>>> = {
-  Review: new Set(["draft", "submitted", "under_review", "changes_requested"]),
+  Review: new Set([
+    "draft",
+    "submitted",
+    "under_review",
+    "changes_requested",
+    "requested",
+  ]),
   Preparation: new Set([
     "approved",
     "partially_reserved",
@@ -64,6 +79,8 @@ const transferStageStatuses: Readonly<Record<string, ReadonlySet<string>>> = {
   ]),
   "In transit": new Set(["partially_dispatched", "dispatched"]),
   "Receiving & issues": new Set([
+    "awaiting_receipt",
+    "problem",
     "partially_received",
     "received",
     "disputed",
@@ -72,11 +89,10 @@ const transferStageStatuses: Readonly<Record<string, ReadonlySet<string>>> = {
 } as const;
 
 export function summarizeTransferPipeline(
-  transfers: readonly WarehouseTransfer[],
+  transfers: readonly DashboardTransfer[],
 ) {
   return Object.entries(transferStageStatuses).map(([label, statuses]) => ({
     label,
-    value: transfers.filter((transfer) => statuses.has(transfer.status))
-      .length,
+    value: transfers.filter((transfer) => statuses.has(transfer.status)).length,
   }));
 }

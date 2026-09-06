@@ -1,7 +1,11 @@
 import { db } from "../admin.js";
-import type { ReconciliationRecord, TransferReconciliationCheck } from "../transfers/validate-transfer-invariants.js";
+import type {
+  ReconciliationRecord,
+  TransferReconciliationCheck,
+} from "../transfers/validate-transfer-invariants.js";
 
-const number = (record: ReconciliationRecord, field: string) => Number(record[field] ?? 0);
+const number = (record: ReconciliationRecord, field: string) =>
+  Number(record[field] ?? 0);
 
 export function evaluateOperationsReconciliation(
   requests: readonly ReconciliationRecord[],
@@ -23,12 +27,36 @@ export function evaluateOperationsReconciliation(
 }
 
 export async function reconcileOrganizationRequests(organizationId: string) {
-  const [requests, items] = await Promise.all([
-    db.collection("branchRequests").where("organizationId", "==", organizationId).where("status", "in", ["approved", "partially_fulfilled", "fulfilled"]).limit(200).get(),
-    db.collection("transferItems").where("organizationId", "==", organizationId).limit(500).get(),
+  const [requests, items, simpleTransfers] = await Promise.all([
+    db
+      .collection("branchRequests")
+      .where("organizationId", "==", organizationId)
+      .where("status", "in", ["approved", "partially_fulfilled", "fulfilled"])
+      .limit(200)
+      .get(),
+    db
+      .collection("transferItems")
+      .where("organizationId", "==", organizationId)
+      .limit(500)
+      .get(),
+    db
+      .collection("stockTransfers")
+      .where("organizationId", "==", organizationId)
+      .get(),
   ]);
   return evaluateOperationsReconciliation(
     requests.docs.map((item) => ({ id: item.id, ...item.data() })),
-    items.docs.map((item) => ({ id: item.id, ...item.data() })),
+    [
+      ...items.docs.map((item) => ({ id: item.id, ...item.data() })),
+      ...simpleTransfers.docs.flatMap((t) =>
+        (t.get("items") as Array<{ id: string; received: number }>).map(
+          (item) => ({
+            id: item.id,
+            sourceRequestId: t.get("sourceRequestId"),
+            receivedQuantity: item.received,
+          }),
+        ),
+      ),
+    ],
   );
 }

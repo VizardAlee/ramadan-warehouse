@@ -3,11 +3,19 @@ import {
   salesWorkflowSteps,
   setupWorkflowSteps,
   transferWorkflowSteps,
+  detailedTransferWorkflowSteps,
 } from "@/features/guidance/workflows";
 
 describe("visual user guide", () => {
-  it("shows the physical transfer stages in their required order", () => {
+  it("makes the normal journey three tasks without compulsory logistics", () => {
     expect(transferWorkflowSteps.map((step) => step.title)).toEqual([
+      "Request stock",
+      "Administrator approves",
+      "Confirm arrival",
+    ]);
+  });
+  it("retains the separate detailed workflow for existing records", () => {
+    expect(detailedTransferWorkflowSteps.map((step) => step.title)).toEqual([
       "Create",
       "Approve",
       "Reserve",
@@ -17,11 +25,13 @@ describe("visual user guide", () => {
       "Receive",
       "Reconcile & close",
     ]);
-    expect(transferWorkflowSteps[3]?.href).toBe("/transfers/picking");
+    expect(detailedTransferWorkflowSteps[3]?.href).toBe("/transfers/picking");
   });
 
   it("covers first-time setup and the downstream sales workflow", () => {
-    expect(setupWorkflowSteps.map((step) => step.title)).toContain("Opening stock");
+    expect(setupWorkflowSteps.map((step) => step.title)).toContain(
+      "Opening stock",
+    );
     expect(salesWorkflowSteps.map((step) => step.title)).toEqual(
       expect.arrayContaining(["Sell", "Documents", "After-sale", "Reconcile"]),
     );

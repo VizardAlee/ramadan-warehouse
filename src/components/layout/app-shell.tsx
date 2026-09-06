@@ -60,6 +60,8 @@ const navigation = [
 const titleFromPath = (pathname: string) => {
   const segments = pathname.split("/").filter(Boolean);
   const section = segments.at(-1) ?? "Dashboard";
+  if (segments[0] === "transfers" && segments[1] === "simple") return "Stock transfer";
+  if (pathname === "/transfers/legacy") return "Detailed transfers";
   const namedSubpages = {
     transfers: new Set([
       "review", "reservations", "picking", "packing", "dispatch",

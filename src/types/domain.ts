@@ -701,6 +701,7 @@ export const inventoryTransactionTypes = [
   "stock_count_correction",
   "transfer_dispatch",
   "transfer_receipt",
+  "stock_transfer_receipt",
   "discrepancy_resolution",
   "branch_sale",
   "write_off",

@@ -94,7 +94,7 @@ export function TransferQuickGuide() {
             Open Picking queue
           </Link>
           <Link
-            href="/guide#transfers"
+            href="/guide#detailed-transfers"
             className="inline-flex min-h-11 items-center rounded-lg border border-emerald-300 bg-white px-4 text-sm font-semibold text-[var(--brand)]"
           >
             Full visual guide

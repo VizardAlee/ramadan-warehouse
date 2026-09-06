@@ -1,4 +1,4 @@
-import { TransferList } from "@/features/transfers/transfer-list";
+import { StockTransferList } from "@/features/transfers/stock-transfer-workspace";
 export default function TransfersPage() {
-  return <TransferList />;
+  return <StockTransferList />;
 }

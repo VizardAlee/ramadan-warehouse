@@ -42,6 +42,7 @@ export function toUserFacingError(error: unknown, fallback = "The operation coul
       ? details.code
       : undefined;
   return new UserFacingError(
+    (operationCode === "STOCK_TRANSFER_ACTION_REQUIRED" && details && "userMessage" in details && typeof details.userMessage === "string" ? details.userMessage : undefined) ??
     (operationCode && messages[operationCode]) ??
       (code ? messages[code] : undefined) ??
       fallback,
