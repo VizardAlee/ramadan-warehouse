@@ -1,10 +1,10 @@
 # Deployment runbook
 
-## Simple transfer release candidate (2026-09-06)
+## Simplified transfer production release (2026-09-06)
 
-See [Simple stock transfers](simple-stock-transfers.md). The new default is request → administrator approval/hold → destination acknowledgement, with direct branch-to-branch supply. Legacy transfers retain their original workflow and data. This section records a local release candidate, not a completed deployment.
+See [Simple stock transfers](simple-stock-transfers.md). The new default is request → administrator approval/hold → destination acknowledgement, with direct branch-to-branch supply. Legacy transfers retain their original workflow and data. Commit `9a3c464` was pushed to `main` and deployed to the existing production environment.
 
-Deploy only after the regression/build/secret-scan gate. Required Functions are `stockTransfers` (new), `reconcileTransfer`, `reconcileWarehouseOperations`, and `reverseInventoryTransaction`; web routes and guide also change. No new Storage features, client Firestore grants, rules relaxation, data reset, or migration is required. Do not redeploy scheduled services or change monitoring sensitivity for this feature. Keep Auth and App Check enabled. If organization policy prevents the new callable's public invocation, obtain explicit approval for that service only; never extend earlier service-specific IAM approvals by inference.
+The regression/build/secret-scan gate passed. `stockTransfers` (new), `reconcileTransfer`, `reconcileWarehouseOperations`, and `reverseInventoryTransaction` were deployed and verified ACTIVE with production/App Check flags; App Hosting then completed its rollout. Organization policy blocked the new callable transport configuration, so the owner explicitly approved disabling the Cloud Run invoker IAM check for `stockTransfers` only. An unauthenticated request still returned HTTP 401. No Storage/Firestore rules, indexes, scheduled services, monitoring sensitivity, data reset or migration changed.
 
 The historical `ramadan-warehouse-staging` project is production; use the existing `production` alias and do not create a separate cloud project or synthetic live accounts. Use the demo emulators for test accounts and inventory verification.
 

@@ -1,6 +1,6 @@
 # Simple stock transfers
 
-Implementation checkpoint: 2026-09-06. Local implementation and verification; this document is not deployment evidence.
+Deployment checkpoint: 2026-09-06. Commit `9a3c464` is deployed to the existing production environment.
 
 ## Everyday workflow
 
@@ -49,7 +49,7 @@ Dashboard counts and operational request reconciliation include both workflows. 
 
 `npm run test:stock-transfers` uses only the guarded `demo-ramadan-warehouse` Auth/Firestore/Functions emulators. Cases cover the three-task journey, administrator self-approval, scope denial, replay and concurrent posting, partial receipts, quarantine, cancellation preserving demand, direct branch supply, loss, serial/lot conservation, and reconciliation/reversal guards. Existing transfer tests remain separate regression coverage.
 
-Live release requires passing tests/build, deploying the new callable plus affected reconciliation/reversal callables and the web build, verifying Auth/App Check, and explicitly handling any organization-policy invoker-IAM restriction. No synthetic production users or stock are needed for local verification.
+The live release required the new callable, affected reconciliation/reversal callables, and web build. No synthetic production users or stock were created for verification.
 
 ### Local verification evidence — 2026-09-06
 
@@ -57,4 +57,10 @@ The 11 new callable cases passed. The affected inventory suite (13 tests) and re
 
 A browser smoke test using an emulator-only administrator created a Central Warehouse → Kaduna Branch transfer for two panels, approved it and confirmed arrival. The UI showed Completed, received 2 and still expected 0. No picking, packing or dispatch record was required. This was demo data only, not a live business transaction. Narrow/mobile and tablet-width screens were inspected; physical Safari/iOS device validation is not claimed.
 
-Lint, both TypeScript checks, all 139 unit tests across 33 files, the Functions build, the repository secret scan, whitespace checks and production configuration safeguards passed. The production webpack build passed; the local Turbopack build could not start its required process/port in this environment. Google Cloud live inspection was blocked by expired authentication, so this evidence must not be represented as a deployed/live-validated release.
+Lint, both TypeScript checks, all 139 unit tests across 33 files, the Functions build, the repository secret scan, whitespace checks and production configuration safeguards passed. The production webpack build passed; the local Turbopack build could not start its required process/port in this environment.
+
+### Production deployment evidence — 2026-09-06
+
+`stockTransfers`, `reconcileTransfer`, `reconcileWarehouseOperations`, and `reverseInventoryTransaction` are ACTIVE Gen 2 Functions with `APP_ENV=production` and callable App Check enabled. The owner approved disabling the Cloud Run invoker IAM check for `stockTransfers` only because organization policy blocked the callable transport configuration; Firebase Auth, App Check, authorization-version, organization and location enforcement remain active. An unauthenticated HTTPS request was rejected with HTTP 401 `UNAUTHENTICATED`.
+
+App Hosting completed the rollout at the existing production URL. The login and protected transfer routes returned HTTP 200, and the deployed login HTML contained the expected AB Ramadan identity. No Firestore/Storage rules, indexes, scheduled services, monitoring policy, production data or legacy transfer records were changed. The full simplified journey was browser-tested against isolated demo emulators; no live stock movement was created, so authenticated production business-flow validation remains an owner smoke-test activity.

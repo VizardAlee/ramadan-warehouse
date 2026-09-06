@@ -1,6 +1,6 @@
 # Staging readiness
 
-Current development note (2026-09-06): the simplified transfer implementation is being verified in the local `demo-ramadan-warehouse` emulators, including test-only administrator and manager accounts. It does not alter the historical acceptance evidence below or create a new staging cloud project. Refer to [Simple stock transfers](simple-stock-transfers.md) and the current release-candidate section of the deployment runbook; do not infer live deployment from these local changes.
+Current production note (2026-09-06): the simplified three-task transfer workflow from commit `9a3c464` is deployed to the converted production project. Its four affected Functions are ACTIVE with production/App Check flags, App Hosting rollout completed, and unauthenticated access to the new callable returns HTTP 401. No staging cloud project was created. Isolated emulator coverage and the remaining live-smoke boundary are recorded in [Simple stock transfers](simple-stock-transfers.md).
 
 Historical staging acceptance record, verified 2026-08-12 against immutable project ID `ramadan-warehouse-staging`. All statements below describe the environment before its owner-approved conversion. The representative-data recovery gate subsequently passed, and this same immutable project is now configured as production. See `production-conversion.md` for current state.
 
