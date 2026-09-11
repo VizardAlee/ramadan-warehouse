@@ -182,21 +182,24 @@ export function CatalogImportDialog({
       </Button>
       {open && (
         <div
-          className="fixed inset-0 z-50 flex items-end justify-center overflow-y-auto bg-black/50 sm:items-center sm:p-4"
+          className="app-dialog-backdrop"
           role="dialog"
           aria-modal="true"
           aria-labelledby="catalogue-import-title"
         >
           <div
             ref={dialogRef}
-            className="safe-bottom max-h-[calc(100dvh-1rem)] w-full max-w-5xl overflow-y-auto rounded-t-2xl bg-white p-5 sm:my-8 sm:rounded-2xl sm:p-6"
+            className="app-dialog-panel safe-bottom max-w-5xl rounded-2xl bg-white p-5 sm:p-6"
           >
             <div className="flex items-start justify-between gap-4">
               <div>
                 <p className="text-xs font-semibold uppercase tracking-[.14em] text-[var(--brand)]">
                   Guided import
                 </p>
-                <h2 id="catalogue-import-title" className="mt-1 text-2xl font-semibold">
+                <h2
+                  id="catalogue-import-title"
+                  className="mt-1 text-2xl font-semibold"
+                >
                   Import product catalogue
                 </h2>
                 <p className="mt-1 max-w-3xl text-sm leading-6 text-[var(--muted)]">
@@ -242,7 +245,10 @@ export function CatalogImportDialog({
                 type="button"
                 variant="secondary"
                 onClick={() =>
-                  downloadText("abr-product-catalogue-template.csv", catalogTemplateCsv())
+                  downloadText(
+                    "abr-product-catalogue-template.csv",
+                    catalogTemplateCsv(),
+                  )
                 }
               >
                 <Download className="mr-2 size-4" />
@@ -255,7 +261,9 @@ export function CatalogImportDialog({
                 <section className="mt-6 rounded-xl border bg-slate-50 p-4 sm:p-5">
                   <div className="flex flex-wrap items-end justify-between gap-3">
                     <div>
-                      <h3 className="text-lg font-semibold">Map your columns</h3>
+                      <h3 className="text-lg font-semibold">
+                        Map your columns
+                      </h3>
                       <p className="mt-1 text-sm text-[var(--muted)]">
                         We matched familiar headings automatically. Review each
                         selection; required system fields are marked.
@@ -280,7 +288,8 @@ export function CatalogImportDialog({
                               current
                                 ? {
                                     ...current,
-                                    [field.key]: value === "" ? null : Number(value),
+                                    [field.key]:
+                                      value === "" ? null : Number(value),
                                   }
                                 : current,
                             );
@@ -309,7 +318,10 @@ export function CatalogImportDialog({
                           {catalogImportFields
                             .filter((field) => mapping[field.key] !== null)
                             .map((field) => (
-                              <th key={field.key} className="px-3 py-2 text-left">
+                              <th
+                                key={field.key}
+                                className="px-3 py-2 text-left"
+                              >
                                 {field.label}
                               </th>
                             ))}
@@ -321,7 +333,10 @@ export function CatalogImportDialog({
                             {catalogImportFields
                               .filter((field) => mapping[field.key] !== null)
                               .map((field) => (
-                                <td key={field.key} className="max-w-64 truncate px-3 py-2">
+                                <td
+                                  key={field.key}
+                                  className="max-w-64 truncate px-3 py-2"
+                                >
                                   {row[mapping[field.key]!] || "—"}
                                 </td>
                               ))}

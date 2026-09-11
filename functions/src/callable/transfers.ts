@@ -9,6 +9,7 @@ import {
 import { HttpsError, onCall } from "firebase-functions/v2/https";
 import { db } from "../admin.js";
 import {
+  canSelfAuthorize,
   hasRole,
   hasServerPermission,
   requireAccess,
@@ -20,7 +21,10 @@ import {
 import { writeAuditLog } from "../audit/write-audit-log.js";
 import { enforceAppCheck } from "../config.js";
 import { postInventoryTransaction } from "../inventory/post-inventory-transaction.js";
-import { createIntegrationEvent, writeIntegrationOutbox } from "../integrations/outbox.js";
+import {
+  createIntegrationEvent,
+  writeIntegrationOutbox,
+} from "../integrations/outbox.js";
 import { applyTransferFulfilmentToRequest } from "../requests/apply-transfer-fulfilment.js";
 import {
   reserveTransferStockService,
@@ -152,7 +156,9 @@ function event(
     | "warehouse.transfer.cancelled.v1"
     | undefined;
   if (integrationType) {
-    const occurrence = String(extra.dispatchId ?? extra.receiptId ?? transfer.id);
+    const occurrence = String(
+      extra.dispatchId ?? extra.receiptId ?? transfer.id,
+    );
     writeIntegrationOutbox(
       transaction,
       createIntegrationEvent({
@@ -164,7 +170,11 @@ function event(
         occurredAt: new Date().toISOString(),
         correlationId: cid,
         idempotencyKey: `${integrationType}:${transfer.id}:${occurrence}`,
-        payload: clean({ transferId: transfer.id, transferNumber: transfer.get("transferNumber"), ...extra }),
+        payload: clean({
+          transferId: transfer.id,
+          transferNumber: transfer.get("transferNumber"),
+          ...extra,
+        }),
       }),
     );
   }
@@ -733,7 +743,11 @@ async function transition(
         "The transfer status or version changed.",
       );
     assertTransferTransition(String(transfer.get("status")), config.to);
-    if (config.makerCheck && transfer.get("createdBy") === actor.userId)
+    if (
+      config.makerCheck &&
+      transfer.get("createdBy") === actor.userId &&
+      !canSelfAuthorize(actor)
+    )
       throw new HttpsError(
         "permission-denied",
         "The transfer creator cannot approve their own transfer.",
@@ -1218,11 +1232,27 @@ export const createTransferPackage = onCall(
           .where("transferId", "==", input.transferId),
       );
       const [existingPackageItems, pickedItems] = await Promise.all([
-        transaction.get(db.collection("transferPackageItems").where("transferId", "==", input.transferId)),
-        transaction.get(db.collection("transferPickItems").where("transferId", "==", input.transferId)),
+        transaction.get(
+          db
+            .collection("transferPackageItems")
+            .where("transferId", "==", input.transferId),
+        ),
+        transaction.get(
+          db
+            .collection("transferPickItems")
+            .where("transferId", "==", input.transferId),
+        ),
       ]);
-      const alreadyPackedSerials = new Set(existingPackageItems.docs.flatMap((item) => (item.get("serialItemIds") as string[] | undefined) ?? []));
-      const pickedSerials = new Set(pickedItems.docs.flatMap((item) => (item.get("serialItemIds") as string[] | undefined) ?? []));
+      const alreadyPackedSerials = new Set(
+        existingPackageItems.docs.flatMap(
+          (item) => (item.get("serialItemIds") as string[] | undefined) ?? [],
+        ),
+      );
+      const pickedSerials = new Set(
+        pickedItems.docs.flatMap(
+          (item) => (item.get("serialItemIds") as string[] | undefined) ?? [],
+        ),
+      );
       const packageNumber = `${transfer.get("transferNumber")}-PKG-${String(existingPackages.size + 1).padStart(3, "0")}`;
       const allSerials = new Set<string>();
       const now = FieldValue.serverTimestamp();
@@ -1253,10 +1283,25 @@ export const createTransferPackage = onCall(
             );
           allSerials.add(serial);
         }
-        if (item.get("trackingType") === "serial" && line.serialItemIds.length !== line.quantity)
-          throw new HttpsError("invalid-argument", "Packed serial count must equal quantity.");
-        if (item.get("trackingType") === "batch" && line.lotAllocations.reduce((total, lot) => total + lot.quantity, 0) !== line.quantity)
-          throw new HttpsError("invalid-argument", "Packed lot allocations must equal quantity.");
+        if (
+          item.get("trackingType") === "serial" &&
+          line.serialItemIds.length !== line.quantity
+        )
+          throw new HttpsError(
+            "invalid-argument",
+            "Packed serial count must equal quantity.",
+          );
+        if (
+          item.get("trackingType") === "batch" &&
+          line.lotAllocations.reduce(
+            (total, lot) => total + lot.quantity,
+            0,
+          ) !== line.quantity
+        )
+          throw new HttpsError(
+            "invalid-argument",
+            "Packed lot allocations must equal quantity.",
+          );
         transaction.create(db.collection("transferPackageItems").doc(), {
           organizationId: actor.organizationId,
           transferId: input.transferId,
@@ -1560,14 +1605,23 @@ export const confirmTransferDispatch = onCall(
       throw new HttpsError("invalid-argument", "Dispatch ID is required.");
     const ref = transferRef(input.transferId);
     const dispatchRef = db.doc(`transferDispatches/${input.dispatchId}`);
-    const confirmOp = operationRef(actor, "confirmTransferDispatch", input.idempotencyKey);
-    const [priorConfirmation, transfer, dispatch] = (await db.getAll(confirmOp, ref, dispatchRef)) as [
-      Snapshot,
-      Snapshot,
-      Snapshot,
-    ];
+    const confirmOp = operationRef(
+      actor,
+      "confirmTransferDispatch",
+      input.idempotencyKey,
+    );
+    const [priorConfirmation, transfer, dispatch] = (await db.getAll(
+      confirmOp,
+      ref,
+      dispatchRef,
+    )) as [Snapshot, Snapshot, Snapshot];
     if (priorConfirmation.exists)
-      return { dispatchId: input.dispatchId, confirmed: false, inventoryTransactionIds: priorConfirmation.get("inventoryTransactionIds") ?? [] };
+      return {
+        dispatchId: input.dispatchId,
+        confirmed: false,
+        inventoryTransactionIds:
+          priorConfirmation.get("inventoryTransactionIds") ?? [],
+      };
     assertTransferScope(actor, transfer);
     requireWarehouseScope(actor, String(transfer.get("originWarehouseId")));
     if (
@@ -1580,7 +1634,11 @@ export const confirmTransferDispatch = onCall(
         "failed-precondition",
         "Dispatch is not awaiting confirmation.",
       );
-    await assertTransferInvariantGate(actor.organizationId, input.transferId, "before_dispatch");
+    await assertTransferInvariantGate(
+      actor.organizationId,
+      input.transferId,
+      "before_dispatch",
+    );
     const packageIds = dispatch.get("packageIds") as string[];
     const packageItems = await db
       .collection("transferPackageItems")
@@ -1610,7 +1668,9 @@ export const confirmTransferDispatch = onCall(
         ...((row.get("serialItemIds") as string[] | undefined) ?? []),
       );
       current.lotAllocations.push(
-        ...((row.get("lotAllocations") as { lotId: string; quantity: number }[] | undefined) ?? []),
+        ...((row.get("lotAllocations") as
+          | { lotId: string; quantity: number }[]
+          | undefined) ?? []),
       );
       grouped.set(itemIdValue, current);
     }
@@ -1631,7 +1691,11 @@ export const confirmTransferDispatch = onCall(
       const movements = line.lotAllocations.length
         ? line.lotAllocations
         : [{ lotId: undefined, quantity: line.quantity }];
-      for (let movementIndex = 0; movementIndex < movements.length; movementIndex++) {
+      for (
+        let movementIndex = 0;
+        movementIndex < movements.length;
+        movementIndex++
+      ) {
         const movement = movements[movementIndex]!;
         const posted = await postInventoryTransaction(actor, {
           transactionType: "transfer_dispatch",
@@ -1639,7 +1703,11 @@ export const confirmTransferDispatch = onCall(
           quantity: movement.quantity,
           sourceLocationId: String(transfer.get("originLocationId")),
           destinationLocationId: String(transfer.get("transitLocationId")),
-          serialNumbers: await serialNumbersForIds(actor, line.productId, line.serialItemIds),
+          serialNumbers: await serialNumbersForIds(
+            actor,
+            line.productId,
+            line.serialItemIds,
+          ),
           lotId: movement.lotId,
           effectiveAt: new Date().toISOString(),
           reason: "Confirmed warehouse transfer dispatch",
@@ -1658,13 +1726,19 @@ export const confirmTransferDispatch = onCall(
       }
     }
     return db.runTransaction(async (transaction) => {
-      const [currentConfirmation, currentTransfer, currentDispatch] = (await transaction.getAll(
-        confirmOp,
-        ref,
-        dispatchRef,
-      )) as [Snapshot, Snapshot, Snapshot];
+      const [currentConfirmation, currentTransfer, currentDispatch] =
+        (await transaction.getAll(confirmOp, ref, dispatchRef)) as [
+          Snapshot,
+          Snapshot,
+          Snapshot,
+        ];
       if (currentConfirmation.exists)
-        return { dispatchId: input.dispatchId, confirmed: false, inventoryTransactionIds: currentConfirmation.get("inventoryTransactionIds") ?? [] };
+        return {
+          dispatchId: input.dispatchId,
+          confirmed: false,
+          inventoryTransactionIds:
+            currentConfirmation.get("inventoryTransactionIds") ?? [],
+        };
       if (currentDispatch.get("status") !== "draft")
         return {
           dispatchId: input.dispatchId,
@@ -1748,8 +1822,16 @@ export const confirmTransferDispatch = onCall(
         updatedAt: now,
         updatedBy: actor.userId,
       });
-      operation(transaction, confirmOp, actor, "confirmTransferDispatch", input.transferId);
-      transaction.update(confirmOp, { inventoryTransactionIds: transactionIds });
+      operation(
+        transaction,
+        confirmOp,
+        actor,
+        "confirmTransferDispatch",
+        input.transferId,
+      );
+      transaction.update(confirmOp, {
+        inventoryTransactionIds: transactionIds,
+      });
       event(transaction, actor, currentTransfer, "dispatched", cid, {
         dispatchId: input.dispatchId,
         quantity: total,
@@ -1878,7 +1960,11 @@ export const confirmTransferReceipt = onCall(
     const ref = transferRef(input.transferId);
     const dispatchRef = db.doc(`transferDispatches/${input.dispatchId}`);
     const receiptRef = db.doc(`transferReceipts/${input.receiptId}`);
-    const confirmOp = operationRef(actor, "confirmTransferReceipt", input.idempotencyKey);
+    const confirmOp = operationRef(
+      actor,
+      "confirmTransferReceipt",
+      input.idempotencyKey,
+    );
     const [priorConfirmation, transfer, dispatch, receipt] = (await db.getAll(
       confirmOp,
       ref,
@@ -1886,7 +1972,12 @@ export const confirmTransferReceipt = onCall(
       receiptRef,
     )) as [Snapshot, Snapshot, Snapshot, Snapshot];
     if (priorConfirmation.exists)
-      return { receiptId: input.receiptId, confirmed: false, inventoryTransactionIds: priorConfirmation.get("inventoryTransactionIds") ?? [] };
+      return {
+        receiptId: input.receiptId,
+        confirmed: false,
+        inventoryTransactionIds:
+          priorConfirmation.get("inventoryTransactionIds") ?? [],
+      };
     assertTransferScope(actor, transfer);
     requireBranchScope(actor, String(transfer.get("destinationBranchId")));
     if (
@@ -1909,7 +2000,11 @@ export const confirmTransferReceipt = onCall(
         "permission-denied",
         "The dispatcher cannot confirm branch receipt.",
       );
-    await assertTransferInvariantGate(actor.organizationId, input.transferId, "before_receipt");
+    await assertTransferInvariantGate(
+      actor.organizationId,
+      input.transferId,
+      "before_receipt",
+    );
     const itemRefs = input.lines.map((line) =>
       db.doc(`transferItems/${line.transferItemId}`),
     );
@@ -1985,7 +2080,10 @@ export const confirmTransferReceipt = onCall(
       const item = items[index]!;
       if (
         item.get("trackingType") === "batch" &&
-        line.lotAllocations.reduce((total, allocation) => total + allocation.quantity, 0) !==
+        line.lotAllocations.reduce(
+          (total, allocation) => total + allocation.quantity,
+          0,
+        ) !==
           line.receivedQuantity + line.damagedQuantity
       )
         throw new HttpsError(
@@ -2001,20 +2099,41 @@ export const confirmTransferReceipt = onCall(
             "invalid-argument",
             "Accepted serial count must equal received quantity.",
           );
-        const movements = item.get("trackingType") === "batch"
-          ? line.lotAllocations.filter((allocation) => allocation.disposition === "received")
-          : [{ lotId: undefined, quantity: line.receivedQuantity }];
-        if (movements.reduce((total, movement) => total + movement.quantity, 0) !== line.receivedQuantity)
-          throw new HttpsError("invalid-argument", "Received lot allocations do not reconcile.");
-        for (let movementIndex = 0; movementIndex < movements.length; movementIndex++) {
+        const movements =
+          item.get("trackingType") === "batch"
+            ? line.lotAllocations.filter(
+                (allocation) => allocation.disposition === "received",
+              )
+            : [{ lotId: undefined, quantity: line.receivedQuantity }];
+        if (
+          movements.reduce(
+            (total, movement) => total + movement.quantity,
+            0,
+          ) !== line.receivedQuantity
+        )
+          throw new HttpsError(
+            "invalid-argument",
+            "Received lot allocations do not reconcile.",
+          );
+        for (
+          let movementIndex = 0;
+          movementIndex < movements.length;
+          movementIndex++
+        ) {
           const movement = movements[movementIndex]!;
           const posted = await postInventoryTransaction(actor, {
             transactionType: "transfer_receipt",
             productId: String(item.get("productId")),
             quantity: movement.quantity,
             sourceLocationId: String(transfer.get("transitLocationId")),
-            destinationLocationId: String(transfer.get("destinationLocationId")),
-            serialNumbers: await serialNumbersForIds(actor, String(item.get("productId")), line.serialItemIds),
+            destinationLocationId: String(
+              transfer.get("destinationLocationId"),
+            ),
+            serialNumbers: await serialNumbersForIds(
+              actor,
+              String(item.get("productId")),
+              line.serialItemIds,
+            ),
             lotId: movement.lotId,
             effectiveAt: new Date().toISOString(),
             reason: "Confirmed branch transfer receipt",
@@ -2038,12 +2157,27 @@ export const confirmTransferReceipt = onCall(
             "invalid-argument",
             "Damaged serial count must equal damaged quantity.",
           );
-        const movements = item.get("trackingType") === "batch"
-          ? line.lotAllocations.filter((allocation) => allocation.disposition === "damaged")
-          : [{ lotId: undefined, quantity: line.damagedQuantity }];
-        if (movements.reduce((total, movement) => total + movement.quantity, 0) !== line.damagedQuantity)
-          throw new HttpsError("invalid-argument", "Damaged lot allocations do not reconcile.");
-        for (let movementIndex = 0; movementIndex < movements.length; movementIndex++) {
+        const movements =
+          item.get("trackingType") === "batch"
+            ? line.lotAllocations.filter(
+                (allocation) => allocation.disposition === "damaged",
+              )
+            : [{ lotId: undefined, quantity: line.damagedQuantity }];
+        if (
+          movements.reduce(
+            (total, movement) => total + movement.quantity,
+            0,
+          ) !== line.damagedQuantity
+        )
+          throw new HttpsError(
+            "invalid-argument",
+            "Damaged lot allocations do not reconcile.",
+          );
+        for (
+          let movementIndex = 0;
+          movementIndex < movements.length;
+          movementIndex++
+        ) {
           const movement = movements[movementIndex]!;
           const posted = await postInventoryTransaction(actor, {
             transactionType: "transfer_receipt",
@@ -2051,7 +2185,11 @@ export const confirmTransferReceipt = onCall(
             quantity: movement.quantity,
             sourceLocationId: String(transfer.get("transitLocationId")),
             destinationLocationId: String(transfer.get("damagedLocationId")),
-            serialNumbers: await serialNumbersForIds(actor, String(item.get("productId")), line.damagedSerialItemIds),
+            serialNumbers: await serialNumbersForIds(
+              actor,
+              String(item.get("productId")),
+              line.damagedSerialItemIds,
+            ),
             lotId: movement.lotId,
             effectiveAt: new Date().toISOString(),
             reason: "Confirmed damaged branch transfer receipt",
@@ -2107,7 +2245,12 @@ export const confirmTransferReceipt = onCall(
         ...itemRefs,
       )) as [Snapshot, Snapshot, Snapshot, Snapshot, ...Snapshot[]];
       if (currentConfirmation.exists)
-        return { receiptId: input.receiptId, confirmed: false, inventoryTransactionIds: currentConfirmation.get("inventoryTransactionIds") ?? [] };
+        return {
+          receiptId: input.receiptId,
+          confirmed: false,
+          inventoryTransactionIds:
+            currentConfirmation.get("inventoryTransactionIds") ?? [],
+        };
       if (currentReceipt.get("status") !== "draft")
         return {
           receiptId: input.receiptId,
@@ -2190,24 +2333,19 @@ export const confirmTransferReceipt = onCall(
             createdAt: now,
             updatedAt: now,
           });
-          transaction.create(
-            db.collection("transferDiscrepancyItems").doc(),
-            {
-              organizationId: actor.organizationId,
-              transferId: input.transferId,
-              discrepancyId: discrepancy.id,
-              transferItemId: line.transferItemId,
-              productId: item.get("productId"),
-              sku: item.get("sku"),
-              quantity: line.missingQuantity + line.damagedQuantity,
-              serialItemIds:
-                line.missingQuantity > 0
-                  ? []
-                  : line.damagedSerialItemIds,
-              lotAllocations: line.lotAllocations,
-              createdAt: now,
-            },
-          );
+          transaction.create(db.collection("transferDiscrepancyItems").doc(), {
+            organizationId: actor.organizationId,
+            transferId: input.transferId,
+            discrepancyId: discrepancy.id,
+            transferItemId: line.transferItemId,
+            productId: item.get("productId"),
+            sku: item.get("sku"),
+            quantity: line.missingQuantity + line.damagedQuantity,
+            serialItemIds:
+              line.missingQuantity > 0 ? [] : line.damagedSerialItemIds,
+            lotAllocations: line.lotAllocations,
+            createdAt: now,
+          });
         }
         received += line.receivedQuantity;
         damaged += line.damagedQuantity;
@@ -2267,8 +2405,16 @@ export const confirmTransferReceipt = onCall(
         updatedAt: now,
         updatedBy: actor.userId,
       });
-      operation(transaction, confirmOp, actor, "confirmTransferReceipt", input.transferId);
-      transaction.update(confirmOp, { inventoryTransactionIds: transactionIds });
+      operation(
+        transaction,
+        confirmOp,
+        actor,
+        "confirmTransferReceipt",
+        input.transferId,
+      );
+      transaction.update(confirmOp, {
+        inventoryTransactionIds: transactionIds,
+      });
       event(
         transaction,
         actor,
@@ -2370,7 +2516,10 @@ export const reportTransferDiscrepancy = onCall(
             "Discrepancy item is invalid.",
           );
         if (input.type === "delivery_refused") {
-          if (!input.receiptId || line.quantity > number(item, "receivedQuantity"))
+          if (
+            !input.receiptId ||
+            line.quantity > number(item, "receivedQuantity")
+          )
             throw new HttpsError(
               "failed-precondition",
               "Returned quantity exceeds eligible received quantity.",
@@ -2390,7 +2539,8 @@ export const reportTransferDiscrepancy = onCall(
               serial.id !== serialId ||
               serial.get("organizationId") !== actor.organizationId ||
               serial.get("productId") !== item.get("productId") ||
-              serial.get("currentLocationId") !== transfer.get("destinationLocationId")
+              serial.get("currentLocationId") !==
+                transfer.get("destinationLocationId")
             )
               throw new HttpsError(
                 "failed-precondition",
@@ -2508,7 +2658,10 @@ export const resolveTransferDiscrepancy = onCall(
       Snapshot,
     ];
     assertTransferScope(actor, transfer);
-    if (!discrepancy.exists || discrepancy.get("transferId") !== input.transferId)
+    if (
+      !discrepancy.exists ||
+      discrepancy.get("transferId") !== input.transferId
+    )
       throw new HttpsError("failed-precondition", "Discrepancy is not open.");
     if (["resolved", "closed"].includes(String(discrepancy.get("status"))))
       return {
@@ -2564,348 +2717,365 @@ export const resolveTransferDiscrepancy = onCall(
       const current = await discrepancyRef.get();
       return {
         resolved: false,
-        inventoryTransactionIds:
-          current.get("resolutionTransactionIds") ?? [],
+        inventoryTransactionIds: current.get("resolutionTransactionIds") ?? [],
       };
     }
     try {
-    const lines = await db
-      .collection("transferDiscrepancyItems")
-      .where("discrepancyId", "==", input.discrepancyId)
-      .get();
-    const resolutionItems = lines.empty
-      ? []
-      : await db.getAll(
-          ...lines.docs.map((line) =>
-            db.doc(`transferItems/${String(line.get("transferItemId"))}`),
-          ),
+      const lines = await db
+        .collection("transferDiscrepancyItems")
+        .where("discrepancyId", "==", input.discrepancyId)
+        .get();
+      const resolutionItems = lines.empty
+        ? []
+        : await db.getAll(
+            ...lines.docs.map((line) =>
+              db.doc(`transferItems/${String(line.get("transferItemId"))}`),
+            ),
+          );
+      const transactionIds: string[] = [];
+      const cid = correlationId();
+      const requiresMovement =
+        ["delivered_later", "returned_to_warehouse", "written_off"].includes(
+          input.resolutionType,
+        ) ||
+        (input.resolutionType === "accepted_as_damaged" &&
+          discrepancyType !== "damaged_quantity");
+      if (requiresMovement && lines.empty)
+        throw new HttpsError(
+          "failed-precondition",
+          "Discrepancy resolution requires item detail.",
         );
-    const transactionIds: string[] = [];
-    const cid = correlationId();
-    const requiresMovement =
-      ["delivered_later", "returned_to_warehouse", "written_off"].includes(
-        input.resolutionType,
-      ) ||
-      (input.resolutionType === "accepted_as_damaged" &&
-        discrepancyType !== "damaged_quantity");
-    if (requiresMovement && lines.empty)
-      throw new HttpsError(
-        "failed-precondition",
-        "Discrepancy resolution requires item detail.",
-      );
-    for (let index = 0; index < lines.size && requiresMovement; index++) {
-      const line = lines.docs[index]!;
-      let sourceLocationId = branchReturn
-        ? String(transfer.get("destinationLocationId"))
-        : String(transfer.get("transitLocationId"));
-      let destinationLocationId: string | undefined;
-      if (input.resolutionType === "delivered_later")
-        destinationLocationId = String(transfer.get("destinationLocationId"));
-      if (input.resolutionType === "accepted_as_damaged")
-        destinationLocationId = String(transfer.get("damagedLocationId"));
-      if (input.resolutionType === "returned_to_warehouse")
-        destinationLocationId =
-          input.resolutionLocationId ??
-          String(transfer.get("originLocationId"));
-      if (
-        input.resolutionType === "written_off" &&
-        discrepancy.get("type") === "damaged_quantity"
-      )
-        sourceLocationId = String(transfer.get("damagedLocationId"));
-      const posted = await postInventoryTransaction(actor, {
-        transactionType: "discrepancy_resolution",
-        productId: String(line.get("productId")),
-        quantity: number(line, "quantity"),
-        sourceLocationId,
-        destinationLocationId,
-        externalAccount: destinationLocationId
-          ? undefined
-          : "transfer_loss_write_off",
-        serialNumbers: await serialNumbersForIds(
-          actor,
-          String(line.get("productId")),
-          (line.get("serialItemIds") as string[] | undefined) ?? [],
-        ),
-        lotId: line.get("lotId") ?? undefined,
-        effectiveAt: new Date().toISOString(),
-        reason: input.note,
-        referenceType: "transfer_discrepancy",
-        referenceId: input.discrepancyId,
-        referenceNumber: String(transfer.get("transferNumber")),
-        idempotencyKey: `${input.idempotencyKey.slice(0, 25)}-res-${index}`,
-        correlationId: cid,
-        sourceFunction: "resolveTransferDiscrepancy",
-        transferContext: { transferId: input.transferId },
-      });
-      transactionIds.push(posted.transactionId);
-    }
-    if (
-      input.resolutionType === "delivered_later" &&
-      transfer.get("sourceType") === "branch_request"
-    ) {
-      const fulfilmentLines = resolutionItems
-        .map((item, index) => ({
-          requestItemId: String(item.get("sourceRequestItemId") ?? ""),
-          quantity: number(lines.docs[index]!, "quantity"),
-        }))
-        .filter((line) => line.requestItemId && line.quantity > 0);
-      if (fulfilmentLines.length)
-        await applyTransferFulfilmentToRequest(actor, {
-          organizationId: actor.organizationId,
-          requestId: String(transfer.get("sourceRequestId")),
-          transferId: input.transferId,
-          receiptId: `discrepancy-${input.discrepancyId}`,
-          lines: fulfilmentLines,
-          correlationId: cid,
-        });
-    }
-    return await db.runTransaction(async (transaction) => {
-      const itemRefs = lines.docs.map((line) =>
-        db.doc(`transferItems/${String(line.get("transferItemId"))}`),
-      );
-      const resolutionDispatchRef = db.doc(
-        `transferDispatches/${String(discrepancy.get("dispatchId"))}`,
-      );
-      const [
-        currentTransfer,
-        currentDiscrepancy,
-        currentDispatch,
-        ...currentItems
-      ] = (await transaction.getAll(
-        ref,
-        discrepancyRef,
-        resolutionDispatchRef,
-        ...itemRefs,
-      )) as [
-          Snapshot,
-          Snapshot,
-          Snapshot,
-          ...Snapshot[],
-        ];
-      if (
-        currentDiscrepancy.get("status") === "resolved" ||
-        currentDiscrepancy.get("status") === "closed"
-      )
-        return {
-          resolved: false,
-          inventoryTransactionIds: currentDiscrepancy.get(
-            "resolutionTransactionIds",
-          ),
-        };
-      const open = await transaction.get(
-        db
-          .collection("transferDiscrepancies")
-          .where("transferId", "==", input.transferId)
-          .where("status", "in", [
-            "open",
-            "under_investigation",
-            "awaiting_warehouse",
-            "awaiting_logistics",
-            "awaiting_branch",
-            "replacement_pending",
-            "return_pending",
-            "write_off_pending",
-          ]),
-      );
-      const now = FieldValue.serverTimestamp();
-      let resolvedQuantity = 0;
-      for (let index = 0; index < lines.size; index++) {
+      for (let index = 0; index < lines.size && requiresMovement; index++) {
         const line = lines.docs[index]!;
-        const item = currentItems[index]!;
-        const quantity = number(line, "quantity");
-        if (!item.exists || item.get("transferId") !== input.transferId)
-          throw new HttpsError(
-            "failed-precondition",
-            "Discrepancy item is invalid.",
-          );
-        const updates: RecordValue = { updatedAt: now };
-        if (input.resolutionType === "delivered_later") {
-          updates.receivedQuantity = number(item, "receivedQuantity") + quantity;
-          updates.missingQuantity = Math.max(
-            0,
-            number(item, "missingQuantity") - quantity,
-          );
-        } else if (input.resolutionType === "returned_to_warehouse") {
-          updates.returnedQuantity = number(item, "returnedQuantity") + quantity;
-          if (branchReturn)
-            updates.receivedQuantity = Math.max(
-              0,
-              number(item, "receivedQuantity") - quantity,
-            );
-          else
-            updates.missingQuantity = Math.max(
-              0,
-              number(item, "missingQuantity") - quantity,
-            );
-        } else if (input.resolutionType === "accepted_as_damaged") {
-          if (discrepancyType !== "damaged_quantity") {
-            updates.damagedQuantity = number(item, "damagedQuantity") + quantity;
-            updates.missingQuantity = Math.max(
-              0,
-              number(item, "missingQuantity") - quantity,
-            );
-          }
-        } else if (input.resolutionType === "written_off") {
-          updates.writtenOffQuantity =
-            number(item, "writtenOffQuantity") + quantity;
-          if (discrepancyType === "damaged_quantity")
-            updates.damagedQuantity = Math.max(
-              0,
-              number(item, "damagedQuantity") - quantity,
-            );
-          else
-            updates.missingQuantity = Math.max(
-              0,
-              number(item, "missingQuantity") - quantity,
-            );
-        }
-        const nextDisposed =
-          Number(updates.receivedQuantity ?? item.get("receivedQuantity") ?? 0) +
-          Number(updates.damagedQuantity ?? item.get("damagedQuantity") ?? 0) +
-          Number(updates.returnedQuantity ?? item.get("returnedQuantity") ?? 0) +
-          Number(updates.writtenOffQuantity ?? item.get("writtenOffQuantity") ?? 0);
-        updates.outstandingQuantity = Math.max(
-          0,
-          number(item, "approvedQuantity") -
-            nextDisposed -
-            number(item, "cancelledQuantity"),
-        );
-        updates.itemStatus =
-          nextDisposed >= number(item, "approvedQuantity")
-            ? "received"
-            : "partially_received";
-        transaction.update(item.ref, updates);
-        resolvedQuantity += quantity;
+        let sourceLocationId = branchReturn
+          ? String(transfer.get("destinationLocationId"))
+          : String(transfer.get("transitLocationId"));
+        let destinationLocationId: string | undefined;
+        if (input.resolutionType === "delivered_later")
+          destinationLocationId = String(transfer.get("destinationLocationId"));
+        if (input.resolutionType === "accepted_as_damaged")
+          destinationLocationId = String(transfer.get("damagedLocationId"));
+        if (input.resolutionType === "returned_to_warehouse")
+          destinationLocationId =
+            input.resolutionLocationId ??
+            String(transfer.get("originLocationId"));
+        if (
+          input.resolutionType === "written_off" &&
+          discrepancy.get("type") === "damaged_quantity"
+        )
+          sourceLocationId = String(transfer.get("damagedLocationId"));
+        const posted = await postInventoryTransaction(actor, {
+          transactionType: "discrepancy_resolution",
+          productId: String(line.get("productId")),
+          quantity: number(line, "quantity"),
+          sourceLocationId,
+          destinationLocationId,
+          externalAccount: destinationLocationId
+            ? undefined
+            : "transfer_loss_write_off",
+          serialNumbers: await serialNumbersForIds(
+            actor,
+            String(line.get("productId")),
+            (line.get("serialItemIds") as string[] | undefined) ?? [],
+          ),
+          lotId: line.get("lotId") ?? undefined,
+          effectiveAt: new Date().toISOString(),
+          reason: input.note,
+          referenceType: "transfer_discrepancy",
+          referenceId: input.discrepancyId,
+          referenceNumber: String(transfer.get("transferNumber")),
+          idempotencyKey: `${input.idempotencyKey.slice(0, 25)}-res-${index}`,
+          correlationId: cid,
+          sourceFunction: "resolveTransferDiscrepancy",
+          transferContext: { transferId: input.transferId },
+        });
+        transactionIds.push(posted.transactionId);
       }
-      transaction.update(discrepancyRef, {
-        status: "resolved",
-        resolutionInProgress: false,
-        resolutionType: input.resolutionType,
-        resolutionNote: input.note,
-        resolutionTransactionIds: transactionIds,
-        resolvedBy: actor.userId,
-        resolvedAt: now,
-        updatedAt: now,
-      });
-      const transferUpdates: RecordValue = {
-        updatedAt: now,
-        updatedBy: actor.userId,
-      };
-      if (input.resolutionType === "delivered_later") {
-        transferUpdates.totalReceivedQuantity =
-          number(currentTransfer, "totalReceivedQuantity") + resolvedQuantity;
-        transferUpdates.totalMissingQuantity = Math.max(
-          0,
-          number(currentTransfer, "totalMissingQuantity") - resolvedQuantity,
-        );
-      } else if (input.resolutionType === "returned_to_warehouse") {
-        transferUpdates.totalReturnedQuantity =
-          number(currentTransfer, "totalReturnedQuantity") + resolvedQuantity;
-        if (branchReturn)
-          transferUpdates.totalReceivedQuantity = Math.max(
-            0,
-            number(currentTransfer, "totalReceivedQuantity") - resolvedQuantity,
-          );
-        else
-          transferUpdates.totalMissingQuantity = Math.max(
-            0,
-            number(currentTransfer, "totalMissingQuantity") - resolvedQuantity,
-          );
-      } else if (
-        input.resolutionType === "accepted_as_damaged" &&
-        discrepancyType !== "damaged_quantity"
-      ) {
-        transferUpdates.totalDamagedQuantity =
-          number(currentTransfer, "totalDamagedQuantity") + resolvedQuantity;
-        transferUpdates.totalMissingQuantity = Math.max(
-          0,
-          number(currentTransfer, "totalMissingQuantity") - resolvedQuantity,
-        );
-      } else if (input.resolutionType === "written_off") {
-        transferUpdates.totalWrittenOffQuantity =
-          number(currentTransfer, "totalWrittenOffQuantity") + resolvedQuantity;
-        if (discrepancyType === "damaged_quantity")
-          transferUpdates.totalDamagedQuantity = Math.max(
-            0,
-            number(currentTransfer, "totalDamagedQuantity") - resolvedQuantity,
-          );
-        else
-          transferUpdates.totalMissingQuantity = Math.max(
-            0,
-            number(currentTransfer, "totalMissingQuantity") - resolvedQuantity,
-          );
-      }
-      const disposed =
-        Number(
-          transferUpdates.totalReceivedQuantity ??
-            currentTransfer.get("totalReceivedQuantity") ??
-            0,
-        ) +
-        Number(
-          transferUpdates.totalDamagedQuantity ??
-            currentTransfer.get("totalDamagedQuantity") ??
-            0,
-        ) +
-        Number(
-          transferUpdates.totalReturnedQuantity ??
-            currentTransfer.get("totalReturnedQuantity") ??
-            0,
-        ) +
-        Number(
-          transferUpdates.totalWrittenOffQuantity ??
-            currentTransfer.get("totalWrittenOffQuantity") ??
-            0,
-        );
-      transferUpdates.totalOutstandingQuantity = Math.max(
-        0,
-        number(currentTransfer, "totalApprovedQuantity") -
-          disposed -
-          number(currentTransfer, "cancelledRemainingQuantity"),
-      );
-      transferUpdates.status =
-        open.size > 1
-          ? "disputed"
-          : disposed >= number(currentTransfer, "totalApprovedQuantity")
-            ? "received"
-            : "partially_received";
-      transaction.update(ref, transferUpdates);
       if (
-        currentDispatch.exists &&
-        currentDispatch.get("transferId") === input.transferId
-      )
-        transaction.update(resolutionDispatchRef, {
-          status:
-            open.size <= 1 && input.resolutionType === "delivered_later"
+        input.resolutionType === "delivered_later" &&
+        transfer.get("sourceType") === "branch_request"
+      ) {
+        const fulfilmentLines = resolutionItems
+          .map((item, index) => ({
+            requestItemId: String(item.get("sourceRequestItemId") ?? ""),
+            quantity: number(lines.docs[index]!, "quantity"),
+          }))
+          .filter((line) => line.requestItemId && line.quantity > 0);
+        if (fulfilmentLines.length)
+          await applyTransferFulfilmentToRequest(actor, {
+            organizationId: actor.organizationId,
+            requestId: String(transfer.get("sourceRequestId")),
+            transferId: input.transferId,
+            receiptId: `discrepancy-${input.discrepancyId}`,
+            lines: fulfilmentLines,
+            correlationId: cid,
+          });
+      }
+      return await db.runTransaction(async (transaction) => {
+        const itemRefs = lines.docs.map((line) =>
+          db.doc(`transferItems/${String(line.get("transferItemId"))}`),
+        );
+        const resolutionDispatchRef = db.doc(
+          `transferDispatches/${String(discrepancy.get("dispatchId"))}`,
+        );
+        const [
+          currentTransfer,
+          currentDiscrepancy,
+          currentDispatch,
+          ...currentItems
+        ] = (await transaction.getAll(
+          ref,
+          discrepancyRef,
+          resolutionDispatchRef,
+          ...itemRefs,
+        )) as [Snapshot, Snapshot, Snapshot, ...Snapshot[]];
+        if (
+          currentDiscrepancy.get("status") === "resolved" ||
+          currentDiscrepancy.get("status") === "closed"
+        )
+          return {
+            resolved: false,
+            inventoryTransactionIds: currentDiscrepancy.get(
+              "resolutionTransactionIds",
+            ),
+          };
+        const open = await transaction.get(
+          db
+            .collection("transferDiscrepancies")
+            .where("transferId", "==", input.transferId)
+            .where("status", "in", [
+              "open",
+              "under_investigation",
+              "awaiting_warehouse",
+              "awaiting_logistics",
+              "awaiting_branch",
+              "replacement_pending",
+              "return_pending",
+              "write_off_pending",
+            ]),
+        );
+        const now = FieldValue.serverTimestamp();
+        let resolvedQuantity = 0;
+        for (let index = 0; index < lines.size; index++) {
+          const line = lines.docs[index]!;
+          const item = currentItems[index]!;
+          const quantity = number(line, "quantity");
+          if (!item.exists || item.get("transferId") !== input.transferId)
+            throw new HttpsError(
+              "failed-precondition",
+              "Discrepancy item is invalid.",
+            );
+          const updates: RecordValue = { updatedAt: now };
+          if (input.resolutionType === "delivered_later") {
+            updates.receivedQuantity =
+              number(item, "receivedQuantity") + quantity;
+            updates.missingQuantity = Math.max(
+              0,
+              number(item, "missingQuantity") - quantity,
+            );
+          } else if (input.resolutionType === "returned_to_warehouse") {
+            updates.returnedQuantity =
+              number(item, "returnedQuantity") + quantity;
+            if (branchReturn)
+              updates.receivedQuantity = Math.max(
+                0,
+                number(item, "receivedQuantity") - quantity,
+              );
+            else
+              updates.missingQuantity = Math.max(
+                0,
+                number(item, "missingQuantity") - quantity,
+              );
+          } else if (input.resolutionType === "accepted_as_damaged") {
+            if (discrepancyType !== "damaged_quantity") {
+              updates.damagedQuantity =
+                number(item, "damagedQuantity") + quantity;
+              updates.missingQuantity = Math.max(
+                0,
+                number(item, "missingQuantity") - quantity,
+              );
+            }
+          } else if (input.resolutionType === "written_off") {
+            updates.writtenOffQuantity =
+              number(item, "writtenOffQuantity") + quantity;
+            if (discrepancyType === "damaged_quantity")
+              updates.damagedQuantity = Math.max(
+                0,
+                number(item, "damagedQuantity") - quantity,
+              );
+            else
+              updates.missingQuantity = Math.max(
+                0,
+                number(item, "missingQuantity") - quantity,
+              );
+          }
+          const nextDisposed =
+            Number(
+              updates.receivedQuantity ?? item.get("receivedQuantity") ?? 0,
+            ) +
+            Number(
+              updates.damagedQuantity ?? item.get("damagedQuantity") ?? 0,
+            ) +
+            Number(
+              updates.returnedQuantity ?? item.get("returnedQuantity") ?? 0,
+            ) +
+            Number(
+              updates.writtenOffQuantity ?? item.get("writtenOffQuantity") ?? 0,
+            );
+          updates.outstandingQuantity = Math.max(
+            0,
+            number(item, "approvedQuantity") -
+              nextDisposed -
+              number(item, "cancelledQuantity"),
+          );
+          updates.itemStatus =
+            nextDisposed >= number(item, "approvedQuantity")
               ? "received"
-              : "disputed",
+              : "partially_received";
+          transaction.update(item.ref, updates);
+          resolvedQuantity += quantity;
+        }
+        transaction.update(discrepancyRef, {
+          status: "resolved",
+          resolutionInProgress: false,
+          resolutionType: input.resolutionType,
+          resolutionNote: input.note,
+          resolutionTransactionIds: transactionIds,
+          resolvedBy: actor.userId,
+          resolvedAt: now,
           updatedAt: now,
         });
-      event(transaction, actor, currentTransfer, "discrepancy_resolved", cid, {
-        discrepancyId: input.discrepancyId,
-        resolutionType: input.resolutionType,
-        inventoryTransactionIds: transactionIds,
+        const transferUpdates: RecordValue = {
+          updatedAt: now,
+          updatedBy: actor.userId,
+        };
+        if (input.resolutionType === "delivered_later") {
+          transferUpdates.totalReceivedQuantity =
+            number(currentTransfer, "totalReceivedQuantity") + resolvedQuantity;
+          transferUpdates.totalMissingQuantity = Math.max(
+            0,
+            number(currentTransfer, "totalMissingQuantity") - resolvedQuantity,
+          );
+        } else if (input.resolutionType === "returned_to_warehouse") {
+          transferUpdates.totalReturnedQuantity =
+            number(currentTransfer, "totalReturnedQuantity") + resolvedQuantity;
+          if (branchReturn)
+            transferUpdates.totalReceivedQuantity = Math.max(
+              0,
+              number(currentTransfer, "totalReceivedQuantity") -
+                resolvedQuantity,
+            );
+          else
+            transferUpdates.totalMissingQuantity = Math.max(
+              0,
+              number(currentTransfer, "totalMissingQuantity") -
+                resolvedQuantity,
+            );
+        } else if (
+          input.resolutionType === "accepted_as_damaged" &&
+          discrepancyType !== "damaged_quantity"
+        ) {
+          transferUpdates.totalDamagedQuantity =
+            number(currentTransfer, "totalDamagedQuantity") + resolvedQuantity;
+          transferUpdates.totalMissingQuantity = Math.max(
+            0,
+            number(currentTransfer, "totalMissingQuantity") - resolvedQuantity,
+          );
+        } else if (input.resolutionType === "written_off") {
+          transferUpdates.totalWrittenOffQuantity =
+            number(currentTransfer, "totalWrittenOffQuantity") +
+            resolvedQuantity;
+          if (discrepancyType === "damaged_quantity")
+            transferUpdates.totalDamagedQuantity = Math.max(
+              0,
+              number(currentTransfer, "totalDamagedQuantity") -
+                resolvedQuantity,
+            );
+          else
+            transferUpdates.totalMissingQuantity = Math.max(
+              0,
+              number(currentTransfer, "totalMissingQuantity") -
+                resolvedQuantity,
+            );
+        }
+        const disposed =
+          Number(
+            transferUpdates.totalReceivedQuantity ??
+              currentTransfer.get("totalReceivedQuantity") ??
+              0,
+          ) +
+          Number(
+            transferUpdates.totalDamagedQuantity ??
+              currentTransfer.get("totalDamagedQuantity") ??
+              0,
+          ) +
+          Number(
+            transferUpdates.totalReturnedQuantity ??
+              currentTransfer.get("totalReturnedQuantity") ??
+              0,
+          ) +
+          Number(
+            transferUpdates.totalWrittenOffQuantity ??
+              currentTransfer.get("totalWrittenOffQuantity") ??
+              0,
+          );
+        transferUpdates.totalOutstandingQuantity = Math.max(
+          0,
+          number(currentTransfer, "totalApprovedQuantity") -
+            disposed -
+            number(currentTransfer, "cancelledRemainingQuantity"),
+        );
+        transferUpdates.status =
+          open.size > 1
+            ? "disputed"
+            : disposed >= number(currentTransfer, "totalApprovedQuantity")
+              ? "received"
+              : "partially_received";
+        transaction.update(ref, transferUpdates);
+        if (
+          currentDispatch.exists &&
+          currentDispatch.get("transferId") === input.transferId
+        )
+          transaction.update(resolutionDispatchRef, {
+            status:
+              open.size <= 1 && input.resolutionType === "delivered_later"
+                ? "received"
+                : "disputed",
+            updatedAt: now,
+          });
+        event(
+          transaction,
+          actor,
+          currentTransfer,
+          "discrepancy_resolved",
+          cid,
+          {
+            discrepancyId: input.discrepancyId,
+            resolutionType: input.resolutionType,
+            inventoryTransactionIds: transactionIds,
+          },
+        );
+        notification(
+          transaction,
+          actor,
+          currentTransfer,
+          "discrepancy_resolved",
+          input.idempotencyKey,
+        );
+        writeAuditLog(transaction, actor, {
+          action: "transfer.discrepancy_resolved",
+          entityType: "transferDiscrepancy",
+          entityId: input.discrepancyId,
+          correlationId: cid,
+          sourceFunction: "resolveTransferDiscrepancy",
+          reason: input.note,
+          after: {
+            resolutionType: input.resolutionType,
+            inventoryTransactionIds: transactionIds,
+          },
+        });
+        return { resolved: true, inventoryTransactionIds: transactionIds };
       });
-      notification(
-        transaction,
-        actor,
-        currentTransfer,
-        "discrepancy_resolved",
-        input.idempotencyKey,
-      );
-      writeAuditLog(transaction, actor, {
-        action: "transfer.discrepancy_resolved",
-        entityType: "transferDiscrepancy",
-        entityId: input.discrepancyId,
-        correlationId: cid,
-        sourceFunction: "resolveTransferDiscrepancy",
-        reason: input.note,
-        after: {
-          resolutionType: input.resolutionType,
-          inventoryTransactionIds: transactionIds,
-        },
-      });
-      return { resolved: true, inventoryTransactionIds: transactionIds };
-    });
     } catch (error) {
       await db.runTransaction(async (transaction) => {
         const current = await transaction.get(discrepancyRef);
@@ -3024,7 +3194,11 @@ async function costTransition(
     assertTransferScope(actor, transfer);
     if (!cost.exists || cost.get("transferId") !== input.transferId)
       throw new HttpsError("not-found", "Transfer cost not found.");
-    if (action === "approve" && cost.get("createdBy") === actor.userId)
+    if (
+      action === "approve" &&
+      cost.get("createdBy") === actor.userId &&
+      !canSelfAuthorize(actor)
+    )
       throw new HttpsError(
         "permission-denied",
         "Cost creator cannot approve their own cost.",
@@ -3327,7 +3501,11 @@ export const closeTransfer = onCall({ enforceAppCheck }, async (request) => {
   const ref = transferRef(input.transferId);
   const op = operationRef(actor, "closeTransfer", input.idempotencyKey);
   const cid = correlationId();
-  await assertTransferInvariantGate(actor.organizationId, input.transferId, "before_closure");
+  await assertTransferInvariantGate(
+    actor.organizationId,
+    input.transferId,
+    "before_closure",
+  );
   return db.runTransaction(async (transaction) => {
     const [previous, transfer] = (await transaction.getAll(op, ref)) as [
       Snapshot,

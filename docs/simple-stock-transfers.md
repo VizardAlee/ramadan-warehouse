@@ -5,7 +5,7 @@ Deployment checkpoint: 2026-09-06. Commit `9a3c464` is deployed to the existing 
 ## Everyday workflow
 
 1. **Request stock.** A source or destination manager selects the sending warehouse or branch, the receiving branch, products and quantities. A note is optional. An existing approved branch request can be linked.
-2. **Administrator approves.** A system or operations administrator reviews the quantity and selects actual serial identities where applicable. Approval atomically holds stock. An administrator can approve their own allocation; no extra picker, packer or driver account is required.
+2. **Source manager approves.** A manager assigned to the sending location reviews the quantity and selects actual serial identities where applicable. A system administrator may do this for any location. Approval atomically holds stock, and the requester may approve their own in-scope request; no extra approver, picker, packer or driver account is required.
 3. **Receiving manager confirms arrival.** The destination manager counts actual goods and confirms all or a partial receipt. An administrator may act on behalf of the destination, with their own identity recorded. Good goods enter saleable destination stock; full good receipt completes the transfer automatically.
 
 There is no mandatory packaging, sealing, transport-cost, picking, dispatch or manual-close form. Warehouse-to-branch and branch-to-branch use the same flow within the same organization. Transfers are inventory movements, not sales or supplier purchases; they do not create customer revenue, VAT, cash or a supplier payable.
@@ -31,7 +31,7 @@ Cancelling transfer remainder does not cancel approved branch-request demand. Fo
 ## Permissions and safety
 
 - System administrators require no location assignment to manage any location in their organization. Normal managers are restricted to their assigned source/destination, including the selected operating context.
-- Only administrators approve and resolve remainder; only destination managers or administrators acknowledge goods.
+- Source-location managers and administrators approve and resolve remainders; only destination managers or administrators acknowledge goods.
 - Branch managers can discover source names, product names and available quantities needed to request stock; this does not grant access to unrelated transfers, costs or customer data.
 - Firebase Auth, authorization-version checks and App Check remain enforced. New collections are callable-only under the default-deny Firestore rules.
 - Every write is atomic, version-checked and idempotent. A retry key is bound to actor, action and payload. Concurrent approvals/receipts/sales serialize against shared inventory balances.
@@ -47,7 +47,7 @@ Dashboard counts and operational request reconciliation include both workflows. 
 
 ## Verification
 
-`npm run test:stock-transfers` uses only the guarded `demo-ramadan-warehouse` Auth/Firestore/Functions emulators. Cases cover the three-task journey, administrator self-approval, scope denial, replay and concurrent posting, partial receipts, quarantine, cancellation preserving demand, direct branch supply, loss, serial/lot conservation, and reconciliation/reversal guards. Existing transfer tests remain separate regression coverage.
+`npm run test:stock-transfers` uses only the guarded `demo-ramadan-warehouse` Auth/Firestore/Functions emulators. Cases cover the three-task journey, assigned source-manager self-approval, scope denial, replay and concurrent posting, partial receipts, quarantine, cancellation preserving demand, direct branch supply, loss, serial/lot conservation, and reconciliation/reversal guards. Existing transfer tests remain separate regression coverage.
 
 The live release required the new callable, affected reconciliation/reversal callables, and web build. No synthetic production users or stock were created for verification.
 

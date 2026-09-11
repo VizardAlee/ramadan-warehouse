@@ -122,7 +122,8 @@ export default function CountsPage() {
       <div>
         <h1 className="text-3xl font-semibold">Stock counts</h1>
         <p className="text-[var(--muted)]">
-          Blind count, maker-checker review, and ledger-posted variances.
+          Blind count, auditable review, and ledger-posted variances. Assigned
+          managers may complete the review without waiting for another user.
         </p>
       </div>
       {message && (
@@ -235,12 +236,15 @@ export default function CountsPage() {
       </div>
       {workspace && (
         <div
-          className="fixed inset-0 z-50 flex items-end justify-center overflow-y-auto bg-black/50 sm:items-center sm:p-4"
+          className="app-dialog-backdrop"
           role="dialog"
           aria-modal="true"
           aria-labelledby="stock-count-title"
         >
-          <section ref={workspaceRef} className="safe-bottom max-h-[calc(100dvh-1rem)] w-full max-w-3xl overflow-y-auto rounded-t-2xl bg-white p-5 sm:my-8 sm:rounded-xl sm:p-6">
+          <section
+            ref={workspaceRef}
+            className="app-dialog-panel safe-bottom max-w-3xl rounded-2xl bg-white p-5 sm:p-6"
+          >
             <h2 id="stock-count-title" className="text-xl font-semibold">
               {workspace.count.countNumber}
             </h2>

@@ -4,7 +4,7 @@ Firestore `users/{uid}` profiles are the detailed source of truth. Each profile 
 
 Permissions are the union of all assigned roles, but scoped users operate in one explicit branch or warehouse context at a time. Holding both `branch_manager` and `warehouse_manager` grants branch-manager operations only for assigned `branchIds` and warehouse-manager operations only for assigned `warehouseIds`; it never creates organization-wide authority. The application selector sends the chosen context with every callable, and the server independently validates and narrows the roles and location IDs. A missing context is accepted only when exactly one valid scoped location exists; otherwise the operation is rejected until the user selects a location.
 
-Navigation and feature tabs are permission-filtered. Ordinary users see only workspaces supported by their assigned role. Branch and warehouse managers receive the complete inventory workflow for their selected location, including receipts, opening balances while enabled, internal movement, adjustments, reversals, counts, review, reconciliation, and scoped reporting. This does not grant organization administration, shared catalogue mutation, cross-location access, or the opposite side of a transfer. Branch managers retain branch-side request and receipt authority; warehouse managers retain warehouse-side approval, reservation, fulfilment, dispatch, and cost authority. Existing maker-checker restrictions still prohibit a user from reviewing or approving their own controlled action.
+Navigation and feature tabs are permission-filtered. Ordinary users see only workspaces supported by their assigned role. Branch and warehouse managers receive the complete operational workflow for their selected location, including inventory actions, counts and review, reconciliation, expenses, and scoped reporting. Warehouse managers also receive the complete procure-to-pay path for assigned warehouses; branch managers receive the complete request, receipt, POS, return, and expense path for assigned branches. A manager may authorize their own in-scope work so normal operations never depend on a second account. Every transition still writes actor, time, entity, status, and relevant before/after evidence to the immutable audit trail. This does not grant organization administration, customer-credit approval, shared catalogue mutation, cross-location access, or authority over the opposite side of a transfer.
 
 The `sales_cashier` role may read the organization product catalogue and operate
 paid POS sales and device shifts only for assigned branches. Branch managers
@@ -20,28 +20,30 @@ sales, customer balances, and journals organization-wide, but no role may
 mutate authoritative records directly from a client.
 
 Sales cashiers and branch managers may submit receipt-linked returns for their
-assigned branch. Branch managers, operations administrators, finance officers,
-and system administrators may approve returns within their authority, but the
-server always rejects approval by the creator. Restocking, refund/receivable
+assigned branch. Branch managers may approve their own in-scope returns;
+operations administrators and system administrators have organization-wide
+approval authority. Restocking, refund/receivable
 posting, and exchange-credit issuance happen only through the approval
 callable; Firestore clients cannot write these records directly.
 
 Procurement authority is warehouse-scoped. Warehouse managers may create and
 submit purchase orders for assigned warehouses, and warehouse managers and
 officers may receive approved quantities into assigned warehouse locations.
-Operations administrators may manage suppliers and approve purchase orders.
-Finance officers can read purchasing evidence, submit supplier invoices,
-approve an invoice created by someone else, and record supplier payments.
-Auditors have read-only procurement and payables access. System administrators
-have organization-wide authority, but PO and invoice maker-checker restrictions
-still reject creator self-approval. Purchase approval never posts inventory or
+Warehouse managers may manage suppliers and complete purchase-order,
+supplier-invoice, and supplier-payment actions for assigned warehouses without
+waiting for a second user. Finance officers retain organization-wide payables
+authority but, because they are not an operational manager role, cannot approve
+their own invoice. Auditors have read-only procurement and payables access.
+System and operations administrators may self-authorize within their broader
+authority. Purchase approval never posts inventory or
 a payable; only physical receipt posts stock, and only approved invoice
 matching posts Accounts Payable.
 
-Branch and warehouse managers may create operating expenses only in their
-assigned context. Operations administrators may create and approve expenses
-organization-wide. Finance officers may create, independently approve, and pay
-expenses organization-wide; the server still rejects creator self-approval.
+Branch and warehouse managers may create, approve, and pay operating expenses
+only in their assigned context. Operations and system administrators may do so
+organization-wide. Finance officers have organization-wide expense authority,
+but a finance officer who creates an expense still needs another authorized
+actor to approve it because finance officer is not a manager role.
 Auditors have read-only organization-wide access. Only the payment permission
 can record a disbursement, and all category, expense, payment, journal, and
 audit writes remain callable-only.

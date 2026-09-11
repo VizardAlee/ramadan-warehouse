@@ -68,7 +68,9 @@ async function createActor(email: string, roleId: string) {
     email,
     displayName: roleId,
     roleId,
-    branchIds: ["branch_manager", "sales_cashier"].includes(roleId) ? [branchId] : [],
+    branchIds: ["branch_manager", "sales_cashier"].includes(roleId)
+      ? [branchId]
+      : [],
     warehouseIds: roleId === "warehouse_manager" ? ["warehouse-sales"] : [],
     status: "active",
     authDisabled: false,
@@ -245,7 +247,11 @@ describe.sequential("sales callables", () => {
     expect(posted.posted).toBe(true);
     expect(posted.saleNumber).toMatch(/^SAL-IRB-/);
 
-    const retry = await call<typeof posted>(branchManager, "commitPosSale", payload);
+    const retry = await call<typeof posted>(
+      branchManager,
+      "commitPosSale",
+      payload,
+    );
     expect(retry).toMatchObject({ saleId: posted.saleId, posted: false });
 
     const [sale, balance, receipt, journalQuery, inventoryQuery] =
@@ -296,7 +302,11 @@ describe.sequential("sales callables", () => {
     const officialDocument = await call<{
       official: boolean;
       organization: { legalName: string; tradingName: string };
-      sale: { invoiceNumber: string; receiptNumber: string; vatAmountMinor: number };
+      sale: {
+        invoiceNumber: string;
+        receiptNumber: string;
+        vatAmountMinor: number;
+      };
       items: Array<Record<string, unknown>>;
       payments: Array<Record<string, unknown>>;
     }>(branchManager, "getSaleDocument", { saleId: posted.saleId });
@@ -315,9 +325,15 @@ describe.sequential("sales callables", () => {
     expect(officialDocument.items[0]).not.toHaveProperty("costAmountMinor");
     await expect(
       call(cashier, "getSaleDocument", { saleId: posted.saleId }),
-    ).resolves.toMatchObject({ official: true, sale: { saleNumber: posted.saleNumber } });
+    ).resolves.toMatchObject({
+      official: true,
+      sale: { saleNumber: posted.saleNumber },
+    });
     await expect(
-      call(cashier, "generateSalesReport", { reportType: "sales_register", branchId }),
+      call(cashier, "generateSalesReport", {
+        reportType: "sales_register",
+        branchId,
+      }),
     ).rejects.toMatchObject({ code: "functions/permission-denied" });
 
     const salesReport = await call<{
@@ -328,14 +344,18 @@ describe.sequential("sales callables", () => {
       branchId,
       limit: 100,
     });
-    expect(salesReport.rows).toContainEqual(expect.objectContaining({
-      id: posted.saleId,
-      saleNumber: posted.saleNumber,
-      receiptNumber: posted.receiptNumber,
-      grossAmountMinor: 23_650,
-      vatAmountMinor: 1_650,
-    }));
-    expect(salesReport.rows.find((row) => row.id === posted.saleId)).not.toHaveProperty("costAmountMinor");
+    expect(salesReport.rows).toContainEqual(
+      expect.objectContaining({
+        id: posted.saleId,
+        saleNumber: posted.saleNumber,
+        receiptNumber: posted.receiptNumber,
+        grossAmountMinor: 23_650,
+        vatAmountMinor: 1_650,
+      }),
+    );
+    expect(
+      salesReport.rows.find((row) => row.id === posted.saleId),
+    ).not.toHaveProperty("costAmountMinor");
 
     await adminDb.doc("sales/out-of-scope-sale").set({
       organizationId,
@@ -369,7 +389,9 @@ describe.sequential("sales callables", () => {
         priceSource: string;
       }>;
     }>(administrator, "getPosWorkspace", { branchId });
-    expect(workspace.products.find((product) => product.id === productId)).toMatchObject({
+    expect(
+      workspace.products.find((product) => product.id === productId),
+    ).toMatchObject({
       unitPriceMinor: 12_000,
       priceSource: "central",
     });
@@ -499,7 +521,10 @@ describe.sequential("sales callables", () => {
       operatingContext: { type: "branch", id: branchId },
     });
     expect(workspace.customers).toContainEqual(
-      expect.objectContaining({ id: saved.customerId, availableCreditMinor: 20_000 }),
+      expect.objectContaining({
+        id: saved.customerId,
+        availableCreditMinor: 20_000,
+      }),
     );
     const shift = await adminDb
       .collection("posShifts")
@@ -526,14 +551,29 @@ describe.sequential("sales callables", () => {
       },
     );
     expect(sale.posted).toBe(true);
-    const [saleRecord, customer, receivableLines, accountEntries] = await Promise.all([
-      adminDb.doc(`sales/${sale.saleId}`).get(),
-      adminDb.doc(`customers/${saved.customerId}`).get(),
-      adminDb.collection("journalLines").where("journalEntryId", "==", (
-        await adminDb.collection("journalEntries").where("referenceId", "==", sale.saleId).limit(1).get()
-      ).docs[0]!.id).get(),
-      adminDb.collection("customerAccountEntries").where("referenceId", "==", sale.saleId).get(),
-    ]);
+    const [saleRecord, customer, receivableLines, accountEntries] =
+      await Promise.all([
+        adminDb.doc(`sales/${sale.saleId}`).get(),
+        adminDb.doc(`customers/${saved.customerId}`).get(),
+        adminDb
+          .collection("journalLines")
+          .where(
+            "journalEntryId",
+            "==",
+            (
+              await adminDb
+                .collection("journalEntries")
+                .where("referenceId", "==", sale.saleId)
+                .limit(1)
+                .get()
+            ).docs[0]!.id,
+          )
+          .get(),
+        adminDb
+          .collection("customerAccountEntries")
+          .where("referenceId", "==", sale.saleId)
+          .get(),
+      ]);
     expect(saleRecord.data()).toMatchObject({
       customerId: saved.customerId,
       paymentStatus: "credit",
@@ -544,11 +584,19 @@ describe.sequential("sales callables", () => {
       outstandingBalanceMinor: 12_900,
       availableCreditMinor: 7_100,
     });
-    expect(receivableLines.docs.some((line) => line.get("accountCode") === "1100" && line.get("debitMinor") === 12_900)).toBe(true);
+    expect(
+      receivableLines.docs.some(
+        (line) =>
+          line.get("accountCode") === "1100" &&
+          line.get("debitMinor") === 12_900,
+      ),
+    ).toBe(true);
     expect(accountEntries.size).toBe(1);
 
     const stockBeforeRejectedSale = await adminDb
-      .doc(`inventoryBalances/${balanceDocumentId(organizationId, productId, locationId)}`)
+      .doc(
+        `inventoryBalances/${balanceDocumentId(organizationId, productId, locationId)}`,
+      )
       .get();
     await expect(
       call(branchManager, "commitPosSale", {
@@ -565,9 +613,9 @@ describe.sequential("sales callables", () => {
         operatingContext: { type: "branch", id: branchId },
       }),
     ).rejects.toMatchObject({ code: "functions/failed-precondition" });
-    expect((await stockBeforeRejectedSale.ref.get()).get("onHandQuantity")).toBe(
-      stockBeforeRejectedSale.get("onHandQuantity"),
-    );
+    expect(
+      (await stockBeforeRejectedSale.ref.get()).get("onHandQuantity"),
+    ).toBe(stockBeforeRejectedSale.get("onHandQuantity"));
 
     await expect(
       call(branchManager, "recordCustomerPayment", {
@@ -580,7 +628,9 @@ describe.sequential("sales callables", () => {
         operatingContext: { type: "branch", id: branchId },
       }),
     ).resolves.toMatchObject({ recorded: true });
-    expect((await adminDb.doc(`customers/${saved.customerId}`).get()).data()).toMatchObject({
+    expect(
+      (await adminDb.doc(`customers/${saved.customerId}`).get()).data(),
+    ).toMatchObject({
       outstandingBalanceMinor: 7_900,
       availableCreditMinor: 12_100,
     });
@@ -594,7 +644,15 @@ describe.sequential("sales callables", () => {
         offline: true,
         customerId: saved.customerId,
         creditAmountMinor: 12_900,
-        lines: [{ productId, quantity: 1, unitPriceMinor: 12_000, vatRateBasisPoints: 750, priceVersion: 2 }],
+        lines: [
+          {
+            productId,
+            quantity: 1,
+            unitPriceMinor: 12_000,
+            vatRateBasisPoints: 750,
+            priceVersion: 2,
+          },
+        ],
         payments: [],
         idempotencyKey: crypto.randomUUID(),
         operatingContext: { type: "branch", id: branchId },
@@ -602,7 +660,7 @@ describe.sequential("sales callables", () => {
     ).rejects.toMatchObject({ code: "functions/invalid-argument" });
   });
 
-  it("uses independent approval to restock a receipt return and redeem its exchange credit once", async () => {
+  it("lets a branch manager approve an audited receipt return and redeem its exchange credit once", async () => {
     const originalPayment = await adminDb
       .collection("salePayments")
       .where("amountMinor", "==", 23_650)
@@ -646,43 +704,46 @@ describe.sequential("sales callables", () => {
       },
     );
     expect(submitted.returnNumber).toMatch(/^RTN-IRB-/);
-    await expect(
-      call(branchManager, "approveSaleReturn", {
+    const beforeApproval = await adminDb
+      .doc(
+        `inventoryBalances/${balanceDocumentId(organizationId, productId, locationId)}`,
+      )
+      .get();
+    const approved = await call<{ creditId: string; approved: boolean }>(
+      branchManager,
+      "approveSaleReturn",
+      {
         returnId: submitted.returnId,
+        notes: "Item inspected and sealed by the assigned manager",
         idempotencyKey: crypto.randomUUID(),
         operatingContext: { type: "branch", id: branchId },
-      }),
-    ).rejects.toMatchObject({ code: "functions/permission-denied" });
+      },
+    );
 
     const balanceReference = adminDb.doc(
       `inventoryBalances/${balanceDocumentId(organizationId, productId, locationId)}`,
     );
-    const beforeApproval = await balanceReference.get();
-    const approved = await call<{ creditId: string; approved: boolean }>(
-      administrator,
-      "approveSaleReturn",
-      {
-        returnId: submitted.returnId,
-        notes: "Item inspected and sealed",
-        idempotencyKey: crypto.randomUUID(),
-      },
-    );
     expect(approved).toMatchObject({ approved: true });
     expect(approved.creditId).toBeTruthy();
-    const [afterApproval, returnRecord, creditRecord, returnInventory, returnJournal] =
-      await Promise.all([
-        balanceReference.get(),
-        adminDb.doc(`saleReturns/${submitted.returnId}`).get(),
-        adminDb.doc(`salesCredits/${approved.creditId}`).get(),
-        adminDb
-          .collection("inventoryTransactions")
-          .where("referenceId", "==", submitted.returnId)
-          .get(),
-        adminDb
-          .collection("journalEntries")
-          .where("referenceId", "==", submitted.returnId)
-          .get(),
-      ]);
+    const [
+      afterApproval,
+      returnRecord,
+      creditRecord,
+      returnInventory,
+      returnJournal,
+    ] = await Promise.all([
+      balanceReference.get(),
+      adminDb.doc(`saleReturns/${submitted.returnId}`).get(),
+      adminDb.doc(`salesCredits/${approved.creditId}`).get(),
+      adminDb
+        .collection("inventoryTransactions")
+        .where("referenceId", "==", submitted.returnId)
+        .get(),
+      adminDb
+        .collection("journalEntries")
+        .where("referenceId", "==", submitted.returnId)
+        .get(),
+    ]);
     expect(afterApproval.get("onHandQuantity")).toBe(
       beforeApproval.get("onHandQuantity") + 1,
     );

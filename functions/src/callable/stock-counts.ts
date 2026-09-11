@@ -3,6 +3,7 @@ import { logger } from "firebase-functions";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
 import { db } from "../admin.js";
 import {
+  canSelfAuthorize,
   hasRole,
   requireBranchScope,
   requireAccess,
@@ -410,12 +411,13 @@ export const reviewStockCount = onCall({ enforceAppCheck }, async (request) => {
       );
     requireCountScope(actor, count);
     if (
-      count.get("submittedBy") === actor.userId ||
-      count.get("createdBy") === actor.userId
+      (count.get("submittedBy") === actor.userId ||
+        count.get("createdBy") === actor.userId) &&
+      !canSelfAuthorize(actor)
     )
       throw new HttpsError(
         "permission-denied",
-        "The count maker cannot review their own count.",
+        "This role cannot review its own stock count.",
       );
     const now = FieldValue.serverTimestamp();
     transaction.update(reference, {

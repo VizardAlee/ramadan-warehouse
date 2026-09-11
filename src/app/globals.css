@@ -210,6 +210,47 @@ textarea { min-height: 96px; }
 .scroll-tabs > * { flex: 0 0 auto; }
 .safe-bottom { padding-bottom: max(1rem, env(safe-area-inset-bottom)); }
 
+/* Dialogs stay fully reachable on short phones, landscape tablets, and zoomed views. */
+.app-dialog-backdrop {
+  position: fixed;
+  z-index: 50;
+  inset: 0;
+  display: flex;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: max(.5rem, env(safe-area-inset-top));
+  padding-right: max(.5rem, env(safe-area-inset-right));
+  padding-bottom: max(.5rem, env(safe-area-inset-bottom));
+  padding-left: max(.5rem, env(safe-area-inset-left));
+  background: rgb(0 0 0 / .5);
+}
+.app-dialog-backdrop-high { z-index: 70; }
+.app-dialog-panel {
+  width: 100%;
+  max-height: calc(100dvh - 1rem);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+@supports (height: 100svh) {
+  .app-dialog-panel { max-height: calc(100svh - 1rem); }
+}
+@media (min-width: 640px) {
+  .app-dialog-backdrop {
+    align-items: center;
+    padding-top: max(1rem, env(safe-area-inset-top));
+    padding-right: max(1rem, env(safe-area-inset-right));
+    padding-bottom: max(1rem, env(safe-area-inset-bottom));
+    padding-left: max(1rem, env(safe-area-inset-left));
+  }
+  .app-dialog-panel { max-height: calc(100dvh - 2rem); }
+  @supports (height: 100svh) {
+    .app-dialog-panel { max-height: calc(100svh - 2rem); }
+  }
+}
+
 .responsive-table-wrap { min-width: 0; overflow-x: auto; border: 1px solid var(--border); border-radius: 1rem; background: white; box-shadow: var(--shadow-sm); }
 .responsive-table { width: 100%; border-collapse: collapse; text-align: left; font-size: .875rem; }
 .responsive-table th { color: #526159; font-size: .75rem; font-weight: 700; letter-spacing: .025em; text-transform: uppercase; }

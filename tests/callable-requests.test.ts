@@ -56,22 +56,20 @@ async function actor(
     password: "Password!234567",
     displayName: roleId,
   });
-  await adminDb
-    .doc(`users/${user.uid}`)
-    .set({
-      uid: user.uid,
-      organizationId: actorOrganizationId,
-      email,
-      displayName: roleId,
-      roleId,
-      branchIds,
-      warehouseIds: roleId === "warehouse_manager" ? ["warehouse-a"] : [],
-      status,
-      authDisabled: false,
-      authorizationVersion: 1,
-      createdAt: FieldValue.serverTimestamp(),
-      updatedAt: FieldValue.serverTimestamp(),
-    });
+  await adminDb.doc(`users/${user.uid}`).set({
+    uid: user.uid,
+    organizationId: actorOrganizationId,
+    email,
+    displayName: roleId,
+    roleId,
+    branchIds,
+    warehouseIds: roleId === "warehouse_manager" ? ["warehouse-a"] : [],
+    status,
+    authDisabled: false,
+    authorizationVersion: 1,
+    createdAt: FieldValue.serverTimestamp(),
+    updatedAt: FieldValue.serverTimestamp(),
+  });
   const result = client(email.replaceAll(/[^a-z]/g, "-"));
   await signInWithEmailAndPassword(result.auth, email, "Password!234567");
   return { ...result, uid: user.uid };
@@ -112,52 +110,44 @@ beforeAll(async () => {
     adminDb
       .doc("branches/branch-b")
       .set({ organizationId, name: "Kano", code: "KN", status: "active" }),
-    adminDb
-      .doc("products/product-a")
-      .set({
-        organizationId,
-        name: "Solar Panel",
-        sku: "PV-580",
-        unitOfMeasure: "unit",
-        trackingType: "quantity",
-        categoryId: "solar",
-        active: true,
-      }),
-    adminDb
-      .doc("products/product-b")
-      .set({
-        organizationId,
-        name: "Inverter",
-        sku: "INV-62",
-        unitOfMeasure: "unit",
-        trackingType: "serial",
-        active: true,
-      }),
-    adminDb
-      .doc("products/inactive")
-      .set({
-        organizationId,
-        name: "Inactive",
-        sku: "OFF",
-        unitOfMeasure: "unit",
-        trackingType: "quantity",
-        active: false,
-      }),
-    adminDb
-      .doc("inventoryBalances/balance-a")
-      .set({
-        organizationId,
-        productId: "product-a",
-        sku: "PV-580",
-        locationId: "location-a",
-        warehouseId: "warehouse-a",
-        locationType: "warehouse",
-        onHandQuantity: 50,
-        reservedQuantity: 0,
-        availableQuantity: 50,
-        totalValueMinor: 500_000,
-        lastMovementAt: FieldValue.serverTimestamp(),
-      }),
+    adminDb.doc("products/product-a").set({
+      organizationId,
+      name: "Solar Panel",
+      sku: "PV-580",
+      unitOfMeasure: "unit",
+      trackingType: "quantity",
+      categoryId: "solar",
+      active: true,
+    }),
+    adminDb.doc("products/product-b").set({
+      organizationId,
+      name: "Inverter",
+      sku: "INV-62",
+      unitOfMeasure: "unit",
+      trackingType: "serial",
+      active: true,
+    }),
+    adminDb.doc("products/inactive").set({
+      organizationId,
+      name: "Inactive",
+      sku: "OFF",
+      unitOfMeasure: "unit",
+      trackingType: "quantity",
+      active: false,
+    }),
+    adminDb.doc("inventoryBalances/balance-a").set({
+      organizationId,
+      productId: "product-a",
+      sku: "PV-580",
+      locationId: "location-a",
+      warehouseId: "warehouse-a",
+      locationType: "warehouse",
+      onHandQuantity: 50,
+      reservedQuantity: 0,
+      availableQuantity: 50,
+      totalValueMinor: 500_000,
+      lastMovementAt: FieldValue.serverTimestamp(),
+    }),
   ]);
   requester = await actor("requester-a@example.test", "branch_requester", [
     "branch-a",
@@ -270,7 +260,7 @@ describe.sequential("branch request callables", () => {
       }),
     ).rejects.toMatchObject({ code: "functions/failed-precondition" });
   });
-  it("isolates branch and organization reads and prevents self approval", async () => {
+  it("isolates reads while allowing administrators to complete their own audited request", async () => {
     await expect(
       call(otherBranch, "getBranchRequest", { requestId, limit: 20 }),
     ).rejects.toMatchObject({ code: "functions/permission-denied" });
@@ -307,7 +297,18 @@ describe.sequential("branch request callables", () => {
         })),
         idempotencyKey: crypto.randomUUID(),
       }),
-    ).rejects.toMatchObject({ code: "functions/permission-denied" });
+    ).resolves.toMatchObject({ decided: true });
+    expect(
+      (await adminDb.doc(`branchRequests/${own.requestId}`).get()).get(
+        "status",
+      ),
+    ).toBe("approved");
+    const audit = await adminDb
+      .collection("auditLogs")
+      .where("entityId", "==", own.requestId)
+      .where("action", "==", "branch_request.approved")
+      .get();
+    expect(audit.docs[0]?.get("actorUserId")).toBe(operations.uid);
   });
   it("supports changes, resubmission, and rejects approval of an old version", async () => {
     await call(operations, "startBranchRequestReview", {

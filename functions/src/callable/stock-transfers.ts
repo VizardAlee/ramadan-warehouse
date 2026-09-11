@@ -380,7 +380,12 @@ export const stockTransfers = onCall({ enforceAppCheck }, async (request) => {
           createdAt: d.get("createdAt")?.toDate?.().toISOString() ?? null,
         }))
         .sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt))),
-      canApprove: admin(actor),
+      canApprove:
+        admin(actor) ||
+        owns(actor, {
+          branchId: transfer.sourceBranchId,
+          warehouseId: transfer.sourceWarehouseId,
+        }),
       canReceive:
         owns(actor, { branchId: transfer.destinationBranchId }) &&
         manager(actor),
@@ -534,10 +539,17 @@ export const stockTransfers = onCall({ enforceAppCheck }, async (request) => {
         fail("This transfer changed. Refresh it before continuing.");
       if (["completed", "cancelled"].includes(transfer.status))
         fail("This transfer is already finished.");
-      if (["approve", "resolve"].includes(input.action) && !admin(actor))
+      if (
+        ["approve", "resolve"].includes(input.action) &&
+        !admin(actor) &&
+        !owns(actor, {
+          branchId: transfer.sourceBranchId,
+          warehouseId: transfer.sourceWarehouseId,
+        })
+      )
         throw new HttpsError(
           "permission-denied",
-          "An administrator must approve or resolve this transfer.",
+          "A manager responsible for the source location must approve or resolve this transfer.",
         );
       if (input.action === "report_problem") {
         if (transfer.status === "requested")

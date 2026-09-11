@@ -31,7 +31,8 @@ const schema = z.object({
     .trim()
     .max(40)
     .refine(
-      (value) => value === "" || (value.length >= 2 && /^[A-Za-z0-9 _.-]+$/.test(value)),
+      (value) =>
+        value === "" || (value.length >= 2 && /^[A-Za-z0-9 _.-]+$/.test(value)),
       "Enter a valid SKU or leave it blank for automatic generation.",
     ),
   categoryName: z.string().trim().max(120).optional(),
@@ -148,8 +149,9 @@ export default function ProductsPage() {
             sku: product.sku,
             categoryName:
               product.categoryName ??
-              categories.data.find((category) => category.id === product.categoryId)
-                ?.name ??
+              categories.data.find(
+                (category) => category.id === product.categoryId,
+              )?.name ??
               "",
             brand: product.brand ?? "",
             model: product.model ?? "",
@@ -159,9 +161,7 @@ export default function ProductsPage() {
             minimumStockLevel: product.minimumStockLevel,
             reorderLevel: product.reorderLevel,
             defaultUnitCostNaira: koboToNaira(configuredCost),
-            baseSellingPriceNaira: koboToNaira(
-              configuredPrice?.basePriceMinor,
-            ),
+            baseSellingPriceNaira: koboToNaira(configuredPrice?.basePriceMinor),
             vatPercent:
               configuredPrice === undefined
                 ? undefined
@@ -316,7 +316,11 @@ export default function ProductsPage() {
             ) : (
               filtered.map((product) => (
                 <tr key={product.id} className="border-t">
-                  <td data-label="Product" data-primary="true" className="px-4 py-3">
+                  <td
+                    data-label="Product"
+                    data-primary="true"
+                    className="px-4 py-3"
+                  >
                     <Link
                       href={`/products/${product.id}`}
                       className="font-semibold text-[var(--brand)]"
@@ -327,14 +331,21 @@ export default function ProductsPage() {
                       {product.brand} {product.model}
                     </span>
                   </td>
-                  <td data-label="SKU" className="px-4 font-mono">{product.sku}</td>
-                  <td data-label="Tracking" className="px-4 capitalize">{product.trackingType}</td>
-                  <td data-label="Unit" className="px-4">{product.unitOfMeasure}</td>
+                  <td data-label="SKU" className="px-4 font-mono">
+                    {product.sku}
+                  </td>
+                  <td data-label="Tracking" className="px-4 capitalize">
+                    {product.trackingType}
+                  </td>
+                  <td data-label="Unit" className="px-4">
+                    {product.unitOfMeasure}
+                  </td>
                   <td data-label="Default cost" className="px-4">
                     {formatNaira(
                       productCosts.data.find(
                         (cost) =>
-                          cost.productId === product.id || cost.id === product.id,
+                          cost.productId === product.id ||
+                          cost.id === product.id,
                       )?.defaultUnitCostMinor,
                     )}
                   </td>
@@ -342,7 +353,8 @@ export default function ProductsPage() {
                     {formatNaira(
                       productSalesPrices.data.find(
                         (price) =>
-                          price.productId === product.id || price.id === product.id,
+                          price.productId === product.id ||
+                          price.id === product.id,
                       )?.basePriceMinor,
                     )}
                   </td>
@@ -350,7 +362,8 @@ export default function ProductsPage() {
                     {(() => {
                       const rate = productSalesPrices.data.find(
                         (price) =>
-                          price.productId === product.id || price.id === product.id,
+                          price.productId === product.id ||
+                          price.id === product.id,
                       )?.vatRateBasisPoints;
                       return rate === undefined ? "Not set" : `${rate / 100}%`;
                     })()}
@@ -374,11 +387,16 @@ export default function ProductsPage() {
         </table>
       </div>
       {open && (
-        <div className="fixed inset-0 z-50 flex items-end justify-center overflow-y-auto bg-black/50 sm:items-center sm:p-4" role="dialog" aria-modal="true" aria-label="Product editor">
+        <div
+          className="app-dialog-backdrop"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Product editor"
+        >
           <form
             ref={dialogRef}
             onSubmit={submit}
-            className="safe-bottom max-h-[calc(100dvh-1rem)] w-full max-w-2xl space-y-4 overflow-y-auto rounded-t-2xl bg-white p-5 sm:my-8 sm:rounded-2xl sm:p-6"
+            className="app-dialog-panel safe-bottom max-w-2xl space-y-4 rounded-2xl bg-white p-5 sm:p-6"
           >
             <h2 className="text-xl font-semibold">
               {editing ? "Edit product" : "Create product"}
@@ -486,7 +504,8 @@ export default function ProductsPage() {
                       className="mt-1 w-full rounded-lg border p-2.5"
                     />
                     <span className="mt-1 block text-xs text-[var(--muted)]">
-                      Branches may sell above this. A lower price needs administrator approval.
+                      Branches may sell above this. A lower price needs
+                      administrator approval.
                     </span>
                   </label>
                   <label className="text-sm">

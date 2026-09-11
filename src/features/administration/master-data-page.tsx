@@ -17,7 +17,11 @@ import { useOrganizationCollection } from "./use-organization-collection";
 
 const schema = z.object({
   name: z.string().trim().min(2),
-  code: z.string().trim().toUpperCase().regex(/^[A-Z0-9_-]{2,24}$/),
+  code: z
+    .string()
+    .trim()
+    .toUpperCase()
+    .regex(/^[A-Z0-9_-]{2,24}$/),
   state: z.string().optional(),
   address: z.string().optional(),
   contactPhone: z.string().optional(),
@@ -258,7 +262,7 @@ export function MasterDataPage({
       </div>
       {open && (
         <div
-          className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 sm:items-center sm:p-4"
+          className="app-dialog-backdrop"
           role="dialog"
           aria-modal="true"
           aria-labelledby="master-data-dialog-title"
@@ -266,7 +270,7 @@ export function MasterDataPage({
           <form
             ref={dialogRef}
             onSubmit={submit}
-            className="safe-bottom max-h-[calc(100dvh-1rem)] w-full max-w-xl space-y-4 overflow-y-auto rounded-t-2xl bg-white p-5 sm:rounded-2xl sm:p-6"
+            className="app-dialog-panel safe-bottom max-w-xl space-y-4 rounded-2xl bg-white p-5 sm:p-6"
           >
             <h2 id="master-data-dialog-title" className="text-xl font-semibold">
               {editing ? "Edit" : "Create"} {config.title}

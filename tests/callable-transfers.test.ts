@@ -55,22 +55,20 @@ async function actor(
     password: "Password!234567",
     displayName: roleId,
   });
-  await adminDb
-    .doc(`users/${user.uid}`)
-    .set({
-      uid: user.uid,
-      organizationId,
-      email,
-      displayName: roleId,
-      roleId,
-      branchIds,
-      warehouseIds,
-      status: "active",
-      authDisabled: false,
-      authorizationVersion: 1,
-      createdAt: FieldValue.serverTimestamp(),
-      updatedAt: FieldValue.serverTimestamp(),
-    });
+  await adminDb.doc(`users/${user.uid}`).set({
+    uid: user.uid,
+    organizationId,
+    email,
+    displayName: roleId,
+    roleId,
+    branchIds,
+    warehouseIds,
+    status: "active",
+    authDisabled: false,
+    authorizationVersion: 1,
+    createdAt: FieldValue.serverTimestamp(),
+    updatedAt: FieldValue.serverTimestamp(),
+  });
   const result = client(email.replaceAll(/[^a-z]/g, "-"));
   await signInWithEmailAndPassword(result.auth, email, "Password!234567");
   return { ...result, uid: user.uid };
@@ -105,62 +103,52 @@ beforeAll(async () => {
   );
   const now = FieldValue.serverTimestamp();
   await Promise.all([
-    adminDb
-      .doc("warehouses/warehouse-a")
-      .set({
-        organizationId,
-        name: "Central Warehouse",
-        code: "WH",
-        status: "active",
-      }),
+    adminDb.doc("warehouses/warehouse-a").set({
+      organizationId,
+      name: "Central Warehouse",
+      code: "WH",
+      status: "active",
+    }),
     adminDb
       .doc("branches/branch-a")
       .set({ organizationId, name: "Kaduna", code: "KD", status: "active" }),
     adminDb
       .doc("branches/branch-b")
       .set({ organizationId, name: "Kano", code: "KN", status: "active" }),
-    adminDb
-      .doc("inventoryLocations/warehouse-location")
-      .set({
-        organizationId,
-        warehouseId: "warehouse-a",
-        name: "Warehouse Available",
-        code: "WH-A",
-        type: "warehouse",
-        status: "active",
-        systemManaged: false,
-      }),
-    adminDb
-      .doc("inventoryLocations/branch-location")
-      .set({
-        organizationId,
-        branchId: "branch-a",
-        name: "Branch Available",
-        code: "BR-A",
-        type: "branch",
-        status: "active",
-        systemManaged: false,
-      }),
-    adminDb
-      .doc("products/product-a")
-      .set({
-        organizationId,
-        name: "580W Panel",
-        sku: "PV-580",
-        unitOfMeasure: "unit",
-        trackingType: "quantity",
-        active: true,
-        hasLedgerActivity: true,
-        updatedAt: now,
-      }),
-    adminDb
-      .doc("productCosts/product-a")
-      .set({
-        organizationId,
-        productId: "product-a",
-        defaultUnitCostMinor: 10_000,
-        currency: "NGN",
-      }),
+    adminDb.doc("inventoryLocations/warehouse-location").set({
+      organizationId,
+      warehouseId: "warehouse-a",
+      name: "Warehouse Available",
+      code: "WH-A",
+      type: "warehouse",
+      status: "active",
+      systemManaged: false,
+    }),
+    adminDb.doc("inventoryLocations/branch-location").set({
+      organizationId,
+      branchId: "branch-a",
+      name: "Branch Available",
+      code: "BR-A",
+      type: "branch",
+      status: "active",
+      systemManaged: false,
+    }),
+    adminDb.doc("products/product-a").set({
+      organizationId,
+      name: "580W Panel",
+      sku: "PV-580",
+      unitOfMeasure: "unit",
+      trackingType: "quantity",
+      active: true,
+      hasLedgerActivity: true,
+      updatedAt: now,
+    }),
+    adminDb.doc("productCosts/product-a").set({
+      organizationId,
+      productId: "product-a",
+      defaultUnitCostMinor: 10_000,
+      currency: "NGN",
+    }),
     adminDb
       .doc(
         `inventoryBalances/${organizationId}__product-a__warehouse-location__base`,
@@ -183,43 +171,37 @@ beforeAll(async () => {
         createdAt: now,
         updatedAt: now,
       }),
-    adminDb
-      .doc("branchRequests/request-a")
-      .set({
-        organizationId,
-        requestNumber: "REQ-KD-2026-000001",
-        branchId: "branch-a",
-        status: "approved",
-        version: 1,
-        totalApprovedQuantity: 12,
-        totalFulfilledQuantity: 0,
-        totalOutstandingQuantity: 12,
-      }),
-    adminDb
-      .doc("branchRequestItems/request-item-a")
-      .set({
-        organizationId,
-        requestId: "request-a",
-        branchId: "branch-a",
-        productId: "product-a",
-        sku: "PV-580",
-        productName: "580W Panel",
-        trackingType: "quantity",
-        unitOfMeasure: "unit",
-        requestedQuantity: 12,
-        approvedQuantity: 12,
-        fulfilledQuantity: 0,
-        outstandingQuantity: 12,
-        transferAllocatedQuantity: 0,
-      }),
-    adminDb
-      .doc("branchRequestApprovals/approval-a")
-      .set({
-        organizationId,
-        requestId: "request-a",
-        requestVersion: 1,
-        decision: "approved",
-      }),
+    adminDb.doc("branchRequests/request-a").set({
+      organizationId,
+      requestNumber: "REQ-KD-2026-000001",
+      branchId: "branch-a",
+      status: "approved",
+      version: 1,
+      totalApprovedQuantity: 12,
+      totalFulfilledQuantity: 0,
+      totalOutstandingQuantity: 12,
+    }),
+    adminDb.doc("branchRequestItems/request-item-a").set({
+      organizationId,
+      requestId: "request-a",
+      branchId: "branch-a",
+      productId: "product-a",
+      sku: "PV-580",
+      productName: "580W Panel",
+      trackingType: "quantity",
+      unitOfMeasure: "unit",
+      requestedQuantity: 12,
+      approvedQuantity: 12,
+      fulfilledQuantity: 0,
+      outstandingQuantity: 12,
+      transferAllocatedQuantity: 0,
+    }),
+    adminDb.doc("branchRequestApprovals/approval-a").set({
+      organizationId,
+      requestId: "request-a",
+      requestVersion: 1,
+      decision: "approved",
+    }),
   ]);
   creator = await actor(
     "transfer-creator@example.test",
@@ -319,7 +301,7 @@ describe.sequential("transfer callables", () => {
     ]);
     expect(first.transferNumber).not.toBe(second.transferNumber);
   });
-  it("snapshots submission, prevents self approval, and rejects reservation before approval", async () => {
+  it("snapshots submission, permits manager self approval, and rejects premature reservation", async () => {
     await expect(
       call(approver, "reserveTransferStock", {
         transferId,
@@ -352,12 +334,7 @@ describe.sequential("transfer callables", () => {
         expectedVersion: 1,
         idempotencyKey: crypto.randomUUID(),
       }),
-    ).rejects.toMatchObject({ code: "functions/permission-denied" });
-    await call(approver, "approveTransfer", {
-      transferId,
-      expectedVersion: 1,
-      idempotencyKey: crypto.randomUUID(),
-    });
+    ).resolves.toMatchObject({ changed: true });
   });
   it("lets one assigned warehouse operator pick, pack, and dispatch while receipt posts through the ledger", async () => {
     const beforeTransactions = (
@@ -493,9 +470,9 @@ describe.sequential("transfer callables", () => {
           .get()
       ).get("onHandQuantity"),
     ).toBe(1);
-    expect((await adminDb.doc("branchRequests/request-a").get()).get("status")).toBe(
-      "partially_fulfilled",
-    );
+    expect(
+      (await adminDb.doc("branchRequests/request-a").get()).get("status"),
+    ).toBe("partially_fulfilled");
     const discrepancies = await adminDb
       .collection("transferDiscrepancies")
       .where("transferId", "==", transferId)
@@ -565,13 +542,13 @@ describe.sequential("transfer callables", () => {
       reason: "Invoice and payment records reconciled",
       idempotencyKey: crypto.randomUUID(),
     });
-    expect((await adminDb.doc(`transferCosts/${cost.costId}`).get()).data()).toMatchObject(
-      {
-        status: "reconciled",
-        approvedAmountMinor: 48_000,
-        actualAmountMinor: 49_500,
-      },
-    );
+    expect(
+      (await adminDb.doc(`transferCosts/${cost.costId}`).get()).data(),
+    ).toMatchObject({
+      status: "reconciled",
+      approvedAmountMinor: 48_000,
+      actualAmountMinor: 49_500,
+    });
     await call(approver, "closeTransfer", {
       transferId,
       expectedVersion: 1,
@@ -580,6 +557,8 @@ describe.sequential("transfer callables", () => {
     expect(
       (await adminDb.doc(`transfers/${transferId}`).get()).get("status"),
     ).toBe("closed");
-    expect((await adminDb.doc("branchRequests/request-a").get()).get("status")).toBe("fulfilled");
+    expect(
+      (await adminDb.doc("branchRequests/request-a").get()).get("status"),
+    ).toBe("fulfilled");
   }, 120_000);
 });

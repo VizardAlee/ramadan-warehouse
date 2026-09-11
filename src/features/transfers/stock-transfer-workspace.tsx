@@ -208,9 +208,15 @@ function ManagedStockTransferList() {
   }, [load, profile, operatingContext]);
   const mine = (t: StockTransfer) =>
     t.status === "problem"
-      ? options?.canApprove
+      ? options?.canApprove ||
+        options?.locations.some(
+          (l) => l.assigned && l.id === t.sourceLocationId,
+        )
       : t.status === "requested"
-        ? options?.canApprove
+        ? options?.canApprove ||
+          options?.locations.some(
+            (l) => l.assigned && l.id === t.sourceLocationId,
+          )
         : ["awaiting_receipt", "partially_received"].includes(t.status) &&
           (options?.canApprove ||
             options?.locations.some(
@@ -1134,13 +1140,13 @@ export function StockTransferDetail({ transferId }: { transferId: string }) {
               disabled={busy || !online || note.trim().length < 3}
               onClick={() => void act("report_problem", { note })}
             >
-              Ask administrator to review
+              Ask the source manager to review
             </Button>
           )}
           {detail.canApprove && (
             <div className="mt-4 space-y-3">
               <label className="block">
-                Administrator decision
+                Source manager decision
                 <select
                   className={field}
                   value={disposition}

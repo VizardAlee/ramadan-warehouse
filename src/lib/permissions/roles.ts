@@ -89,11 +89,19 @@ const permissionsByRole: Readonly<Record<RoleId, readonly PermissionId[]>> = {
     "reports.inventory.read",
     "reports.inventory.export",
     "suppliers.read",
+    "suppliers.manage",
     "procurement.read",
     "procurement.create",
+    "procurement.approve",
     "procurement.receive",
+    "payables.read",
+    "payables.create",
+    "payables.approve",
+    "payables.pay",
     "expenses.read",
     "expenses.create",
+    "expenses.approve",
+    "expenses.pay",
     "requests.read.all",
     "requests.review",
     "requests.request_changes",
@@ -175,6 +183,10 @@ const permissionsByRole: Readonly<Record<RoleId, readonly PermissionId[]>> = {
     "requests.update_draft",
     "requests.submit",
     "requests.cancel_own",
+    "requests.review",
+    "requests.request_changes",
+    "requests.approve",
+    "requests.reject",
     "requests.cancel_approved",
     "requests.close",
     "reports.requests.read",
@@ -198,6 +210,8 @@ const permissionsByRole: Readonly<Record<RoleId, readonly PermissionId[]>> = {
     "reports.sales.read",
     "expenses.read",
     "expenses.create",
+    "expenses.approve",
+    "expenses.pay",
   ],
   sales_cashier: [
     "products.read",
@@ -332,6 +346,20 @@ export function hasRole(
   roleId: RoleId,
 ): boolean {
   return roleIdsForProfile(profile).includes(roleId);
+}
+
+/** Mirrors the server policy: managers can complete their own scoped workflow. */
+export function canSelfAuthorize(
+  profile: Pick<UserProfile, "roleId" | "roleIds">,
+): boolean {
+  return roleIdsForProfile(profile).some((roleId) =>
+    [
+      "system_administrator",
+      "operations_administrator",
+      "warehouse_manager",
+      "branch_manager",
+    ].includes(roleId),
+  );
 }
 
 export function isAssignedToBranch(

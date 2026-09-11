@@ -43,9 +43,9 @@ async function create(quantity: number, extra: object = {}, actor?: TestActor) {
     })
   ).transferId;
 }
-async function approve(id: string, extra: object = {}) {
+async function approve(id: string, extra: object = {}, actor = h.creator) {
   const t = await read(id);
-  return api(h.creator, {
+  return api(actor, {
     action: "approve",
     transferId: id,
     version: t.version,
@@ -106,8 +106,8 @@ afterAll(async () => h?.cleanup());
 describe.sequential("simple manager stock transfers", () => {
   it("finishes in three tasks without logistics records or extra staff", async () => {
     const before = await balance(h.originLocationId);
-    const id = await create(20, {}, h.creator);
-    await approve(id); // An administrator can approve their own request.
+    const id = await create(20, {}, h.manager);
+    await approve(id, {}, h.manager); // The assigned source manager can approve their own request.
     expect(await balance(h.originLocationId)).toMatchObject({
       onHandQuantity: before!.onHandQuantity,
       reservedQuantity: 20,
@@ -246,27 +246,23 @@ describe.sequential("simple manager stock transfers", () => {
   it("preserves approved request demand when remainder is cancelled, then reallocates it", async () => {
     const requestId = "simple-demand",
       sourceRequestItemId = "simple-demand-item";
-    await h.db
-      .doc(`branchRequests/${requestId}`)
-      .set({
-        organizationId: h.organizationId,
-        branchId: "simple-branch",
-        status: "approved",
-        totalApprovedQuantity: 20,
-        totalFulfilledQuantity: 0,
-        totalOutstandingQuantity: 20,
-      });
-    await h.db
-      .doc(`branchRequestItems/${sourceRequestItemId}`)
-      .set({
-        organizationId: h.organizationId,
-        requestId,
-        productId: h.productId,
-        approvedQuantity: 20,
-        fulfilledQuantity: 0,
-        outstandingQuantity: 20,
-        transferAllocatedQuantity: 0,
-      });
+    await h.db.doc(`branchRequests/${requestId}`).set({
+      organizationId: h.organizationId,
+      branchId: "simple-branch",
+      status: "approved",
+      totalApprovedQuantity: 20,
+      totalFulfilledQuantity: 0,
+      totalOutstandingQuantity: 20,
+    });
+    await h.db.doc(`branchRequestItems/${sourceRequestItemId}`).set({
+      organizationId: h.organizationId,
+      requestId,
+      productId: h.productId,
+      approvedQuantity: 20,
+      fulfilledQuantity: 0,
+      outstandingQuantity: 20,
+      transferAllocatedQuantity: 0,
+    });
     const extra = {
       sourceRequestId: requestId,
       items: [{ productId: h.productId, quantity: 20, sourceRequestItemId }],
@@ -323,22 +319,18 @@ describe.sequential("simple manager stock transfers", () => {
   });
 
   it("moves directly from a branch to another branch without warehouse or sales records", async () => {
-    await h.db
-      .doc("branches/simple-second")
-      .set({
-        organizationId: h.organizationId,
-        name: "Second branch",
-        status: "active",
-      });
-    await h.db
-      .doc("inventoryLocations/simple-second-stock")
-      .set({
-        organizationId: h.organizationId,
-        branchId: "simple-second",
-        name: "Second stock",
-        type: "branch",
-        status: "active",
-      });
+    await h.db.doc("branches/simple-second").set({
+      organizationId: h.organizationId,
+      name: "Second branch",
+      status: "active",
+    });
+    await h.db.doc("inventoryLocations/simple-second-stock").set({
+      organizationId: h.organizationId,
+      branchId: "simple-second",
+      name: "Second stock",
+      type: "branch",
+      status: "active",
+    });
     const id = await create(4, {
       sourceLocationId: h.destinationLocationId,
       destinationLocationId: "simple-second-stock",
@@ -395,15 +387,13 @@ describe.sequential("simple manager stock transfers", () => {
     const results = await Promise.allSettled([approve(a), approve(b)]);
     expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
     for (const id of [a, b]) await resolve(id, "never_left");
-    await h.db
-      .doc("products/simple-empty")
-      .set({
-        organizationId: h.organizationId,
-        name: "No stock",
-        sku: "EMPTY",
-        trackingType: "quantity",
-        active: true,
-      });
+    await h.db.doc("products/simple-empty").set({
+      organizationId: h.organizationId,
+      name: "No stock",
+      sku: "EMPTY",
+      trackingType: "quantity",
+      active: true,
+    });
     const multi = await create(1, {
       items: [
         { productId: h.productId, quantity: 1 },
@@ -421,25 +411,21 @@ describe.sequential("simple manager stock transfers", () => {
   it("uses actual serialized identities and transfers lot quantities atomically", async () => {
     for (const trackingType of ["serial", "batch"]) {
       const productId = `simple-${trackingType}`;
-      await h.db
-        .doc(`products/${productId}`)
-        .set({
-          organizationId: h.organizationId,
-          name: trackingType,
-          sku: productId,
-          trackingType,
-          active: true,
-          unitOfMeasure: "unit",
-          hasLedgerActivity: false,
-        });
-      await h.db
-        .doc(`productCosts/${productId}`)
-        .set({
-          organizationId: h.organizationId,
-          productId,
-          defaultUnitCostMinor: 100,
-          currency: "NGN",
-        });
+      await h.db.doc(`products/${productId}`).set({
+        organizationId: h.organizationId,
+        name: trackingType,
+        sku: productId,
+        trackingType,
+        active: true,
+        unitOfMeasure: "unit",
+        hasLedgerActivity: false,
+      });
+      await h.db.doc(`productCosts/${productId}`).set({
+        organizationId: h.organizationId,
+        productId,
+        defaultUnitCostMinor: 100,
+        currency: "NGN",
+      });
       await call(h.creator, "postOpeningStock", {
         productId,
         destinationLocationId: h.originLocationId,

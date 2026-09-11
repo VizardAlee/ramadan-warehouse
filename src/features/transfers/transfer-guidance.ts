@@ -2,10 +2,12 @@ export function isTransferSelfApprovalBlocked(
   status: string,
   createdBy: string,
   currentUserId: string,
+  canApproveOwnWork = false,
 ) {
   return (
     ["submitted", "under_review"].includes(status) &&
-    createdBy === currentUserId
+    createdBy === currentUserId &&
+    !canApproveOwnWork
   );
 }
 
@@ -14,7 +16,7 @@ export function transferNextStepCopy(
   selfApprovalBlocked = false,
 ) {
   if (selfApprovalBlocked) {
-    return "You created this transfer. Another authorized administrator or warehouse manager must approve it.";
+    return "Your current role requires another authorized manager or administrator to approve this transfer.";
   }
   if (status === "draft")
     return "Review the route and items, then submit this transfer for approval.";

@@ -5,13 +5,24 @@ import {
 } from "@/features/transfers/transfer-guidance";
 
 describe("transfer approval guidance", () => {
-  it("requires a different user to approve a submitted transfer", () => {
+  it("requires a different user only when the current role cannot self-authorize", () => {
     expect(
       isTransferSelfApprovalBlocked("under_review", "admin-1", "admin-1"),
     ).toBe(true);
     expect(transferNextStepCopy("under_review", true)).toContain(
-      "Another authorized administrator or warehouse manager",
+      "requires another authorized manager or administrator",
     );
+  });
+
+  it("allows a manager to approve their own submitted transfer", () => {
+    expect(
+      isTransferSelfApprovalBlocked(
+        "under_review",
+        "manager-1",
+        "manager-1",
+        true,
+      ),
+    ).toBe(false);
   });
 
   it("allows an authorized user who did not create the transfer to approve", () => {

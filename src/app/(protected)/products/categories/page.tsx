@@ -119,11 +119,16 @@ export default function CategoriesPage() {
         </p>
       )}
       {open && (
-        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 sm:items-center sm:p-4" role="dialog" aria-modal="true" aria-label="Product category editor">
+        <div
+          className="app-dialog-backdrop"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Product category editor"
+        >
           <form
             ref={dialogRef}
             onSubmit={submit}
-            className="safe-bottom max-h-[calc(100dvh-1rem)] w-full max-w-lg space-y-4 overflow-y-auto rounded-t-2xl bg-white p-5 sm:rounded-2xl sm:p-6"
+            className="app-dialog-panel safe-bottom max-w-lg space-y-4 rounded-2xl bg-white p-5 sm:p-6"
           >
             <h2 className="text-xl font-semibold">
               {editing ? "Edit" : "Create"} category

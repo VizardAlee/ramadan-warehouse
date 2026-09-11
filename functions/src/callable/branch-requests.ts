@@ -9,6 +9,7 @@ import { logger } from "firebase-functions";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
 import { db } from "../admin.js";
 import {
+  canSelfAuthorize,
   hasRole,
   hasServerPermission,
   requireAccess,
@@ -696,7 +697,7 @@ export const startBranchRequestReview = onCall(
       if (!record.exists)
         throw new HttpsError("not-found", "Request not found.");
       assertReadScope(actor, record);
-      if (record.get("createdBy") === actor.userId)
+      if (record.get("createdBy") === actor.userId && !canSelfAuthorize(actor))
         throw new HttpsError(
           "permission-denied",
           "A requester cannot review their own request.",
@@ -786,7 +787,7 @@ export const requestBranchRequestChanges = onCall(
       if (!record.exists)
         throw new HttpsError("not-found", "Request not found.");
       assertReadScope(actor, record);
-      if (record.get("createdBy") === actor.userId)
+      if (record.get("createdBy") === actor.userId && !canSelfAuthorize(actor))
         throw new HttpsError(
           "permission-denied",
           "A requester cannot review their own request.",
@@ -890,7 +891,7 @@ export const decideBranchRequest = onCall(
       if (!record.exists)
         throw new HttpsError("not-found", "Request not found.");
       assertReadScope(actor, record);
-      if (record.get("createdBy") === actor.userId)
+      if (record.get("createdBy") === actor.userId && !canSelfAuthorize(actor))
         throw new HttpsError(
           "permission-denied",
           "A requester cannot approve their own request.",
@@ -1531,7 +1532,8 @@ export const getBranchRequestAvailability = onCall(
           else if (type === "quarantined") quarantined += quantity;
           else if (type === "goods_in_transit") inTransit += quantity;
           const movement = balance.get("lastMovementAt") as
-            Timestamp | undefined;
+            | Timestamp
+            | undefined;
           if (
             movement &&
             (!lastMovementAt || movement.toMillis() > lastMovementAt.toMillis())

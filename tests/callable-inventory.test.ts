@@ -584,10 +584,6 @@ describe.sequential("inventory callables", () => {
       "inventory-counter@example.test",
       "warehouse_officer",
     );
-    const reviewer = await createActor(
-      "inventory-reviewer@example.test",
-      "warehouse_manager",
-    );
     const poster = await createActor(
       "inventory-poster@example.test",
       "warehouse_manager",
@@ -641,15 +637,15 @@ describe.sequential("inventory callables", () => {
     await expect(
       call(administrator, "reviewStockCount", {
         stockCountId: created.stockCountId,
-        reason: "Creator cannot review own count",
+        reason: "Manager-authorized auditable count review",
         idempotencyKey: crypto.randomUUID(),
       }),
-    ).rejects.toMatchObject({ code: "functions/permission-denied" });
-    await call(reviewer, "reviewStockCount", {
-      stockCountId: created.stockCountId,
-      reason: "Independent variance review completed",
-      idempotencyKey: crypto.randomUUID(),
-    });
+    ).resolves.toMatchObject({ reviewed: true });
+    expect(
+      (await adminDb.doc(`stockCounts/${created.stockCountId}`).get()).get(
+        "status",
+      ),
+    ).toBe("reviewed");
     await call(poster, "postStockCount", {
       stockCountId: created.stockCountId,
       reason: "Independent approved count posting",

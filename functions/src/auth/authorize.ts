@@ -293,11 +293,19 @@ const rolePermissions: Readonly<Record<RoleId, readonly Permission[]>> = {
     "reports.inventory.read",
     "reports.inventory.export",
     "suppliers.read",
+    "suppliers.manage",
     "procurement.read",
     "procurement.create",
+    "procurement.approve",
     "procurement.receive",
+    "payables.read",
+    "payables.create",
+    "payables.approve",
+    "payables.pay",
     "expenses.read",
     "expenses.create",
+    "expenses.approve",
+    "expenses.pay",
     "requests.read.all",
     "requests.review",
     "requests.request_changes",
@@ -376,6 +384,10 @@ const rolePermissions: Readonly<Record<RoleId, readonly Permission[]>> = {
     "requests.update_draft",
     "requests.submit",
     "requests.cancel_own",
+    "requests.review",
+    "requests.request_changes",
+    "requests.approve",
+    "requests.reject",
     "requests.cancel_approved",
     "requests.close",
     "reports.requests.read",
@@ -399,6 +411,8 @@ const rolePermissions: Readonly<Record<RoleId, readonly Permission[]>> = {
     "reports.sales.read",
     "expenses.read",
     "expenses.create",
+    "expenses.approve",
+    "expenses.pay",
   ],
   sales_cashier: [
     "products.read",
@@ -568,6 +582,24 @@ export function hasRole(
   return accessRoleIds(actor).includes(roleId);
 }
 
+/**
+ * Managers may complete approval steps in their own assigned operating scope.
+ * The mutation still has to pass its normal permission and branch/warehouse
+ * scope checks, and the approval remains attributable in the audit log.
+ */
+export function canSelfAuthorize(
+  actor: Pick<AccessProfile, "roleId" | "roleIds">,
+): boolean {
+  return accessRoleIds(actor).some((roleId) =>
+    [
+      "system_administrator",
+      "operations_administrator",
+      "warehouse_manager",
+      "branch_manager",
+    ].includes(roleId),
+  );
+}
+
 function requestedOperatingContext(data: unknown): OperatingContext | null {
   if (typeof data !== "object" || data === null) return null;
   const value = (data as Record<string, unknown>).operatingContext;
@@ -607,7 +639,9 @@ export function applyOperatingContext(
     selectedContext.type === "warehouse"
       ? warehouseOperatingRoles
       : branchOperatingRoles;
-  const scopedRoles = assignedRoles.filter((role) => allowedRoles.includes(role));
+  const scopedRoles = assignedRoles.filter((role) =>
+    allowedRoles.includes(role),
+  );
   const assignedIds =
     selectedContext.type === "warehouse" ? actor.warehouseIds : actor.branchIds;
   if (scopedRoles.length === 0 || !assignedIds.includes(selectedContext.id)) {
@@ -635,7 +669,9 @@ export function canAssignRoles(
   targetRoles: readonly RoleId[],
 ): boolean {
   return targetRoles.every((targetRole) =>
-    accessRoleIds(actor).some((actorRole) => canAssignRole(actorRole, targetRole)),
+    accessRoleIds(actor).some((actorRole) =>
+      canAssignRole(actorRole, targetRole),
+    ),
   );
 }
 export function assertAssignableRole(
@@ -740,18 +776,21 @@ export async function requireAccess(
       { code: "OUTDATED_VERSION", retryable: true },
     );
   const roleIds = normalizeRoleIds(record.roleIds, record.roleId);
-  return applyOperatingContext({
-    userId,
-    organizationId: record.organizationId,
-    roleId: roleIds[0]!,
-    roleIds,
-    branchIds: stringArray(record.branchIds),
-    warehouseIds: stringArray(record.warehouseIds),
-    authorizationVersion:
-      typeof record.authorizationVersion === "number"
-        ? record.authorizationVersion
-        : 1,
-  }, requestedOperatingContext(request.data));
+  return applyOperatingContext(
+    {
+      userId,
+      organizationId: record.organizationId,
+      roleId: roleIds[0]!,
+      roleIds,
+      branchIds: stringArray(record.branchIds),
+      warehouseIds: stringArray(record.warehouseIds),
+      authorizationVersion:
+        typeof record.authorizationVersion === "number"
+          ? record.authorizationVersion
+          : 1,
+    },
+    requestedOperatingContext(request.data),
+  );
 }
 export function requirePermission(
   actor: AccessProfile,

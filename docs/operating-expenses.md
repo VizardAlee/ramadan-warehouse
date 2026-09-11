@@ -12,8 +12,9 @@ separate from product purchase orders and transfer logistics costs.
    a new organization category and code are created automatically.
 3. The draft is allocated to a branch, warehouse, or the whole organization.
    Scoped managers can use only their assigned operating context.
-4. Submission freezes the evidence for review. A different authorized user
-   approves the expense; the creator cannot approve it.
+4. Submission freezes the evidence for review. An assigned branch or warehouse
+   manager may approve their own scoped expense; every approval is audited.
+   Non-manager finance creators still require another authorized approver.
 5. Approval posts the operating expense, separate input VAT, and accrued
    expense payable. It does not claim that money has left a bank or till.
 6. Finance records each real disbursement separately. Partial payments are
@@ -27,7 +28,8 @@ separate from product purchase orders and transfer logistics costs.
 - One payee/document-number combination can be recorded only once per
   organization when a document number is supplied.
 - Draft creation, approval, and payment are separate server permissions.
-- The expense creator cannot approve the same expense.
+- Manager self-approval is allowed only within a server-validated assignment;
+  it does not expand branch, warehouse, or organization scope.
 - `payment amount <= outstanding amount`; rejected overpayment changes nothing.
 - Approval and payment add immutable journal/audit evidence rather than editing
   an earlier transaction into a different business event.
@@ -36,10 +38,10 @@ separate from product purchase orders and transfer logistics costs.
 
 ## Accounting mapping
 
-| Event | Debit | Credit |
-| --- | --- | --- |
-| Expense approval | `6000 Operating expenses`, `1300 Input VAT` | `2300 Accrued operating expenses` |
-| Expense payment | `2300 Accrued operating expenses` | settlement account `1010`, `1020`, or `1030` |
+| Event            | Debit                                       | Credit                                       |
+| ---------------- | ------------------------------------------- | -------------------------------------------- |
+| Expense approval | `6000 Operating expenses`, `1300 Input VAT` | `2300 Accrued operating expenses`            |
+| Expense payment  | `2300 Accrued operating expenses`           | settlement account `1010`, `1020`, or `1030` |
 
 This first controlled expense phase uses one system operating-expense account
 with analytic category, branch, and warehouse dimensions. It does not yet

@@ -22,7 +22,10 @@ import {
 
 function dateValue(value: DateTimeValue | undefined) {
   if (!value) return null;
-  const date = typeof value === "string" ? new Date(value) : new Date(value.seconds * 1_000);
+  const date =
+    typeof value === "string"
+      ? new Date(value)
+      : new Date(value.seconds * 1_000);
   return Number.isNaN(date.valueOf()) ? null : date;
 }
 
@@ -30,7 +33,9 @@ function invitationLabel(user: UserProfile) {
   if (user.invitationStatus === "accepted") return "Invitation accepted";
   if (user.invitationStatus === "pending") {
     const expiresAt = dateValue(user.invitationExpiresAt);
-    return expiresAt && expiresAt.valueOf() <= Date.now() ? "Invitation expired" : "Invitation pending";
+    return expiresAt && expiresAt.valueOf() <= Date.now()
+      ? "Invitation expired"
+      : "Invitation pending";
   }
   return null;
 }
@@ -99,7 +104,10 @@ export default function UsersPage() {
             `${user.displayName} ${user.email}`
               .toLowerCase()
               .includes(search.toLowerCase())) &&
-          (!role || roleIdsForProfile(user).includes(role as (typeof roleIds)[number])) &&
+          (!role ||
+            roleIdsForProfile(user).includes(
+              role as (typeof roleIds)[number],
+            )) &&
           (!status || user.status === status) &&
           (!branchId || user.branchIds.includes(branchId)) &&
           (!warehouseId || user.warehouseIds.includes(warehouseId)),
@@ -372,7 +380,9 @@ export default function UsersPage() {
                             onClick={() => void reissueInvitation(user)}
                           >
                             <MailPlus className="size-4" />
-                            {reissuingUserId === user.id ? "Issuing…" : "Re-invite"}
+                            {reissuingUserId === user.id
+                              ? "Issuing…"
+                              : "Re-invite"}
                           </Button>
                         )}
                       <Button variant="ghost" onClick={() => open(user)}>
@@ -388,7 +398,7 @@ export default function UsersPage() {
       </div>
       {showForm && (
         <div
-          className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 sm:items-center sm:p-4"
+          className="app-dialog-backdrop"
           role="dialog"
           aria-modal="true"
           aria-labelledby="user-dialog-title"
@@ -396,7 +406,7 @@ export default function UsersPage() {
           <form
             ref={dialogRef}
             onSubmit={submit}
-            className="safe-bottom max-h-[calc(100dvh-1rem)] w-full max-w-2xl space-y-4 overflow-y-auto rounded-t-2xl bg-white p-5 sm:rounded-2xl sm:p-6"
+            className="app-dialog-panel safe-bottom max-w-2xl space-y-4 rounded-2xl bg-white p-5 sm:p-6"
           >
             <div>
               <h2 id="user-dialog-title" className="text-xl font-semibold">
@@ -461,8 +471,15 @@ export default function UsersPage() {
                 </p>
                 <div className="grid gap-2 sm:grid-cols-2">
                   {roleIds.map((id) => (
-                    <label key={id} className="flex items-center gap-2 capitalize">
-                      <input type="checkbox" value={id} {...register("roleIds")} />
+                    <label
+                      key={id}
+                      className="flex items-center gap-2 capitalize"
+                    >
+                      <input
+                        type="checkbox"
+                        value={id}
+                        {...register("roleIds")}
+                      />
                       {id.replaceAll("_", " ")}
                     </label>
                   ))}

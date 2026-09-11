@@ -20,7 +20,10 @@ import { Button } from "@/components/ui/button";
 import { callAdministration } from "@/features/administration/api";
 import { useOrganizationCollection } from "@/features/administration/use-organization-collection";
 import { useAuth } from "@/features/auth/auth-context";
-import { calculatePosCart, provisionalReceiptReference } from "@/features/pos/calculations";
+import {
+  calculatePosCart,
+  provisionalReceiptReference,
+} from "@/features/pos/calculations";
 import { SaleDocumentDialog } from "@/features/pos/sale-document";
 import {
   listQueuedSales,
@@ -70,8 +73,7 @@ export default function PosPage() {
   const [cart, setCart] = useState<PosCartLine[]>([]);
   const [queued, setQueued] = useState<QueuedPosSale[]>([]);
   const [search, setSearch] = useState("");
-  const [paymentMethod, setPaymentMethod] =
-    useState<PosCheckoutMethod>("cash");
+  const [paymentMethod, setPaymentMethod] = useState<PosCheckoutMethod>("cash");
   const [paymentReference, setPaymentReference] = useState("");
   const [customerId, setCustomerId] = useState("");
   const [openingCash, setOpeningCash] = useState("0.00");
@@ -121,10 +123,10 @@ export default function PosPage() {
     setError(null);
     try {
       if (online) {
-        const result = await callAdministration<{ branchId: string }, PosWorkspace>(
-          "getPosWorkspace",
-          { branchId: selectedBranchId },
-        );
+        const result = await callAdministration<
+          { branchId: string },
+          PosWorkspace
+        >("getPosWorkspace", { branchId: selectedBranchId });
         setWorkspace(result);
         await saveCachedWorkspace(user.uid, result);
       } else {
@@ -140,7 +142,11 @@ export default function PosPage() {
       }
       await refreshQueue();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Unable to load this branch POS.");
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : "Unable to load this branch POS.",
+      );
     } finally {
       setBusy(false);
     }
@@ -168,8 +174,11 @@ export default function PosPage() {
         await removeQueuedSale(sale.id);
         synchronized += 1;
       } catch (cause) {
-        const text = cause instanceof Error ? cause.message : "Synchronization failed.";
-        const needsReview = /outdated price|stock|reconciliation|price/i.test(text);
+        const text =
+          cause instanceof Error ? cause.message : "Synchronization failed.";
+        const needsReview = /outdated price|stock|reconciliation|price/i.test(
+          text,
+        );
         if (needsReview)
           await updateQueuedSale({
             ...sale,
@@ -181,7 +190,9 @@ export default function PosPage() {
     }
     await refreshQueue();
     if (synchronized > 0) {
-      setMessage(`${synchronized} offline sale${synchronized === 1 ? "" : "s"} synchronized.`);
+      setMessage(
+        `${synchronized} offline sale${synchronized === 1 ? "" : "s"} synchronized.`,
+      );
       await loadWorkspace();
     }
     setBusy(false);
@@ -207,7 +218,9 @@ export default function PosPage() {
   const visibleProducts = useMemo(
     () =>
       (workspace?.products ?? []).filter((product) =>
-        `${product.name} ${product.sku}`.toLowerCase().includes(search.toLowerCase()),
+        `${product.name} ${product.sku}`
+          .toLowerCase()
+          .includes(search.toLowerCase()),
       ),
     [search, workspace?.products],
   );
@@ -216,9 +229,12 @@ export default function PosPage() {
     const product = workspace?.products.find((item) => item.id === productId);
     if (!product) return;
     const alreadyQueued = queuedQuantityByProduct.get(product.id) ?? 0;
-    const current = cart.find((line) => line.product.id === product.id)?.quantity ?? 0;
+    const current =
+      cart.find((line) => line.product.id === product.id)?.quantity ?? 0;
     if (current + alreadyQueued >= product.availableQuantity) {
-      setError(`Only ${Math.max(0, product.availableQuantity - alreadyQueued)} ${product.unitOfMeasure} of ${product.name} remain for this device.`);
+      setError(
+        `Only ${Math.max(0, product.availableQuantity - alreadyQueued)} ${product.unitOfMeasure} of ${product.name} remain for this device.`,
+      );
       return;
     }
     setError(null);
@@ -262,9 +278,15 @@ export default function PosPage() {
         idempotencyKey: crypto.randomUUID(),
       });
       await loadWorkspace();
-      setMessage("Shift opened. This device is ready to sell online or offline.");
+      setMessage(
+        "Shift opened. This device is ready to sell online or offline.",
+      );
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "The shift could not be opened.");
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : "The shift could not be opened.",
+      );
     } finally {
       setBusy(false);
     }
@@ -281,7 +303,9 @@ export default function PosPage() {
         user?.uid,
       );
       if (stillPending.length > 0)
-        throw new Error("Synchronize or review every offline sale before closing this shift.");
+        throw new Error(
+          "Synchronize or review every offline sale before closing this shift.",
+        );
       await callAdministration("closePosShift", {
         shiftId: workspace.openShift.id,
         closingCashMinor: nairaToKobo(Number(closingCash)),
@@ -291,21 +315,33 @@ export default function PosPage() {
       await loadWorkspace();
       setMessage("Shift closed and cash variance recorded.");
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "The shift could not be closed.");
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : "The shift could not be closed.",
+      );
     } finally {
       setBusy(false);
     }
   }
 
   async function checkout() {
-    if (!workspace?.openShift || cart.length === 0 || totals.grossAmountMinor <= 0)
+    if (
+      !workspace?.openShift ||
+      cart.length === 0 ||
+      totals.grossAmountMinor <= 0
+    )
       return;
     if (paymentMethod === "customer_credit" && !online) {
-      setError("Customer credit requires an online approval and credit-limit check.");
+      setError(
+        "Customer credit requires an online approval and credit-limit check.",
+      );
       return;
     }
     if (paymentMethod === "customer_credit" && !customerId) {
-      setError("Select an administrator-approved customer for this credit sale.");
+      setError(
+        "Select an administrator-approved customer for this credit sale.",
+      );
       return;
     }
     if (paymentMethod === "exchange_credit" && (!online || !paymentReference)) {
@@ -352,19 +388,22 @@ export default function PosPage() {
                   reference: paymentReference,
                 },
                 ...(exchangeCreditAmount < totals.grossAmountMinor
-                  ? [{
-                      method: "cash" as const,
-                      amountMinor: totals.grossAmountMinor - exchangeCreditAmount,
-                    }]
+                  ? [
+                      {
+                        method: "cash" as const,
+                        amountMinor:
+                          totals.grossAmountMinor - exchangeCreditAmount,
+                      },
+                    ]
                   : []),
               ]
-          : [
-              {
-                method: paymentMethod as PosPaymentMethod,
-                amountMinor: totals.grossAmountMinor,
-                reference: paymentReference.trim() || undefined,
-              },
-            ],
+            : [
+                {
+                  method: paymentMethod as PosPaymentMethod,
+                  amountMinor: totals.grossAmountMinor,
+                  reference: paymentReference.trim() || undefined,
+                },
+              ],
       customerId: paymentMethod === "customer_credit" ? customerId : undefined,
       creditAmountMinor:
         paymentMethod === "customer_credit" ? totals.grossAmountMinor : 0,
@@ -418,14 +457,20 @@ export default function PosPage() {
       setPaymentReference("");
       setCustomerId("");
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "The sale could not be completed.");
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : "The sale could not be completed.",
+      );
     } finally {
       setBusy(false);
     }
   }
 
   async function saveBranchPrice() {
-    const product = workspace?.products.find((item) => item.id === priceProductId);
+    const product = workspace?.products.find(
+      (item) => item.id === priceProductId,
+    );
     if (!workspace || !product) return;
     setBusy(true);
     setError(null);
@@ -443,7 +488,11 @@ export default function PosPage() {
       await loadWorkspace();
       setMessage(`Branch price updated for ${product.name}.`);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "The branch price could not be saved.");
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : "The branch price could not be saved.",
+      );
     } finally {
       setBusy(false);
     }
@@ -463,13 +512,25 @@ export default function PosPage() {
     <div className="space-y-5">
       <header className="brand-hero flex flex-col gap-5 rounded-2xl p-5 sm:flex-row sm:items-end sm:justify-between sm:p-7">
         <div>
-          <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[.16em] text-emerald-100"><Sparkles className="size-4" />Branch sales</p>
-          <h1 className="mt-2 text-3xl font-semibold sm:text-4xl">Point of sale</h1>
-          <p className="mt-2 max-w-2xl text-sm leading-6 text-emerald-50">
-            Sell from branch stock. VAT is shown separately and every confirmed sale posts inventory and accounts together.
+          <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[.16em] text-emerald-100">
+            <Sparkles className="size-4" />
+            Branch sales
           </p>
-          <span className={`mt-4 inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-semibold ${online ? "bg-white/15 text-white" : "bg-amber-300 text-amber-950"}`}>
-            {online ? <Wifi className="size-3.5" /> : <WifiOff className="size-3.5" />}
+          <h1 className="mt-2 text-3xl font-semibold sm:text-4xl">
+            Point of sale
+          </h1>
+          <p className="mt-2 max-w-2xl text-sm leading-6 text-emerald-50">
+            Sell from branch stock. VAT is shown separately and every confirmed
+            sale posts inventory and accounts together.
+          </p>
+          <span
+            className={`mt-4 inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-semibold ${online ? "bg-white/15 text-white" : "bg-amber-300 text-amber-950"}`}
+          >
+            {online ? (
+              <Wifi className="size-3.5" />
+            ) : (
+              <WifiOff className="size-3.5" />
+            )}
             {online ? "Connected and ready" : "Offline sales available"}
           </span>
         </div>
@@ -488,7 +549,9 @@ export default function PosPage() {
               {branches.data
                 .filter((branch) => branch.status === "active")
                 .map((branch) => (
-                  <option key={branch.id} value={branch.id}>{branch.name}</option>
+                  <option key={branch.id} value={branch.id}>
+                    {branch.name}
+                  </option>
                 ))}
             </select>
           </label>
@@ -498,11 +561,29 @@ export default function PosPage() {
       {!online && (
         <div className="flex gap-3 rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950">
           <WifiOff className="mt-0.5 size-5 shrink-0" />
-          <div><strong>Offline sales mode.</strong> Paid sales are saved on this device and synchronize after reconnecting. Prices and available quantities use the last trusted refresh.</div>
+          <div>
+            <strong>Offline sales mode.</strong> Paid sales are saved on this
+            device and synchronize after reconnecting. Prices and available
+            quantities use the last trusted refresh.
+          </div>
         </div>
       )}
-      {error && <div role="alert" className="rounded-xl bg-red-50 p-4 text-sm text-red-800">{error}</div>}
-      {message && <div role="status" className="rounded-xl bg-emerald-50 p-4 text-sm text-emerald-900">{message}</div>}
+      {error && (
+        <div
+          role="alert"
+          className="rounded-xl bg-red-50 p-4 text-sm text-red-800"
+        >
+          {error}
+        </div>
+      )}
+      {message && (
+        <div
+          role="status"
+          className="rounded-xl bg-emerald-50 p-4 text-sm text-emerald-900"
+        >
+          {message}
+        </div>
+      )}
 
       {queued.length > 0 && (
         <section className="rounded-xl border border-amber-300 bg-amber-50 p-4">
@@ -510,20 +591,28 @@ export default function PosPage() {
             <div>
               <h2 className="font-semibold">Offline queue: {queued.length}</h2>
               <p className="text-sm text-amber-900">
-                {queued.filter((sale) => sale.status === "needs_review").length} need manager review; the rest will retry safely.
+                {queued.filter((sale) => sale.status === "needs_review").length}{" "}
+                need manager review; the rest will retry safely.
               </p>
             </div>
-            <Button variant="outline" disabled={!online || busy} onClick={() => void syncQueue()}>
+            <Button
+              variant="outline"
+              disabled={!online || busy}
+              onClick={() => void syncQueue()}
+            >
               <RefreshCw className="mr-2 size-4" /> Synchronize now
             </Button>
           </div>
           {queued.some((sale) => sale.status === "needs_review") && (
             <ul className="mt-3 space-y-2 text-sm">
-              {queued.filter((sale) => sale.status === "needs_review").map((sale) => (
-                <li key={sale.id} className="rounded-lg bg-white p-3">
-                  <strong>{sale.provisionalReceiptReference}</strong>: {sale.lastError}
-                </li>
-              ))}
+              {queued
+                .filter((sale) => sale.status === "needs_review")
+                .map((sale) => (
+                  <li key={sale.id} className="rounded-lg bg-white p-3">
+                    <strong>{sale.provisionalReceiptReference}</strong>:{" "}
+                    {sale.lastError}
+                  </li>
+                ))}
             </ul>
           )}
         </section>
@@ -532,8 +621,14 @@ export default function PosPage() {
       {!workspace ? (
         <div className="grid min-h-64 place-items-center rounded-xl border bg-white p-6 text-center">
           <div>
-            <RefreshCw className={`mx-auto mb-3 size-7 ${busy ? "animate-spin" : ""}`} />
-            <p>{busy ? "Loading branch POS…" : "Choose an active selling branch."}</p>
+            <RefreshCw
+              className={`mx-auto mb-3 size-7 ${busy ? "animate-spin" : ""}`}
+            />
+            <p>
+              {busy
+                ? "Loading branch POS…"
+                : "Choose an active selling branch."}
+            </p>
           </div>
         </div>
       ) : !workspace.openShift ? (
@@ -541,16 +636,34 @@ export default function PosPage() {
           <Banknote className="mb-4 size-9 text-[var(--brand)]" />
           <h2 className="text-2xl font-semibold">Open the sales shift</h2>
           <p className="mt-2 text-sm text-[var(--muted)]">
-            Count the cash physically in this till before the first sale. This opening figure is used only for cash reconciliation.
+            Count the cash physically in this till before the first sale. This
+            opening figure is used only for cash reconciliation.
           </p>
           <label className="mt-5 block text-sm font-medium">
             Opening cash (₦)
-            <input type="number" min="0" step="0.01" inputMode="decimal" value={openingCash} onChange={(event) => setOpeningCash(event.target.value)} className="mt-1 w-full rounded-lg border p-3 text-lg" />
+            <input
+              type="number"
+              min="0"
+              step="0.01"
+              inputMode="decimal"
+              value={openingCash}
+              onChange={(event) => setOpeningCash(event.target.value)}
+              className="mt-1 w-full rounded-lg border p-3 text-lg"
+            />
           </label>
-          <Button className="mt-5 w-full" disabled={!online || busy} onClick={() => void openShift()}>
+          <Button
+            className="mt-5 w-full"
+            disabled={!online || busy}
+            onClick={() => void openShift()}
+          >
             Open shift and start selling
           </Button>
-          {!online && <p className="mt-2 text-center text-xs text-amber-800">A new shift must be opened online. An already-open cached shift continues offline.</p>}
+          {!online && (
+            <p className="mt-2 text-center text-xs text-amber-800">
+              A new shift must be opened online. An already-open cached shift
+              continues offline.
+            </p>
+          )}
         </section>
       ) : (
         <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_24rem]">
@@ -559,39 +672,95 @@ export default function PosPage() {
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
                   <h2 className="font-semibold">{workspace.branch.name}</h2>
-                  <p className="text-sm text-[var(--muted)]">Stock source: {workspace.location.name}</p>
+                  <p className="text-sm text-[var(--muted)]">
+                    Stock source: {workspace.location.name}
+                  </p>
                 </div>
-                <Button variant="outline" disabled={!online || busy} onClick={() => void loadWorkspace()}>
-                  <RefreshCw className="mr-2 size-4" /> Refresh stock &amp; prices
+                <Button
+                  variant="outline"
+                  disabled={!online || busy}
+                  onClick={() => void loadWorkspace()}
+                >
+                  <RefreshCw className="mr-2 size-4" /> Refresh stock &amp;
+                  prices
                 </Button>
               </div>
               <label className="relative mt-4 block">
                 <Search className="absolute left-3 top-3.5 size-4 text-slate-400" />
-                <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search product name or SKU" className="w-full rounded-lg border py-3 pl-10 pr-3" />
+                <input
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                  placeholder="Search product name or SKU"
+                  className="w-full rounded-lg border py-3 pl-10 pr-3"
+                />
               </label>
             </div>
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
               {visibleProducts.map((product) => {
-                const available = Math.max(0, product.availableQuantity - (queuedQuantityByProduct.get(product.id) ?? 0));
+                const available = Math.max(
+                  0,
+                  product.availableQuantity -
+                    (queuedQuantityByProduct.get(product.id) ?? 0),
+                );
                 return (
-                  <article key={product.id} className="interactive-card relative min-h-44 overflow-hidden rounded-2xl border bg-white p-4 text-left shadow-[var(--shadow-sm)]">
+                  <article
+                    key={product.id}
+                    className="interactive-card relative min-h-44 overflow-hidden rounded-2xl border bg-white p-4 text-left shadow-[var(--shadow-sm)]"
+                  >
                     <div className="flex items-start gap-3">
-                      <span className="grid size-11 shrink-0 place-items-center rounded-xl bg-emerald-50 text-emerald-700"><PackagePlus className="size-5" /></span>
-                      <div className="min-w-0"><span className="block font-semibold">{product.name}</span>
-                      <span className="mt-1 block truncate font-mono text-xs text-[var(--muted)]">{product.sku}</span></div>
+                      <span className="grid size-11 shrink-0 place-items-center rounded-xl bg-emerald-50 text-emerald-700">
+                        <PackagePlus className="size-5" />
+                      </span>
+                      <div className="min-w-0">
+                        <span className="block font-semibold">
+                          {product.name}
+                        </span>
+                        <span className="mt-1 block truncate font-mono text-xs text-[var(--muted)]">
+                          {product.sku}
+                        </span>
+                      </div>
                     </div>
-                    <span className="mt-4 block text-2xl font-semibold tracking-tight">{formatNaira(product.unitPriceMinor)}</span>
-                    <span className="block text-xs text-[var(--muted)]">before VAT · {product.priceSource} price</span>
-                    <div className="mt-3 flex items-center justify-between gap-2 text-sm"><span>{available} {product.unitOfMeasure} available</span><span className={`size-2.5 rounded-full ${available > 0 ? "bg-emerald-500" : "bg-red-400"}`} /></div>
-                    <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-100"><span className={`block h-full rounded-full ${available > 0 ? "bg-emerald-500" : "bg-red-400"}`} style={{ width: available > 0 ? `${Math.min(100, Math.max(12, available * 5))}%` : "100%" }} /></div>
+                    <span className="mt-4 block text-2xl font-semibold tracking-tight">
+                      {formatNaira(product.unitPriceMinor)}
+                    </span>
+                    <span className="block text-xs text-[var(--muted)]">
+                      before VAT · {product.priceSource} price
+                    </span>
+                    <div className="mt-3 flex items-center justify-between gap-2 text-sm">
+                      <span>
+                        {available} {product.unitOfMeasure} available
+                      </span>
+                      <span
+                        className={`size-2.5 rounded-full ${available > 0 ? "bg-emerald-500" : "bg-red-400"}`}
+                      />
+                    </div>
+                    <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-100">
+                      <span
+                        className={`block h-full rounded-full ${available > 0 ? "bg-emerald-500" : "bg-red-400"}`}
+                        style={{
+                          width:
+                            available > 0
+                              ? `${Math.min(100, Math.max(12, available * 5))}%`
+                              : "100%",
+                        }}
+                      />
+                    </div>
                     <div className="mt-3 flex gap-2">
-                      <Button className="flex-1" disabled={available <= 0} onClick={() => addProduct(product.id)}>Add</Button>
+                      <Button
+                        className="flex-1"
+                        disabled={available <= 0}
+                        onClick={() => addProduct(product.id)}
+                      >
+                        Add
+                      </Button>
                       {canManageBranchPrice && online && (
                         <Button
                           variant="outline"
                           onClick={() => {
                             setPriceProductId(product.id);
-                            setBranchPrice(String(product.unitPriceMinor / 100));
+                            setBranchPrice(
+                              String(product.unitPriceMinor / 100),
+                            );
                             setPriceReason("");
                           }}
                         >
@@ -604,7 +773,8 @@ export default function PosPage() {
               })}
               {visibleProducts.length === 0 && (
                 <div className="col-span-full rounded-xl border bg-white p-8 text-center text-[var(--muted)]">
-                  No sale-ready products match. Products require an active central selling price and branch stock.
+                  No sale-ready products match. Products require an active
+                  central selling price and branch stock.
                 </div>
               )}
             </div>
@@ -612,106 +782,328 @@ export default function PosPage() {
 
           <aside className="glass-panel h-fit overflow-hidden rounded-2xl p-5 lg:sticky lg:top-20">
             <div className="flex items-center justify-between">
-              <h2 className="flex items-center gap-2 text-xl font-semibold"><ShoppingCart className="size-5" /> Current sale</h2>
-              <span className="text-sm text-[var(--muted)]">{totals.totalQuantity} items</span>
+              <h2 className="flex items-center gap-2 text-xl font-semibold">
+                <ShoppingCart className="size-5" /> Current sale
+              </h2>
+              <span className="text-sm text-[var(--muted)]">
+                {totals.totalQuantity} items
+              </span>
             </div>
             <div className="my-4 max-h-72 space-y-3 overflow-y-auto">
               {cart.length === 0 ? (
-                <p className="rounded-lg bg-slate-50 p-5 text-center text-sm text-[var(--muted)]">Tap a product to add it.</p>
-              ) : cart.map((line) => (
-                <div key={line.product.id} className="rounded-lg border p-3">
-                  <div className="flex justify-between gap-3"><strong className="text-sm">{line.product.name}</strong><span className="text-sm">{formatNaira(line.quantity * line.product.unitPriceMinor)}</span></div>
-                  <div className="mt-3 flex items-center justify-between">
-                    <span className="text-xs text-[var(--muted)]">{formatNaira(line.product.unitPriceMinor)} each</span>
-                    <div className="flex items-center gap-2">
-                      <Button size="icon" variant="outline" onClick={() => changeQuantity(line.product.id, -1)} aria-label={`Remove one ${line.product.name}`}><Minus className="size-4" /></Button>
-                      <span className="min-w-6 text-center font-semibold">{line.quantity}</span>
-                      <Button size="icon" variant="outline" onClick={() => changeQuantity(line.product.id, 1)} aria-label={`Add one ${line.product.name}`}><Plus className="size-4" /></Button>
+                <p className="rounded-lg bg-slate-50 p-5 text-center text-sm text-[var(--muted)]">
+                  Tap a product to add it.
+                </p>
+              ) : (
+                cart.map((line) => (
+                  <div key={line.product.id} className="rounded-lg border p-3">
+                    <div className="flex justify-between gap-3">
+                      <strong className="text-sm">{line.product.name}</strong>
+                      <span className="text-sm">
+                        {formatNaira(
+                          line.quantity * line.product.unitPriceMinor,
+                        )}
+                      </span>
+                    </div>
+                    <div className="mt-3 flex items-center justify-between">
+                      <span className="text-xs text-[var(--muted)]">
+                        {formatNaira(line.product.unitPriceMinor)} each
+                      </span>
+                      <div className="flex items-center gap-2">
+                        <Button
+                          size="icon"
+                          variant="outline"
+                          onClick={() => changeQuantity(line.product.id, -1)}
+                          aria-label={`Remove one ${line.product.name}`}
+                        >
+                          <Minus className="size-4" />
+                        </Button>
+                        <span className="min-w-6 text-center font-semibold">
+                          {line.quantity}
+                        </span>
+                        <Button
+                          size="icon"
+                          variant="outline"
+                          onClick={() => changeQuantity(line.product.id, 1)}
+                          aria-label={`Add one ${line.product.name}`}
+                        >
+                          <Plus className="size-4" />
+                        </Button>
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))}
+                ))
+              )}
             </div>
             <dl className="space-y-2 rounded-xl bg-gradient-to-br from-emerald-950 to-emerald-700 p-4 text-sm text-white shadow-lg">
-              <div className="flex justify-between"><dt>Products</dt><dd>{formatNaira(totals.netAmountMinor)}</dd></div>
-              <div className="flex justify-between"><dt>VAT</dt><dd>{formatNaira(totals.vatAmountMinor)}</dd></div>
-              <div className="flex justify-between border-t border-white/20 pt-3 text-xl font-semibold"><dt>Total</dt><dd>{formatNaira(totals.grossAmountMinor)}</dd></div>
+              <div className="flex justify-between">
+                <dt>Products</dt>
+                <dd>{formatNaira(totals.netAmountMinor)}</dd>
+              </div>
+              <div className="flex justify-between">
+                <dt>VAT</dt>
+                <dd>{formatNaira(totals.vatAmountMinor)}</dd>
+              </div>
+              <div className="flex justify-between border-t border-white/20 pt-3 text-xl font-semibold">
+                <dt>Total</dt>
+                <dd>{formatNaira(totals.grossAmountMinor)}</dd>
+              </div>
             </dl>
-            <label className="mt-4 block text-sm font-medium">Payment method
-              <select value={paymentMethod} onChange={(event) => { setPaymentMethod(event.target.value as PosCheckoutMethod); setPaymentReference(""); if (event.target.value !== "customer_credit") setCustomerId(""); }} className="mt-1 w-full rounded-lg border p-3">
-                <option value="cash">Cash</option><option value="card">Card / POS terminal</option><option value="bank_transfer">Bank transfer</option>
-                {canCreateCredit && <option value="customer_credit" disabled={!online}>Approved customer credit</option>}
-                <option value="exchange_credit" disabled={!online}>Exchange credit</option>
+            <label className="mt-4 block text-sm font-medium">
+              Payment method
+              <select
+                value={paymentMethod}
+                onChange={(event) => {
+                  setPaymentMethod(event.target.value as PosCheckoutMethod);
+                  setPaymentReference("");
+                  if (event.target.value !== "customer_credit")
+                    setCustomerId("");
+                }}
+                className="mt-1 w-full rounded-lg border p-3"
+              >
+                <option value="cash">Cash</option>
+                <option value="card">Card / POS terminal</option>
+                <option value="bank_transfer">Bank transfer</option>
+                {canCreateCredit && (
+                  <option value="customer_credit" disabled={!online}>
+                    Approved customer credit
+                  </option>
+                )}
+                <option value="exchange_credit" disabled={!online}>
+                  Exchange credit
+                </option>
               </select>
             </label>
             {paymentMethod === "customer_credit" ? (
-              <label className="mt-3 block text-sm font-medium">Approved customer
-                <select value={customerId} onChange={(event) => setCustomerId(event.target.value)} className="mt-1 w-full rounded-lg border p-3">
+              <label className="mt-3 block text-sm font-medium">
+                Approved customer
+                <select
+                  value={customerId}
+                  onChange={(event) => setCustomerId(event.target.value)}
+                  className="mt-1 w-full rounded-lg border p-3"
+                >
                   <option value="">Select customer</option>
                   {(workspace.customers ?? []).map((customer) => (
-                    <option key={customer.id} value={customer.id} disabled={customer.availableCreditMinor < totals.grossAmountMinor}>
-                      {customer.name} · available {formatNaira(customer.availableCreditMinor)}
+                    <option
+                      key={customer.id}
+                      value={customer.id}
+                      disabled={
+                        customer.availableCreditMinor < totals.grossAmountMinor
+                      }
+                    >
+                      {customer.name} · available{" "}
+                      {formatNaira(customer.availableCreditMinor)}
                     </option>
                   ))}
                 </select>
-                <span className="mt-1 block text-xs font-normal text-[var(--muted)]">Credit is checked live and posted to Accounts Receivable. Only administrator-approved customers appear.</span>
+                <span className="mt-1 block text-xs font-normal text-[var(--muted)]">
+                  Credit is checked live and posted to Accounts Receivable. Only
+                  administrator-approved customers appear.
+                </span>
               </label>
-            ) : paymentMethod === "exchange_credit" ? <label className="mt-3 block text-sm font-medium">Exchange credit<select value={paymentReference} onChange={(event) => setPaymentReference(event.target.value)} className="mt-1 w-full rounded-lg border p-3"><option value="">Select credit</option>{(workspace.salesCredits ?? []).map((credit) => <option key={credit.id} value={credit.id}>{credit.creditNumber} · {formatNaira(credit.remainingAmountMinor)} remaining</option>)}</select><span className="mt-1 block text-xs font-normal text-[var(--muted)]">The credit is applied first. If it is below the sale total, the remaining amount is recorded as cash.</span></label> : paymentMethod !== "cash" ? <label className="mt-3 block text-sm font-medium">Payment reference (optional)<input value={paymentReference} onChange={(event) => setPaymentReference(event.target.value)} className="mt-1 w-full rounded-lg border p-3" placeholder="Terminal or transfer reference" /></label> : null}
-            <Button className="mt-5 w-full" disabled={busy || cart.length === 0 || (paymentMethod === "customer_credit" && (!online || !customerId)) || (paymentMethod === "exchange_credit" && (!online || !paymentReference))} onClick={() => void checkout()}>
-              {online ? "Complete sale" : "Save offline sale"} · {formatNaira(totals.grossAmountMinor)}
+            ) : paymentMethod === "exchange_credit" ? (
+              <label className="mt-3 block text-sm font-medium">
+                Exchange credit
+                <select
+                  value={paymentReference}
+                  onChange={(event) => setPaymentReference(event.target.value)}
+                  className="mt-1 w-full rounded-lg border p-3"
+                >
+                  <option value="">Select credit</option>
+                  {(workspace.salesCredits ?? []).map((credit) => (
+                    <option key={credit.id} value={credit.id}>
+                      {credit.creditNumber} ·{" "}
+                      {formatNaira(credit.remainingAmountMinor)} remaining
+                    </option>
+                  ))}
+                </select>
+                <span className="mt-1 block text-xs font-normal text-[var(--muted)]">
+                  The credit is applied first. If it is below the sale total,
+                  the remaining amount is recorded as cash.
+                </span>
+              </label>
+            ) : paymentMethod !== "cash" ? (
+              <label className="mt-3 block text-sm font-medium">
+                Payment reference (optional)
+                <input
+                  value={paymentReference}
+                  onChange={(event) => setPaymentReference(event.target.value)}
+                  className="mt-1 w-full rounded-lg border p-3"
+                  placeholder="Terminal or transfer reference"
+                />
+              </label>
+            ) : null}
+            <Button
+              className="mt-5 w-full"
+              disabled={
+                busy ||
+                cart.length === 0 ||
+                (paymentMethod === "customer_credit" &&
+                  (!online || !customerId)) ||
+                (paymentMethod === "exchange_credit" &&
+                  (!online || !paymentReference))
+              }
+              onClick={() => void checkout()}
+            >
+              {online ? "Complete sale" : "Save offline sale"} ·{" "}
+              {formatNaira(totals.grossAmountMinor)}
             </Button>
-            <p className="mt-2 text-center text-xs text-[var(--muted)]">{paymentMethod === "customer_credit" ? "Stock, receipt, VAT and the customer receivable post together online." : online ? "Stock, receipt, payment, VAT and accounts post together." : "A provisional receipt is issued now; posting occurs after sync."}</p>
+            <p className="mt-2 text-center text-xs text-[var(--muted)]">
+              {paymentMethod === "customer_credit"
+                ? "Stock, receipt, VAT and the customer receivable post together online."
+                : online
+                  ? "Stock, receipt, payment, VAT and accounts post together."
+                  : "A provisional receipt is issued now; posting occurs after sync."}
+            </p>
             <details className="mt-5 border-t pt-4">
-              <summary className="cursor-pointer text-sm font-semibold">Close shift</summary>
-              <label className="mt-3 block text-sm">Counted closing cash (₦)<input type="number" min="0" step="0.01" value={closingCash} onChange={(event) => setClosingCash(event.target.value)} className="mt-1 w-full rounded-lg border p-2.5" /></label>
-              <Button className="mt-3 w-full" variant="outline" disabled={!online || !closingCash || busy} onClick={() => void closeShift()}>Close and reconcile shift</Button>
+              <summary className="cursor-pointer text-sm font-semibold">
+                Close shift
+              </summary>
+              <label className="mt-3 block text-sm">
+                Counted closing cash (₦)
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={closingCash}
+                  onChange={(event) => setClosingCash(event.target.value)}
+                  className="mt-1 w-full rounded-lg border p-2.5"
+                />
+              </label>
+              <Button
+                className="mt-3 w-full"
+                variant="outline"
+                disabled={!online || !closingCash || busy}
+                onClick={() => void closeShift()}
+              >
+                Close and reconcile shift
+              </Button>
             </details>
           </aside>
         </div>
       )}
 
       {receipt?.document ? (
-        <SaleDocumentDialog document={receipt.document} onClose={() => setReceipt(null)} />
+        <SaleDocumentDialog
+          document={receipt.document}
+          onClose={() => setReceipt(null)}
+        />
       ) : receipt ? (
-        <div className="fixed inset-0 z-50 grid place-items-center bg-black/50 p-4" role="dialog" aria-modal="true" aria-label="Sale receipt">
-          <section className="w-full max-w-sm rounded-2xl bg-white p-6 text-center shadow-2xl" data-print-document>
-            {receipt.queued ? <CircleAlert className="mx-auto size-12 text-amber-600" /> : <CheckCircle2 className="mx-auto size-12 text-emerald-600" />}
-            <h2 className="mt-3 text-2xl font-semibold">{receipt.queued ? "Sale saved offline" : "Sale completed"}</h2>
+        <div
+          className="app-dialog-backdrop"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Sale receipt"
+        >
+          <section
+            className="app-dialog-panel max-w-sm rounded-2xl bg-white p-6 text-center shadow-2xl"
+            data-print-document
+          >
+            {receipt.queued ? (
+              <CircleAlert className="mx-auto size-12 text-amber-600" />
+            ) : (
+              <CheckCircle2 className="mx-auto size-12 text-emerald-600" />
+            )}
+            <h2 className="mt-3 text-2xl font-semibold">
+              {receipt.queued ? "Sale saved offline" : "Sale completed"}
+            </h2>
             <p className="mt-2 font-mono text-sm">{receipt.reference}</p>
-            <p className="mt-4 text-3xl font-semibold">{formatNaira(receipt.totalMinor)}</p>
-            <p className="mt-3 text-sm text-[var(--muted)]">{receipt.queued ? "This provisional receipt will be linked to the official receipt after synchronization." : "Inventory, VAT, settlement or receivable, and accounting records were posted."}</p>
+            <p className="mt-4 text-3xl font-semibold">
+              {formatNaira(receipt.totalMinor)}
+            </p>
+            <p className="mt-3 text-sm text-[var(--muted)]">
+              {receipt.queued
+                ? "This provisional receipt will be linked to the official receipt after synchronization."
+                : "Inventory, VAT, settlement or receivable, and accounting records were posted."}
+            </p>
             <div className="mt-5 flex gap-3" data-no-print>
-              <Button variant="outline" className="flex-1" onClick={() => window.print()}><Printer className="mr-2 size-4" /> Print provisional</Button>
-              <Button className="flex-1" onClick={() => setReceipt(null)}>New sale</Button>
+              <Button
+                variant="outline"
+                className="flex-1"
+                onClick={() => window.print()}
+              >
+                <Printer className="mr-2 size-4" /> Print provisional
+              </Button>
+              <Button className="flex-1" onClick={() => setReceipt(null)}>
+                New sale
+              </Button>
             </div>
           </section>
         </div>
       ) : null}
 
-      {priceProductId && workspace && (() => {
-        const product = workspace.products.find((item) => item.id === priceProductId);
-        if (!product) return null;
-        const enteredMinor = Number.isFinite(Number(branchPrice))
-          ? Math.round(Number(branchPrice) * 100)
-          : 0;
-        const belowBase = enteredMinor < product.basePriceMinor;
-        return (
-          <div className="fixed inset-0 z-50 grid place-items-center bg-black/50 p-4" role="dialog" aria-modal="true" aria-label="Branch selling price">
-            <section className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl">
-              <h2 className="text-xl font-semibold">Set branch price</h2>
-              <p className="mt-1 text-sm text-[var(--muted)]">{product.name} · Central base {formatNaira(product.basePriceMinor)}</p>
-              <label className="mt-5 block text-sm font-medium">Branch price before VAT (₦)<input type="number" min="0.01" step="0.01" inputMode="decimal" value={branchPrice} onChange={(event) => setBranchPrice(event.target.value)} className="mt-1 w-full rounded-lg border p-3 text-lg" /></label>
-              {belowBase && (
-                <div className="mt-3 rounded-lg bg-amber-50 p-3 text-sm text-amber-950">
-                  This is below the central base. Only a system administrator may approve it, and a reason is mandatory.
+      {priceProductId &&
+        workspace &&
+        (() => {
+          const product = workspace.products.find(
+            (item) => item.id === priceProductId,
+          );
+          if (!product) return null;
+          const enteredMinor = Number.isFinite(Number(branchPrice))
+            ? Math.round(Number(branchPrice) * 100)
+            : 0;
+          const belowBase = enteredMinor < product.basePriceMinor;
+          return (
+            <div
+              className="app-dialog-backdrop"
+              role="dialog"
+              aria-modal="true"
+              aria-label="Branch selling price"
+            >
+              <section className="app-dialog-panel max-w-md rounded-2xl bg-white p-6 shadow-2xl">
+                <h2 className="text-xl font-semibold">Set branch price</h2>
+                <p className="mt-1 text-sm text-[var(--muted)]">
+                  {product.name} · Central base{" "}
+                  {formatNaira(product.basePriceMinor)}
+                </p>
+                <label className="mt-5 block text-sm font-medium">
+                  Branch price before VAT (₦)
+                  <input
+                    type="number"
+                    min="0.01"
+                    step="0.01"
+                    inputMode="decimal"
+                    value={branchPrice}
+                    onChange={(event) => setBranchPrice(event.target.value)}
+                    className="mt-1 w-full rounded-lg border p-3 text-lg"
+                  />
+                </label>
+                {belowBase && (
+                  <div className="mt-3 rounded-lg bg-amber-50 p-3 text-sm text-amber-950">
+                    This is below the central base. Only a system administrator
+                    may approve it, and a reason is mandatory.
+                  </div>
+                )}
+                <label className="mt-3 block text-sm font-medium">
+                  Approval reason {belowBase ? "(required)" : "(optional)"}
+                  <textarea
+                    value={priceReason}
+                    onChange={(event) => setPriceReason(event.target.value)}
+                    className="mt-1 w-full rounded-lg border p-3"
+                  />
+                </label>
+                <div className="mt-5 flex justify-end gap-3">
+                  <Button
+                    variant="secondary"
+                    onClick={() => setPriceProductId(null)}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    disabled={
+                      busy ||
+                      !branchPrice ||
+                      (belowBase && priceReason.trim().length < 3)
+                    }
+                    onClick={() => void saveBranchPrice()}
+                  >
+                    Save branch price
+                  </Button>
                 </div>
-              )}
-              <label className="mt-3 block text-sm font-medium">Approval reason {belowBase ? "(required)" : "(optional)"}<textarea value={priceReason} onChange={(event) => setPriceReason(event.target.value)} className="mt-1 w-full rounded-lg border p-3" /></label>
-              <div className="mt-5 flex justify-end gap-3"><Button variant="secondary" onClick={() => setPriceProductId(null)}>Cancel</Button><Button disabled={busy || !branchPrice || (belowBase && priceReason.trim().length < 3)} onClick={() => void saveBranchPrice()}>Save branch price</Button></div>
-            </section>
-          </div>
-        );
-      })()}
+              </section>
+            </div>
+          );
+        })()}
     </div>
   );
 }
