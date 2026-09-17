@@ -9,9 +9,9 @@ import {
 describe("visual user guide", () => {
   it("makes the normal journey three tasks without compulsory logistics", () => {
     expect(transferWorkflowSteps.map((step) => step.title)).toEqual([
-      "Request stock",
-      "Administrator approves",
-      "Confirm arrival",
+      "Create transfer",
+      "Source confirms",
+      "Destination receives",
     ]);
   });
   it("retains the separate detailed workflow for existing records", () => {

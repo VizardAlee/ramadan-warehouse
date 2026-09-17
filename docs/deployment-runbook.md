@@ -2,7 +2,7 @@
 
 ## Simplified transfer production release (2026-09-06)
 
-See [Simple stock transfers](simple-stock-transfers.md). The new default is request → administrator approval/hold → destination acknowledgement, with direct branch-to-branch supply. Legacy transfers retain their original workflow and data. Commit `9a3c464` was pushed to `main` and deployed to the existing production environment.
+See [Simple stock transfers](simple-stock-transfers.md). The default is create transfer → source-manager confirmation/hold → destination acknowledgement, with direct branch-to-branch supply. No separate administrator, picker, packer or driver is required for the normal journey. Legacy transfers retain their original workflow and data. Commit `9a3c464` was pushed to `main` and deployed to the existing production environment.
 
 The regression/build/secret-scan gate passed. `stockTransfers` (new), `reconcileTransfer`, `reconcileWarehouseOperations`, and `reverseInventoryTransaction` were deployed and verified ACTIVE with production/App Check flags; App Hosting then completed its rollout. Organization policy blocked the new callable transport configuration, so the owner explicitly approved disabling the Cloud Run invoker IAM check for `stockTransfers` only. An unauthenticated request still returned HTTP 401. No Storage/Firestore rules, indexes, scheduled services, monitoring sensitivity, data reset or migration changed.
 

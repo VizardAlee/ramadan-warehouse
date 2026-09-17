@@ -49,3 +49,45 @@ export function transferNextStepCopy(
     return "This transfer was cancelled; no further movement is expected.";
   return "Review the transfer status and available actions below.";
 }
+
+export type SimpleTransferStatus =
+  | "requested"
+  | "awaiting_receipt"
+  | "partially_received"
+  | "problem"
+  | "completed"
+  | "cancelled";
+
+export function simpleTransferActionCopy({
+  status,
+  sourceName,
+  destinationName,
+  canAct,
+}: {
+  status: SimpleTransferStatus;
+  sourceName: string;
+  destinationName: string;
+  canAct: boolean;
+}) {
+  if (status === "requested")
+    return canAct
+      ? "Confirm stock and approve"
+      : `Waiting for ${sourceName} to confirm stock`;
+  if (["awaiting_receipt", "partially_received"].includes(status))
+    return canAct
+      ? "Confirm goods received"
+      : `Waiting for ${destinationName} to confirm receipt`;
+  if (status === "problem")
+    return canAct
+      ? "Review the reported problem"
+      : `Waiting for ${sourceName} to resolve the problem`;
+  if (status === "completed") return "View completed transfer";
+  return "View cancelled transfer";
+}
+
+export function simpleTransferProgress(status: SimpleTransferStatus) {
+  if (status === "completed") return 3;
+  if (["awaiting_receipt", "partially_received", "problem"].includes(status))
+    return 2;
+  return ["requested", "cancelled"].includes(status) ? 1 : 0;
+}

@@ -30,19 +30,19 @@ export const setupWorkflowSteps: readonly WorkflowStep[] = [
 
 export const transferWorkflowSteps: readonly WorkflowStep[] = [
   {
-    title: "Request stock",
+    title: "Create transfer",
     detail:
       "Choose the sending warehouse or branch, the receiving branch, and products. Either location manager can start.",
     href: "/transfers/create/direct",
   },
   {
-    title: "Administrator approves",
+    title: "Source confirms",
     detail:
-      "The administrator reviews quantities. Approved stock is held automatically and cannot be sold twice.",
+      "A manager responsible for the sending location confirms the quantity. Stock is held automatically and cannot be sold twice.",
     href: "/transfers",
   },
   {
-    title: "Confirm arrival",
+    title: "Destination receives",
     detail:
       "The receiving manager counts the goods and confirms what arrived. Full receipt completes the transfer automatically.",
     href: "/transfers",

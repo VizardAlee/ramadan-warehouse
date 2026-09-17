@@ -61,7 +61,7 @@ export default function GuidePage() {
               <PackageCheck className="mb-3 size-7 text-emerald-800" />
               <strong>Goods have arrived</strong>
               <p className="mt-2 text-sm">
-                Open Needs my attention, count the goods, and confirm arrival.
+                Open Action required, count the goods, and confirm arrival.
               </p>
             </Link>
           </>
@@ -88,7 +88,7 @@ export default function GuidePage() {
       <section id="transfers" className="scroll-mt-24 space-y-4">
         <WorkflowTrack
           title="Move stock in three steps"
-          description="Warehouse to branch, or branch to branch. One administrator and the receiving manager can complete the normal journey."
+          description="Warehouse to branch, or branch to branch. The source manager confirms the stock and the destination manager confirms receipt. No picker, packer, driver or separate administrator is required."
           steps={transferWorkflowSteps}
         />
         <div className="grid gap-4 sm:grid-cols-2">
@@ -97,8 +97,8 @@ export default function GuidePage() {
               Example: 20 panels for Igbo Road Branch
             </h2>
             <p className="mt-2 text-sm leading-6">
-              Choose the location holding the panels and request 20. The
-              administrator approves. When the panels arrive, the receiving
+              Choose the location holding the panels and request 20. The source
+              manager confirms the stock. When the panels arrive, the receiving
               manager counts all 20 and taps “Confirm goods received”. The
               branch can now sell them.
             </p>
@@ -123,12 +123,12 @@ export default function GuidePage() {
               destination branch.
             </li>
             <li>
-              Needs my attention shows actions you can take. Waiting shows work
-              assigned to someone else.
+              Action required shows work you can complete. Waiting on another
+              location shows work assigned elsewhere.
             </li>
             <li>
-              Only an administrator approves. Only the receiving branch manager
-              or an administrator confirms arrival.
+              A source-location manager or administrator confirms the stock. The
+              receiving branch manager or administrator confirms arrival.
             </li>
             <li>
               Older transfers remain under “Earlier transfers and optional

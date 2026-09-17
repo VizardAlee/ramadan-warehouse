@@ -29,6 +29,10 @@ import { downloadCsv } from "@/features/inventory/format";
 import { hasPermission } from "@/lib/permissions/roles";
 import { stockTransferExportRows } from "./stock-transfer-export";
 import type { BranchRequest, BranchRequestItem } from "@/types/domain";
+import {
+  simpleTransferActionCopy,
+  simpleTransferProgress,
+} from "./transfer-guidance";
 
 const api = <T,>(input: object) =>
   callAdministration<object, T>("stockTransfers", input);
@@ -73,17 +77,17 @@ export function SimpleTransferSteps() {
       {[
         [
           Boxes,
-          "1. Request stock",
+          "1. Create transfer",
           "Choose where the stock comes from and where it is needed.",
         ],
         [
           ShieldCheck,
-          "2. Administrator approves",
-          "Approved stock is held automatically for this transfer.",
+          "2. Source confirms",
+          "The source manager confirms the quantity. Stock is held automatically.",
         ],
         [
           PackageCheck,
-          "3. Confirm arrival",
+          "3. Destination receives",
           "The receiving manager counts the goods. Stock updates automatically.",
         ],
       ].map(([Icon, title, detail]) => {
@@ -98,6 +102,45 @@ export function SimpleTransferSteps() {
             <p className="sr-only mt-2 text-sm leading-6 text-[var(--muted)] sm:not-sr-only">
               {String(detail)}
             </p>
+          </li>
+        );
+      })}
+    </ol>
+  );
+}
+
+function SimpleTransferProgress({ transfer }: { transfer: StockTransfer }) {
+  const current = simpleTransferProgress(transfer.status);
+  const steps = [
+    ["Created", Boxes],
+    ["Source confirmed", ShieldCheck],
+    ["Destination received", PackageCheck],
+  ] as const;
+  return (
+    <ol aria-label="Transfer progress" className="grid grid-cols-3 gap-2">
+      {steps.map(([label, Icon], index) => {
+        const number = index + 1;
+        const complete = current >= number;
+        const active =
+          !complete &&
+          ((transfer.status === "requested" && number === 2) ||
+            (["awaiting_receipt", "partially_received", "problem"].includes(
+              transfer.status,
+            ) &&
+              number === 3));
+        return (
+          <li
+            key={label}
+            className={`rounded-xl border p-3 text-center text-xs font-semibold sm:text-sm ${
+              complete
+                ? "border-emerald-700 bg-emerald-700 text-white"
+                : active
+                  ? "border-amber-300 bg-amber-50 text-amber-950"
+                  : "bg-slate-50 text-[var(--muted)]"
+            }`}
+          >
+            <Icon className="mx-auto mb-1 size-5" />
+            {label}
           </li>
         );
       })}
@@ -236,7 +279,8 @@ function ManagedStockTransferList() {
         filter === "all" ||
         (filter === "attention" && mine(t)) ||
         (filter === "waiting" &&
-          !["completed", "cancelled"].includes(t.status)) ||
+          !["completed", "cancelled"].includes(t.status) &&
+          !mine(t)) ||
         (filter === "completed" &&
           ["completed", "cancelled"].includes(t.status)) ||
         (filter === "problems" && t.status === "problem"),
@@ -282,7 +326,7 @@ function ManagedStockTransferList() {
               className="inline-flex min-h-12 items-center rounded-xl bg-[var(--brand)] px-4 font-semibold text-white"
             >
               <Plus className="mr-2 size-5" />
-              Request stock
+              New transfer
             </Link>
           )}
         </div>
@@ -291,8 +335,8 @@ function ManagedStockTransferList() {
       <nav aria-label="Transfer views" className="flex flex-wrap gap-2">
         {(
           [
-            ["attention", "Needs my attention"],
-            ["waiting", "Waiting"],
+            ["attention", "Action required"],
+            ["waiting", "Waiting on another location"],
             ["completed", "Completed"],
             ["problems", "Problems"],
             ["all", "All"],
@@ -315,11 +359,15 @@ function ManagedStockTransferList() {
           <CheckCircle2 className="mx-auto mb-3 size-10 text-emerald-700" />
           <h2 className="font-semibold">
             {filter === "attention"
-              ? "Nothing needs your attention here"
-              : "No transfers in this view"}
+              ? "No transfer needs your action"
+              : filter === "waiting"
+                ? "You are not waiting on another location"
+                : "No transfers in this view"}
           </h2>
           <p className="mt-2 text-sm text-[var(--muted)]">
-            Check Waiting to see requests being handled by someone else.
+            {filter === "attention"
+              ? "When your location needs to confirm or receive stock, it will appear here."
+              : "Choose another view or create a new transfer."}
           </p>
         </section>
       ) : (
@@ -337,19 +385,21 @@ function ManagedStockTransferList() {
                 </span>
               </div>
               <Route transfer={t} />
+              <div className="mt-4">
+                <SimpleTransferProgress transfer={t} />
+              </div>
               <p className="mt-4 text-sm">
                 {t.items
                   .map((l) => `${l.productName} × ${l.requested}`)
                   .join(" · ")}
               </p>
               <p className="mt-3 font-medium text-emerald-800">
-                {t.status === "requested"
-                  ? "Waiting for administrator approval"
-                  : ["completed", "cancelled"].includes(t.status)
-                    ? "View completed record"
-                    : t.status === "problem"
-                      ? "Administrator: review reported problem"
-                      : `${t.destinationName}: confirm what arrived`}{" "}
+                {simpleTransferActionCopy({
+                  status: t.status,
+                  sourceName: t.sourceName,
+                  destinationName: t.destinationName,
+                  canAct: Boolean(mine(t)),
+                })}{" "}
                 →
               </p>
             </Link>
@@ -362,7 +412,7 @@ function ManagedStockTransferList() {
           How to move stock
         </Link>
         <Link className="underline" href="/transfers/legacy">
-          Earlier transfers and optional detailed logistics
+          Advanced: earlier transfers and detailed logistics
         </Link>
         <Link className="underline" href="/transfers/create/from-request">
           Use an existing approved branch request
@@ -526,10 +576,11 @@ export function StockTransferForm({
       </Link>
       <header>
         <h1 className="text-3xl font-semibold">
-          {fromRequest ? "Fulfil an approved request" : "Request stock"}
+          {fromRequest ? "Fulfil an approved request" : "Create a transfer"}
         </h1>
         <p className="mt-2 text-[var(--muted)]">
-          Choose the goods you need. The administrator will review the request.
+          Choose the source, destination and goods. A manager responsible for
+          the source confirms the stock on the next screen.
         </p>
       </header>
       <SimpleTransferSteps />
@@ -743,7 +794,7 @@ export function StockTransferForm({
         disabled={busy || !online || stockLoading || !options}
         type="submit"
       >
-        {busy ? "Submitting…" : "Submit for approval"}
+        {busy ? "Creating transfer…" : "Create transfer"}
       </Button>
     </form>
   );
@@ -859,6 +910,12 @@ export function StockTransferDetail({ transferId }: { transferId: string }) {
     detail.canReceive &&
     transfer.items.some((l) => pendingStock(l) > 0);
   const finished = ["completed", "cancelled"].includes(transfer.status);
+  const waitingTitle =
+    transfer.status === "requested"
+      ? `Waiting for ${transfer.sourceName}`
+      : transfer.status === "problem"
+        ? `Waiting for ${transfer.sourceName} to resolve a problem`
+        : `Waiting for ${transfer.destinationName}`;
   return (
     <div className="page-stack mx-auto max-w-5xl">
       <div className="flex items-center justify-between">
@@ -879,19 +936,22 @@ export function StockTransferDetail({ transferId }: { transferId: string }) {
           {finished
             ? "Transfer finished"
             : approval
-              ? "Review and approve the stock"
+              ? "Confirm the source stock"
               : receipt
                 ? "Have the goods arrived?"
-                : "Waiting for the next person"}
+                : waitingTitle}
         </h1>
         <p className="mt-2 text-emerald-100">
           {finished
             ? "Your stock records and receipt history are saved below."
             : transfer.status === "requested"
-              ? "An administrator approves the quantities. Stock is then held automatically."
+              ? approval
+                ? "Confirm the available quantity below. The stock will be held automatically for this transfer."
+                : `A manager responsible for ${transfer.sourceName} confirms the stock. No separate administrator is required.`
               : `The manager at ${transfer.destinationName} confirms only the goods that have actually arrived.`}
         </p>
       </header>
+      <SimpleTransferProgress transfer={transfer} />
       {error && <Notice text={error} />}
       {!online && (
         <Notice text="Reconnect before approving or confirming stock. This prevents duplicate or conflicting stock movements." />
@@ -1110,7 +1170,7 @@ export function StockTransferDetail({ transferId }: { transferId: string }) {
             {busy
               ? "Saving…"
               : approval
-                ? "Approve and hold stock"
+                ? "Confirm transfer and hold stock"
                 : "Confirm goods received"}
           </Button>
         </section>
@@ -1183,7 +1243,7 @@ export function StockTransferDetail({ transferId }: { transferId: string }) {
                 }
                 onClick={() => void act("resolve", { disposition, note })}
               >
-                Save administrator decision
+                Save source manager decision
               </Button>
             </div>
           )}
@@ -1191,7 +1251,7 @@ export function StockTransferDetail({ transferId }: { transferId: string }) {
       )}
       <details className={panel}>
         <summary className="cursor-pointer font-semibold">
-          Receipt and action history
+          Audit history and technical details
         </summary>
         <ol className="mt-4 space-y-3">
           {detail.events.map((e) => (
@@ -1203,10 +1263,10 @@ export function StockTransferDetail({ transferId }: { transferId: string }) {
                 {(
                   {
                     created: "Stock requested",
-                    approve: "Administrator approved",
+                    approve: "Source manager confirmed stock",
                     receive: "Receipt recorded",
                     report_problem: "Problem reported",
-                    resolve: "Administrator decision",
+                    resolve: "Source manager decision",
                   } as Record<string, string>
                 )[e.action] ?? e.action}
               </strong>

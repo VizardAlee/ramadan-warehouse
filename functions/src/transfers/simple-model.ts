@@ -60,10 +60,10 @@ export const stockTransferStatusLabels: Record<
   StockTransfer["status"],
   string
 > = {
-  requested: "Needs approval",
+  requested: "Source confirmation needed",
   awaiting_receipt: "Awaiting receipt",
   partially_received: "Some items still expected",
-  problem: "Needs attention",
+  problem: "Problem reported",
   completed: "Completed",
   cancelled: "Cancelled",
 };

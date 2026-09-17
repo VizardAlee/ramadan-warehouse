@@ -11,7 +11,7 @@ logistics guide; the Picking queue is not the normal starting point for new tran
 
 ## Request stock and confirm arrival
 
-Select **From**, **To**, **Product**, and **Quantity**, then submit. The sending location can be a warehouse or another branch. The receiver must be a different branch. The administrator reviews quantities and chooses serial numbers when required, then taps **Approve and hold stock**. Once goods arrive, the receiving manager opens **Needs my attention**, counts them, and taps **Confirm goods received**. Choose **Some items are missing or damaged** to enter the actual quantities separately. Do not invent delivery, package or transport information. See [Simple stock transfers](simple-stock-transfers.md).
+Select **From**, **To**, **Product**, and **Quantity**, then choose **Create transfer**. The sending location can be a warehouse or another branch. The receiver must be a different branch. A manager responsible for the source reviews quantities and chooses serial numbers when required, then taps **Confirm transfer and hold stock**; the creator may do this immediately when they manage the source. Once goods arrive, the receiving manager opens **Action required**, counts them, and taps **Confirm goods received**. Choose **Some items are missing or damaged** to enter the actual quantities separately. Do not invent delivery, package or transport information. See [Simple stock transfers](simple-stock-transfers.md).
 
 ## Product form
 
