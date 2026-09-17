@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
-import { Button } from "@/components/ui/button";
+import { CursorTablePagination } from "@/components/ui/table-pagination";
 import { callAdministration } from "@/features/administration/api";
 import {
   formatDateTime,
@@ -9,13 +9,13 @@ import {
 } from "@/features/inventory/format";
 import type { InventoryBalance } from "@/types/domain";
 
-function fetchStockPosition(cursor?: string) {
+function fetchStockPosition(cursor?: string, limit = 25) {
   return callAdministration<
     object,
     { rows: InventoryBalance[]; nextCursor: string | null }
   >("generateStockPositionReport", {
     cursor,
-    limit: 50,
+    limit,
     includeCosts: true,
   });
 }
@@ -23,11 +23,13 @@ function fetchStockPosition(cursor?: string) {
 export default function InventoryPage() {
   const [rows, setRows] = useState<InventoryBalance[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
+  const [pageStarts, setPageStarts] = useState<(string | null)[]>([null]);
+  const [pageSize, setPageSize] = useState(25);
   const [error, setError] = useState<string | null>(null);
-  async function load(next?: string) {
+  async function load(startCursor: string | null = null, size = pageSize) {
     try {
-      const result = await fetchStockPosition(next);
-      setRows((current) => (next ? [...current, ...result.rows] : result.rows));
+      const result = await fetchStockPosition(startCursor || undefined, size);
+      setRows(result.rows);
       setCursor(result.nextCursor);
     } catch (cause) {
       setError(
@@ -38,7 +40,7 @@ export default function InventoryPage() {
     }
   }
   useEffect(() => {
-    void fetchStockPosition()
+    void fetchStockPosition(undefined, pageSize)
       .then((result) => {
         setRows(result.rows);
         setCursor(result.nextCursor);
@@ -50,7 +52,22 @@ export default function InventoryPage() {
             : "Unable to load inventory position.",
         ),
       );
-  }, []);
+  }, [pageSize]);
+  function nextPage() {
+    if (!cursor) return;
+    setPageStarts((current) => [...current, cursor]);
+    void load(cursor);
+  }
+  function previousPage() {
+    if (pageStarts.length <= 1) return;
+    const previousStarts = pageStarts.slice(0, -1);
+    setPageStarts(previousStarts);
+    void load(previousStarts.at(-1) ?? null);
+  }
+  function changePageSize(size: number) {
+    setPageSize(size);
+    setPageStarts([null]);
+  }
   const totals = rows.reduce(
     (value, row) => ({
       quantity: value.quantity + row.onHandQuantity,
@@ -69,9 +86,9 @@ export default function InventoryPage() {
       </div>
       <section className="grid gap-4 md:grid-cols-3">
         {[
-          ["On hand", formatQuantity(totals.quantity)],
-          ["Available", formatQuantity(totals.available)],
-          ["Value", formatNaira(totals.inventoryValue)],
+          ["On hand (this page)", formatQuantity(totals.quantity)],
+          ["Available (this page)", formatQuantity(totals.available)],
+          ["Value (this page)", formatNaira(totals.inventoryValue)],
         ].map(([label, value]) => (
           <article key={label} className="rounded-xl border bg-white p-5">
             <p className="text-xs uppercase text-[var(--muted)]">{label}</p>
@@ -130,11 +147,16 @@ export default function InventoryPage() {
           </tbody>
         </table>
       </div>
-      {cursor && (
-        <Button variant="secondary" onClick={() => load(cursor)}>
-          Load more
-        </Button>
-      )}
+      <CursorTablePagination
+        page={pageStarts.length}
+        pageSize={pageSize}
+        rowCount={rows.length}
+        hasNextPage={Boolean(cursor)}
+        onPrevious={previousPage}
+        onNext={nextPage}
+        onPageSizeChange={changePageSize}
+        itemLabel="inventory positions"
+      />
     </div>
   );
 }

@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { StatusBadge } from "@/components/ui/status-badge";
+import { CursorTablePagination } from "@/components/ui/table-pagination";
 import { callAdministration } from "@/features/administration/api";
 import { useAuth } from "@/features/auth/auth-context";
 import { TransferQuickGuide } from "@/features/guidance/workflow-track";
@@ -45,7 +46,9 @@ export function TransferList({ view = "all" }: { view?: string }) {
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState<string | null>(null);
   const [cursor, setCursor] = useState<string | null>(null);
-  async function load(more = false) {
+  const [pageStarts, setPageStarts] = useState<(string | null)[]>([null]);
+  const [pageSize, setPageSize] = useState(25);
+  async function load(startCursor: string | null = null, size = pageSize) {
     setLoading(true);
     setMessage(null);
     try {
@@ -54,10 +57,10 @@ export function TransferList({ view = "all" }: { view?: string }) {
         { rows: WarehouseTransfer[]; nextCursor: string | null }
       >("listTransfers", {
         status: status || undefined,
-        cursor: more ? cursor : undefined,
-        limit: 50,
+        cursor: startCursor || undefined,
+        limit: size,
       });
-      setRows((current) => (more ? [...current, ...result.rows] : result.rows));
+      setRows(result.rows);
       setCursor(result.nextCursor);
     } catch {
       setMessage("Transfers could not be loaded for your current assignment.");
@@ -72,7 +75,7 @@ export function TransferList({ view = "all" }: { view?: string }) {
       { rows: WarehouseTransfer[]; nextCursor: string | null }
     >("listTransfers", {
       status: queueStatus[view] || undefined,
-      limit: 50,
+      limit: 25,
     })
       .then((value) => {
         if (active) {
@@ -93,6 +96,26 @@ export function TransferList({ view = "all" }: { view?: string }) {
       active = false;
     };
   }, [view]);
+  function applyFilters() {
+    setPageStarts([null]);
+    void load();
+  }
+  function nextPage() {
+    if (!cursor) return;
+    setPageStarts((current) => [...current, cursor]);
+    void load(cursor);
+  }
+  function previousPage() {
+    if (pageStarts.length <= 1) return;
+    const previousStarts = pageStarts.slice(0, -1);
+    setPageStarts(previousStarts);
+    void load(previousStarts.at(-1));
+  }
+  function changePageSize(size: number) {
+    setPageSize(size);
+    setPageStarts([null]);
+    void load(null, size);
+  }
   if (
     !profile ||
     ![
@@ -217,7 +240,7 @@ export function TransferList({ view = "all" }: { view?: string }) {
             <option key={value}>{value}</option>
           ))}
         </select>
-        <Button onClick={() => load(false)} disabled={loading}>
+        <Button onClick={applyFilters} disabled={loading}>
           {loading && <Loader2 className="mr-2 size-4 animate-spin" />}Apply
         </Button>
       </section>
@@ -294,15 +317,17 @@ export function TransferList({ view = "all" }: { view?: string }) {
           </div>
         )}
       </div>
-      {cursor && (
-        <Button
-          variant="secondary"
-          disabled={loading}
-          onClick={() => load(true)}
-        >
-          Load more
-        </Button>
-      )}
+      <CursorTablePagination
+        page={pageStarts.length}
+        pageSize={pageSize}
+        rowCount={rows.length}
+        hasNextPage={Boolean(cursor)}
+        loading={loading}
+        onPrevious={previousPage}
+        onNext={nextPage}
+        onPageSizeChange={changePageSize}
+        itemLabel="transfers"
+      />
     </div>
   );
 }

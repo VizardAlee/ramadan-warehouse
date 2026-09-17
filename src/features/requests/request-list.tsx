@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { StatusBadge } from "@/components/ui/status-badge";
+import { CursorTablePagination } from "@/components/ui/table-pagination";
 import { callAdministration } from "@/features/administration/api";
 import { useAuth } from "@/features/auth/auth-context";
 import { hasPermission } from "@/lib/permissions/roles";
@@ -26,9 +27,11 @@ export function RequestList({
   const [priority, setPriority] = useState("");
   const [rows, setRows] = useState<BranchRequest[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
+  const [pageStarts, setPageStarts] = useState<(string | null)[]>([null]);
+  const [pageSize, setPageSize] = useState(25);
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState<string | null>(null);
-  async function load(next = false) {
+  async function load(startCursor: string | null = null, size = pageSize) {
     setLoading(true);
     setMessage(null);
     try {
@@ -37,11 +40,11 @@ export function RequestList({
         {
           status: status || undefined,
           priority: priority || undefined,
-          cursor: next ? cursor : undefined,
-          limit: 50,
+          cursor: startCursor || undefined,
+          limit: size,
         },
       );
-      setRows((current) => (next ? [...current, ...result.rows] : result.rows));
+      setRows(result.rows);
       setCursor(result.nextCursor);
     } catch {
       setMessage("Requests could not be loaded for the selected scope.");
@@ -53,7 +56,7 @@ export function RequestList({
     let active = true;
     void callAdministration<object, Result>("listBranchRequests", {
       status: initialStatus || undefined,
-      limit: 50,
+      limit: 25,
     })
       .then((result) => {
         if (active) {
@@ -72,6 +75,26 @@ export function RequestList({
       active = false;
     };
   }, [initialStatus]);
+  function applyFilters() {
+    setPageStarts([null]);
+    void load();
+  }
+  function nextPage() {
+    if (!cursor) return;
+    setPageStarts((current) => [...current, cursor]);
+    void load(cursor);
+  }
+  function previousPage() {
+    if (pageStarts.length <= 1) return;
+    const previousStarts = pageStarts.slice(0, -1);
+    setPageStarts(previousStarts);
+    void load(previousStarts.at(-1));
+  }
+  function changePageSize(size: number) {
+    setPageSize(size);
+    setPageStarts([null]);
+    void load(null, size);
+  }
   const counts = useMemo(
     () =>
       Object.fromEntries(
@@ -204,7 +227,7 @@ export function RequestList({
             <option key={value}>{value}</option>
           ))}
         </select>
-        <Button disabled={loading} onClick={() => load(false)}>
+        <Button disabled={loading} onClick={applyFilters}>
           {loading && <Loader2 className="mr-2 size-4 animate-spin" />}Apply
           filters
         </Button>
@@ -262,15 +285,17 @@ export function RequestList({
           </tbody>
         </table>
       </div>
-      {cursor && (
-        <Button
-          variant="secondary"
-          disabled={loading}
-          onClick={() => load(true)}
-        >
-          Load next page
-        </Button>
-      )}
+      <CursorTablePagination
+        page={pageStarts.length}
+        pageSize={pageSize}
+        rowCount={rows.length}
+        hasNextPage={Boolean(cursor)}
+        loading={loading}
+        onPrevious={previousPage}
+        onNext={nextPage}
+        onPageSizeChange={changePageSize}
+        itemLabel="requests"
+      />
     </div>
   );
 }

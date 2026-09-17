@@ -2,6 +2,10 @@
 import { Download, Loader2 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
+import {
+  PaginatedTableControls,
+  useTablePagination,
+} from "@/components/ui/table-pagination";
 import { callAdministration } from "@/features/administration/api";
 import { useAuth } from "@/features/auth/auth-context";
 import { hasPermission } from "@/lib/permissions/roles";
@@ -24,6 +28,7 @@ export default function RequestReportsPage() {
   const [rows, setRows] = useState<Record<string, unknown>[]>([]);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const pagination = useTablePagination(rows);
   const columns = useMemo(
     () => [
       ...new Set(
@@ -37,6 +42,7 @@ export default function RequestReportsPage() {
   async function load() {
     setLoading(true);
     setMessage(null);
+    pagination.setPage(1);
     try {
       const result = await callAdministration<
         object,
@@ -156,7 +162,7 @@ export default function RequestReportsPage() {
             </tr>
           </thead>
           <tbody>
-            {rows.map((row, index) => (
+            {pagination.rows.map((row, index) => (
               <tr key={String(row.id ?? index)} className="border-t">
                 {columns.map((column) => (
                   <td key={column} data-label={column.replaceAll("_", " ")} className="max-w-72 truncate px-3 py-2">
@@ -170,6 +176,13 @@ export default function RequestReportsPage() {
           </tbody>
         </table>
       </div>
+      {rows.length > 0 && (
+        <PaginatedTableControls
+          pagination={pagination}
+          total={rows.length}
+          itemLabel="report rows"
+        />
+      )}
     </div>
   );
 }

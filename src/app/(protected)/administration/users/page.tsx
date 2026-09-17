@@ -7,6 +7,10 @@ import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { Button } from "@/components/ui/button";
 import { StatusBadge } from "@/components/ui/status-badge";
+import {
+  PaginatedTableControls,
+  useTablePagination,
+} from "@/components/ui/table-pagination";
 import { useDialogFocus } from "@/components/ui/use-dialog-focus";
 import { useAuth } from "@/features/auth/auth-context";
 import { callAdministration } from "@/features/administration/api";
@@ -114,6 +118,7 @@ export default function UsersPage() {
       ),
     [users.data, search, role, status, branchId, warehouseId],
   );
+  const pagination = useTablePagination(filtered);
   function open(user?: UserProfile) {
     setEditing(user ?? null);
     setInvitationLink(null);
@@ -225,7 +230,10 @@ export default function UsersPage() {
           <Search className="pointer-events-none absolute left-3 top-3.5 size-4 text-slate-400" />
           <input
             value={search}
-            onChange={(event) => setSearch(event.target.value)}
+            onChange={(event) => {
+              setSearch(event.target.value);
+              pagination.setPage(1);
+            }}
             placeholder="Search users"
             className="w-full rounded-lg border py-2.5 pl-9 pr-3"
           />
@@ -234,7 +242,10 @@ export default function UsersPage() {
           <span className="sr-only">Filter by role</span>
           <select
             value={role}
-            onChange={(event) => setRole(event.target.value)}
+            onChange={(event) => {
+              setRole(event.target.value);
+              pagination.setPage(1);
+            }}
             className="w-full rounded-lg border px-3"
           >
             <option value="">All roles</option>
@@ -249,7 +260,10 @@ export default function UsersPage() {
           <span className="sr-only">Filter by status</span>
           <select
             value={status}
-            onChange={(event) => setStatus(event.target.value)}
+            onChange={(event) => {
+              setStatus(event.target.value);
+              pagination.setPage(1);
+            }}
             className="w-full rounded-lg border px-3"
           >
             <option value="">All statuses</option>
@@ -262,7 +276,10 @@ export default function UsersPage() {
           <span className="sr-only">Filter by branch</span>
           <select
             value={branchId}
-            onChange={(event) => setBranchId(event.target.value)}
+            onChange={(event) => {
+              setBranchId(event.target.value);
+              pagination.setPage(1);
+            }}
             className="w-full rounded-lg border px-3"
           >
             <option value="">All branches</option>
@@ -277,7 +294,10 @@ export default function UsersPage() {
           <span className="sr-only">Filter by warehouse</span>
           <select
             value={warehouseId}
-            onChange={(event) => setWarehouseId(event.target.value)}
+            onChange={(event) => {
+              setWarehouseId(event.target.value);
+              pagination.setPage(1);
+            }}
             className="w-full rounded-lg border px-3"
           >
             <option value="">All warehouses</option>
@@ -346,7 +366,7 @@ export default function UsersPage() {
                 </td>
               </tr>
             ) : (
-              filtered.map((user) => (
+              pagination.rows.map((user) => (
                 <tr key={user.id}>
                   <td data-label="User" data-primary="true">
                     <strong>{user.displayName}</strong>
@@ -396,6 +416,13 @@ export default function UsersPage() {
           </tbody>
         </table>
       </div>
+      {!users.loading && filtered.length > 0 && (
+        <PaginatedTableControls
+          pagination={pagination}
+          total={filtered.length}
+          itemLabel="users"
+        />
+      )}
       {showForm && (
         <div
           className="app-dialog-backdrop"

@@ -2,7 +2,7 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
-import { Button } from "@/components/ui/button";
+import { CursorTablePagination } from "@/components/ui/table-pagination";
 import { callAdministration } from "@/features/administration/api";
 import { useAuth } from "@/features/auth/auth-context";
 import {
@@ -37,20 +37,20 @@ export default function ProductDetailPage() {
   const [summary, setSummary] = useState<Summary | null>(null);
   const [history, setHistory] = useState<InventoryEntry[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
+  const [pageStarts, setPageStarts] = useState<(string | null)[]>([null]);
+  const [pageSize, setPageSize] = useState(25);
   const [error, setError] = useState<string | null>(null);
-  async function loadHistory(next?: string) {
+  async function loadHistory(startCursor: string | null = null, size = pageSize) {
     const result = await callAdministration<
       object,
       { rows: InventoryEntry[]; nextCursor: string | null }
     >("getSkuMovementHistory", {
       productId,
-      cursor: next,
-      limit: 25,
+      cursor: startCursor || undefined,
+      limit: size,
       includeCosts: true,
     });
-    setHistory((current) =>
-      next ? [...current, ...result.rows] : result.rows,
-    );
+    setHistory(result.rows);
     setCursor(result.nextCursor);
   }
   useEffect(() => {
@@ -65,7 +65,7 @@ export default function ProductDetailPage() {
         { rows: InventoryEntry[]; nextCursor: string | null }
       >("getSkuMovementHistory", {
         productId,
-        limit: 25,
+        limit: pageSize,
         includeCosts: true,
       }),
     ])
@@ -75,7 +75,18 @@ export default function ProductDetailPage() {
         setCursor(movement.nextCursor);
       })
       .catch(() => setError("Unable to load SKU history."));
-  }, [productId]);
+  }, [pageSize, productId]);
+  function nextHistoryPage() {
+    if (!cursor) return;
+    setPageStarts((current) => [...current, cursor]);
+    void loadHistory(cursor);
+  }
+  function previousHistoryPage() {
+    if (pageStarts.length <= 1) return;
+    const previousStarts = pageStarts.slice(0, -1);
+    setPageStarts(previousStarts);
+    void loadHistory(previousStarts.at(-1) ?? null);
+  }
   if (error)
     return <p className="rounded-lg bg-red-50 p-4 text-red-800">{error}</p>;
   if (!summary)
@@ -198,15 +209,19 @@ export default function ProductDetailPage() {
             </tbody>
           </table>
         </div>
-        {cursor && (
-          <Button
-            className="mt-4"
-            variant="secondary"
-            onClick={() => loadHistory(cursor)}
-          >
-            Load more
-          </Button>
-        )}
+        <CursorTablePagination
+          page={pageStarts.length}
+          pageSize={pageSize}
+          rowCount={history.length}
+          hasNextPage={Boolean(cursor)}
+          onPrevious={previousHistoryPage}
+          onNext={nextHistoryPage}
+          onPageSizeChange={(size) => {
+            setPageSize(size);
+            setPageStarts([null]);
+          }}
+          itemLabel="inventory movements"
+        />
       </section>
       {summary.product.trackingType === "serial" && (
         <section className="rounded-xl border bg-white p-5">

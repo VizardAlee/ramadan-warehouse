@@ -7,6 +7,10 @@ import { useForm, useWatch } from "react-hook-form";
 import { z } from "zod";
 import { Button } from "@/components/ui/button";
 import { StatusBadge } from "@/components/ui/status-badge";
+import {
+  PaginatedTableControls,
+  useTablePagination,
+} from "@/components/ui/table-pagination";
 import { useDialogFocus } from "@/components/ui/use-dialog-focus";
 import { useAuth } from "@/features/auth/auth-context";
 import { hasPermission } from "@/lib/permissions/roles";
@@ -96,6 +100,7 @@ export function MasterDataPage({
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Row | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const pagination = useTablePagination(records.data);
   const dialogRef = useDialogFocus<HTMLFormElement>(open, () => setOpen(false));
   const {
     register,
@@ -223,7 +228,7 @@ export function MasterDataPage({
                 </td>
               </tr>
             ) : (
-              records.data.map((row) => (
+              pagination.rows.map((row) => (
                 <tr key={row.id}>
                   <td
                     data-label="Name"
@@ -260,6 +265,13 @@ export function MasterDataPage({
           </tbody>
         </table>
       </div>
+      {!records.loading && records.data.length > 0 && (
+        <PaginatedTableControls
+          pagination={pagination}
+          total={records.data.length}
+          itemLabel={collectionName.replaceAll(/([A-Z])/g, " $1").toLowerCase()}
+        />
+      )}
       {open && (
         <div
           className="app-dialog-backdrop"

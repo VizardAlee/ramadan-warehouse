@@ -1,6 +1,10 @@
 "use client";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
+import {
+  PaginatedTableControls,
+  useTablePagination,
+} from "@/components/ui/table-pagination";
 import { useDialogFocus } from "@/components/ui/use-dialog-focus";
 import { callAdministration } from "@/features/administration/api";
 import { useOrganizationCollection } from "@/features/administration/use-organization-collection";
@@ -35,6 +39,7 @@ export default function CountsPage() {
   } | null>(null);
   const [quantities, setQuantities] = useState<Record<string, string>>({});
   const [serialText, setSerialText] = useState<Record<string, string>>({});
+  const countPagination = useTablePagination(counts.data);
   const workspaceRef = useDialogFocus<HTMLElement>(Boolean(workspace), () =>
     setWorkspace(null),
   );
@@ -174,7 +179,7 @@ export default function CountsPage() {
             </tr>
           </thead>
           <tbody>
-            {counts.data.map((count) => (
+            {countPagination.rows.map((count) => (
               <tr key={count.id} className="border-t">
                 <td
                   data-label="Count"
@@ -234,6 +239,13 @@ export default function CountsPage() {
           </tbody>
         </table>
       </div>
+      {counts.data.length > 0 && (
+        <PaginatedTableControls
+          pagination={countPagination}
+          total={counts.data.length}
+          itemLabel="stock counts"
+        />
+      )}
       {workspace && (
         <div
           className="app-dialog-backdrop"

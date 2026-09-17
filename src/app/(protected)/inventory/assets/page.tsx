@@ -1,20 +1,73 @@
 "use client";
 import { useEffect, useState } from "react";
+import { CursorTablePagination } from "@/components/ui/table-pagination";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { callAdministration } from "@/features/administration/api";
 import { formatDateTime, formatNaira } from "@/features/inventory/format";
 import type { SerializedItem } from "@/types/domain";
 export default function AssetsPage() {
   const [rows, setRows] = useState<SerializedItem[]>([]);
+  const [cursor, setCursor] = useState<string | null>(null);
+  const [pageStarts, setPageStarts] = useState<(string | null)[]>([null]);
+  const [pageSize, setPageSize] = useState(25);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  async function load(startCursor: string | null = null, size = pageSize) {
+    setLoading(true);
+    setError(null);
+    try {
+      const result = await callAdministration<
+        object,
+        { rows: SerializedItem[]; nextCursor: string | null }
+      >("generateSerialNumberReport", {
+        cursor: startCursor || undefined,
+        limit: size,
+        includeCosts: true,
+      });
+      setRows(result.rows);
+      setCursor(result.nextCursor);
+    } catch {
+      setError("Unable to load serialized inventory.");
+    } finally {
+      setLoading(false);
+    }
+  }
   useEffect(() => {
-    callAdministration<object, { rows: SerializedItem[] }>(
+    let active = true;
+    void callAdministration<
+      object,
+      { rows: SerializedItem[]; nextCursor: string | null }
+    >(
       "generateSerialNumberReport",
-      { limit: 100, includeCosts: true },
+      { limit: pageSize, includeCosts: true },
     )
-      .then((result) => setRows(result.rows))
-      .catch(() => setError("Unable to load serialized inventory."));
-  }, []);
+      .then((result) => {
+        if (active) {
+          setRows(result.rows);
+          setCursor(result.nextCursor);
+        }
+      })
+      .catch(() => {
+        if (active) setError("Unable to load serialized inventory.");
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [pageSize]);
+  function nextPage() {
+    if (!cursor) return;
+    setPageStarts((current) => [...current, cursor]);
+    void load(cursor);
+  }
+  function previousPage() {
+    if (pageStarts.length <= 1) return;
+    const previousStarts = pageStarts.slice(0, -1);
+    setPageStarts(previousStarts);
+    void load(previousStarts.at(-1) ?? null);
+  }
   return (
     <div className="space-y-5">
       <div>
@@ -71,6 +124,20 @@ export default function AssetsPage() {
           </tbody>
         </table>
       </div>
+      <CursorTablePagination
+        page={pageStarts.length}
+        pageSize={pageSize}
+        rowCount={rows.length}
+        hasNextPage={Boolean(cursor)}
+        loading={loading}
+        onPrevious={previousPage}
+        onNext={nextPage}
+        onPageSizeChange={(size) => {
+          setPageSize(size);
+          setPageStarts([null]);
+        }}
+        itemLabel="serialized items"
+      />
     </div>
   );
 }

@@ -7,6 +7,10 @@ import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { Button } from "@/components/ui/button";
 import { StatusBadge } from "@/components/ui/status-badge";
+import {
+  PaginatedTableControls,
+  useTablePagination,
+} from "@/components/ui/table-pagination";
 import { useDialogFocus } from "@/components/ui/use-dialog-focus";
 import { callAdministration } from "@/features/administration/api";
 import { useOrganizationCollection } from "@/features/administration/use-organization-collection";
@@ -130,6 +134,7 @@ export default function ProductsPage() {
       ),
     [products.data, search, tracking],
   );
+  const pagination = useTablePagination(filtered);
   function edit(product?: Product) {
     setEditing(product ?? null);
     const configuredCost = product
@@ -260,14 +265,20 @@ export default function ProductsPage() {
           <Search className="absolute left-3 top-3 size-4 text-slate-400" />
           <input
             value={search}
-            onChange={(event) => setSearch(event.target.value)}
+            onChange={(event) => {
+              setSearch(event.target.value);
+              pagination.setPage(1);
+            }}
             placeholder="Search name, SKU, or brand"
             className="w-full rounded-lg border py-2.5 pl-9 pr-3"
           />
         </label>
         <select
           value={tracking}
-          onChange={(event) => setTracking(event.target.value)}
+          onChange={(event) => {
+            setTracking(event.target.value);
+            pagination.setPage(1);
+          }}
           className="rounded-lg border px-3"
         >
           <option value="">All tracking types</option>
@@ -314,7 +325,7 @@ export default function ProductsPage() {
                 </td>
               </tr>
             ) : (
-              filtered.map((product) => (
+              pagination.rows.map((product) => (
                 <tr key={product.id} className="border-t">
                   <td
                     data-label="Product"
@@ -386,6 +397,13 @@ export default function ProductsPage() {
           </tbody>
         </table>
       </div>
+      {!products.loading && filtered.length > 0 && (
+        <PaginatedTableControls
+          pagination={pagination}
+          total={filtered.length}
+          itemLabel="products"
+        />
+      )}
       {open && (
         <div
           className="app-dialog-backdrop"

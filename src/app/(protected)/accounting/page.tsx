@@ -9,6 +9,10 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
+import {
+  PaginatedTableControls,
+  useTablePagination,
+} from "@/components/ui/table-pagination";
 import { callAdministration } from "@/features/administration/api";
 import { useAuth } from "@/features/auth/auth-context";
 import { formatNaira } from "@/features/inventory/format";
@@ -108,6 +112,11 @@ export default function AccountingClosePage() {
     [periodKey, workspace?.periods],
   );
   const blocked = Boolean(workspace?.evidence.blockers.length);
+  const trialBalanceRows = useMemo(
+    () => workspace?.evidence.trialBalance ?? [],
+    [workspace?.evidence.trialBalance],
+  );
+  const trialBalancePagination = useTablePagination(trialBalanceRows);
 
   function downloadTrialBalance() {
     if (!workspace) return;
@@ -299,7 +308,7 @@ export default function AccountingClosePage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {workspace.evidence.trialBalance.map((line) => (
+                  {trialBalancePagination.rows.map((line) => (
                     <tr key={line.accountCode} className="border-t">
                       <td className="p-3">
                         <strong>{line.accountCode}</strong> · {line.accountName}
@@ -328,6 +337,15 @@ export default function AccountingClosePage() {
                 </tbody>
               </table>
             </div>
+            {trialBalanceRows.length > 0 && (
+              <div className="px-5 pb-5">
+                <PaginatedTableControls
+                  pagination={trialBalancePagination}
+                  total={trialBalanceRows.length}
+                  itemLabel="accounts"
+                />
+              </div>
+            )}
           </section>
 
           <section className="rounded-xl border bg-white p-5">

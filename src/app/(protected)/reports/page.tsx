@@ -3,6 +3,10 @@
 import { Download, FileText, Loader2 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
+import {
+  PaginatedTableControls,
+  useTablePagination,
+} from "@/components/ui/table-pagination";
 import { callAdministration } from "@/features/administration/api";
 import { useOrganizationCollection } from "@/features/administration/use-organization-collection";
 import { useAuth } from "@/features/auth/auth-context";
@@ -181,10 +185,13 @@ export default function ReportsPage() {
     () => [...new Set(inventoryDisplayRows.flatMap((row) => Object.keys(row)))],
     [inventoryDisplayRows],
   );
+  const salesPagination = useTablePagination(salesRows);
+  const inventoryPagination = useTablePagination(inventoryDisplayRows);
 
   async function loadInventory(next = false) {
     setLoading(true);
     setMessage(null);
+    if (!next) inventoryPagination.setPage(1);
     try {
       const result = await callAdministration<object, InventoryReportResult>(
         inventoryReports[kind][1],
@@ -216,6 +223,7 @@ export default function ReportsPage() {
   async function loadSales(next = false) {
     setLoading(true);
     setMessage(null);
+    if (!next) salesPagination.setPage(1);
     try {
       const result = await callAdministration<object, SalesReportResult>(
         "generateSalesReport",
@@ -421,7 +429,7 @@ export default function ReportsPage() {
                 </tr>
               </thead>
               <tbody>
-                {salesRows.map((row) => (
+                {salesPagination.rows.map((row) => (
                   <tr key={row.id} className="border-t">
                     <td data-label="Sale / receipt" className="px-3 py-2">
                       <strong>{row.saleNumber}</strong>
@@ -471,6 +479,13 @@ export default function ReportsPage() {
               </tbody>
             </table>
           </div>
+          {salesRows.length > 0 && (
+            <PaginatedTableControls
+              pagination={salesPagination}
+              total={salesRows.length}
+              itemLabel="sales"
+            />
+          )}
           {salesCursor && (
             <Button
               variant="secondary"
@@ -563,9 +578,9 @@ export default function ReportsPage() {
                 </tr>
               </thead>
               <tbody>
-                {inventoryDisplayRows.map((row, index) => (
+                {inventoryPagination.rows.map((row, index) => (
                   <tr
-                    key={String(inventoryRows[index]?.id ?? index)}
+                    key={String(row.id ?? `${inventoryPagination.page}-${index}`)}
                     className="border-t"
                   >
                     {inventoryColumns.map((column) => (
@@ -582,6 +597,13 @@ export default function ReportsPage() {
               </tbody>
             </table>
           </div>
+          {inventoryDisplayRows.length > 0 && (
+            <PaginatedTableControls
+              pagination={inventoryPagination}
+              total={inventoryDisplayRows.length}
+              itemLabel="inventory report rows"
+            />
+          )}
           {inventoryCursor && (
             <Button
               variant="secondary"
