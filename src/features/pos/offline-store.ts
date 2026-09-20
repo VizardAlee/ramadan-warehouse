@@ -1,9 +1,10 @@
-import type { PosWorkspace, QueuedPosSale } from "./types";
+import type { HeldPosSale, PosWorkspace, QueuedPosSale } from "./types";
 
 const databaseName = "abr-pos-v1";
-const databaseVersion = 1;
+const databaseVersion = 2;
 const workspaceStore = "workspaces";
 const queueStore = "salesQueue";
+const heldSaleStore = "heldSales";
 
 function openDatabase(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -14,6 +15,8 @@ function openDatabase(): Promise<IDBDatabase> {
         database.createObjectStore(workspaceStore);
       if (!database.objectStoreNames.contains(queueStore))
         database.createObjectStore(queueStore, { keyPath: "id" });
+      if (!database.objectStoreNames.contains(heldSaleStore))
+        database.createObjectStore(heldSaleStore, { keyPath: "id" });
     };
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error ?? new Error("POS storage failed."));
@@ -71,4 +74,21 @@ export async function listQueuedSales(branchId?: string, userId?: string) {
         (!userId || sale.userId === userId),
     )
     .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+}
+
+export function saveHeldSale(sale: HeldPosSale) {
+  return transact(heldSaleStore, "readwrite", (store) => store.put(sale));
+}
+
+export function removeHeldSale(id: string) {
+  return transact(heldSaleStore, "readwrite", (store) => store.delete(id));
+}
+
+export async function listHeldSales(branchId: string, userId: string) {
+  const all = await transact<HeldPosSale[]>(heldSaleStore, "readonly", (store) =>
+    store.getAll(),
+  );
+  return all
+    .filter((sale) => sale.branchId === branchId && sale.userId === userId)
+    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 }

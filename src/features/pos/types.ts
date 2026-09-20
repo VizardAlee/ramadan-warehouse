@@ -60,6 +60,27 @@ export interface PosCartLine {
   quantity: number;
 }
 
+export interface HeldPosSale {
+  id: string;
+  userId: string;
+  branchId: string;
+  lines: Array<{
+    productId: string;
+    quantity: number;
+  }>;
+  customerId?: string;
+  paymentMethod: PosCheckoutMethod;
+  paymentReference?: string;
+  discountAmount: string;
+  discountReason: string;
+  creditPaidAmount: string;
+  creditUpfrontMethod: "cash" | "card" | "bank_transfer";
+  grossAmountMinor: number;
+  totalQuantity: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface PosSalePayload {
   branchId: string;
   shiftId: string;

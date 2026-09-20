@@ -1,4 +1,4 @@
-import type { PosCartLine } from "./types";
+import type { HeldPosSale, PosCartLine, PosProduct } from "./types";
 
 export interface PosCartTotals {
   subtotalAmountMinor: number;
@@ -7,6 +7,42 @@ export interface PosCartTotals {
   vatAmountMinor: number;
   grossAmountMinor: number;
   totalQuantity: number;
+}
+
+export interface ReconciledHeldCart {
+  lines: PosCartLine[];
+  adjustedProductCount: number;
+  omittedProductCount: number;
+}
+
+export function reconcileHeldCart(
+  heldLines: HeldPosSale["lines"],
+  products: readonly PosProduct[],
+  unavailableQuantityByProduct: ReadonlyMap<string, number> = new Map(),
+): ReconciledHeldCart {
+  const productById = new Map(products.map((product) => [product.id, product]));
+  let adjustedProductCount = 0;
+  let omittedProductCount = 0;
+  const lines = heldLines.flatMap<PosCartLine>((heldLine) => {
+    const product = productById.get(heldLine.productId);
+    if (!product || !Number.isSafeInteger(heldLine.quantity) || heldLine.quantity <= 0) {
+      omittedProductCount += 1;
+      return [];
+    }
+    const available = Math.max(
+      0,
+      product.availableQuantity -
+        (unavailableQuantityByProduct.get(product.id) ?? 0),
+    );
+    if (available === 0) {
+      omittedProductCount += 1;
+      return [];
+    }
+    const quantity = Math.min(heldLine.quantity, available);
+    if (quantity !== heldLine.quantity) adjustedProductCount += 1;
+    return [{ product, quantity }];
+  });
+  return { lines, adjustedProductCount, omittedProductCount };
 }
 
 export function calculatePosCart(

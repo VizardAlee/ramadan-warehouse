@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   calculatePosCart,
   provisionalReceiptReference,
+  reconcileHeldCart,
 } from "../src/features/pos/calculations";
 
 const product = {
@@ -57,5 +58,27 @@ describe("POS cart calculations", () => {
         "12345678-1234-1234-1234-123456789abc",
       ),
     ).toBe("OFF-IRB-20260825-12345678");
+  });
+
+  it("restores a held cart using current product and stock data", () => {
+    const currentProduct = {
+      ...product,
+      unitPriceMinor: 120_000,
+      availableQuantity: 5,
+    };
+    expect(
+      reconcileHeldCart(
+        [
+          { productId: product.id, quantity: 5 },
+          { productId: "removed-product", quantity: 2 },
+        ],
+        [currentProduct],
+        new Map([[product.id, 2]]),
+      ),
+    ).toEqual({
+      lines: [{ product: currentProduct, quantity: 3 }],
+      adjustedProductCount: 1,
+      omittedProductCount: 1,
+    });
   });
 });

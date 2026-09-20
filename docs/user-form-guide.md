@@ -98,21 +98,26 @@ for both warehouse locations and store/branch stock locations.
    till. This is not sales revenue; it is the reconciliation starting point.
 3. Search or tap products. Only products with central prices and available
    branch stock are sale-ready.
-4. If needed, enter the discount in naira and a short business reason. The
+4. If a customer is not ready to pay, choose **Hold sale & start new**. The
+   basket and checkout choices remain on that cashier's device while a clean
+   transaction opens. Choose **Resume sale** when the customer returns. A held
+   sale does not reserve stock; current prices and available quantities are
+   checked when it is resumed. Delete abandoned held sales from the same list.
+5. If needed, enter the discount in naira and a short business reason. The
    discount reduces the product subtotal before VAT is calculated and remains
    visible on the invoice, sales report, and audit trail.
-5. Choose **Walk-in customer** only for an anonymous sale. Select an existing
+6. Choose **Walk-in customer** only for an anonymous sale. Select an existing
    customer for named cash, card, transfer, or credit sales; use **Add customer**
    if the record does not exist yet.
-6. Review product subtotal, discount, net sales, VAT, and invoice total
+7. Review product subtotal, discount, net sales, VAT, and invoice total
    separately.
-7. Select cash, card/POS terminal, or bank transfer and optionally record the
+8. Select cash, card/POS terminal, or bank transfer and optionally record the
    external reference. The app records the method but does not claim a bank or
    terminal has settled it.
-8. Complete the sale. Online, all records post together. Offline, issue the
+9. Complete the sale. Online, all records post together. Offline, issue the
    visibly provisional receipt and keep the browser/device data intact until
    synchronization succeeds.
-9. Resolve every offline review item before closing the shift, count the cash,
+10. Resolve every offline review item before closing the shift, count the cash,
    and enter the closing amount for variance recording.
 
 ## Customer and credit forms

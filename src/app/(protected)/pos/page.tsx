@@ -6,12 +6,15 @@ import {
   CircleAlert,
   Minus,
   PackagePlus,
+  PauseCircle,
+  Play,
   Plus,
   Printer,
   RefreshCw,
   Search,
   ShoppingCart,
   Sparkles,
+  Trash2,
   Wifi,
   WifiOff,
 } from "lucide-react";
@@ -24,17 +27,22 @@ import { useAuth } from "@/features/auth/auth-context";
 import {
   calculatePosCart,
   provisionalReceiptReference,
+  reconcileHeldCart,
 } from "@/features/pos/calculations";
 import { SaleDocumentDialog } from "@/features/pos/sale-document";
 import {
   listQueuedSales,
+  listHeldSales,
   queueOfflineSale,
   readCachedWorkspace,
+  removeHeldSale,
   removeQueuedSale,
   saveCachedWorkspace,
+  saveHeldSale,
   updateQueuedSale,
 } from "@/features/pos/offline-store";
 import type {
+  HeldPosSale,
   PosCartLine,
   PosCheckoutMethod,
   PosPaymentMethod,
@@ -72,6 +80,7 @@ export default function PosPage() {
   const [manualBranchId, setManualBranchId] = useState("");
   const [workspace, setWorkspace] = useState<PosWorkspace | null>(null);
   const [cart, setCart] = useState<PosCartLine[]>([]);
+  const [heldSales, setHeldSales] = useState<HeldPosSale[]>([]);
   const [queued, setQueued] = useState<QueuedPosSale[]>([]);
   const [search, setSearch] = useState("");
   const [paymentMethod, setPaymentMethod] = useState<PosCheckoutMethod>("cash");
@@ -156,6 +165,11 @@ export default function PosPage() {
     setQueued(await listQueuedSales(selectedBranchId, user.uid));
   }, [selectedBranchId, user]);
 
+  const refreshHeldSales = useCallback(async () => {
+    if (!selectedBranchId || !user) return;
+    setHeldSales(await listHeldSales(selectedBranchId, user.uid));
+  }, [selectedBranchId, user]);
+
   const loadWorkspace = useCallback(async () => {
     if (!selectedBranchId || !user) return;
     setBusy(true);
@@ -180,6 +194,7 @@ export default function PosPage() {
         );
       }
       await refreshQueue();
+      await refreshHeldSales();
     } catch (cause) {
       setError(
         cause instanceof Error
@@ -189,7 +204,7 @@ export default function PosPage() {
     } finally {
       setBusy(false);
     }
-  }, [online, refreshQueue, selectedBranchId, user]);
+  }, [online, refreshHeldSales, refreshQueue, selectedBranchId, user]);
 
   useEffect(() => {
     if (!selectedBranchId) return;
@@ -328,6 +343,147 @@ export default function PosPage() {
         return [{ ...line, quantity: Math.min(requestedQuantity, available) }];
       }),
     );
+  }
+
+  function resetSaleDraft() {
+    setCart([]);
+    setPaymentMethod("cash");
+    setPaymentReference("");
+    setCustomerId("");
+    setDiscountAmount("");
+    setDiscountReason("");
+    setCreditPaidAmount("0.00");
+    setCreditUpfrontMethod("cash");
+  }
+
+  async function holdSale() {
+    if (!workspace || !user || cart.length === 0) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const now = new Date().toISOString();
+      await saveHeldSale({
+        id: crypto.randomUUID(),
+        userId: user.uid,
+        branchId: workspace.branch.id,
+        lines: cart.map((line) => ({
+          productId: line.product.id,
+          quantity: line.quantity,
+        })),
+        customerId: customerId || undefined,
+        paymentMethod,
+        paymentReference: paymentReference.trim() || undefined,
+        discountAmount,
+        discountReason,
+        creditPaidAmount,
+        creditUpfrontMethod,
+        grossAmountMinor: totals.grossAmountMinor,
+        totalQuantity: totals.totalQuantity,
+        createdAt: now,
+        updatedAt: now,
+      });
+      resetSaleDraft();
+      await refreshHeldSales();
+      setMessage("Sale held on this device. A new transaction is ready.");
+    } catch (cause) {
+      setError(
+        cause instanceof Error ? cause.message : "The sale could not be held.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function restoreHeldSale(heldSale: HeldPosSale) {
+    if (!workspace) return;
+    if (cart.length > 0) {
+      setError("Hold the current sale before restoring another transaction.");
+      return;
+    }
+    const restored = reconcileHeldCart(
+      heldSale.lines,
+      workspace.products,
+      queuedQuantityByProduct,
+    );
+    if (restored.lines.length === 0) {
+      setError(
+        "None of the products in this held sale currently have available stock.",
+      );
+      return;
+    }
+    const customerStillAvailable = Boolean(
+      heldSale.customerId &&
+        workspace.customers.some((customer) => customer.id === heldSale.customerId),
+    );
+    const exchangeCreditStillAvailable = Boolean(
+      heldSale.paymentReference &&
+        workspace.salesCredits.some(
+          (credit) => credit.id === heldSale.paymentReference,
+        ),
+    );
+    let restoredPaymentMethod = heldSale.paymentMethod;
+    if (
+      (restoredPaymentMethod === "customer_credit" && !customerStillAvailable) ||
+      (restoredPaymentMethod === "exchange_credit" &&
+        !exchangeCreditStillAvailable)
+    )
+      restoredPaymentMethod = "cash";
+    let restoredDiscountAmount = heldSale.discountAmount;
+    let restoredDiscountReason = heldSale.discountReason;
+    try {
+      if (
+        nairaToKobo(Number(restoredDiscountAmount || 0)) >
+        calculatePosCart(restored.lines).subtotalAmountMinor
+      ) {
+        restoredDiscountAmount = "";
+        restoredDiscountReason = "";
+      }
+    } catch {
+      restoredDiscountAmount = "";
+      restoredDiscountReason = "";
+    }
+    setCart(restored.lines);
+    setCustomerId(customerStillAvailable ? heldSale.customerId ?? "" : "");
+    setPaymentMethod(restoredPaymentMethod);
+    setPaymentReference(
+      restoredPaymentMethod === heldSale.paymentMethod
+        ? heldSale.paymentReference ?? ""
+        : "",
+    );
+    setDiscountAmount(restoredDiscountAmount);
+    setDiscountReason(restoredDiscountReason);
+    setCreditPaidAmount(heldSale.creditPaidAmount);
+    setCreditUpfrontMethod(heldSale.creditUpfrontMethod);
+    await removeHeldSale(heldSale.id);
+    await refreshHeldSales();
+    const changes = [
+      restored.adjustedProductCount > 0
+        ? `${restored.adjustedProductCount} quantity adjusted to available stock`
+        : "",
+      restored.omittedProductCount > 0
+        ? `${restored.omittedProductCount} unavailable product removed`
+        : "",
+      !customerStillAvailable && heldSale.customerId
+        ? "customer selection cleared"
+        : "",
+      restoredPaymentMethod !== heldSale.paymentMethod
+        ? "payment method reset to cash"
+        : "",
+      restoredDiscountAmount !== heldSale.discountAmount
+        ? "discount cleared because the basket changed"
+        : "",
+    ].filter(Boolean);
+    setError(null);
+    setMessage(
+      `Held sale restored with current prices${changes.length > 0 ? `. ${changes.join("; ")}.` : "."}`,
+    );
+  }
+
+  async function deleteHeldSale(heldSale: HeldPosSale) {
+    if (!window.confirm("Delete this held sale from this device?")) return;
+    await removeHeldSale(heldSale.id);
+    await refreshHeldSales();
+    setMessage("Held sale deleted.");
   }
 
   async function openShift() {
@@ -555,12 +711,7 @@ export default function PosPage() {
           queued: true,
         });
       }
-      setCart([]);
-      setPaymentReference("");
-      setCustomerId("");
-      setDiscountAmount("");
-      setDiscountReason("");
-      setCreditPaidAmount("0.00");
+      resetSaleDraft();
     } catch (cause) {
       setError(
         cause instanceof Error
@@ -646,7 +797,8 @@ export default function PosPage() {
               value={selectedBranchId}
               onChange={(event) => {
                 setManualBranchId(event.target.value);
-                setCart([]);
+                resetSaleDraft();
+                setHeldSales([]);
                 setWorkspace(null);
               }}
               className="mt-1 block min-h-11 min-w-56 rounded-lg border border-white/30 bg-white px-3 text-slate-900"
@@ -894,6 +1046,70 @@ export default function PosPage() {
                 {totals.totalQuantity} items
               </span>
             </div>
+            <Button
+              type="button"
+              variant="outline"
+              className="mt-4 w-full"
+              disabled={busy || cart.length === 0}
+              onClick={() => void holdSale()}
+            >
+              <PauseCircle className="mr-2 size-4" /> Hold sale &amp; start new
+            </Button>
+            {heldSales.length > 0 && (
+              <details className="mt-3 rounded-xl border bg-amber-50 p-3" open>
+                <summary className="cursor-pointer text-sm font-semibold text-amber-950">
+                  Held sales ({heldSales.length})
+                </summary>
+                <p className="mt-1 text-xs text-amber-900">
+                  Held baskets stay on this device and do not reserve stock.
+                </p>
+                <ul className="mt-3 space-y-2">
+                  {heldSales.map((heldSale) => (
+                    <li
+                      key={heldSale.id}
+                      className="rounded-lg border border-amber-200 bg-white p-3"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="font-semibold">
+                            {heldSale.totalQuantity} item
+                            {heldSale.totalQuantity === 1 ? "" : "s"} ·{" "}
+                            {formatNaira(heldSale.grossAmountMinor)}
+                          </p>
+                          <p className="mt-0.5 text-xs text-[var(--muted)]">
+                            Held{" "}
+                            {new Date(heldSale.updatedAt).toLocaleString("en-NG")}
+                          </p>
+                        </div>
+                        <Button
+                          type="button"
+                          size="icon"
+                          variant="ghost"
+                          onClick={() => void deleteHeldSale(heldSale)}
+                          aria-label="Delete held sale"
+                        >
+                          <Trash2 className="size-4" />
+                        </Button>
+                      </div>
+                      <Button
+                        type="button"
+                        size="sm"
+                        className="mt-2 w-full"
+                        disabled={busy || cart.length > 0}
+                        onClick={() => void restoreHeldSale(heldSale)}
+                      >
+                        <Play className="mr-2 size-4" /> Resume sale
+                      </Button>
+                    </li>
+                  ))}
+                </ul>
+                {cart.length > 0 && (
+                  <p className="mt-2 text-xs text-amber-900">
+                    Hold the current basket before resuming another sale.
+                  </p>
+                )}
+              </details>
+            )}
             <div className="my-4 max-h-72 space-y-3 overflow-y-auto">
               {cart.length === 0 ? (
                 <p className="rounded-lg bg-slate-50 p-5 text-center text-sm text-[var(--muted)]">
