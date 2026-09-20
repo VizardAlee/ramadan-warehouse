@@ -34,12 +34,12 @@ describe("server authorization controls", () => {
   it("enforces the selected branch context for a dual manager", () => {
     const manager = { ...actor("warehouse_manager"), roleIds: ["warehouse_manager", "branch_manager"] } satisfies AccessProfile;
     const scoped = applyOperatingContext(manager, { type: "branch", id: "b1" });
-    expect(scoped).toMatchObject({ roleId: "branch_manager", roleIds: ["branch_manager"], branchIds: ["b1"], warehouseIds: [] });
+    expect(scoped).toMatchObject({ roleId: "branch_manager", roleIds: ["warehouse_manager", "branch_manager"], branchIds: ["b1"], warehouseIds: [] });
     expect(hasServerPermission(scoped, "transfers.receive")).toBe(true);
     expect(hasServerPermission(scoped, "inventory.adjust")).toBe(true);
     expect(hasServerPermission(scoped, "inventory.reconcile")).toBe(true);
-    expect(hasServerPermission(scoped, "transfers.dispatch")).toBe(false);
-    expect(hasServerPermission(scoped, "products.create")).toBe(false);
+    expect(hasServerPermission(scoped, "transfers.dispatch")).toBe(true);
+    expect(hasServerPermission(scoped, "products.create")).toBe(true);
   });
   it("gives warehouse managers complete warehouse operations without branch receiving authority", () => {
     const manager = actor("warehouse_manager");

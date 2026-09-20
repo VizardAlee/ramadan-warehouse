@@ -51,7 +51,7 @@ describe("operating context", () => {
     ]);
   });
 
-  it("narrows branch mode to the selected branch and branch roles", () => {
+  it("narrows branch data while retaining every assigned role", () => {
     expect(
       narrowProfileToOperatingContext(profile, {
         type: "branch",
@@ -59,7 +59,7 @@ describe("operating context", () => {
       }),
     ).toMatchObject({
       roleId: "branch_manager",
-      roleIds: ["branch_manager"],
+      roleIds: ["warehouse_manager", "branch_manager"],
       branchIds: ["branch-1"],
       warehouseIds: [],
     });

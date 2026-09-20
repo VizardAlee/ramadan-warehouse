@@ -94,14 +94,17 @@ export function narrowProfileToOperatingContext(
 ): UserProfile {
   if (hasOrganizationWideOperatingAccess(profile)) return profile;
   if (!context || !isAvailableOperatingContext(context, profile)) return profile;
-  const roles = assignedRoles(profile).filter((role) =>
+  const roles = assignedRoles(profile);
+  const contextRoles = roles.filter((role) =>
     context.type === "warehouse"
       ? warehouseRoles.includes(role)
       : branchRoles.includes(role),
   );
   return {
     ...profile,
-    roleId: roles[0]!,
+    // Keep the primary role relevant to the selected location for legacy UI
+    // labels, but never discard permissions contributed by other assigned roles.
+    roleId: contextRoles[0] ?? roles[0]!,
     roleIds: roles,
     branchIds: context.type === "branch" ? [context.id] : [],
     warehouseIds: context.type === "warehouse" ? [context.id] : [],

@@ -15,6 +15,11 @@ legacy warehouse identifiers remain resolvable for historical transactions.
    Office the default central stock location for new work without rewriting
    history. Complete configurable roles and the 1024x768, 1280x720, and
    1366x768 shared-dialog/form regression matrix.
+
+   Current compatibility slice: selecting an operating location narrows the
+   user's branch/legacy-warehouse data scope but no longer removes permissions
+   contributed by another assigned role. The context-relevant primary role is
+   retained only for legacy labels and audit compatibility.
 2. **Sales, POS, payments, reservations, and collection.** Add inline customer
    creation, extensible price levels, arbitrary split tenders linked to company
    accounts, debt aging, correction requests, and the distinct

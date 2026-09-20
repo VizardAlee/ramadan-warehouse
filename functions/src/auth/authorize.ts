@@ -649,16 +649,16 @@ export function applyOperatingContext(
       "Select a branch or warehouse before continuing.",
       { code: "OPERATING_CONTEXT_REQUIRED", retryable: false },
     );
-  const allowedRoles =
+  const contextRoles =
     selectedContext.type === "warehouse"
       ? warehouseOperatingRoles
       : branchOperatingRoles;
-  const scopedRoles = assignedRoles.filter((role) =>
-    allowedRoles.includes(role),
+  const matchingRoles = assignedRoles.filter((role) =>
+    contextRoles.includes(role),
   );
   const assignedIds =
     selectedContext.type === "warehouse" ? actor.warehouseIds : actor.branchIds;
-  if (scopedRoles.length === 0 || !assignedIds.includes(selectedContext.id)) {
+  if (matchingRoles.length === 0 || !assignedIds.includes(selectedContext.id)) {
     throw new HttpsError(
       "permission-denied",
       "The selected operating context is outside your assigned authority.",
@@ -667,8 +667,10 @@ export function applyOperatingContext(
   }
   return {
     ...actor,
-    roleId: scopedRoles[0]!,
-    roleIds: scopedRoles,
+    // The selected location narrows data scope, not the user's assigned-role
+    // permission union. roleId remains context-relevant for legacy consumers.
+    roleId: matchingRoles[0] ?? assignedRoles[0]!,
+    roleIds: assignedRoles,
     branchIds: selectedContext.type === "branch" ? [selectedContext.id] : [],
     warehouseIds:
       selectedContext.type === "warehouse" ? [selectedContext.id] : [],
