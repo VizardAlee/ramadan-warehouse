@@ -303,6 +303,33 @@ export default function PosPage() {
     );
   }
 
+  function setQuantity(productId: string, requestedQuantity: number) {
+    if (!Number.isSafeInteger(requestedQuantity)) return;
+    setCart((lines) =>
+      lines.flatMap((line) => {
+        if (line.product.id !== productId) return [line];
+        if (requestedQuantity <= 0) return [];
+        const available = Math.max(
+          0,
+          line.product.availableQuantity -
+            (queuedQuantityByProduct.get(productId) ?? 0),
+        );
+        if (available === 0) {
+          setError(
+            `${line.product.name} has no stock remaining for this device.`,
+          );
+          return [];
+        }
+        if (requestedQuantity > available)
+          setError(
+            `Only ${available} ${line.product.unitOfMeasure} of ${line.product.name} remain for this device.`,
+          );
+        else setError(null);
+        return [{ ...line, quantity: Math.min(requestedQuantity, available) }];
+      }),
+    );
+  }
+
   async function openShift() {
     if (!workspace || !online) return;
     setBusy(true);
@@ -896,9 +923,32 @@ export default function PosPage() {
                         >
                           <Minus className="size-4" />
                         </Button>
-                        <span className="min-w-6 text-center font-semibold">
-                          {line.quantity}
-                        </span>
+                        <label className="sr-only" htmlFor={`quantity-${line.product.id}`}>
+                          Quantity for {line.product.name}
+                        </label>
+                        <input
+                          id={`quantity-${line.product.id}`}
+                          type="number"
+                          min="1"
+                          max={Math.max(
+                            1,
+                            line.product.availableQuantity -
+                              (queuedQuantityByProduct.get(line.product.id) ?? 0),
+                          )}
+                          step="1"
+                          inputMode="numeric"
+                          value={line.quantity}
+                          onFocus={(event) => event.currentTarget.select()}
+                          onChange={(event) => {
+                            if (event.target.value === "") return;
+                            setQuantity(
+                              line.product.id,
+                              Number(event.target.value),
+                            );
+                          }}
+                          className="h-10 w-16 rounded-lg border px-2 text-center font-semibold tabular-nums"
+                          aria-label={`Quantity for ${line.product.name}`}
+                        />
                         <Button
                           size="icon"
                           variant="outline"
