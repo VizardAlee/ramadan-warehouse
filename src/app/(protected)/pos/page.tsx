@@ -15,12 +15,19 @@ import {
   ShoppingCart,
   Sparkles,
   Trash2,
+  UserPlus,
   Wifi,
   WifiOff,
 } from "lucide-react";
-import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  type FormEvent,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import { Button } from "@/components/ui/button";
+import { useDialogFocus } from "@/components/ui/use-dialog-focus";
 import { callAdministration } from "@/features/administration/api";
 import { useOrganizationCollection } from "@/features/administration/use-organization-collection";
 import { useAuth } from "@/features/auth/auth-context";
@@ -45,6 +52,7 @@ import type {
   HeldPosSale,
   PosCartLine,
   PosCheckoutMethod,
+  PosCustomer,
   PosPaymentMethod,
   PosSalePayload,
   SaleDocument,
@@ -93,6 +101,12 @@ export default function PosPage() {
   const [paymentMethod, setPaymentMethod] = useState<PosCheckoutMethod>("cash");
   const [paymentReference, setPaymentReference] = useState("");
   const [customerId, setCustomerId] = useState("");
+  const [customerDialogOpen, setCustomerDialogOpen] = useState(false);
+  const [newCustomer, setNewCustomer] = useState({
+    name: "",
+    phone: "",
+    email: "",
+  });
   const [discountAmount, setDiscountAmount] = useState("");
   const [discountReason, setDiscountReason] = useState("");
   const [creditPaidAmount, setCreditPaidAmount] = useState("0.00");
@@ -113,6 +127,10 @@ export default function PosPage() {
   const [priceProductId, setPriceProductId] = useState<string | null>(null);
   const [branchPrice, setBranchPrice] = useState("");
   const [priceReason, setPriceReason] = useState("");
+  const customerDialogRef = useDialogFocus<HTMLFormElement>(
+    customerDialogOpen,
+    () => setCustomerDialogOpen(false),
+  );
   const branchContextId =
     operatingContext?.type === "branch" ? operatingContext.id : undefined;
   const assignedBranchId =
@@ -141,6 +159,9 @@ export default function PosPage() {
   );
   const canCreateCredit = Boolean(
     profile && hasPermission(profile, "sales.credit.create"),
+  );
+  const canManageCustomers = Boolean(
+    profile && hasPermission(profile, "customers.manage"),
   );
   const baseTotals = useMemo(() => calculatePosCart(cart), [cart]);
   const discountAmountMinor = useMemo(() => {
@@ -802,6 +823,68 @@ export default function PosPage() {
     }
   }
 
+  async function createCustomerFromPos(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!workspace) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await callAdministration<
+        {
+          name: string;
+          phone?: string;
+          email?: string;
+          active: boolean;
+          idempotencyKey: string;
+        },
+        { customerId: string; customerNumber: string }
+      >("saveCustomer", {
+        name: newCustomer.name.trim(),
+        phone: newCustomer.phone.trim() || undefined,
+        email: newCustomer.email.trim() || undefined,
+        active: true,
+        idempotencyKey: crypto.randomUUID(),
+      });
+      const createdCustomer: PosCustomer = {
+        id: result.customerId,
+        customerNumber: result.customerNumber,
+        name: newCustomer.name.trim(),
+        phone: newCustomer.phone.trim() || null,
+        creditStatus: "pending",
+        creditLimitMinor: 0,
+        outstandingBalanceMinor: 0,
+        availableCreditMinor: 0,
+      };
+      setWorkspace((current) =>
+        current
+          ? {
+              ...current,
+              customers: [
+                ...current.customers.filter(
+                  (customer) => customer.id !== result.customerId,
+                ),
+                createdCustomer,
+              ].sort((left, right) => left.name.localeCompare(right.name)),
+            }
+          : current,
+      );
+      setCustomerId(result.customerId);
+      setNewCustomer({ name: "", phone: "", email: "" });
+      setCustomerDialogOpen(false);
+      setMessage(
+        `${newCustomer.name.trim()} was created and selected. Your current sale is unchanged.`,
+      );
+    } catch (cause) {
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : "The customer could not be created.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function saveBranchPrice() {
     const product = workspace?.products.find(
       (item) => item.id === priceProductId,
@@ -1441,12 +1524,17 @@ export default function PosPage() {
                     ))}
                   </select>
                 </label>
-                <Link
-                  href="/customers"
-                  className="mt-6 shrink-0 text-xs font-semibold text-[var(--brand)] underline-offset-4 hover:underline"
-                >
-                  Add customer
-                </Link>
+                {canManageCustomers && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="mt-6 shrink-0"
+                    disabled={!online || busy}
+                    onClick={() => setCustomerDialogOpen(true)}
+                  >
+                    <UserPlus className="mr-2 size-4" /> New customer
+                  </Button>
+                )}
               </div>
               <p className="mt-2 text-xs text-[var(--muted)]">
                 Attach named customers to cash, card, transfer, or credit sales.
@@ -1622,6 +1710,112 @@ export default function PosPage() {
               </Button>
             </details>
           </aside>
+        </div>
+      )}
+
+      {customerDialogOpen && (
+        <div
+          className="app-dialog-backdrop app-dialog-backdrop-high"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="pos-customer-title"
+        >
+          <form
+            ref={customerDialogRef}
+            className="app-dialog-panel max-w-lg rounded-2xl bg-white p-5 shadow-2xl sm:p-6"
+            onSubmit={(event) => void createCustomerFromPos(event)}
+          >
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h2 id="pos-customer-title" className="text-xl font-semibold">
+                  Create customer
+                </h2>
+                <p className="mt-1 text-sm text-[var(--muted)]">
+                  The cart, prices, discount, and payment details stay exactly as
+                  they are.
+                </p>
+              </div>
+              <UserPlus className="size-6 shrink-0 text-[var(--brand)]" />
+            </div>
+            <div className="mt-5 grid gap-4 sm:grid-cols-2">
+              <label className="text-sm font-medium sm:col-span-2">
+                Customer name
+                <input
+                  autoFocus
+                  required
+                  minLength={2}
+                  maxLength={160}
+                  value={newCustomer.name}
+                  onChange={(event) =>
+                    setNewCustomer((current) => ({
+                      ...current,
+                      name: event.target.value,
+                    }))
+                  }
+                  className="mt-1 w-full rounded-lg border p-3"
+                  placeholder="Customer or business name"
+                />
+              </label>
+              <label className="text-sm font-medium">
+                Phone
+                <input
+                  type="tel"
+                  inputMode="tel"
+                  pattern="0[0-9]{10}"
+                  maxLength={11}
+                  value={newCustomer.phone}
+                  onChange={(event) =>
+                    setNewCustomer((current) => ({
+                      ...current,
+                      phone: event.target.value.replace(/\D/g, "").slice(0, 11),
+                    }))
+                  }
+                  className="mt-1 w-full rounded-lg border p-3"
+                  placeholder="07012345678"
+                />
+              </label>
+              <label className="text-sm font-medium">
+                Email
+                <input
+                  type="email"
+                  maxLength={254}
+                  value={newCustomer.email}
+                  onChange={(event) =>
+                    setNewCustomer((current) => ({
+                      ...current,
+                      email: event.target.value,
+                    }))
+                  }
+                  className="mt-1 w-full rounded-lg border p-3"
+                  placeholder="customer@example.com"
+                />
+              </label>
+            </div>
+            <p className="mt-3 text-xs text-[var(--muted)]">
+              Enter at least a phone number or an email address. Credit remains
+              unavailable until an administrator approves it.
+            </p>
+            <div className="safe-bottom mt-6 flex flex-wrap justify-end gap-3 border-t pt-4">
+              <Button
+                type="button"
+                variant="outline"
+                disabled={busy}
+                onClick={() => setCustomerDialogOpen(false)}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                disabled={
+                  busy ||
+                  newCustomer.name.trim().length < 2 ||
+                  (!newCustomer.phone.trim() && !newCustomer.email.trim())
+                }
+              >
+                {busy ? "Saving…" : "Save and select"}
+              </Button>
+            </div>
+          </form>
         </div>
       )}
 

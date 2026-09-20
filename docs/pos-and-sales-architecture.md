@@ -93,6 +93,11 @@ Any active customer may be attached to an otherwise paid sale so invoices and
 reports retain the real buyer instead of forcing a walk-in record. Only the use
 of credit requires approved credit authority.
 
+An authorized POS user may create a customer in a responsive dialog without
+leaving checkout. The dialog reuses the audited `saveCustomer` callable; after
+it succeeds the new customer is selected while the cart, discount, order, and
+payment state remain unchanged. Creation alone never grants credit authority.
+
 Credit is not a payment method in the accounting model. At checkout the amount
 granted on credit debits Accounts Receivable (`1100`), while any cash, card, or
 bank portion debits its settlement account. The full sale still credits sales
