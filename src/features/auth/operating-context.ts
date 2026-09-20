@@ -4,6 +4,29 @@ export type OperatingContext =
   | { type: "warehouse"; id: string }
   | { type: "branch"; id: string };
 
+export type OperationalLocationKind =
+  | "head_office"
+  | "store"
+  | "legacy_warehouse";
+
+export function operationalLocationKind(
+  context: OperatingContext,
+  branchType?: "head_office" | "store",
+): OperationalLocationKind {
+  if (context.type === "warehouse") return "legacy_warehouse";
+  return branchType === "head_office" ? "head_office" : "store";
+}
+
+export function operatingContextTypeLabel(
+  context: OperatingContext,
+  branchType?: "head_office" | "store",
+) {
+  const kind = operationalLocationKind(context, branchType);
+  if (kind === "head_office") return "Head office / central distribution";
+  if (kind === "legacy_warehouse") return "Legacy warehouse";
+  return "Store / branch";
+}
+
 export const OPERATING_CONTEXT_STORAGE_KEY = "warehouse-operating-context";
 
 const organizationWideRoles: readonly RoleId[] = [

@@ -84,7 +84,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             if (!snapshot.exists()) {
               window.localStorage.removeItem(offlineProfileKey(nextUser.uid));
               await signOut(auth);
-              throw new Error("Warehouse access has been revoked. Contact an administrator.");
+              throw new Error("Application access has been revoked. Contact an administrator.");
             }
             nextProfile = { id: snapshot.id, ...snapshot.data() } as UserProfile;
             cacheAccessProfile(nextProfile);
@@ -102,7 +102,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           if (nextProfile.status !== "active" || nextProfile.authDisabled) {
             window.localStorage.removeItem(offlineProfileKey(nextUser.uid));
             await signOut(auth);
-            throw new Error("Warehouse access has been disabled. Contact an administrator.");
+            throw new Error("Application access has been disabled. Contact an administrator.");
           }
           if (!loadedOffline) {
             const token = await getIdTokenResult(nextUser);
@@ -161,7 +161,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       window.localStorage.removeItem(offlineProfileKey(current.uid));
       await signOut(getFirebaseServices().auth);
       setAccessProfile(null);
-      setError("Warehouse access has been revoked. Contact an administrator.");
+      setError("Application access has been revoked. Contact an administrator.");
       return;
     }
     const nextProfile = { id: snapshot.id, ...snapshot.data() } as UserProfile;
@@ -169,7 +169,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       window.localStorage.removeItem(offlineProfileKey(current.uid));
       await signOut(getFirebaseServices().auth);
       setAccessProfile(null);
-      setError("Warehouse access has been disabled. Contact an administrator.");
+      setError("Application access has been disabled. Contact an administrator.");
       return;
     }
     cacheAccessProfile(nextProfile);

@@ -1,5 +1,66 @@
 # Warehouse application implementation plan
 
+## Consolidated client roadmap — 20 September 2026
+
+This roadmap extends the deployed application. It does not replace the current
+Firebase architecture, ledgers, audit records, RBAC model, offline POS, or
+working operational modules. Schema evolution must be additive and migrated;
+legacy warehouse identifiers remain resolvable for historical transactions.
+
+### Dependency sequence
+
+1. **Foundation, locations, RBAC, and responsive UI.** Introduce a canonical
+   operational-location read model (`head_office`, `store`, or
+   `legacy_warehouse`) over existing branch and warehouse records. Make Head
+   Office the default central stock location for new work without rewriting
+   history. Complete configurable roles and the 1024x768, 1280x720, and
+   1366x768 shared-dialog/form regression matrix.
+2. **Sales, POS, payments, reservations, and collection.** Add inline customer
+   creation, extensible price levels, arbitrary split tenders linked to company
+   accounts, debt aging, correction requests, and the distinct
+   paid -> reserved -> awaiting collection -> partially/fully collected flow.
+   Preserve offline order capture; physical release remains an online trusted
+   mutation.
+3. **Inventory, returns, and serial evidence.** Extend the immutable ledger for
+   customer reservation/release and partial collection, complete return
+   inspection/disposition, and attach human-confirmed serial photographs to
+   transaction evidence. Existing posted sales are migrated as already
+   collected; they must not be reserved again.
+4. **Suppliers and procurement.** Generalize receiving destinations from
+   warehouse-only to operational locations, then add supplier advances,
+   statements, returns, refunds, credits, and payable reductions through
+   balanced inventory/accounting corrections.
+5. **Accounting, financial accounts, reconciliation, and tax.** Add manual
+   journals with reversal controls, internal account transfers, daily cash
+   reconciliation, complete financial statements, and an effective-dated,
+   review-gated Nigerian tax-rule engine. No statutory rate is activated
+   without authoritative verification and approval.
+6. **Services, aftersales, and simple delivery.** Reuse customer, payment,
+   accounting, notification, and evidence components. Service items never
+   behave as stocked products; delivery tracks only operational status and the
+   split between provider payable and company-retained income.
+7. **Commercial documents, reports, and dashboard.** Add quotation, proforma,
+   invoice conversion, A4 waybill, statements, product/location analytics, and
+   server-maintained aggregates. Dashboards use real persisted data and do not
+   download full collections for browser-side totals.
+8. **Budgeting, HR, and final hardening.** Add ledger-backed budget variance and
+   a permission-restricted employee domain that may link to, but is distinct
+   from, Firebase users. Finish audit coverage, migration verification,
+   security tests, operational documentation, and staging acceptance.
+
+### Migration and release gates
+
+- Each phase ships with idempotent migration/backfill tooling, dry-run output,
+  count/reconciliation checks, and rollback guidance where reversal is safe.
+- Operational records retain links across source transaction, stock event,
+  journal, notification, and audit correlation ID.
+- Every logical group must pass focused regression tests, full unit tests,
+  typecheck, lint, production build, and affected emulator/security suites
+  before a targeted staging release.
+- The pending three-stage POS web release remains gated on callable reachability
+  for `createPosSaleOrder`, `acceptPosSaleOrderPayment`, and
+  `confirmPosSaleOrder`; no IAM control is changed without explicit approval.
+
 ## Business expansion — Phases 1 through 7 implemented locally
 
 The first POS expansion slice adds centrally controlled base selling prices,

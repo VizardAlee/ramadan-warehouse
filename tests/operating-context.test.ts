@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   availableOperatingContexts,
+  operatingContextTypeLabel,
+  operationalLocationKind,
   isAvailableOperatingContext,
   narrowProfileToOperatingContext,
   hasOrganizationWideOperatingAccess,
@@ -27,6 +29,21 @@ const profile = {
 } satisfies UserProfile;
 
 describe("operating context", () => {
+  it("labels the branch-first model without erasing legacy warehouse identity", () => {
+    expect(
+      operatingContextTypeLabel(
+        { type: "branch", id: "head-office" },
+        "head_office",
+      ),
+    ).toBe("Head office / central distribution");
+    expect(
+      operationalLocationKind({ type: "branch", id: "store-1" }, "store"),
+    ).toBe("store");
+    expect(
+      operatingContextTypeLabel({ type: "warehouse", id: "warehouse-1" }),
+    ).toBe("Legacy warehouse");
+  });
+
   it("offers every assigned warehouse and branch to a dual manager", () => {
     expect(availableOperatingContexts(profile)).toEqual([
       { type: "warehouse", id: "warehouse-1" },

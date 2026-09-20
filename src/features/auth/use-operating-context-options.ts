@@ -9,14 +9,20 @@ import { useAuth } from "./auth-context";
 import {
   availableOperatingContexts,
   hasOrganizationWideOperatingAccess,
+  operatingContextTypeLabel,
   type OperatingContext,
 } from "./operating-context";
 
 export type OperatingContextOption = OperatingContext & {
   value: string;
   name: string;
-  typeLabel: "Warehouse" | "Store / branch";
+  typeLabel: string;
 };
+
+interface ContextMetadata {
+  name: string;
+  branchType?: "head_office" | "store";
+}
 
 export function useOperatingContextOptions() {
   const { accessProfile, operatingContext, setOperatingContext } = useAuth();
@@ -49,13 +55,15 @@ export function useOperatingContextOptions() {
         : assignedContexts,
     [assignedContexts, branches.data, organizationWide, warehouses.data],
   );
-  const [contextNames, setContextNames] = useState<Record<string, string>>({});
+  const [contextMetadata, setContextMetadata] = useState<
+    Record<string, ContextMetadata>
+  >({});
 
   useEffect(() => {
     let active = true;
     if (contexts.length === 0) {
       queueMicrotask(() => {
-        if (active) setContextNames({});
+        if (active) setContextMetadata({});
       });
       return () => {
         active = false;
@@ -73,17 +81,28 @@ export function useOperatingContextOptions() {
         );
         return [
           value,
-          snapshot.exists()
-            ? String(snapshot.get("name") || snapshot.get("code") || context.id)
-            : context.id,
+          {
+            name: snapshot.exists()
+              ? String(
+                  snapshot.get("name") || snapshot.get("code") || context.id,
+                )
+              : context.id,
+            branchType:
+              context.type === "branch" &&
+              snapshot.get("branchType") === "head_office"
+                ? ("head_office" as const)
+                : context.type === "branch"
+                  ? ("store" as const)
+                  : undefined,
+          },
         ] as const;
       }),
     )
       .then((entries) => {
-        if (active) setContextNames(Object.fromEntries(entries));
+        if (active) setContextMetadata(Object.fromEntries(entries));
       })
       .catch(() => {
-        if (active) setContextNames({});
+        if (active) setContextMetadata({});
       });
     return () => {
       active = false;
@@ -95,8 +114,11 @@ export function useOperatingContextOptions() {
     return {
       ...context,
       value,
-      name: contextNames[value] ?? context.id,
-      typeLabel: context.type === "warehouse" ? "Warehouse" : "Store / branch",
+      name: contextMetadata[value]?.name ?? context.id,
+      typeLabel: operatingContextTypeLabel(
+        context,
+        contextMetadata[value]?.branchType,
+      ),
     };
   });
   const activeValue = operatingContext
