@@ -1,6 +1,7 @@
 import { FieldPath, FieldValue, Timestamp } from "firebase-admin/firestore";
 import { logger } from "firebase-functions";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
+import type { z } from "zod";
 import { db } from "../admin.js";
 import { accountingPeriodReference, assertAccountingPeriodOpen } from "../accounting/period-lock.js";
 import { writeAuditLog } from "../audit/write-audit-log.js";
@@ -24,9 +25,11 @@ import {
 } from "../sales/calculations.js";
 import { correlationId, parseInput } from "../utils/callable.js";
 import {
+  acceptPosSaleOrderPaymentInput,
   branchSalesPriceInput,
   closePosShiftInput,
   commitSaleInput,
+  confirmPosSaleOrderInput,
   openPosShiftInput,
   posWorkspaceInput,
   saleDocumentInput,
@@ -303,7 +306,17 @@ export const getPosWorkspace = onCall(
     const input = parseInput(posWorkspaceInput, request.data);
     requireBranchScope(actor, input.branchId);
     const location = await activeBranchLocation(actor.organizationId, input.branchId);
-    const [branch, products, prices, branchPrices, balances, shifts, customers, salesCredits] =
+    const [
+      branch,
+      products,
+      prices,
+      branchPrices,
+      balances,
+      shifts,
+      customers,
+      salesCredits,
+      pendingOrders,
+    ] =
       await Promise.all([
         db.doc(`branches/${input.branchId}`).get(),
         db
@@ -342,6 +355,11 @@ export const getPosWorkspace = onCall(
           .get(),
         db.collection("salesCredits").where("organizationId", "==", actor.organizationId)
           .where("branchId", "==", input.branchId).where("status", "==", "active").limit(100).get(),
+        db.collection("salesOrders")
+          .where("organizationId", "==", actor.organizationId)
+          .where("branchId", "==", input.branchId)
+          .limit(100)
+          .get(),
       ]);
     if (
       !branch.exists ||
@@ -425,6 +443,30 @@ export const getPosWorkspace = onCall(
         remainingAmountMinor: Number(credit.get("remainingAmountMinor") ?? 0),
         returnId: credit.get("returnId"),
       })),
+      pendingOrders: pendingOrders.docs
+        .filter((order) =>
+          ["order_received", "payment_accepted"].includes(
+            String(order.get("status")),
+          ),
+        )
+        .sort((left, right) =>
+          String(left.get("recordedAt")).localeCompare(
+            String(right.get("recordedAt")),
+          ),
+        )
+        .map((order) => ({
+          id: order.id,
+          orderNumber: order.get("orderNumber"),
+          status: order.get("status"),
+          customerId: order.get("customerId") ?? null,
+          grossAmountMinor: Number(order.get("grossAmountMinor") ?? 0),
+          totalQuantity: Number(order.get("totalQuantity") ?? 0),
+          itemCount: Number(order.get("itemCount") ?? 0),
+          paymentMethods: order.get("paymentMethods") ?? [],
+          recordedAt: order.get("recordedAt"),
+          createdAt: iso(order.get("createdAt")),
+          paymentAcceptedAt: iso(order.get("paymentAcceptedAt")),
+        })),
       refreshedAt: new Date().toISOString(),
     };
   },
@@ -768,12 +810,248 @@ export const closePosShift = onCall(
   },
 );
 
-export const commitPosSale = onCall(
-  { enforceAppCheck, timeoutSeconds: 60 },
+type SalesActor = Awaited<ReturnType<typeof requireAccess>>;
+type CommitSaleInput = z.infer<typeof commitSaleInput>;
+
+function storableSalePayload(input: CommitSaleInput): CommitSaleInput {
+  return JSON.parse(JSON.stringify(input)) as CommitSaleInput;
+}
+
+export const createPosSaleOrder = onCall(
+  { enforceAppCheck },
   async (request) => {
     const actor = await requireAccess(request);
-    requirePermission(actor, "sales.create");
+    requirePermission(actor, "sales.order.create");
     const input = parseInput(commitSaleInput, request.data);
+    if (input.creditAmountMinor > 0)
+      requirePermission(actor, "sales.credit.create");
+    requireBranchScope(actor, input.branchId);
+    const order = db.collection("salesOrders").doc();
+    const branch = db.doc(`branches/${input.branchId}`);
+    const shift = db.doc(`posShifts/${input.shiftId}`);
+    const counter = db.doc(
+      `salesOrderCounters/${uniquenessDocumentId(actor.organizationId, input.branchId)}`,
+    );
+    const operation = db.doc(
+      `idempotencyKeys/${actor.organizationId}_createPosSaleOrder_${input.idempotencyKey}`,
+    );
+    let result = {
+      orderId: order.id,
+      orderNumber: "",
+      status: "order_received" as const,
+      created: true,
+    };
+    await db.runTransaction(async (transaction) => {
+      const [previousOperation, branchSnapshot, shiftSnapshot, counterSnapshot] =
+        await transaction.getAll(operation, branch, shift, counter);
+      if (previousOperation!.exists) {
+        result = {
+          orderId: String(previousOperation!.get("entityId")),
+          orderNumber: String(previousOperation!.get("orderNumber")),
+          status: "order_received",
+          created: false,
+        };
+        return;
+      }
+      if (
+        !branchSnapshot!.exists ||
+        branchSnapshot!.get("organizationId") !== actor.organizationId ||
+        branchSnapshot!.get("status") !== "active"
+      )
+        throw new HttpsError("failed-precondition", "Branch is unavailable.");
+      if (
+        !shiftSnapshot!.exists ||
+        shiftSnapshot!.get("organizationId") !== actor.organizationId ||
+        shiftSnapshot!.get("branchId") !== input.branchId ||
+        shiftSnapshot!.get("deviceId") !== input.deviceId ||
+        shiftSnapshot!.get("status") !== "open"
+      )
+        throw new HttpsError(
+          "failed-precondition",
+          "Open the correct POS shift before receiving an order.",
+        );
+      if (
+        shiftSnapshot!.get("openedBy") !== actor.userId &&
+        !hasRole(actor, "branch_manager") &&
+        !hasRole(actor, "system_administrator")
+      )
+        throw new HttpsError(
+          "permission-denied",
+          "This shift belongs to another cashier.",
+        );
+      const sequence = Number(counterSnapshot!.get("value") ?? 0) + 1;
+      const year = new Date(input.recordedAt).getUTCFullYear();
+      const orderNumber = `ORD-${String(branchSnapshot!.get("code"))}-${year}-${String(sequence).padStart(6, "0")}`;
+      const now = FieldValue.serverTimestamp();
+      const grossAmountMinor =
+        input.payments.reduce((sum, payment) => sum + payment.amountMinor, 0) +
+        input.creditAmountMinor;
+      result = {
+        orderId: order.id,
+        orderNumber,
+        status: "order_received",
+        created: true,
+      };
+      transaction.set(counter, {
+        organizationId: actor.organizationId,
+        branchId: input.branchId,
+        kind: "salesOrder",
+        value: sequence,
+        updatedAt: now,
+      });
+      transaction.create(order, {
+        organizationId: actor.organizationId,
+        branchId: input.branchId,
+        branchName: branchSnapshot!.get("name"),
+        orderNumber,
+        status: "order_received",
+        customerId: input.customerId ?? null,
+        grossAmountMinor,
+        totalQuantity: input.lines.reduce(
+          (sum, line) => sum + line.quantity,
+          0,
+        ),
+        itemCount: input.lines.length,
+        paymentMethods: input.payments.map((payment) => payment.method),
+        creditAmountMinor: input.creditAmountMinor,
+        recordedAt: input.recordedAt,
+        payload: storableSalePayload(input),
+        orderReceivedAt: now,
+        orderReceivedBy: actor.userId,
+        createdAt: now,
+        createdBy: actor.userId,
+        updatedAt: now,
+      });
+      transaction.create(operation, {
+        organizationId: actor.organizationId,
+        action: "createPosSaleOrder",
+        entityId: order.id,
+        orderNumber,
+        status: "completed",
+        createdAt: now,
+        createdBy: actor.userId,
+      });
+      writeAuditLog(transaction, actor, {
+        action: "sales_order.received",
+        entityType: "salesOrder",
+        entityId: order.id,
+        correlationId: correlationId(),
+        sourceFunction: "createPosSaleOrder",
+        after: {
+          branchId: input.branchId,
+          orderNumber,
+          grossAmountMinor,
+          totalQuantity: input.lines.reduce(
+            (sum, line) => sum + line.quantity,
+            0,
+          ),
+        },
+      });
+    });
+    return result;
+  },
+);
+
+export const acceptPosSaleOrderPayment = onCall(
+  { enforceAppCheck },
+  async (request) => {
+    const actor = await requireAccess(request);
+    requirePermission(actor, "sales.payment.accept");
+    const input = parseInput(acceptPosSaleOrderPaymentInput, request.data);
+    const order = db.doc(`salesOrders/${input.orderId}`);
+    const current = await order.get();
+    if (
+      !current.exists ||
+      current.get("organizationId") !== actor.organizationId
+    )
+      throw new HttpsError("not-found", "Sales order not found.");
+    const branchId = String(current.get("branchId"));
+    requireBranchScope(actor, branchId);
+    const shift = db.doc(`posShifts/${input.shiftId}`);
+    const operation = db.doc(
+      `idempotencyKeys/${actor.organizationId}_acceptPosSaleOrderPayment_${input.idempotencyKey}`,
+    );
+    await db.runTransaction(async (transaction) => {
+      const [orderSnapshot, shiftSnapshot, previousOperation] =
+        await transaction.getAll(order, shift, operation);
+      if (previousOperation!.exists) return;
+      if (
+        !orderSnapshot!.exists ||
+        orderSnapshot!.get("organizationId") !== actor.organizationId ||
+        orderSnapshot!.get("branchId") !== branchId
+      )
+        throw new HttpsError("not-found", "Sales order not found.");
+      if (orderSnapshot!.get("status") !== "order_received")
+        throw new HttpsError(
+          "failed-precondition",
+          "Only an order awaiting payment can accept payment.",
+        );
+      if (
+        !shiftSnapshot!.exists ||
+        shiftSnapshot!.get("organizationId") !== actor.organizationId ||
+        shiftSnapshot!.get("branchId") !== branchId ||
+        shiftSnapshot!.get("deviceId") !== input.deviceId ||
+        shiftSnapshot!.get("status") !== "open"
+      )
+        throw new HttpsError(
+          "failed-precondition",
+          "Open the correct POS shift before accepting payment.",
+        );
+      if (
+        shiftSnapshot!.get("openedBy") !== actor.userId &&
+        !hasRole(actor, "branch_manager") &&
+        !hasRole(actor, "system_administrator")
+      )
+        throw new HttpsError(
+          "permission-denied",
+          "This shift belongs to another cashier.",
+        );
+      const now = FieldValue.serverTimestamp();
+      transaction.update(order, {
+        status: "payment_accepted",
+        "payload.shiftId": input.shiftId,
+        "payload.deviceId": input.deviceId,
+        paymentAcceptedAt: now,
+        paymentAcceptedBy: actor.userId,
+        updatedAt: now,
+        updatedBy: actor.userId,
+      });
+      transaction.create(operation, {
+        organizationId: actor.organizationId,
+        action: "acceptPosSaleOrderPayment",
+        entityId: order.id,
+        status: "completed",
+        createdAt: now,
+        createdBy: actor.userId,
+      });
+      writeAuditLog(transaction, actor, {
+        action: "sales_order.payment_accepted",
+        entityType: "salesOrder",
+        entityId: order.id,
+        correlationId: correlationId(),
+        sourceFunction: "acceptPosSaleOrderPayment",
+        after: {
+          branchId,
+          orderNumber: orderSnapshot!.get("orderNumber"),
+          grossAmountMinor: orderSnapshot!.get("grossAmountMinor"),
+          paymentMethods: orderSnapshot!.get("paymentMethods") ?? [],
+        },
+      });
+    });
+    return {
+      orderId: order.id,
+      orderNumber: current.get("orderNumber"),
+      status: "payment_accepted" as const,
+    };
+  },
+);
+
+async function postPosSale(
+  actor: SalesActor,
+  input: CommitSaleInput,
+  allowWorkflowShift = false,
+) {
+    requirePermission(actor, "sales.create");
     if (input.creditAmountMinor > 0)
       requirePermission(actor, "sales.credit.create");
     requireBranchScope(actor, input.branchId);
@@ -898,6 +1176,7 @@ export const commitPosSale = onCall(
       )
         throw new HttpsError("failed-precondition", "Open the correct POS shift first.");
       if (
+        !allowWorkflowShift &&
         shiftSnapshot.get("openedBy") !== actor.userId &&
         !hasRole(actor, "branch_manager") &&
         !hasRole(actor, "system_administrator")
@@ -1445,5 +1724,94 @@ export const commitPosSale = onCall(
       correlationId: cid,
     });
     return result;
+}
+
+export const confirmPosSaleOrder = onCall(
+  { enforceAppCheck, timeoutSeconds: 60 },
+  async (request) => {
+    const actor = await requireAccess(request);
+    requirePermission(actor, "sales.payment.confirm");
+    const input = parseInput(confirmPosSaleOrderInput, request.data);
+    const order = db.doc(`salesOrders/${input.orderId}`);
+    const current = await order.get();
+    if (
+      !current.exists ||
+      current.get("organizationId") !== actor.organizationId
+    )
+      throw new HttpsError("not-found", "Sales order not found.");
+    const branchId = String(current.get("branchId"));
+    requireBranchScope(actor, branchId);
+    if (current.get("status") === "completed")
+      return {
+        orderId: order.id,
+        orderNumber: current.get("orderNumber"),
+        saleId: current.get("saleId"),
+        saleNumber: current.get("saleNumber"),
+        receiptNumber: current.get("receiptNumber"),
+        status: "completed" as const,
+        posted: false,
+      };
+    if (current.get("status") !== "payment_accepted")
+      throw new HttpsError(
+        "failed-precondition",
+        "Payment must be accepted before it can be confirmed and released.",
+      );
+    const payload = parseInput(commitSaleInput, current.get("payload"));
+    const saleResult = await postPosSale(actor, payload, true);
+    await db.runTransaction(async (transaction) => {
+      const latest = await transaction.get(order);
+      if (!latest.exists || latest.get("organizationId") !== actor.organizationId)
+        throw new HttpsError("not-found", "Sales order not found.");
+      if (latest.get("status") === "completed") return;
+      if (latest.get("status") !== "payment_accepted")
+        throw new HttpsError(
+          "aborted",
+          "The sales order changed while payment was being confirmed.",
+        );
+      const now = FieldValue.serverTimestamp();
+      transaction.update(order, {
+        status: "completed",
+        saleId: saleResult.saleId,
+        saleNumber: saleResult.saleNumber,
+        receiptNumber: saleResult.receiptNumber,
+        paymentConfirmedAt: now,
+        paymentConfirmedBy: actor.userId,
+        inventoryReleasedAt: now,
+        inventoryReleasedBy: actor.userId,
+        confirmationIdempotencyKey: input.idempotencyKey,
+        completedAt: now,
+        updatedAt: now,
+        updatedBy: actor.userId,
+      });
+      writeAuditLog(transaction, actor, {
+        action: "sales_order.payment_confirmed_inventory_released",
+        entityType: "salesOrder",
+        entityId: order.id,
+        correlationId: correlationId(),
+        sourceFunction: "confirmPosSaleOrder",
+        after: {
+          branchId,
+          orderNumber: latest.get("orderNumber"),
+          saleId: saleResult.saleId,
+          saleNumber: saleResult.saleNumber,
+          receiptNumber: saleResult.receiptNumber,
+        },
+      });
+    });
+    return {
+      orderId: order.id,
+      orderNumber: current.get("orderNumber"),
+      ...saleResult,
+      status: "completed" as const,
+    };
+  },
+);
+
+export const commitPosSale = onCall(
+  { enforceAppCheck, timeoutSeconds: 60 },
+  async (request) => {
+    const actor = await requireAccess(request);
+    const input = parseInput(commitSaleInput, request.data);
+    return postPosSale(actor, input);
   },
 );

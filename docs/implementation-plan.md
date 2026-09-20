@@ -13,6 +13,18 @@ discounts reduce the product subtotal before VAT without changing catalogue
 prices, and their header/line allocations remain in invoices, reports, and
 audit evidence.
 
+The POS now uses an audited three-stage operational projection: order receipt,
+payment acceptance, and payment confirmation/goods release. The first two
+stages do not mutate stock or accounting. Final confirmation performs the
+existing atomic sale post. Role permissions may be combined on one user, so
+the workflow preserves accountability without forcing three separate people.
+
+The location model now treats one designated branch as **Head office / central
+distribution**, allowing the same physical site to sell and supply other
+stores. New operational setup is branch-first. Legacy warehouse records and
+their ledger history remain compatible and are never silently deleted or
+reclassified.
+
 Phase 2 adds reusable customer accounts, administrator-only credit decisions,
 live credit-limit enforcement, online credit checkout, an immutable customer
 account ledger, Accounts Receivable journals, and customer repayment posting.

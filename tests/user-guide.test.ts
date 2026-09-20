@@ -33,7 +33,14 @@ describe("visual user guide", () => {
       "Opening stock",
     );
     expect(salesWorkflowSteps.map((step) => step.title)).toEqual(
-      expect.arrayContaining(["Sell", "Documents", "After-sale", "Reconcile"]),
+      expect.arrayContaining([
+        "Receive order",
+        "Accept payment",
+        "Confirm & release",
+        "Documents",
+        "After-sale",
+        "Reconcile",
+      ]),
     );
   });
 });

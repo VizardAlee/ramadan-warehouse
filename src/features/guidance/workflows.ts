@@ -7,7 +7,8 @@ export interface WorkflowStep {
 export const setupWorkflowSteps: readonly WorkflowStep[] = [
   {
     title: "Locations",
-    detail: "Create warehouses and stores/branches as separate places.",
+    detail:
+      "Create each store as a branch and designate one as Head office / central distribution. Head office can both sell and distribute.",
     href: "/administration",
   },
   {
@@ -111,9 +112,21 @@ export const salesWorkflowSteps: readonly WorkflowStep[] = [
     href: "/pos",
   },
   {
-    title: "Sell",
+    title: "Receive order",
     detail:
-      "Select products and payment; VAT remains separate from the net price.",
+      "Select the customer and products. Saving the order does not reduce stock.",
+    href: "/pos",
+  },
+  {
+    title: "Accept payment",
+    detail:
+      "A cashier records the payment. A user with multiple sales roles may continue the same order.",
+    href: "/pos",
+  },
+  {
+    title: "Confirm & release",
+    detail:
+      "An authorized manager confirms payment. Only then is stock released and the receipt posted.",
     href: "/pos",
   },
   {

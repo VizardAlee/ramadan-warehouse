@@ -28,6 +28,7 @@ const schema = z.object({
     .regex(/^[A-Z0-9_-]{2,24}$/),
   state: z.string().optional(),
   address: z.string().optional(),
+  branchType: z.enum(["head_office", "store"]).optional(),
   contactPhone: z.string().optional(),
   managerUserId: z.string().optional(),
   managerIds: z.array(z.string()),
@@ -60,16 +61,17 @@ const defaults: Values = {
   managerUserId: "",
   managerIds: [],
   status: "active",
+  branchType: "store",
   systemManaged: false,
 };
 const configuration = {
   branches: {
-    title: "Branches",
+    title: "Stores & Head Office",
     callable: "saveBranch",
     permission: "branch.manage",
   },
   warehouses: {
-    title: "Warehouses",
+    title: "Legacy Warehouses",
     callable: "saveWarehouse",
     permission: "warehouse.manage",
   },
@@ -125,7 +127,7 @@ export function MasterDataPage({
         : {
             ...defaults,
             type:
-              collectionName === "inventoryLocations" ? "warehouse" : undefined,
+              collectionName === "inventoryLocations" ? "branch" : undefined,
           },
     );
     setOpen(true);
@@ -187,7 +189,9 @@ export function MasterDataPage({
         <div>
           <h1 className="page-title">{config.title}</h1>
           <p className="page-description">
-            Organization-scoped administrative master data.
+            {collectionName === "warehouses"
+              ? "Existing facility records retained for purchasing and audit history during the head-office transition."
+              : "Organization-scoped administrative master data."}
           </p>
         </div>
         {canManage && (
@@ -246,7 +250,9 @@ export function MasterDataPage({
                     {row.code}
                   </td>
                   <td data-label="Type / State" className="capitalize">
-                    {row.type?.replaceAll("_", " ") ?? row.state ?? "—"}
+                    {collectionName === "branches"
+                      ? (row.branchType ?? "store").replaceAll("_", " ")
+                      : row.type?.replaceAll("_", " ") ?? row.state ?? "—"}
                   </td>
                   <td data-label="Manager / Related">{relationship(row)}</td>
                   <td data-label="Status">
@@ -333,6 +339,22 @@ export function MasterDataPage({
               {collectionName === "branches" && (
                 <>
                   <label className="text-sm">
+                    Operating role
+                    <select
+                      {...register("branchType")}
+                      className="mt-1 w-full rounded-lg border p-2.5"
+                    >
+                      <option value="store">Store / branch</option>
+                      <option value="head_office">
+                        Head office / central distribution
+                      </option>
+                    </select>
+                    <span className="mt-1 block text-xs text-[var(--muted)]">
+                      Head office can sell to customers and distribute stock to
+                      other stores.
+                    </span>
+                  </label>
+                  <label className="text-sm">
                     Contact phone (optional)
                     <input
                       type="tel"
@@ -381,8 +403,10 @@ export function MasterDataPage({
                       {...register("type")}
                       className="mt-1 w-full rounded-lg border p-2.5"
                     >
-                      <option value="warehouse">warehouse</option>
                       <option value="branch">branch</option>
+                      {editing?.type === "warehouse" && (
+                        <option value="warehouse">legacy warehouse</option>
+                      )}
                       <option value="goods_in_transit">goods in transit</option>
                       <option value="damaged">damaged</option>
                       <option value="quarantined">quarantined</option>

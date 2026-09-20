@@ -21,10 +21,33 @@ Credit sales, returns, refunds, exchange-credit redemption, below-base price
 changes, and other actions that depend on current balances or approval remain
 online-only.
 
+## Three-stage sale control
+
+An online POS transaction moves through three explicit, audited stages:
+
+1. **Order received** — the basket, customer, discount, VAT, prices, and
+   proposed payments are saved to `salesOrders`. Inventory and accounting do
+   not change.
+2. **Payment accepted** — a cashier with an open branch shift records that the
+   payment has been taken. Inventory and accounting still do not change.
+3. **Payment confirmed and goods released** — an authorized manager confirms
+   the payment. Only this stage posts the immutable sale, receipt, inventory
+   issue, COGS, journal, and audit evidence atomically.
+
+These are permission stages, not forced staffing levels. A user holding
+multiple roles sees every action granted by the union of those roles and may
+continue the same order. Cashiers may receive orders and accept payment;
+branch managers and administrators may also confirm and release. Every stage
+retains its own actor and timestamp.
+
+Offline operation continues to capture orders on the device. A queued order
+must reconnect, synchronize, have payment accepted, and be confirmed before
+stock can be released or an official receipt issued.
+
 ## Phase 1 boundary — complete
 
 Phase 1 provides branch-scoped POS access, centrally managed base prices,
-branch markups, paid quantity-tracked sales, payment-method records, immutable
+branch markups, staged quantity-tracked sales, payment-method records, immutable
 invoice and receipt evidence, inventory/COGS posting, balanced sales journals, and durable offline
 sale capture and retry. Cash, card, bank transfer, and split payments are
 recorded; external payment-provider settlement is not inferred.

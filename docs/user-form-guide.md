@@ -9,6 +9,18 @@ main navigation and at `/guide`. It starts with role-aware task cards and a
 three-step stock-transfer explainer. Earlier transfers retain a separate detailed
 logistics guide; the Picking queue is not the normal starting point for new transfers.
 
+## Stores and head office
+
+Create every selling location as a **store / branch**. Designate one active
+branch as **Head office / central distribution** when the head office both
+sells to customers and supplies other stores. The designation does not move or
+rewrite existing stock. Historical warehouse records remain available for
+audit and must be cleared through recorded stock movements rather than deletion.
+Purchasing records that already point to a warehouse continue to use that
+legacy facility during the transition. Do not delete it or relabel historical
+purchase and ledger evidence; move balances through audited workflows before
+retiring the legacy record.
+
 ## Request stock and confirm arrival
 
 Select **From**, **To**, **Product**, and **Quantity**, then choose **Create transfer**. The sending location can be a warehouse or another branch. The receiver must be a different branch. A manager responsible for the source reviews quantities and chooses serial numbers when required, then taps **Confirm transfer and hold stock**; the creator may do this immediately when they manage the source. Once goods arrive, the receiving manager opens **Action required**, counts them, and taps **Confirm goods received**. Choose **Some items are missing or damaged** to enter the actual quantities separately. Do not invent delivery, package or transport information. See [Simple stock transfers](simple-stock-transfers.md).
@@ -114,10 +126,17 @@ for both warehouse locations and store/branch stock locations.
 8. Select cash, card/POS terminal, or bank transfer and optionally record the
    external reference. The app records the method but does not claim a bank or
    terminal has settled it.
-9. Complete the sale. Online, all records post together. Offline, issue the
-   visibly provisional receipt and keep the browser/device data intact until
-   synchronization succeeds.
-10. Resolve every offline review item before closing the shift, count the cash,
+9. Choose **Receive order**. This records the basket but does not yet reduce
+   stock. A cashier then chooses **Accept payment** using an open shift.
+10. An authorized manager chooses **Confirm payment & release goods**. This is
+   the only step that reduces stock and posts the official invoice, receipt,
+   VAT, settlement, and accounting records. A user with multiple roles may
+   perform every action those roles allow; another person is not artificially
+   required.
+11. Offline, the device can capture and queue the order. Do not release goods
+   against an offline provisional reference: reconnect, synchronize, accept
+   payment, and complete confirmation first.
+12. Resolve every offline review item before closing the shift, count the cash,
    and enter the closing amount for variance recording.
 
 ## Customer and credit forms

@@ -104,11 +104,13 @@ describe("administration callables", () => {
     const state = await adminDb.doc("system/bootstrap").get(); const administratorUid = state.get("administratorUid") as string; const organizationId = state.get("organizationId") as string;
     const administratorEmail = (await adminAuth.getUser(administratorUid)).email!; const administrator = client("master-administrator"); await signInWithEmailAndPassword(administrator.auth, administratorEmail, "Password!234567");
     const save = httpsCallable(administrator.functions, "saveBranch"); const idempotencyKey = crypto.randomUUID();
-    const payload = { id: null, name: "Lagos Branch", code: "lag", contactEmail: "", managerUserId: "", status: "active", idempotencyKey };
+    const payload = { id: null, name: "Lagos Branch", code: "lag", branchType: "head_office", contactEmail: "", managerUserId: "", status: "active", idempotencyKey };
     const first = await save(payload); const duplicate = await save(payload);
     expect(first.data).toMatchObject({ saved: true }); expect(duplicate.data).toMatchObject({ saved: false, id: (first.data as { id: string }).id });
     const saved = await adminDb.doc(`branches/${(first.data as { id: string }).id}`).get();
-    expect(saved.data()).toMatchObject({ name: "Lagos Branch", code: "LAG" });
+    expect(saved.data()).toMatchObject({ name: "Lagos Branch", code: "LAG", branchType: "head_office" });
+    expect((await adminDb.doc(`organizations/${organizationId}`).get()).get("headOfficeBranchId")).toBe(saved.id);
+    await expect(save({ name: "Second Head Office", code: "sho", branchType: "head_office", status: "active", idempotencyKey: crypto.randomUUID() })).rejects.toMatchObject({ code: "functions/failed-precondition" });
     expect(saved.data()).not.toHaveProperty("contactEmail");
     expect(saved.data()).not.toHaveProperty("managerUserId");
 

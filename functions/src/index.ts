@@ -123,6 +123,9 @@ export {
   generateSalesReport,
   openPosShift,
   closePosShift,
+  createPosSaleOrder,
+  acceptPosSaleOrderPayment,
+  confirmPosSaleOrder,
   commitPosSale,
 } from "./callable/sales.js";
 export {

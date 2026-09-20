@@ -79,11 +79,12 @@ async function saveMaster(kind: MasterKind, input: Record<string, unknown>, acto
   await Promise.all([validateManagerAssignments(kind, input, actor.organizationId), validateLocationOwner(kind, input, actor.organizationId)]);
   const id = typeof input.id === "string" ? input.id : db.collection(config.collection).doc().id;
   const reference = db.collection(config.collection).doc(id); const code = String(input.code); const codeReference = db.collection("organizationCodes").doc(`${actor.organizationId}_${kind}_${code}`);
+  const organizationReference = db.collection("organizations").doc(actor.organizationId);
   const requestId = correlationId();
   let resultId = id; let saved = true;
   let authorizationUserIds: string[] = [];
   await db.runTransaction(async (transaction) => {
-    const [current, codeOwner, previousOperation] = await Promise.all([transaction.get(reference), transaction.get(codeReference), transaction.get(operation)]);
+    const [current, codeOwner, previousOperation, organization] = await Promise.all([transaction.get(reference), transaction.get(codeReference), transaction.get(operation), transaction.get(organizationReference)]);
     if (previousOperation.exists) {
       resultId = previousOperation.get("entityId") as string;
       authorizationUserIds = stringArray(
@@ -127,12 +128,40 @@ async function saveMaster(kind: MasterKind, input: Record<string, unknown>, acto
     if (codeOwner.exists && codeOwner.get("entityId") !== id) throw new HttpsError("already-exists", `${kind} code is already in use.`);
     if (current.exists && current.get("organizationId") !== actor.organizationId) throw new HttpsError("permission-denied", "Cross-organization updates are not permitted.");
     if (current.exists && current.get("systemManaged") === true && !hasRole(actor, "system_administrator")) throw new HttpsError("permission-denied", "This system-managed location cannot be edited.");
+    if (kind === "branch") {
+      const nextIsHeadOffice =
+        input.branchType === "head_office" && input.status === "active";
+      const designatedHeadOfficeId = organization.get("headOfficeBranchId");
+      if (
+        nextIsHeadOffice &&
+        designatedHeadOfficeId &&
+        designatedHeadOfficeId !== id
+      )
+        throw new HttpsError(
+          "failed-precondition",
+          "Another active branch is already designated as head office.",
+        );
+      if (nextIsHeadOffice)
+        transaction.update(organizationReference, {
+          headOfficeBranchId: id,
+          updatedAt: FieldValue.serverTimestamp(),
+          updatedBy: actor.userId,
+        });
+      else if (designatedHeadOfficeId === id)
+        transaction.update(organizationReference, {
+          headOfficeBranchId: FieldValue.delete(),
+          updatedAt: FieldValue.serverTimestamp(),
+          updatedBy: actor.userId,
+        });
+    }
     const now = FieldValue.serverTimestamp();
     const values: Record<string, unknown> = Object.fromEntries(
       Object.entries(input).filter(
         ([key, value]) => key !== "idempotencyKey" && key !== "id" && value !== undefined,
       ),
     );
+    if (kind === "branch" && !current.exists && values.branchType === undefined)
+      values.branchType = "store";
     Object.assign(values, { organizationId: actor.organizationId, updatedAt: now, updatedBy: actor.userId });
     if (current.exists) transaction.update(reference, values); else transaction.create(reference, { ...values, createdAt: now, createdBy: actor.userId });
     const assignmentField = kind === "branch" ? "branchIds" : "warehouseIds";

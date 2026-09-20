@@ -84,6 +84,9 @@ export type Permission =
   | "sales.read.own_branch"
   | "sales.read.all"
   | "sales.create"
+  | "sales.order.create"
+  | "sales.payment.accept"
+  | "sales.payment.confirm"
   | "sales.shift.manage"
   | "sales.price.base.manage"
   | "sales.price.branch.manage"
@@ -186,6 +189,9 @@ const rolePermissions: Readonly<Record<RoleId, readonly Permission[]>> = {
     "reports.transfers.export",
     "sales.read.all",
     "sales.create",
+    "sales.order.create",
+    "sales.payment.accept",
+    "sales.payment.confirm",
     "sales.shift.manage",
     "sales.price.base.manage",
     "sales.price.branch.manage",
@@ -256,6 +262,9 @@ const rolePermissions: Readonly<Record<RoleId, readonly Permission[]>> = {
     "reports.transfers.export",
     "sales.read.all",
     "sales.create",
+    "sales.order.create",
+    "sales.payment.accept",
+    "sales.payment.confirm",
     "sales.shift.manage",
     "sales.price.branch.manage",
     "customers.read",
@@ -399,6 +408,9 @@ const rolePermissions: Readonly<Record<RoleId, readonly Permission[]>> = {
     "reports.transfers.export",
     "sales.read.own_branch",
     "sales.create",
+    "sales.order.create",
+    "sales.payment.accept",
+    "sales.payment.confirm",
     "sales.shift.manage",
     "sales.price.branch.manage",
     "customers.read",
@@ -419,6 +431,8 @@ const rolePermissions: Readonly<Record<RoleId, readonly Permission[]>> = {
     "inventory.read",
     "sales.read.own_branch",
     "sales.create",
+    "sales.order.create",
+    "sales.payment.accept",
     "sales.shift.manage",
     "sales.credit.create",
     "sales.returns.read",

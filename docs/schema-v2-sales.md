@@ -7,7 +7,7 @@ their meaning.
 | Classification | Collections |
 |---|---|
 | Sales configuration | `productSalesPrices`, `branchSalesPrices` |
-| POS operation | `posShifts`, `posShiftLocks`, `salesCounters` |
+| POS operation | `posShifts`, `posShiftLocks`, `salesOrders`, `salesCounters` |
 | Customer master and credit authority | `customers`, `customerCounters` |
 | Customer receivables evidence | `customerAccountEntries`, `customerPayments`, `customerPaymentCounters` |
 | Immutable sale evidence | `sales`, `saleItems`, `salePayments`, `salesReceipts` |
@@ -21,6 +21,12 @@ their meaning.
 | Banking and reconciliation | `bankAccounts`, `bankStatementTransactions`, `bankReconciliations`, `bankReconciliationCounters` |
 | Existing ledger integration | `inventoryTransactions` and `inventoryEntries` using `branch_sale`; `inventoryBalances` remains the mutable projection |
 | Reliability/control | existing `idempotencyKeys`, `auditLogs`, plus browser-local queued drafts that are not authoritative records |
+
+`salesOrders` is the mutable workflow projection for order receipt and payment
+acceptance. It records the receiving and payment actors independently and does
+not itself move inventory or post accounting. Final confirmation links it to
+the immutable sale. Users with multiple roles may perform every stage allowed
+by their combined permissions; the audit trail remains stage-specific.
 
 Every confirmed sale is created in one Firestore transaction with its receipt,
 payment, paired inventory entries, balance update, COGS, journal, audit record,

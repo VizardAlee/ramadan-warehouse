@@ -231,3 +231,15 @@ export const commitSaleInput = z.object({
       message: "A paid sale requires at least one payment.",
     });
 });
+
+export const acceptPosSaleOrderPaymentInput = z.object({
+  orderId: id,
+  shiftId: id,
+  deviceId: id,
+  idempotencyKey: z.string().uuid(),
+});
+
+export const confirmPosSaleOrderInput = z.object({
+  orderId: id,
+  idempotencyKey: z.string().uuid(),
+});

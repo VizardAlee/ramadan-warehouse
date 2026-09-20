@@ -92,6 +92,9 @@ export const permissionIds = [
   "sales.read.own_branch",
   "sales.read.all",
   "sales.create",
+  "sales.order.create",
+  "sales.payment.accept",
+  "sales.payment.confirm",
   "sales.shift.manage",
   "sales.price.base.manage",
   "sales.price.branch.manage",
@@ -364,6 +367,7 @@ export interface Branch {
   organizationId: string;
   name: string;
   code: string;
+  branchType?: "head_office" | "store";
   status: EntityStatus;
   address?: string;
   state?: string;

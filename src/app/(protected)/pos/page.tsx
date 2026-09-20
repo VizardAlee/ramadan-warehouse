@@ -63,6 +63,13 @@ interface SaleResult {
   posted: boolean;
 }
 
+interface SaleOrderResult {
+  orderId: string;
+  orderNumber: string;
+  status: "order_received" | "payment_accepted";
+  created?: boolean;
+}
+
 function deviceIdentity() {
   const key = "abr-pos-device-id";
   let value = window.localStorage.getItem(key);
@@ -119,7 +126,16 @@ export default function PosPage() {
     branchContextId ??
     assignedBranchId ??
     (manualBranchId || firstActiveBranchId || "");
-  const canSell = Boolean(profile && hasPermission(profile, "sales.create"));
+  const canReceiveOrder = Boolean(
+    profile && hasPermission(profile, "sales.order.create"),
+  );
+  const canAcceptPayment = Boolean(
+    profile && hasPermission(profile, "sales.payment.accept"),
+  );
+  const canConfirmPayment = Boolean(
+    profile && hasPermission(profile, "sales.payment.confirm"),
+  );
+  const canUsePos = canReceiveOrder || canAcceptPayment || canConfirmPayment;
   const canManageBranchPrice = Boolean(
     profile && hasPermission(profile, "sales.price.branch.manage"),
   );
@@ -221,8 +237,8 @@ export default function PosPage() {
     let synchronized = 0;
     for (const sale of pending.filter((item) => item.status === "queued")) {
       try {
-        await callAdministration<PosSalePayload, SaleResult>(
-          "commitPosSale",
+        await callAdministration<PosSalePayload, SaleOrderResult>(
+          "createPosSaleOrder",
           sale.payload,
         );
         await removeQueuedSale(sale.id);
@@ -245,7 +261,7 @@ export default function PosPage() {
     await refreshQueue();
     if (synchronized > 0) {
       setMessage(
-        `${synchronized} offline sale${synchronized === 1 ? "" : "s"} synchronized.`,
+        `${synchronized} offline order${synchronized === 1 ? "" : "s"} submitted for payment acceptance.`,
       );
       await loadWorkspace();
     }
@@ -549,6 +565,7 @@ export default function PosPage() {
 
   async function checkout() {
     if (
+      !canReceiveOrder ||
       !workspace?.openShift ||
       cart.length === 0 ||
       totals.grossAmountMinor <= 0
@@ -669,27 +686,16 @@ export default function PosPage() {
     };
     try {
       if (online) {
-        const result = await callAdministration<PosSalePayload, SaleResult>(
-          "commitPosSale",
+        const result = await callAdministration<
+          PosSalePayload,
+          SaleOrderResult
+        >(
+          "createPosSaleOrder",
           payload,
         );
-        let document: SaleDocument | undefined;
-        try {
-          document = await callAdministration<{ saleId: string }, SaleDocument>(
-            "getSaleDocument",
-            { saleId: result.saleId },
-          );
-        } catch {
-          setMessage(
-            `Sale ${result.saleNumber} posted safely. Its full invoice and receipt can be reprinted from Sales reports.`,
-          );
-        }
-        setReceipt({
-          reference: result.receiptNumber,
-          totalMinor: totals.grossAmountMinor,
-          queued: false,
-          document,
-        });
+        setMessage(
+          `Order ${result.orderNumber} received. The next step is payment acceptance; inventory has not been released.`,
+        );
         await loadWorkspace();
       } else {
         if (!user) throw new Error("Your signed-in session is unavailable.");
@@ -716,7 +722,80 @@ export default function PosPage() {
       setError(
         cause instanceof Error
           ? cause.message
-          : "The sale could not be completed.",
+          : "The order could not be received.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function acceptOrderPayment(orderId: string) {
+    if (!workspace?.openShift) {
+      setError("Open your POS shift before accepting payment.");
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await callAdministration<
+        {
+          orderId: string;
+          shiftId: string;
+          deviceId: string;
+          idempotencyKey: string;
+        },
+        SaleOrderResult
+      >("acceptPosSaleOrderPayment", {
+        orderId,
+        shiftId: workspace.openShift.id,
+        deviceId: workspace.openShift.deviceId,
+        idempotencyKey: crypto.randomUUID(),
+      });
+      setMessage(
+        `Payment accepted for ${result.orderNumber}. It is ready for confirmation and inventory release.`,
+      );
+      await loadWorkspace();
+    } catch (cause) {
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : "Payment could not be accepted.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function confirmOrderPayment(orderId: string) {
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await callAdministration<
+        { orderId: string; idempotencyKey: string },
+        SaleResult & { orderNumber: string; status: "completed" }
+      >("confirmPosSaleOrder", {
+        orderId,
+        idempotencyKey: crypto.randomUUID(),
+      });
+      const document = await callAdministration<
+        { saleId: string },
+        SaleDocument
+      >("getSaleDocument", { saleId: result.saleId });
+      setReceipt({
+        reference: result.receiptNumber,
+        totalMinor: document.sale.grossAmountMinor,
+        queued: false,
+        document,
+      });
+      setMessage(
+        `Payment confirmed for ${result.orderNumber}. Inventory, receipt and accounts were posted together.`,
+      );
+      await loadWorkspace();
+    } catch (cause) {
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : "Payment confirmation and inventory release failed.",
       );
     } finally {
       setBusy(false);
@@ -754,7 +833,7 @@ export default function PosPage() {
     }
   }
 
-  if (!canSell)
+  if (!canUsePos)
     return (
       <div className="rounded-xl border bg-white p-6">
         <h1 className="text-2xl font-semibold">Branch POS</h1>
@@ -871,6 +950,121 @@ export default function PosPage() {
                   </li>
                 ))}
             </ul>
+          )}
+        </section>
+      )}
+
+      {workspace && (
+        <section className="rounded-2xl border bg-white p-4 shadow-sm sm:p-5">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[.14em] text-[var(--brand)]">
+                Three-step sales control
+              </p>
+              <h2 className="mt-1 text-xl font-semibold">Sales workflow</h2>
+              <p className="mt-1 text-sm text-[var(--muted)]">
+                Users with multiple roles can complete every step their combined
+                permissions allow. Every action records its own actor and time.
+              </p>
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={!online || busy}
+              onClick={() => void loadWorkspace()}
+            >
+              <RefreshCw className="mr-2 size-4" /> Refresh queue
+            </Button>
+          </div>
+          <div className="mt-4 grid gap-2 sm:grid-cols-3">
+            <div className="rounded-xl bg-sky-50 p-3 text-sm text-sky-950">
+              <strong>1. Receive order</strong>
+              <span className="mt-1 block">Capture products and customer.</span>
+            </div>
+            <div className="rounded-xl bg-amber-50 p-3 text-sm text-amber-950">
+              <strong>2. Accept payment</strong>
+              <span className="mt-1 block">Acknowledge the payment details.</span>
+            </div>
+            <div className="rounded-xl bg-emerald-50 p-3 text-sm text-emerald-950">
+              <strong>3. Confirm &amp; release</strong>
+              <span className="mt-1 block">Post receipt, accounts and stock.</span>
+            </div>
+          </div>
+          {workspace.pendingOrders.length > 0 ? (
+            <ul className="mt-4 grid gap-3 xl:grid-cols-2">
+              {workspace.pendingOrders.map((order) => {
+                const customer = workspace.customers.find(
+                  (item) => item.id === order.customerId,
+                );
+                const awaitingPayment = order.status === "order_received";
+                return (
+                  <li key={order.id} className="rounded-xl border p-4">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <p className="font-mono text-sm font-semibold">
+                          {order.orderNumber}
+                        </p>
+                        <p className="mt-1 text-sm text-[var(--muted)]">
+                          {customer?.name ?? "Walk-in customer"} ·{" "}
+                          {order.totalQuantity} item
+                          {order.totalQuantity === 1 ? "" : "s"} ·{" "}
+                          {formatNaira(order.grossAmountMinor)}
+                        </p>
+                        <p className="mt-1 text-xs text-[var(--muted)]">
+                          {order.paymentMethods.join(", ").replaceAll("_", " ") ||
+                            "Customer credit"}
+                        </p>
+                      </div>
+                      <span
+                        className={`rounded-full px-2.5 py-1 text-xs font-semibold ${awaitingPayment ? "bg-amber-100 text-amber-900" : "bg-emerald-100 text-emerald-900"}`}
+                      >
+                        {awaitingPayment
+                          ? "Awaiting payment acceptance"
+                          : "Awaiting confirmation"}
+                      </span>
+                    </div>
+                    {awaitingPayment ? (
+                      canAcceptPayment ? (
+                        <Button
+                          type="button"
+                          className="mt-3 w-full"
+                          disabled={!online || busy || !workspace.openShift}
+                          onClick={() => void acceptOrderPayment(order.id)}
+                        >
+                          Accept payment
+                        </Button>
+                      ) : (
+                        <p className="mt-3 text-xs text-[var(--muted)]">
+                          Waiting for a cashier or manager with payment access.
+                        </p>
+                      )
+                    ) : canConfirmPayment ? (
+                      <Button
+                        type="button"
+                        className="mt-3 w-full"
+                        disabled={!online || busy}
+                        onClick={() => void confirmOrderPayment(order.id)}
+                      >
+                        Confirm payment &amp; release stock
+                      </Button>
+                    ) : (
+                      <p className="mt-3 text-xs text-[var(--muted)]">
+                        Waiting for a branch manager or administrator.
+                      </p>
+                    )}
+                    {awaitingPayment && canAcceptPayment && !workspace.openShift && (
+                      <p className="mt-2 text-xs text-amber-800">
+                        Open your shift below before accepting payment.
+                      </p>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          ) : (
+            <p className="mt-4 rounded-xl bg-slate-50 p-4 text-center text-sm text-[var(--muted)]">
+              No orders are waiting for payment or release.
+            </p>
           )}
         </section>
       )}
@@ -1379,6 +1573,7 @@ export default function PosPage() {
               className="mt-5 w-full"
               disabled={
                 busy ||
+                !canReceiveOrder ||
                 cart.length === 0 ||
                 !discountIsValid ||
                 (discountAmountMinor > 0 && discountReason.trim().length < 3) ||
@@ -1394,15 +1589,13 @@ export default function PosPage() {
               }
               onClick={() => void checkout()}
             >
-              {online ? "Complete sale" : "Save offline sale"} ·{" "}
+              {online ? "Receive order" : "Save order offline"} ·{" "}
               {formatNaira(totals.grossAmountMinor)}
             </Button>
             <p className="mt-2 text-center text-xs text-[var(--muted)]">
-              {paymentMethod === "customer_credit"
-                ? "Stock, receipt, VAT and the customer receivable post together online."
-                : online
-                  ? "Stock, receipt, payment, VAT and accounts post together."
-                  : "A provisional receipt is issued now; posting occurs after sync."}
+              {online
+                ? "This records the order only. Payment acceptance and final confirmation happen in the workflow queue above."
+                : "The order is kept on this device and joins the payment queue after synchronization."}
             </p>
             <details className="mt-5 border-t pt-4">
               <summary className="cursor-pointer text-sm font-semibold">
@@ -1454,7 +1647,7 @@ export default function PosPage() {
               <CheckCircle2 className="mx-auto size-12 text-emerald-600" />
             )}
             <h2 className="mt-3 text-2xl font-semibold">
-              {receipt.queued ? "Sale saved offline" : "Sale completed"}
+              {receipt.queued ? "Order saved offline" : "Sale completed"}
             </h2>
             <p className="mt-2 font-mono text-sm">{receipt.reference}</p>
             <p className="mt-4 text-3xl font-semibold">
@@ -1462,7 +1655,7 @@ export default function PosPage() {
             </p>
             <p className="mt-3 text-sm text-[var(--muted)]">
               {receipt.queued
-                ? "This provisional receipt will be linked to the official receipt after synchronization."
+                ? "This provisional order reference will enter the payment-acceptance queue after synchronization."
                 : "Inventory, VAT, settlement or receivable, and accounting records were posted."}
             </p>
             <div className="mt-5 flex gap-3" data-no-print>

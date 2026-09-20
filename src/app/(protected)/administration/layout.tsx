@@ -4,8 +4,8 @@ const tabs = [
   { href: "/administration", label: "Overview", permissions: ["organization.manage", "branch.manage", "warehouse.manage", "location.manage", "user.manage", "role.manage"] },
   { href: "/administration/organization", label: "Organization", permissions: ["organization.manage"] },
   { href: "/administration/users", label: "Users", permissions: ["user.manage"] },
-  { href: "/administration/branches", label: "Branches", permissions: ["branch.manage"] },
-  { href: "/administration/warehouses", label: "Warehouses", permissions: ["warehouse.manage"] },
+  { href: "/administration/branches", label: "Stores & Head Office", permissions: ["branch.manage"] },
+  { href: "/administration/warehouses", label: "Legacy Warehouses", permissions: ["warehouse.manage"] },
   { href: "/administration/locations", label: "Inventory Locations", permissions: ["location.manage"] },
   { href: "/administration/roles", label: "Roles & Permissions", permissions: ["role.manage"] },
 ] as const;

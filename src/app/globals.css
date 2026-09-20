@@ -228,10 +228,16 @@ textarea { min-height: 96px; }
 }
 .app-dialog-backdrop-high { z-index: 70; }
 .app-dialog-panel {
+  min-width: 0;
   width: 100%;
+  max-width: calc(100vw - 1rem);
   max-height: calc(100dvh - 1rem);
+  margin-block: auto;
+  overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  touch-action: pan-y;
   -webkit-overflow-scrolling: touch;
 }
 @supports (height: 100svh) {
@@ -245,9 +251,29 @@ textarea { min-height: 96px; }
     padding-bottom: max(1rem, env(safe-area-inset-bottom));
     padding-left: max(1rem, env(safe-area-inset-left));
   }
-  .app-dialog-panel { max-height: calc(100dvh - 2rem); }
+  .app-dialog-panel {
+    max-width: calc(100vw - 2rem);
+    max-height: calc(100dvh - 2rem);
+  }
   @supports (height: 100svh) {
     .app-dialog-panel { max-height: calc(100svh - 2rem); }
+  }
+}
+@media (max-height: 700px) {
+  .app-dialog-backdrop {
+    align-items: flex-start;
+    padding-top: max(.5rem, env(safe-area-inset-top));
+    padding-right: max(.5rem, env(safe-area-inset-right));
+    padding-bottom: max(.5rem, env(safe-area-inset-bottom));
+    padding-left: max(.5rem, env(safe-area-inset-left));
+  }
+  .app-dialog-panel {
+    max-width: calc(100vw - 1rem);
+    max-height: calc(100dvh - 1rem);
+    margin-block: 0;
+  }
+  @supports (height: 100svh) {
+    .app-dialog-panel { max-height: calc(100svh - 1rem); }
   }
 }
 

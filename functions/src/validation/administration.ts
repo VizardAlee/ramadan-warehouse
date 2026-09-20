@@ -41,7 +41,13 @@ export const updateUserInput = userFields.omit({ email: true, idempotencyKey: tr
 export const revokeSessionsInput = z.object({ userId: id, reason: z.string().trim().min(3).max(500) });
 export const reissueInvitationInput = z.object({ userId: id, idempotencyKey: z.string().uuid() });
 const baseMaster = z.object({ id: optionalId, name: z.string().trim().min(2).max(120), code, status: z.enum(["active", "inactive"]).default("active"), address: text(500), state: text(80) });
-export const branchInput = baseMaster.extend({ contactEmail: optionalEmail, contactPhone: text(24), managerUserId: optionalId, idempotencyKey: z.string().uuid() });
+export const branchInput = baseMaster.extend({
+  branchType: z.enum(["head_office", "store"]).optional(),
+  contactEmail: optionalEmail,
+  contactPhone: text(24),
+  managerUserId: optionalId,
+  idempotencyKey: z.string().uuid(),
+});
 export const warehouseInput = baseMaster.extend({ managerIds: z.array(id).max(20).default([]), idempotencyKey: z.string().uuid() });
 export const locationInput = baseMaster.omit({ address: true, state: true }).extend({ type: z.enum(["warehouse", "branch", "goods_in_transit", "damaged", "quarantined", "returned"]), warehouseId: id.optional(), branchId: id.optional(), systemManaged: z.boolean().default(false), idempotencyKey: z.string().uuid() }).superRefine((value, context) => {
   if (value.type === "warehouse" && !value.warehouseId) context.addIssue({ code: "custom", path: ["warehouseId"], message: "Warehouse is required" });

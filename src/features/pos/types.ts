@@ -45,12 +45,27 @@ export interface PosShift {
   saleCount: number;
 }
 
+export interface PosPendingOrder {
+  id: string;
+  orderNumber: string;
+  status: "order_received" | "payment_accepted";
+  customerId: string | null;
+  grossAmountMinor: number;
+  totalQuantity: number;
+  itemCount: number;
+  paymentMethods: string[];
+  recordedAt: string;
+  createdAt: string | null;
+  paymentAcceptedAt: string | null;
+}
+
 export interface PosWorkspace {
   branch: { id: string; name: string; code: string };
   location: { id: string; name: string };
   products: PosProduct[];
   customers: PosCustomer[];
   salesCredits: PosSalesCredit[];
+  pendingOrders: PosPendingOrder[];
   openShift: PosShift | null;
   refreshedAt: string;
 }

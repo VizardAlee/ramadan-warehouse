@@ -4,11 +4,11 @@ Deployment checkpoint: 2026-09-06. Commit `9a3c464` is deployed to the existing 
 
 ## Everyday workflow
 
-1. **Request stock.** A source or destination manager selects the sending warehouse or branch, the receiving branch, products and quantities. A note is optional. An existing approved branch request can be linked.
+1. **Request stock.** A source or destination manager selects the sending store, head-office distribution branch, or legacy warehouse; then selects the receiving branch, products, and quantities. A note is optional. An existing approved branch request can be linked.
 2. **Source manager approves.** A manager assigned to the sending location reviews the quantity and selects actual serial identities where applicable. A system administrator may do this for any location. Approval atomically holds stock, and the requester may approve their own in-scope request; no extra approver, picker, packer or driver account is required.
 3. **Receiving manager confirms arrival.** The destination manager counts actual goods and confirms all or a partial receipt. An administrator may act on behalf of the destination, with their own identity recorded. Good goods enter saleable destination stock; full good receipt completes the transfer automatically.
 
-There is no mandatory packaging, sealing, transport-cost, picking, dispatch or manual-close form. Warehouse-to-branch and branch-to-branch use the same flow within the same organization. Transfers are inventory movements, not sales or supplier purchases; they do not create customer revenue, VAT, cash or a supplier payable.
+There is no mandatory packaging, sealing, transport-cost, picking, dispatch or manual-close form. Head-office-to-store, store-to-store, and legacy warehouse-to-store movements use the same flow within the same organization. Transfers are inventory movements, not sales or supplier purchases; they do not create customer revenue, VAT, cash or a supplier payable.
 
 ## Meaning of stock while awaiting receipt
 

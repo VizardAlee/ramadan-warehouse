@@ -32,6 +32,7 @@ const productId = "product-sales";
 let administrator: ReturnType<typeof client>;
 let branchManager: ReturnType<typeof client>;
 let cashier: ReturnType<typeof client>;
+let cashierTwo: ReturnType<typeof client>;
 
 function client(name: string) {
   const app = initializeApp(
@@ -101,6 +102,10 @@ beforeAll(async () => {
     "branch_manager",
   );
   cashier = await createActor("sales-cashier@example.test", "sales_cashier");
+  cashierTwo = await createActor(
+    "sales-cashier-two@example.test",
+    "sales_cashier",
+  );
   const now = FieldValue.serverTimestamp();
   await Promise.all([
     adminDb.doc(`organizations/${organizationId}`).set({
@@ -479,6 +484,114 @@ describe.sequential("sales callables", () => {
     });
     const finalBalance = await before.ref.get();
     expect(finalBalance.get("onHandQuantity")).toBe(7);
+  });
+
+  it("keeps stock unchanged through order receipt and payment acceptance, then releases it on confirmation", async () => {
+    const receiverDeviceId = crypto.randomUUID();
+    const paymentDeviceId = crypto.randomUUID();
+    const receiverShift = await call<{ shiftId: string }>(
+      cashier,
+      "openPosShift",
+      {
+        branchId,
+        deviceId: receiverDeviceId,
+        deviceName: "Order desk",
+        openingCashMinor: 0,
+        idempotencyKey: crypto.randomUUID(),
+        operatingContext: { type: "branch", id: branchId },
+      },
+    );
+    const paymentShift = await call<{ shiftId: string }>(
+      cashierTwo,
+      "openPosShift",
+      {
+        branchId,
+        deviceId: paymentDeviceId,
+        deviceName: "Payment desk",
+        openingCashMinor: 0,
+        idempotencyKey: crypto.randomUUID(),
+        operatingContext: { type: "branch", id: branchId },
+      },
+    );
+    const balance = adminDb.doc(
+      `inventoryBalances/${balanceDocumentId(organizationId, productId, locationId)}`,
+    );
+    const before = await balance.get();
+    const order = await call<{ orderId: string; orderNumber: string }>(
+      cashier,
+      "createPosSaleOrder",
+      {
+        branchId,
+        shiftId: receiverShift.shiftId,
+        deviceId: receiverDeviceId,
+        recordedAt: new Date().toISOString(),
+        offline: false,
+        lines: [{ productId, quantity: 1 }],
+        payments: [{ method: "cash", amountMinor: 12_900 }],
+        idempotencyKey: crypto.randomUUID(),
+        operatingContext: { type: "branch", id: branchId },
+      },
+    );
+    expect(order.orderNumber).toMatch(/^ORD-IRB-/);
+    expect((await balance.get()).get("onHandQuantity")).toBe(
+      before.get("onHandQuantity"),
+    );
+
+    await expect(
+      call(cashierTwo, "acceptPosSaleOrderPayment", {
+        orderId: order.orderId,
+        shiftId: paymentShift.shiftId,
+        deviceId: paymentDeviceId,
+        idempotencyKey: crypto.randomUUID(),
+        operatingContext: { type: "branch", id: branchId },
+      }),
+    ).resolves.toMatchObject({ status: "payment_accepted" });
+    expect((await balance.get()).get("onHandQuantity")).toBe(
+      before.get("onHandQuantity"),
+    );
+    await expect(
+      call(cashierTwo, "confirmPosSaleOrder", {
+        orderId: order.orderId,
+        idempotencyKey: crypto.randomUUID(),
+        operatingContext: { type: "branch", id: branchId },
+      }),
+    ).rejects.toMatchObject({ code: "functions/permission-denied" });
+
+    const completed = await call<{
+      saleId: string;
+      receiptNumber: string;
+      status: string;
+    }>(branchManager, "confirmPosSaleOrder", {
+      orderId: order.orderId,
+      idempotencyKey: crypto.randomUUID(),
+      operatingContext: { type: "branch", id: branchId },
+    });
+    expect(completed).toMatchObject({ status: "completed" });
+    expect(completed.receiptNumber).toMatch(/^RCT-IRB-/);
+    expect((await balance.get()).get("onHandQuantity")).toBe(
+      Number(before.get("onHandQuantity")) - 1,
+    );
+    expect((await adminDb.doc(`salesOrders/${order.orderId}`).get()).data()).toMatchObject({
+      status: "completed",
+      saleId: completed.saleId,
+    });
+
+    await expect(
+      call(cashier, "closePosShift", {
+        shiftId: receiverShift.shiftId,
+        closingCashMinor: 0,
+        idempotencyKey: crypto.randomUUID(),
+        operatingContext: { type: "branch", id: branchId },
+      }),
+    ).resolves.toMatchObject({ closed: true });
+    await expect(
+      call(cashierTwo, "closePosShift", {
+        shiftId: paymentShift.shiftId,
+        closingCashMinor: 12_900,
+        idempotencyKey: crypto.randomUUID(),
+        operatingContext: { type: "branch", id: branchId },
+      }),
+    ).resolves.toMatchObject({ closed: true });
   });
 
   it("posts an audited discount with partial customer credit, enforces the limit, and records repayment", async () => {
