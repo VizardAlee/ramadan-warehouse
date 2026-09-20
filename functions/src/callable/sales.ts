@@ -338,9 +338,7 @@ export const getPosWorkspace = onCall(
         db
           .collection("customers")
           .where("organizationId", "==", actor.organizationId)
-          .where("active", "==", true)
-          .where("creditStatus", "==", "approved")
-          .limit(200)
+          .limit(500)
           .get(),
         db.collection("salesCredits").where("organizationId", "==", actor.organizationId)
           .where("branchId", "==", input.branchId).where("status", "==", "active").limit(100).get(),
@@ -411,11 +409,12 @@ export const getPosWorkspace = onCall(
         shifts.docs
           .filter((shift) => shift.get("openedBy") === actor.userId)
           .map((shift) => ({ id: shift.id, ...shift.data() }))[0] ?? null,
-      customers: customers.docs.map((customer) => ({
+      customers: customers.docs.filter((customer) => customer.get("active") === true).map((customer) => ({
         id: customer.id,
         customerNumber: customer.get("customerNumber"),
         name: customer.get("name"),
         phone: customer.get("phone") ?? null,
+        creditStatus: customer.get("creditStatus") ?? "pending",
         creditLimitMinor: Number(customer.get("creditLimitMinor") ?? 0),
         outstandingBalanceMinor: Number(customer.get("outstandingBalanceMinor") ?? 0),
         availableCreditMinor: Number(customer.get("availableCreditMinor") ?? 0),
@@ -497,6 +496,11 @@ export const getSaleDocument = onCall(
         customerAddress: sale.get("customerAddress") ?? null,
         customerTaxId: sale.get("customerTaxId") ?? null,
         netAmountMinor: Number(sale.get("netAmountMinor") ?? 0),
+        subtotalAmountMinor: Number(
+          sale.get("subtotalAmountMinor") ?? sale.get("netAmountMinor") ?? 0,
+        ),
+        discountAmountMinor: Number(sale.get("discountAmountMinor") ?? 0),
+        discountReason: sale.get("discountReason") ?? null,
         vatAmountMinor: Number(sale.get("vatAmountMinor") ?? 0),
         grossAmountMinor: Number(sale.get("grossAmountMinor") ?? 0),
         amountPaidMinor: Number(sale.get("amountPaidMinor") ?? 0),
@@ -512,6 +516,10 @@ export const getSaleDocument = onCall(
         unitOfMeasure: item.get("unitOfMeasure"),
         quantity: Number(item.get("quantity") ?? 0),
         unitPriceMinor: Number(item.get("unitPriceMinor") ?? 0),
+        subtotalAmountMinor: Number(
+          item.get("subtotalAmountMinor") ?? item.get("netAmountMinor") ?? 0,
+        ),
+        discountAmountMinor: Number(item.get("discountAmountMinor") ?? 0),
         vatRateBasisPoints: Number(item.get("vatRateBasisPoints") ?? 0),
         netAmountMinor: Number(item.get("netAmountMinor") ?? 0),
         vatAmountMinor: Number(item.get("vatAmountMinor") ?? 0),
@@ -574,6 +582,11 @@ export const generateSalesReport = onCall(
       itemCount: Number(sale.get("itemCount") ?? 0),
       totalQuantity: Number(sale.get("totalQuantity") ?? 0),
       netAmountMinor: Number(sale.get("netAmountMinor") ?? 0),
+      subtotalAmountMinor: Number(
+        sale.get("subtotalAmountMinor") ?? sale.get("netAmountMinor") ?? 0,
+      ),
+      discountAmountMinor: Number(sale.get("discountAmountMinor") ?? 0),
+      discountReason: sale.get("discountReason") ?? "",
       vatAmountMinor: Number(sale.get("vatAmountMinor") ?? 0),
       grossAmountMinor: Number(sale.get("grossAmountMinor") ?? 0),
       amountPaidMinor: Number(sale.get("amountPaidMinor") ?? 0),
@@ -1018,6 +1031,7 @@ export const commitPosSale = onCall(
           vatRateBasisPoints: line.vatRateBasisPoints,
           unitCostMinor: line.issued.unitCostMinor,
         })),
+        input.discountAmountMinor,
       );
       try {
         assertPaymentsEqualTotal(
@@ -1128,6 +1142,9 @@ export const commitPosSale = onCall(
         creditAmountMinor: input.creditAmountMinor,
         amountPaidMinor: calculated.grossAmountMinor - input.creditAmountMinor,
         source: input.offline ? "offline_sync" : "online_pos",
+        subtotalAmountMinor: calculated.subtotalAmountMinor,
+        discountAmountMinor: calculated.discountAmountMinor,
+        discountReason: input.discountReason,
         netAmountMinor: calculated.netAmountMinor,
         vatAmountMinor: calculated.vatAmountMinor,
         grossAmountMinor: calculated.grossAmountMinor,
@@ -1148,6 +1165,9 @@ export const commitPosSale = onCall(
         saleNumber,
         receiptNumber,
         provisionalReceiptReference: input.provisionalReceiptReference,
+        subtotalAmountMinor: calculated.subtotalAmountMinor,
+        discountAmountMinor: calculated.discountAmountMinor,
+        discountReason: input.discountReason,
         netAmountMinor: calculated.netAmountMinor,
         vatAmountMinor: calculated.vatAmountMinor,
         grossAmountMinor: calculated.grossAmountMinor,
@@ -1199,6 +1219,8 @@ export const commitPosSale = onCall(
           priceVersion: line.priceVersion,
           priceSource: line.priceSource,
           vatRateBasisPoints: line.vatRateBasisPoints,
+          subtotalAmountMinor: calculatedLine.subtotalAmountMinor,
+          discountAmountMinor: calculatedLine.discountAmountMinor,
           netAmountMinor: calculatedLine.netAmountMinor,
           vatAmountMinor: calculatedLine.vatAmountMinor,
           grossAmountMinor: calculatedLine.grossAmountMinor,
@@ -1405,6 +1427,10 @@ export const commitPosSale = onCall(
           branchId: input.branchId,
           saleNumber,
           grossAmountMinor: calculated.grossAmountMinor,
+          discountAmountMinor: calculated.discountAmountMinor,
+          discountReason: input.discountReason ?? null,
+          customerId: input.customerId ?? null,
+          creditAmountMinor: input.creditAmountMinor,
           source: input.offline ? "offline_sync" : "online_pos",
         },
       });

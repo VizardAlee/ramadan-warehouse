@@ -98,14 +98,21 @@ for both warehouse locations and store/branch stock locations.
    till. This is not sales revenue; it is the reconciliation starting point.
 3. Search or tap products. Only products with central prices and available
    branch stock are sale-ready.
-4. Review product subtotal, VAT, and gross total separately.
-5. Select cash, card/POS terminal, or bank transfer and optionally record the
+4. If needed, enter the discount in naira and a short business reason. The
+   discount reduces the product subtotal before VAT is calculated and remains
+   visible on the invoice, sales report, and audit trail.
+5. Choose **Walk-in customer** only for an anonymous sale. Select an existing
+   customer for named cash, card, transfer, or credit sales; use **Add customer**
+   if the record does not exist yet.
+6. Review product subtotal, discount, net sales, VAT, and invoice total
+   separately.
+7. Select cash, card/POS terminal, or bank transfer and optionally record the
    external reference. The app records the method but does not claim a bank or
    terminal has settled it.
-6. Complete the sale. Online, all records post together. Offline, issue the
+8. Complete the sale. Online, all records post together. Offline, issue the
    visibly provisional receipt and keep the browser/device data intact until
    synchronization succeeds.
-7. Resolve every offline review item before closing the shift, count the cash,
+9. Resolve every offline review item before closing the shift, count the cash,
    and enter the closing amount for variance recording.
 
 ## Customer and credit forms
@@ -117,10 +124,12 @@ for both warehouse locations and store/branch stock locations.
    open **Credit decision**, choose approve, enter the limit in naira, and give
    a meaningful reason. Suspending or rejecting credit blocks new borrowing but
    never erases an existing balance.
-3. At POS, choose **Approved customer credit** and select the customer. The app
-   shows current available credit and performs a live server check before it
-   posts stock, VAT, receipt, and Accounts Receivable together. Credit cannot
-   be used offline.
+3. At POS, select the named customer and choose **Approved customer credit**.
+   Enter zero for a fully-credit sale, or enter the cash/card/bank amount being
+   paid now for a part-paid sale. The screen shows the balance moving to the
+   customer account and checks the approved available credit live before it
+   posts stock, VAT, receipt, settlement, and Accounts Receivable together.
+   Credit cannot be used offline.
 4. When money is received later, use **Record payment** on the customer. Select
    the receiving branch, actual method, amount, and external reference where
    applicable. The payment reduces the receivable and creates its own journal;

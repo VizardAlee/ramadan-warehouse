@@ -10,6 +10,12 @@ workflow. Prices and all other money values are stored as integer NGN minor
 units. VAT is calculated and displayed separately using an organization-
 configurable rate stored in basis points.
 
+POS discounts are explicit sale-level NGN amounts with a required reason. The
+server allocates the discount proportionally across sale lines before VAT,
+snapshots both the undiscounted subtotal and allocated discounts, and records
+the reason in immutable sale and audit evidence. A discount never mutates the
+central or branch catalogue price.
+
 Only active customers approved by a system administrator may use credit.
 Credit sales, returns, refunds, exchange-credit redemption, below-base price
 changes, and other actions that depend on current balances or approval remain
@@ -28,7 +34,7 @@ recorded; external payment-provider settlement is not inferred.
 The browser never invents an official invoice or receipt. After a successful
 server transaction, `getSaleDocument` reconstructs the customer document from
 the immutable sale, sale-item, payment, and receipt records. Organization,
-branch, customer, product, price, VAT, and document-number snapshots are taken
+branch, customer, product, price, discount, VAT, and document-number snapshots are taken
 at posting time so later master-data edits do not rewrite historical evidence.
 The document states VAT separately and can be printed or saved as PDF through
 the browser. Authorized users can reopen it from the Sales register.
@@ -47,6 +53,11 @@ shorter date range. The accounting close screen also downloads its trial
 balance evidence as CSV. Existing request, transfer, and inventory exports
 remain available under their own permissions.
 
+The dashboard is sales-led for roles permitted to read sales: its first cards
+summarize 30-day sale count, invoice value, receipts, and customer credit, then
+show a seven-day value chart and paid/part-paid/credit mix. Inventory and
+transfer signals remain immediately below the sales section.
+
 ## Phase 2 boundary — customer credit and receivables
 
 Phase 2 adds organization customer records, administrator-only credit approval,
@@ -55,6 +66,9 @@ an immutable customer account ledger, and online customer repayment posting.
 A customer begins with `pending` credit authority. Only a system administrator
 may approve a positive limit, suspend further use, reject an application, or
 change the limit. Existing outstanding debt is never erased by suspension.
+Any active customer may be attached to an otherwise paid sale so invoices and
+reports retain the real buyer instead of forcing a walk-in record. Only the use
+of credit requires approved credit authority.
 
 Credit is not a payment method in the accounting model. At checkout the amount
 granted on credit debits Accounts Receivable (`1100`), while any cash, card, or

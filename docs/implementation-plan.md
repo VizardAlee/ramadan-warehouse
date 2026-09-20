@@ -8,12 +8,18 @@ access, device-bound shifts, paid quantity-product checkout, receipts, payment
 records, immutable branch inventory issues, COGS, balanced sales journals, and
 an IndexedDB/service-worker offline queue. Cash, card, and bank transfer are
 recorded payment methods; no external payment-settlement claim is made.
+Named active customers can be attached to any sale. Explicit reason-backed
+discounts reduce the product subtotal before VAT without changing catalogue
+prices, and their header/line allocations remain in invoices, reports, and
+audit evidence.
 
 Phase 2 adds reusable customer accounts, administrator-only credit decisions,
 live credit-limit enforcement, online credit checkout, an immutable customer
 account ledger, Accounts Receivable journals, and customer repayment posting.
 Customer creation does not itself grant credit, credit is never represented as
-a payment, and repayment never edits the original sale.
+a payment, and repayment never edits the original sale. Checkout may combine a
+cash, card, or bank amount received now with the approved customer-account
+balance for a part-paid invoice.
 
 Phase 3 adds receipt-linked return requests, independent maker-checker
 approval, quantity caps against the unreturned receipt quantity, controlled

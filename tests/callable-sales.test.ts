@@ -481,7 +481,7 @@ describe.sequential("sales callables", () => {
     expect(finalBalance.get("onHandQuantity")).toBe(7);
   });
 
-  it("requires administrator-approved credit, posts receivables, enforces the limit, and records repayment", async () => {
+  it("posts an audited discount with partial customer credit, enforces the limit, and records repayment", async () => {
     const saved = await call<{ customerId: string; customerNumber: string }>(
       branchManager,
       "saveCustomer",
@@ -494,6 +494,18 @@ describe.sequential("sales callables", () => {
       },
     );
     expect(saved.customerNumber).toMatch(/^CUS-/);
+    const pendingWorkspace = await call<{
+      customers: Array<{ id: string; creditStatus: string }>;
+    }>(branchManager, "getPosWorkspace", {
+      branchId,
+      operatingContext: { type: "branch", id: branchId },
+    });
+    expect(pendingWorkspace.customers).toContainEqual(
+      expect.objectContaining({
+        id: saved.customerId,
+        creditStatus: "pending",
+      }),
+    );
     await expect(
       call(branchManager, "decideCustomerCredit", {
         customerId: saved.customerId,
@@ -533,6 +545,22 @@ describe.sequential("sales callables", () => {
       .limit(1)
       .get();
     const currentShift = shift.docs[0]!;
+    await expect(
+      call(branchManager, "commitPosSale", {
+        branchId,
+        shiftId: currentShift.id,
+        deviceId: currentShift.get("deviceId"),
+        recordedAt: new Date().toISOString(),
+        offline: false,
+        customerId: saved.customerId,
+        creditAmountMinor: 7_750,
+        discountAmountMinor: 2_000,
+        lines: [{ productId, quantity: 1 }],
+        payments: [{ method: "cash", amountMinor: 3_000 }],
+        idempotencyKey: crypto.randomUUID(),
+        operatingContext: { type: "branch", id: branchId },
+      }),
+    ).rejects.toMatchObject({ code: "functions/invalid-argument" });
     const sale = await call<{ saleId: string; posted: boolean }>(
       branchManager,
       "commitPosSale",
@@ -543,9 +571,11 @@ describe.sequential("sales callables", () => {
         recordedAt: new Date().toISOString(),
         offline: false,
         customerId: saved.customerId,
-        creditAmountMinor: 12_900,
+        creditAmountMinor: 7_750,
+        discountAmountMinor: 2_000,
+        discountReason: "Approved trade discount",
         lines: [{ productId, quantity: 1 }],
-        payments: [],
+        payments: [{ method: "cash", amountMinor: 3_000 }],
         idempotencyKey: crypto.randomUUID(),
         operatingContext: { type: "branch", id: branchId },
       },
@@ -576,19 +606,25 @@ describe.sequential("sales callables", () => {
       ]);
     expect(saleRecord.data()).toMatchObject({
       customerId: saved.customerId,
-      paymentStatus: "credit",
-      creditAmountMinor: 12_900,
-      amountPaidMinor: 0,
+      paymentStatus: "partially_paid",
+      subtotalAmountMinor: 12_000,
+      discountAmountMinor: 2_000,
+      discountReason: "Approved trade discount",
+      netAmountMinor: 10_000,
+      vatAmountMinor: 750,
+      grossAmountMinor: 10_750,
+      creditAmountMinor: 7_750,
+      amountPaidMinor: 3_000,
     });
     expect(customer.data()).toMatchObject({
-      outstandingBalanceMinor: 12_900,
-      availableCreditMinor: 7_100,
+      outstandingBalanceMinor: 7_750,
+      availableCreditMinor: 12_250,
     });
     expect(
       receivableLines.docs.some(
         (line) =>
           line.get("accountCode") === "1100" &&
-          line.get("debitMinor") === 12_900,
+          line.get("debitMinor") === 7_750,
       ),
     ).toBe(true);
     expect(accountEntries.size).toBe(1);
@@ -631,8 +667,8 @@ describe.sequential("sales callables", () => {
     expect(
       (await adminDb.doc(`customers/${saved.customerId}`).get()).data(),
     ).toMatchObject({
-      outstandingBalanceMinor: 7_900,
-      availableCreditMinor: 12_100,
+      outstandingBalanceMinor: 2_750,
+      availableCreditMinor: 17_250,
     });
 
     await expect(

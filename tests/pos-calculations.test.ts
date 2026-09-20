@@ -21,11 +21,27 @@ const product = {
 describe("POS cart calculations", () => {
   it("keeps VAT separate from the net selling price", () => {
     expect(calculatePosCart([{ product, quantity: 2 }])).toEqual({
+      subtotalAmountMinor: 200_000,
+      discountAmountMinor: 0,
       netAmountMinor: 200_000,
       vatAmountMinor: 15_000,
       grossAmountMinor: 215_000,
       totalQuantity: 2,
     });
+  });
+
+  it("applies an auditable discount before calculating VAT", () => {
+    expect(calculatePosCart([{ product, quantity: 2 }], 20_000)).toEqual({
+      subtotalAmountMinor: 200_000,
+      discountAmountMinor: 20_000,
+      netAmountMinor: 180_000,
+      vatAmountMinor: 13_500,
+      grossAmountMinor: 193_500,
+      totalQuantity: 2,
+    });
+    expect(() =>
+      calculatePosCart([{ product, quantity: 1 }], 100_001),
+    ).toThrow("cannot exceed");
   });
 
   it("rejects fractional or empty sale quantities", () => {

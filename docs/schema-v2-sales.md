@@ -31,7 +31,10 @@ The official printable sales document is a read model, not a mutable document
 uploaded by the client. It joins the server-authoritative `sales`, `saleItems`,
 `salePayments`, and `salesReceipts` evidence after checking organization and
 branch scope. Historical organization, branch, customer, product, price, and
-VAT snapshots are retained on the sale evidence. The downloadable sales
+discount/VAT snapshots are retained on the sale evidence. Sale headers retain
+the original product subtotal, discount total and reason; each sale item keeps
+its proportional discount allocation so documents and returns remain
+reconstructable. The downloadable sales
 register exposes revenue, VAT, settlement, and receivable values but never
 inventory cost fields.
 

@@ -185,9 +185,17 @@ export const commitSaleInput = z.object({
     .max(5),
   customerId: id.optional(),
   creditAmountMinor: money.default(0),
+  discountAmountMinor: money.default(0),
+  discountReason: z.string().trim().min(3).max(300).optional(),
   notes: z.string().trim().max(500).optional(),
   idempotencyKey: z.string().uuid(),
 }).superRefine((value, context) => {
+  if (value.discountAmountMinor > 0 && !value.discountReason)
+    context.addIssue({
+      code: "custom",
+      path: ["discountReason"],
+      message: "Enter a reason for the discount.",
+    });
   if (value.creditAmountMinor > 0 && !value.customerId)
     context.addIssue({
       code: "custom",

@@ -15,6 +15,7 @@ import {
   Wifi,
   WifiOff,
 } from "lucide-react";
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { callAdministration } from "@/features/administration/api";
@@ -76,6 +77,12 @@ export default function PosPage() {
   const [paymentMethod, setPaymentMethod] = useState<PosCheckoutMethod>("cash");
   const [paymentReference, setPaymentReference] = useState("");
   const [customerId, setCustomerId] = useState("");
+  const [discountAmount, setDiscountAmount] = useState("");
+  const [discountReason, setDiscountReason] = useState("");
+  const [creditPaidAmount, setCreditPaidAmount] = useState("0.00");
+  const [creditUpfrontMethod, setCreditUpfrontMethod] = useState<
+    "cash" | "card" | "bank_transfer"
+  >("cash");
   const [openingCash, setOpeningCash] = useState("0.00");
   const [closingCash, setClosingCash] = useState("");
   const [message, setMessage] = useState<string | null>(null);
@@ -110,7 +117,39 @@ export default function PosPage() {
   const canCreateCredit = Boolean(
     profile && hasPermission(profile, "sales.credit.create"),
   );
-  const totals = useMemo(() => calculatePosCart(cart), [cart]);
+  const baseTotals = useMemo(() => calculatePosCart(cart), [cart]);
+  const discountAmountMinor = useMemo(() => {
+    try {
+      return nairaToKobo(Number(discountAmount || 0));
+    } catch {
+      return -1;
+    }
+  }, [discountAmount]);
+  const discountIsValid =
+    discountAmountMinor >= 0 &&
+    discountAmountMinor <= baseTotals.subtotalAmountMinor;
+  const totals = useMemo(
+    () =>
+      calculatePosCart(
+        cart,
+        discountIsValid ? discountAmountMinor : 0,
+      ),
+    [cart, discountAmountMinor, discountIsValid],
+  );
+  const creditPaidAmountMinor = useMemo(() => {
+    try {
+      return nairaToKobo(Number(creditPaidAmount || 0));
+    } catch {
+      return -1;
+    }
+  }, [creditPaidAmount]);
+  const creditAmountMinor =
+    paymentMethod === "customer_credit"
+      ? totals.grossAmountMinor - Math.max(0, creditPaidAmountMinor)
+      : 0;
+  const selectedCustomer = workspace?.customers.find(
+    (customer) => customer.id === customerId,
+  );
 
   const refreshQueue = useCallback(async () => {
     if (!selectedBranchId || !user) return;
@@ -332,6 +371,14 @@ export default function PosPage() {
       totals.grossAmountMinor <= 0
     )
       return;
+    if (!discountIsValid) {
+      setError("Enter a valid discount that does not exceed the product subtotal.");
+      return;
+    }
+    if (discountAmountMinor > 0 && discountReason.trim().length < 3) {
+      setError("Enter a short reason so the discount remains auditable.");
+      return;
+    }
     if (paymentMethod === "customer_credit" && !online) {
       setError(
         "Customer credit requires an online approval and credit-limit check.",
@@ -342,6 +389,24 @@ export default function PosPage() {
       setError(
         "Select an administrator-approved customer for this credit sale.",
       );
+      return;
+    }
+    if (
+      paymentMethod === "customer_credit" &&
+      (creditPaidAmountMinor < 0 || creditPaidAmountMinor >= totals.grossAmountMinor)
+    ) {
+      setError(
+        "The amount paid now must be zero or less than the sale total. Use a normal payment method when fully paid.",
+      );
+      return;
+    }
+    if (
+      paymentMethod === "customer_credit" &&
+      (!selectedCustomer ||
+        selectedCustomer.creditStatus !== "approved" ||
+        selectedCustomer.availableCreditMinor < creditAmountMinor)
+    ) {
+      setError("The selected customer does not have enough approved credit for the outstanding amount.");
       return;
     }
     if (paymentMethod === "exchange_credit" && (!online || !paymentReference)) {
@@ -379,7 +444,15 @@ export default function PosPage() {
       })),
       payments:
         paymentMethod === "customer_credit"
-          ? []
+          ? creditPaidAmountMinor > 0
+            ? [
+                {
+                  method: creditUpfrontMethod,
+                  amountMinor: creditPaidAmountMinor,
+                  reference: paymentReference.trim() || undefined,
+                },
+              ]
+            : []
           : paymentMethod === "exchange_credit"
             ? [
                 {
@@ -404,9 +477,11 @@ export default function PosPage() {
                   reference: paymentReference.trim() || undefined,
                 },
               ],
-      customerId: paymentMethod === "customer_credit" ? customerId : undefined,
-      creditAmountMinor:
-        paymentMethod === "customer_credit" ? totals.grossAmountMinor : 0,
+      customerId: customerId || undefined,
+      creditAmountMinor,
+      discountAmountMinor,
+      discountReason:
+        discountAmountMinor > 0 ? discountReason.trim() : undefined,
       idempotencyKey,
     };
     try {
@@ -456,6 +531,9 @@ export default function PosPage() {
       setCart([]);
       setPaymentReference("");
       setCustomerId("");
+      setDiscountAmount("");
+      setDiscountReason("");
+      setCreditPaidAmount("0.00");
     } catch (cause) {
       setError(
         cause instanceof Error
@@ -837,7 +915,17 @@ export default function PosPage() {
             </div>
             <dl className="space-y-2 rounded-xl bg-gradient-to-br from-emerald-950 to-emerald-700 p-4 text-sm text-white shadow-lg">
               <div className="flex justify-between">
-                <dt>Products</dt>
+                <dt>Product subtotal</dt>
+                <dd>{formatNaira(totals.subtotalAmountMinor)}</dd>
+              </div>
+              {totals.discountAmountMinor > 0 && (
+                <div className="flex justify-between text-emerald-100">
+                  <dt>Discount</dt>
+                  <dd>−{formatNaira(totals.discountAmountMinor)}</dd>
+                </div>
+              )}
+              <div className="flex justify-between">
+                <dt>Net sales</dt>
                 <dd>{formatNaira(totals.netAmountMinor)}</dd>
               </div>
               <div className="flex justify-between">
@@ -849,6 +937,62 @@ export default function PosPage() {
                 <dd>{formatNaira(totals.grossAmountMinor)}</dd>
               </div>
             </dl>
+            <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
+              <label className="block text-sm font-medium">
+                Discount (₦)
+                <input
+                  type="number"
+                  min="0"
+                  max={baseTotals.subtotalAmountMinor / 100}
+                  step="0.01"
+                  inputMode="decimal"
+                  value={discountAmount}
+                  onChange={(event) => setDiscountAmount(event.target.value)}
+                  className={`mt-1 w-full rounded-lg border p-3 ${discountIsValid ? "" : "border-red-400"}`}
+                  placeholder="0.00"
+                />
+              </label>
+              <label className="block text-sm font-medium">
+                Discount reason
+                <input
+                  value={discountReason}
+                  onChange={(event) => setDiscountReason(event.target.value)}
+                  disabled={discountAmountMinor <= 0}
+                  required={discountAmountMinor > 0}
+                  className="mt-1 w-full rounded-lg border p-3 disabled:bg-slate-100"
+                  placeholder="e.g. Trade discount"
+                />
+              </label>
+            </div>
+            <div className="mt-4 rounded-xl border bg-white p-3">
+              <div className="flex items-center justify-between gap-3">
+                <label className="min-w-0 flex-1 text-sm font-medium">
+                  Customer
+                  <select
+                    value={customerId}
+                    onChange={(event) => setCustomerId(event.target.value)}
+                    className="mt-1 w-full rounded-lg border p-3"
+                  >
+                    <option value="">Walk-in customer</option>
+                    {(workspace.customers ?? []).map((customer) => (
+                      <option key={customer.id} value={customer.id}>
+                        {customer.name} · {customer.customerNumber}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <Link
+                  href="/customers"
+                  className="mt-6 shrink-0 text-xs font-semibold text-[var(--brand)] underline-offset-4 hover:underline"
+                >
+                  Add customer
+                </Link>
+              </div>
+              <p className="mt-2 text-xs text-[var(--muted)]">
+                Attach named customers to cash, card, transfer, or credit sales.
+                Leave as walk-in only when no customer record is needed.
+              </p>
+            </div>
             <label className="mt-4 block text-sm font-medium">
               Payment method
               <select
@@ -856,8 +1000,7 @@ export default function PosPage() {
                 onChange={(event) => {
                   setPaymentMethod(event.target.value as PosCheckoutMethod);
                   setPaymentReference("");
-                  if (event.target.value !== "customer_credit")
-                    setCustomerId("");
+                  setCreditPaidAmount("0.00");
                 }}
                 className="mt-1 w-full rounded-lg border p-3"
               >
@@ -875,32 +1018,65 @@ export default function PosPage() {
               </select>
             </label>
             {paymentMethod === "customer_credit" ? (
-              <label className="mt-3 block text-sm font-medium">
-                Approved customer
-                <select
-                  value={customerId}
-                  onChange={(event) => setCustomerId(event.target.value)}
-                  className="mt-1 w-full rounded-lg border p-3"
-                >
-                  <option value="">Select customer</option>
-                  {(workspace.customers ?? []).map((customer) => (
-                    <option
-                      key={customer.id}
-                      value={customer.id}
-                      disabled={
-                        customer.availableCreditMinor < totals.grossAmountMinor
-                      }
-                    >
-                      {customer.name} · available{" "}
-                      {formatNaira(customer.availableCreditMinor)}
-                    </option>
-                  ))}
-                </select>
-                <span className="mt-1 block text-xs font-normal text-[var(--muted)]">
-                  Credit is checked live and posted to Accounts Receivable. Only
-                  administrator-approved customers appear.
-                </span>
-              </label>
+              <div className="mt-3 space-y-3 rounded-xl border border-amber-200 bg-amber-50 p-3">
+                <p className="text-sm font-semibold text-amber-950">
+                  Customer credit
+                </p>
+                <p className="text-xs text-amber-900">
+                  {selectedCustomer?.creditStatus === "approved"
+                    ? `${selectedCustomer.name} has ${formatNaira(selectedCustomer.availableCreditMinor)} available.`
+                    : "Select a customer with administrator-approved credit above."}
+                </p>
+                <label className="block text-sm font-medium">
+                  Amount paid now (₦)
+                  <input
+                    type="number"
+                    min="0"
+                    max={Math.max(0, totals.grossAmountMinor - 1) / 100}
+                    step="0.01"
+                    inputMode="decimal"
+                    value={creditPaidAmount}
+                    onChange={(event) => setCreditPaidAmount(event.target.value)}
+                    className="mt-1 w-full rounded-lg border p-3"
+                  />
+                </label>
+                {creditPaidAmountMinor > 0 && (
+                  <>
+                    <label className="block text-sm font-medium">
+                      Payment method now
+                      <select
+                        value={creditUpfrontMethod}
+                        onChange={(event) =>
+                          setCreditUpfrontMethod(
+                            event.target.value as typeof creditUpfrontMethod,
+                          )
+                        }
+                        className="mt-1 w-full rounded-lg border p-3"
+                      >
+                        <option value="cash">Cash</option>
+                        <option value="card">Card / POS terminal</option>
+                        <option value="bank_transfer">Bank transfer</option>
+                      </select>
+                    </label>
+                    {creditUpfrontMethod !== "cash" && (
+                      <label className="block text-sm font-medium">
+                        Payment reference (optional)
+                        <input
+                          value={paymentReference}
+                          onChange={(event) =>
+                            setPaymentReference(event.target.value)
+                          }
+                          className="mt-1 w-full rounded-lg border p-3"
+                        />
+                      </label>
+                    )}
+                  </>
+                )}
+                <div className="flex justify-between border-t border-amber-200 pt-2 text-sm font-semibold">
+                  <span>Balance going to customer account</span>
+                  <span>{formatNaira(Math.max(0, creditAmountMinor))}</span>
+                </div>
+              </div>
             ) : paymentMethod === "exchange_credit" ? (
               <label className="mt-3 block text-sm font-medium">
                 Exchange credit
@@ -938,8 +1114,15 @@ export default function PosPage() {
               disabled={
                 busy ||
                 cart.length === 0 ||
+                !discountIsValid ||
+                (discountAmountMinor > 0 && discountReason.trim().length < 3) ||
                 (paymentMethod === "customer_credit" &&
-                  (!online || !customerId)) ||
+                  (!online ||
+                    !customerId ||
+                    creditPaidAmountMinor < 0 ||
+                    creditPaidAmountMinor >= totals.grossAmountMinor ||
+                    selectedCustomer?.creditStatus !== "approved" ||
+                    selectedCustomer.availableCreditMinor < creditAmountMinor)) ||
                 (paymentMethod === "exchange_credit" &&
                   (!online || !paymentReference))
               }

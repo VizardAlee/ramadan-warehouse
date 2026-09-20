@@ -54,6 +54,9 @@ interface SalesReportRow {
   source: string;
   itemCount: number;
   totalQuantity: number;
+  subtotalAmountMinor: number;
+  discountAmountMinor: number;
+  discountReason: string;
   netAmountMinor: number;
   vatAmountMinor: number;
   grossAmountMinor: number;
@@ -111,6 +114,9 @@ function salesCsvRows(rows: SalesReportRow[]): Record<string, unknown>[] {
     source: row.source,
     item_count: row.itemCount,
     total_quantity: row.totalQuantity,
+    product_subtotal_naira: (row.subtotalAmountMinor / 100).toFixed(2),
+    discount_naira: (row.discountAmountMinor / 100).toFixed(2),
+    discount_reason: row.discountReason,
     net_amount_naira: (row.netAmountMinor / 100).toFixed(2),
     vat_naira: (row.vatAmountMinor / 100).toFixed(2),
     invoice_total_naira: (row.grossAmountMinor / 100).toFixed(2),
@@ -422,6 +428,7 @@ export default function ReportsPage() {
                   <th className="px-3 py-2">Branch</th>
                   <th className="px-3 py-2">Customer</th>
                   <th className="px-3 py-2 text-right">Net</th>
+                  <th className="px-3 py-2 text-right">Discount</th>
                   <th className="px-3 py-2 text-right">VAT</th>
                   <th className="px-3 py-2 text-right">Total</th>
                   <th className="px-3 py-2 text-right">Outstanding</th>
@@ -448,6 +455,9 @@ export default function ReportsPage() {
                     </td>
                     <td data-label="Net" className="px-3 py-2 text-right">
                       {formatNaira(row.netAmountMinor)}
+                    </td>
+                    <td data-label="Discount" className="px-3 py-2 text-right">
+                      {formatNaira(row.discountAmountMinor)}
                     </td>
                     <td data-label="VAT" className="px-3 py-2 text-right">
                       {formatNaira(row.vatAmountMinor)}

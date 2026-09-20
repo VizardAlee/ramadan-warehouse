@@ -17,11 +17,56 @@ describe("sales calculations", () => {
         },
       ]),
     ).toMatchObject({
+      subtotalAmountMinor: 200_000,
+      discountAmountMinor: 0,
       netAmountMinor: 200_000,
       vatAmountMinor: 15_000,
       grossAmountMinor: 215_000,
       costAmountMinor: 140_000,
     });
+  });
+
+  it("allocates discounts before VAT while preserving total cost", () => {
+    expect(
+      calculateSale(
+        [
+          {
+            quantity: 2,
+            unitPriceMinor: 100_000,
+            vatRateBasisPoints: 750,
+            unitCostMinor: 70_000,
+          },
+        ],
+        20_000,
+      ),
+    ).toMatchObject({
+      subtotalAmountMinor: 200_000,
+      discountAmountMinor: 20_000,
+      netAmountMinor: 180_000,
+      vatAmountMinor: 13_500,
+      grossAmountMinor: 193_500,
+      costAmountMinor: 140_000,
+      lines: [
+        expect.objectContaining({
+          subtotalAmountMinor: 200_000,
+          discountAmountMinor: 20_000,
+          netAmountMinor: 180_000,
+        }),
+      ],
+    });
+    expect(() =>
+      calculateSale(
+        [
+          {
+            quantity: 1,
+            unitPriceMinor: 100,
+            vatRateBasisPoints: 0,
+            unitCostMinor: 50,
+          },
+        ],
+        101,
+      ),
+    ).toThrow("cannot exceed");
   });
 
   it("requires paid-sale payments to equal the gross total", () => {

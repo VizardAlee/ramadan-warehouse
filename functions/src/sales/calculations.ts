@@ -6,6 +6,8 @@ export interface SaleCalculationLine {
 }
 
 export interface CalculatedSaleLine extends SaleCalculationLine {
+  readonly subtotalAmountMinor: number;
+  readonly discountAmountMinor: number;
   readonly netAmountMinor: number;
   readonly vatAmountMinor: number;
   readonly grossAmountMinor: number;
@@ -14,6 +16,8 @@ export interface CalculatedSaleLine extends SaleCalculationLine {
 
 export interface CalculatedSale {
   readonly lines: readonly CalculatedSaleLine[];
+  readonly subtotalAmountMinor: number;
+  readonly discountAmountMinor: number;
   readonly netAmountMinor: number;
   readonly vatAmountMinor: number;
   readonly grossAmountMinor: number;
@@ -50,6 +54,8 @@ export function calculateSaleLine(
     safeNonNegativeInteger(value, name);
   return {
     ...line,
+    subtotalAmountMinor: netAmountMinor,
+    discountAmountMinor: 0,
     netAmountMinor,
     vatAmountMinor,
     grossAmountMinor,
@@ -59,13 +65,47 @@ export function calculateSaleLine(
 
 export function calculateSale(
   input: readonly SaleCalculationLine[],
+  discountAmountMinor = 0,
 ): CalculatedSale {
   if (input.length === 0) throw new Error("A sale requires at least one item.");
-  const lines = input.map(calculateSaleLine);
+  safeNonNegativeInteger(discountAmountMinor, "Discount amount");
+  const undiscountedLines = input.map(calculateSaleLine);
+  const subtotalAmountMinor = undiscountedLines.reduce(
+    (sum, line) => sum + line.subtotalAmountMinor,
+    0,
+  );
+  if (discountAmountMinor > subtotalAmountMinor)
+    throw new Error("Discount cannot exceed the product subtotal.");
+  let allocatedDiscountMinor = 0;
+  const lines = undiscountedLines.map((line, index) => {
+    const lineDiscountMinor =
+      discountAmountMinor === 0
+        ? 0
+        : index === undiscountedLines.length - 1
+        ? discountAmountMinor - allocatedDiscountMinor
+        : Math.floor(
+            (discountAmountMinor * line.subtotalAmountMinor) /
+              subtotalAmountMinor,
+          );
+    allocatedDiscountMinor += lineDiscountMinor;
+    const netAmountMinor = line.subtotalAmountMinor - lineDiscountMinor;
+    const vatAmountMinor = Math.round(
+      (netAmountMinor * line.vatRateBasisPoints) / 10_000,
+    );
+    return {
+      ...line,
+      discountAmountMinor: lineDiscountMinor,
+      netAmountMinor,
+      vatAmountMinor,
+      grossAmountMinor: netAmountMinor + vatAmountMinor,
+    };
+  });
   const total = (field: keyof CalculatedSaleLine) =>
     lines.reduce((sum, line) => sum + Number(line[field]), 0);
   const result = {
     lines,
+    subtotalAmountMinor,
+    discountAmountMinor,
     netAmountMinor: total("netAmountMinor"),
     vatAmountMinor: total("vatAmountMinor"),
     grossAmountMinor: total("grossAmountMinor"),

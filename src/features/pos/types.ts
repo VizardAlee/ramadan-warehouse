@@ -6,6 +6,7 @@ export interface PosCustomer {
   customerNumber: string;
   name: string;
   phone: string | null;
+  creditStatus: "pending" | "approved" | "suspended" | "rejected";
   creditLimitMinor: number;
   outstandingBalanceMinor: number;
   availableCreditMinor: number;
@@ -80,6 +81,8 @@ export interface PosSalePayload {
   }>;
   customerId?: string;
   creditAmountMinor?: number;
+  discountAmountMinor?: number;
+  discountReason?: string;
   notes?: string;
   idempotencyKey: string;
 }
@@ -127,6 +130,9 @@ export interface SaleDocument {
     customerAddress: string | null;
     customerTaxId: string | null;
     netAmountMinor: number;
+    subtotalAmountMinor: number;
+    discountAmountMinor: number;
+    discountReason: string | null;
     vatAmountMinor: number;
     grossAmountMinor: number;
     amountPaidMinor: number;
@@ -142,6 +148,8 @@ export interface SaleDocument {
     unitOfMeasure: string;
     quantity: number;
     unitPriceMinor: number;
+    subtotalAmountMinor: number;
+    discountAmountMinor: number;
     vatRateBasisPoints: number;
     netAmountMinor: number;
     vatAmountMinor: number;

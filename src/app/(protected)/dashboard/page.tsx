@@ -6,7 +6,10 @@ import {
   Boxes,
   BookOpenCheck,
   ClipboardClock,
+  HandCoins,
   PackageCheck,
+  ReceiptText,
+  ShoppingBag,
   Truck,
 } from "lucide-react";
 import Link from "next/link";
@@ -17,16 +20,27 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { callAdministration } from "@/features/administration/api";
 import { useOrganizationCollection } from "@/features/administration/use-organization-collection";
 import { useAuth } from "@/features/auth/auth-context";
-import { OperationalMixChart, TransferPipelineChart } from "@/features/dashboard/charts";
+import {
+  OperationalMixChart,
+  SalesPaymentMixChart,
+  SalesTrendChart,
+  TransferPipelineChart,
+} from "@/features/dashboard/charts";
 import { DashboardLocationSwitcher } from "@/features/dashboard/location-switcher";
 import {
   scopeDashboardRecords,
   summarizeDashboard,
+  summarizeSales,
+  summarizeSalesByDay,
+  summarizeSalesPaymentMix,
   summarizeTransferPipeline,
+  type DashboardSale,
   type DashboardTransfer,
 } from "@/features/dashboard/summary";
 import type { BranchRequest, Product, WarehouseTransfer } from "@/types/domain";
 import type { StockTransfer } from "../../../../functions/src/transfers/simple-model";
+import { formatNaira } from "@/features/inventory/format";
+import { hasPermission } from "@/lib/permissions/roles";
 
 interface PageResult<T> {
   rows: T[];
@@ -49,26 +63,59 @@ async function loadScopedRegister<T>(callable: string, extra: object = {}): Prom
   throw new Error("The dashboard register exceeded the supported page limit.");
 }
 
+async function loadSalesRegister(branchId?: string): Promise<DashboardSale[]> {
+  const rows: DashboardSale[] = [];
+  let cursor: { recordedAt: string; saleId: string } | undefined;
+  const from = new Date();
+  from.setUTCDate(from.getUTCDate() - 29);
+  for (let page = 0; page < 100; page += 1) {
+    const result = await callAdministration<
+      object,
+      { rows: DashboardSale[]; nextCursor: typeof cursor | null }
+    >("generateSalesReport", {
+      reportType: "sales_register",
+      branchId,
+      fromDate: from.toISOString().slice(0, 10),
+      cursor,
+      limit: 500,
+    });
+    rows.push(...result.rows);
+    if (!result.nextCursor) return rows;
+    cursor = result.nextCursor;
+  }
+  throw new Error("The dashboard sales register exceeded the supported page limit.");
+}
+
 export default function DashboardPage() {
   const { profile, operatingContext } = useAuth();
   const products = useOrganizationCollection<Product>("products");
   const [requests, setRequests] = useState<BranchRequest[]>([]);
   const [transfers, setTransfers] = useState<DashboardTransfer[]>([]);
+  const [sales, setSales] = useState<DashboardSale[]>([]);
   const [registersLoading, setRegistersLoading] = useState(true);
   const [registerError, setRegisterError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!profile) return;
     let active = true;
+    const canReadSales = hasPermission(profile, "reports.sales.read");
+    const salesBranchId =
+      operatingContext?.type === "branch"
+        ? operatingContext.id
+        : profile.branchIds.length === 1
+          ? profile.branchIds[0]
+          : undefined;
     void Promise.all([
       loadScopedRegister<BranchRequest>("listBranchRequests"),
       loadScopedRegister<WarehouseTransfer>("listTransfers"),
       (profile.roleIds?.length ? profile.roleIds : [profile.roleId]).some(r => ["system_administrator", "operations_administrator", "warehouse_manager", "branch_manager", "auditor", "finance_officer"].includes(r)) ? loadScopedRegister<StockTransfer>("stockTransfers", { action: "list" }) : Promise.resolve([] as StockTransfer[]),
+      canReadSales ? loadSalesRegister(salesBranchId) : Promise.resolve([]),
     ])
-      .then(([requestRows, transferRows, simpleRows]) => {
+      .then(([requestRows, transferRows, simpleRows, saleRows]) => {
         if (!active) return;
         setRequests(requestRows);
         setTransfers([...transferRows, ...simpleRows.map(t => ({ status: t.status, originWarehouseId: t.sourceWarehouseId, sourceBranchId: t.sourceBranchId, destinationBranchId: t.destinationBranchId }))]);
+        setSales(saleRows);
         setRegisterError(null);
       })
       .catch(() => {
@@ -83,7 +130,7 @@ export default function DashboardPage() {
     return () => {
       active = false;
     };
-  }, [profile]);
+  }, [operatingContext, profile]);
 
   const loading = registersLoading || products.loading;
   const failed = registerError || products.error;
@@ -116,6 +163,12 @@ export default function DashboardPage() {
     ...item,
     color: pipelineColors[index]!,
   }));
+  const salesSummary = summarizeSales(sales);
+  const salesTrend = summarizeSalesByDay(sales);
+  const salesPaymentMix = summarizeSalesPaymentMix(sales);
+  const canReadSales = Boolean(
+    profile && hasPermission(profile, "reports.sales.read"),
+  );
 
   return (
     <div className="page-stack">
@@ -148,6 +201,37 @@ export default function DashboardPage() {
           Some dashboard totals could not be refreshed. Use the linked registers for current operational detail.
         </p>
       )}
+      {canReadSales && (
+        <>
+          <section aria-label="Sales summary" className="card-grid">
+            {[
+              { label: "Sales (30 days)", value: String(salesSummary.saleCount), icon: ReceiptText, href: "/reports" },
+              { label: "Sales value", value: formatNaira(salesSummary.grossAmountMinor), icon: ShoppingBag, href: "/reports" },
+              { label: "Amount received", value: formatNaira(salesSummary.amountPaidMinor), icon: HandCoins, href: "/reports" },
+              { label: "Customer credit", value: formatNaira(salesSummary.creditAmountMinor), icon: ClipboardClock, href: "/customers" },
+            ].map(({ label, value, icon: Icon, href }) => (
+              <Link key={label} href={href} className="rounded-xl border bg-white p-5 transition-colors hover:border-emerald-300">
+                <div className="flex items-start justify-between gap-4">
+                  <div className="min-w-0"><p className="text-sm text-[var(--muted)]">{label}</p>{loading ? <Skeleton className="mt-3 h-9 w-24" /> : <p className="mt-2 truncate text-2xl font-semibold tabular-nums">{value}</p>}</div>
+                  <span className="grid size-10 shrink-0 place-items-center rounded-lg bg-emerald-50 text-[var(--brand)]"><Icon className="size-5" /></span>
+                </div>
+                <span className="mt-4 inline-flex items-center gap-1 text-xs font-semibold text-[var(--brand)]">Open details <ArrowRight className="size-3.5" /></span>
+              </Link>
+            ))}
+          </section>
+          {!loading && (
+            <section aria-label="Sales charts" className="grid gap-4 lg:grid-cols-2">
+              <SalesTrendChart data={salesTrend} />
+              <SalesPaymentMixChart data={salesPaymentMix} />
+            </section>
+          )}
+        </>
+      )}
+      <div className="flex items-center gap-3 pt-2">
+        <span className="h-px flex-1 bg-slate-200" />
+        <h2 className="text-sm font-semibold uppercase tracking-[.14em] text-[var(--muted)]">Inventory &amp; operations</h2>
+        <span className="h-px flex-1 bg-slate-200" />
+      </div>
       <section aria-label="Operational summary" className="card-grid">
         {cards.map(({ label, value, icon: Icon, href, emphasis }) => (
           <Link key={label} href={href} className={`rounded-xl border bg-white p-5 transition-colors hover:border-emerald-300 ${emphasis ? "border-amber-300 bg-amber-50" : ""}`}>

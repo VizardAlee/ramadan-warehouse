@@ -162,6 +162,7 @@ export function SaleDocumentDialog({
                   <th className="p-3">Item</th>
                   <th className="p-3 text-right">Qty</th>
                   <th className="p-3 text-right">Unit price</th>
+                  <th className="p-3 text-right">Discount</th>
                   <th className="p-3 text-right">VAT</th>
                   <th className="p-3 text-right">Total</th>
                 </tr>
@@ -182,6 +183,9 @@ export function SaleDocumentDialog({
                       {formatNaira(item.unitPriceMinor)}
                     </td>
                     <td className="p-3 text-right">
+                      {formatNaira(item.discountAmountMinor)}
+                    </td>
+                    <td className="p-3 text-right">
                       {formatNaira(item.vatAmountMinor)}
                     </td>
                     <td className="p-3 text-right font-medium">
@@ -194,6 +198,21 @@ export function SaleDocumentDialog({
           </div>
 
           <section className="ml-auto max-w-sm space-y-2 text-sm">
+            <div className="flex justify-between">
+              <span>Product subtotal</span>
+              <span>{formatNaira(document.sale.subtotalAmountMinor)}</span>
+            </div>
+            {document.sale.discountAmountMinor > 0 && (
+              <div className="flex justify-between text-emerald-800">
+                <span>
+                  Discount
+                  {document.sale.discountReason
+                    ? ` · ${document.sale.discountReason}`
+                    : ""}
+                </span>
+                <span>−{formatNaira(document.sale.discountAmountMinor)}</span>
+              </div>
+            )}
             <div className="flex justify-between">
               <span>Net sales</span>
               <span>{formatNaira(document.sale.netAmountMinor)}</span>
