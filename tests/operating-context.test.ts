@@ -44,9 +44,8 @@ describe("operating context", () => {
     ).toBe("Legacy warehouse");
   });
 
-  it("offers every assigned warehouse and branch to a dual manager", () => {
+  it("offers only assigned stores while retaining legacy assignments internally", () => {
     expect(availableOperatingContexts(profile)).toEqual([
-      { type: "warehouse", id: "warehouse-1" },
       { type: "branch", id: "branch-1" },
     ]);
   });

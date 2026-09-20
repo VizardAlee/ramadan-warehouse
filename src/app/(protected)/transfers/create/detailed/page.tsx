@@ -1,2 +1,5 @@
-import { TransferForm } from "@/features/transfers/transfer-form";
-export default function DetailedTransferPage() { return <TransferForm source="direct" />; }
+import { redirect } from "next/navigation";
+
+export default function DetailedTransferPage() {
+  redirect("/transfers/create/direct");
+}

@@ -5,7 +5,6 @@ const tabs = [
   { href: "/administration/organization", label: "Organization", permissions: ["organization.manage"] },
   { href: "/administration/users", label: "Users", permissions: ["user.manage"] },
   { href: "/administration/branches", label: "Stores & Head Office", permissions: ["branch.manage"] },
-  { href: "/administration/warehouses", label: "Legacy Warehouses", permissions: ["warehouse.manage"] },
   { href: "/administration/locations", label: "Inventory Locations", permissions: ["location.manage"] },
   { href: "/administration/roles", label: "Roles & Permissions", permissions: ["role.manage"] },
 ] as const;

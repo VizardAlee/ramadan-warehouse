@@ -53,7 +53,7 @@ export default function GuidePage() {
               <Boxes className="mb-3 size-7 text-emerald-800" />
               <strong>Get stock from another location</strong>
               <p className="mt-2 text-sm">
-                Choose a warehouse or another branch. No packaging or transport
+                Choose Head Office or another store. No packaging or transport
                 form.
               </p>
             </Link>

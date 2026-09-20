@@ -11,9 +11,6 @@ export default function LegacyTransfersPage() {
         Continue their existing steps below. New everyday transfers use Request
         → Approve → Receive.
       </p>
-      <Link href="/transfers/create/detailed" className="underline">
-        Create an optional detailed logistics transfer
-      </Link>
       <TransferList />
     </div>
   );

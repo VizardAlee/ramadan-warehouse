@@ -4,7 +4,7 @@ import { doc, getDoc } from "firebase/firestore";
 import { useEffect, useMemo, useState } from "react";
 import { getFirebaseServices } from "@/lib/firebase/client";
 import { useOrganizationCollection } from "@/features/administration/use-organization-collection";
-import type { Branch, Warehouse as WarehouseRecord } from "@/types/domain";
+import type { Branch } from "@/types/domain";
 import { useAuth } from "./auth-context";
 import {
   availableOperatingContexts,
@@ -30,10 +30,6 @@ export function useOperatingContextOptions() {
     accessProfile && hasOrganizationWideOperatingAccess(accessProfile),
   );
   const branches = useOrganizationCollection<Branch>("branches", organizationWide);
-  const warehouses = useOrganizationCollection<WarehouseRecord>(
-    "warehouses",
-    organizationWide,
-  );
   const assignedContexts = useMemo(
     () => (accessProfile ? availableOperatingContexts(accessProfile) : []),
     [accessProfile],
@@ -42,18 +38,12 @@ export function useOperatingContextOptions() {
     () =>
       organizationWide
         ? [
-            ...warehouses.data
-              .filter((warehouse) => warehouse.status === "active")
-              .map((warehouse) => ({
-                type: "warehouse" as const,
-                id: warehouse.id,
-              })),
             ...branches.data
               .filter((branch) => branch.status === "active")
               .map((branch) => ({ type: "branch" as const, id: branch.id })),
           ]
-        : assignedContexts,
-    [assignedContexts, branches.data, organizationWide, warehouses.data],
+        : assignedContexts.filter((context) => context.type === "branch"),
+    [assignedContexts, branches.data, organizationWide],
   );
   const [contextMetadata, setContextMetadata] = useState<
     Record<string, ContextMetadata>
@@ -75,7 +65,7 @@ export function useOperatingContextOptions() {
         const snapshot = await getDoc(
           doc(
             getFirebaseServices().db,
-            context.type === "warehouse" ? "warehouses" : "branches",
+            "branches",
             context.id,
           ),
         );

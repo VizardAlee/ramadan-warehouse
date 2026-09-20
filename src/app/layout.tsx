@@ -5,7 +5,7 @@ import { PwaProvider } from "@/features/pwa/pwa-provider";
 
 export const metadata: Metadata = {
   title: { default: "AB Ramadan Warehouse", template: "%s | AB Ramadan Warehouse" },
-  description: "AB Ramadan inventory, request, transfer, and warehouse operations",
+  description: "AB Ramadan inventory, sales, request, transfer, and store operations",
   applicationName: "AB Ramadan Warehouse",
   manifest: "/manifest.webmanifest",
   appleWebApp: {

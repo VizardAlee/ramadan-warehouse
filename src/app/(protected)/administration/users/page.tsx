@@ -21,7 +21,6 @@ import {
   roleIds,
   type Branch,
   type UserProfile,
-  type Warehouse,
 } from "@/types/domain";
 
 function dateValue(value: DateTimeValue | undefined) {
@@ -76,12 +75,10 @@ export default function UsersPage() {
   const { profile, user: authenticatedUser } = useAuth();
   const users = useOrganizationCollection<UserProfile>("users");
   const branches = useOrganizationCollection<Branch>("branches");
-  const warehouses = useOrganizationCollection<Warehouse>("warehouses");
   const [search, setSearch] = useState("");
   const [role, setRole] = useState("");
   const [status, setStatus] = useState("");
   const [branchId, setBranchId] = useState("");
-  const [warehouseId, setWarehouseId] = useState("");
   const [editing, setEditing] = useState<UserProfile | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -113,10 +110,9 @@ export default function UsersPage() {
               role as (typeof roleIds)[number],
             )) &&
           (!status || user.status === status) &&
-          (!branchId || user.branchIds.includes(branchId)) &&
-          (!warehouseId || user.warehouseIds.includes(warehouseId)),
+          (!branchId || user.branchIds.includes(branchId)),
       ),
-    [users.data, search, role, status, branchId, warehouseId],
+    [users.data, search, role, status, branchId],
   );
   const pagination = useTablePagination(filtered);
   function open(user?: UserProfile) {
@@ -290,24 +286,6 @@ export default function UsersPage() {
             ))}
           </select>
         </label>
-        <label>
-          <span className="sr-only">Filter by warehouse</span>
-          <select
-            value={warehouseId}
-            onChange={(event) => {
-              setWarehouseId(event.target.value);
-              pagination.setPage(1);
-            }}
-            className="w-full rounded-lg border px-3"
-          >
-            <option value="">All warehouses</option>
-            {warehouses.data.map((item) => (
-              <option key={item.id} value={item.id}>
-                {item.name}
-              </option>
-            ))}
-          </select>
-        </label>
       </div>
       {message && (
         <div className="rounded-lg bg-amber-50 p-3 text-sm text-amber-900">
@@ -343,8 +321,7 @@ export default function UsersPage() {
               {[
                 "User",
                 "Roles",
-                "Branches",
-                "Warehouses",
+                "Stores",
                 "Status",
                 "Actions",
               ].map((label) => (
@@ -355,13 +332,13 @@ export default function UsersPage() {
           <tbody>
             {users.loading ? (
               <tr>
-                <td colSpan={6} className="p-8 text-center">
+                <td colSpan={5} className="p-8 text-center">
                   Loading users…
                 </td>
               </tr>
             ) : filtered.length === 0 ? (
               <tr>
-                <td colSpan={6} className="p-8 text-center text-[var(--muted)]">
+                <td colSpan={5} className="p-8 text-center text-[var(--muted)]">
                   No users match these filters.
                 </td>
               </tr>
@@ -379,8 +356,7 @@ export default function UsersPage() {
                       .map((roleId) => roleId.replaceAll("_", " "))
                       .join(", ")}
                   </td>
-                  <td data-label="Branches">{user.branchIds.length}</td>
-                  <td data-label="Warehouses">{user.warehouseIds.length}</td>
+                  <td data-label="Stores">{user.branchIds.length}</td>
                   <td data-label="Status">
                     <StatusBadge status={user.status} />
                     {invitationLabel(user) && (
@@ -529,27 +505,13 @@ export default function UsersPage() {
                 </select>
               </label>
               <label className="text-sm">
-                Branches
+                Stores & Head Office
                 <select
                   multiple
                   {...register("branchIds")}
                   className="mt-1 h-32 w-full rounded-lg border p-2.5"
                 >
                   {branches.data.map((item) => (
-                    <option key={item.id} value={item.id}>
-                      {item.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="text-sm">
-                Warehouses
-                <select
-                  multiple
-                  {...register("warehouseIds")}
-                  className="mt-1 h-32 w-full rounded-lg border p-2.5"
-                >
-                  {warehouses.data.map((item) => (
                     <option key={item.id} value={item.id}>
                       {item.name}
                     </option>

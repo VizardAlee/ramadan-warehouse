@@ -70,11 +70,6 @@ const configuration = {
     callable: "saveBranch",
     permission: "branch.manage",
   },
-  warehouses: {
-    title: "Legacy Warehouses",
-    callable: "saveWarehouse",
-    permission: "warehouse.manage",
-  },
   inventoryLocations: {
     title: "Inventory Locations",
     callable: "saveInventoryLocation",
@@ -94,15 +89,17 @@ export function MasterDataPage({
   const config = configuration[collectionName];
   const records = useOrganizationCollection<Row>(collectionName);
   const branches = useOrganizationCollection<Row>("branches");
-  const warehouses = useOrganizationCollection<Row>("warehouses");
   const users = useOrganizationCollection<UserProfile>("users");
   const branchManagers = eligibleManagers(users.data, "branch_manager");
-  const warehouseManagers = eligibleManagers(users.data, "warehouse_manager");
   const canManage = profile ? hasPermission(profile, config.permission) : false;
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Row | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const pagination = useTablePagination(records.data);
+  const visibleRecords =
+    collectionName === "inventoryLocations"
+      ? records.data.filter((row) => row.type !== "warehouse")
+      : records.data;
+  const pagination = useTablePagination(visibleRecords);
   const dialogRef = useDialogFocus<HTMLFormElement>(open, () => setOpen(false));
   const {
     register,
@@ -143,9 +140,7 @@ export function MasterDataPage({
       const owner =
         values.type === "branch" && values.relatedId
           ? { branchId: values.relatedId }
-          : values.type === "warehouse" && values.relatedId
-            ? { warehouseId: values.relatedId }
-            : {};
+          : {};
       await callAdministration(config.callable, {
         ...sanitized,
         ...owner,
@@ -167,19 +162,8 @@ export function MasterDataPage({
         users.data.find((user) => user.id === row.managerUserId)?.displayName ??
         "No manager"
       );
-    if (collectionName === "warehouses")
-      return (
-        row.managerIds
-          .map(
-            (id) =>
-              users.data.find((user) => user.id === id)?.displayName ?? id,
-          )
-          .join(", ") || "No managers"
-      );
     return (
       branches.data.find((branch) => branch.id === row.branchId)?.name ??
-      warehouses.data.find((warehouse) => warehouse.id === row.warehouseId)
-        ?.name ??
       "Organization virtual"
     );
   }
@@ -189,9 +173,7 @@ export function MasterDataPage({
         <div>
           <h1 className="page-title">{config.title}</h1>
           <p className="page-description">
-            {collectionName === "warehouses"
-              ? "Existing facility records retained for purchasing and audit history during the head-office transition."
-              : "Organization-scoped administrative master data."}
+            Organization-scoped administrative master data.
           </p>
         </div>
         {canManage && (
@@ -225,7 +207,7 @@ export function MasterDataPage({
                   Loading…
                 </td>
               </tr>
-            ) : records.data.length === 0 ? (
+            ) : visibleRecords.length === 0 ? (
               <tr>
                 <td colSpan={6} className="p-8 text-center text-[var(--muted)]">
                   No records configured.
@@ -271,10 +253,10 @@ export function MasterDataPage({
           </tbody>
         </table>
       </div>
-      {!records.loading && records.data.length > 0 && (
+      {!records.loading && visibleRecords.length > 0 && (
         <PaginatedTableControls
           pagination={pagination}
-          total={records.data.length}
+          total={visibleRecords.length}
           itemLabel={collectionName.replaceAll(/([A-Z])/g, " $1").toLowerCase()}
         />
       )}
@@ -379,22 +361,6 @@ export function MasterDataPage({
                   </label>
                 </>
               )}
-              {collectionName === "warehouses" && (
-                <label className="text-sm">
-                  Managers
-                  <select
-                    multiple
-                    {...register("managerIds")}
-                    className="mt-1 h-32 w-full rounded-lg border p-2.5"
-                  >
-                    {warehouseManagers.map((user) => (
-                      <option key={user.id} value={user.id}>
-                        {user.displayName}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              )}
               {collectionName === "inventoryLocations" && (
                 <>
                   <label className="text-sm">
@@ -403,28 +369,22 @@ export function MasterDataPage({
                       {...register("type")}
                       className="mt-1 w-full rounded-lg border p-2.5"
                     >
-                      <option value="branch">branch</option>
-                      {editing?.type === "warehouse" && (
-                        <option value="warehouse">legacy warehouse</option>
-                      )}
+                      <option value="branch">store stock</option>
                       <option value="goods_in_transit">goods in transit</option>
                       <option value="damaged">damaged</option>
                       <option value="quarantined">quarantined</option>
                       <option value="returned">returned</option>
                     </select>
                   </label>
-                  {(type === "branch" || type === "warehouse") && (
+                  {type === "branch" && (
                     <label className="text-sm">
-                      Related {type}
+                      Related store
                       <select
                         {...register("relatedId")}
                         className="mt-1 w-full rounded-lg border p-2.5"
                       >
                         <option value="">Select…</option>
-                        {(type === "branch"
-                          ? branches.data
-                          : warehouses.data
-                        ).map((row) => (
+                        {branches.data.map((row) => (
                           <option key={row.id} value={row.id}>
                             {row.name}
                           </option>

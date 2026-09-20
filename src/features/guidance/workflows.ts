@@ -19,7 +19,7 @@ export const setupWorkflowSteps: readonly WorkflowStep[] = [
   {
     title: "Opening stock",
     detail:
-      "Count existing stock into the warehouse or branch where it is physically held.",
+      "Count existing stock into Head Office or the store where it is physically held.",
     href: "/inventory/opening-stock",
   },
   {
@@ -33,7 +33,7 @@ export const transferWorkflowSteps: readonly WorkflowStep[] = [
   {
     title: "Create transfer",
     detail:
-      "Choose the sending warehouse or branch, the receiving branch, and products. Either location manager can start.",
+      "Choose the sending store, receiving store, and products. Either location manager can start.",
     href: "/transfers/create/direct",
   },
   {
@@ -65,7 +65,7 @@ export const detailedTransferWorkflowSteps: readonly WorkflowStep[] = [
   },
   {
     title: "Reserve",
-    detail: "Lock available warehouse stock to this transfer.",
+    detail: "Lock available source-store stock to this transfer.",
     href: "/transfers/reservations",
   },
   {
@@ -82,7 +82,7 @@ export const detailedTransferWorkflowSteps: readonly WorkflowStep[] = [
   {
     title: "Dispatch",
     detail:
-      "Confirm goods leaving the warehouse; dispatched quantities become immutable.",
+      "Confirm goods leaving the source store; dispatched quantities become immutable.",
     href: "/transfers/dispatch",
   },
   {

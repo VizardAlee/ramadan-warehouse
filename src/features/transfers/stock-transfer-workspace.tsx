@@ -12,7 +12,6 @@ import {
   RefreshCw,
   ShieldCheck,
   Store,
-  Warehouse,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
@@ -151,11 +150,7 @@ function Route({ transfer }: { transfer: StockTransfer }) {
   return (
     <div className="flex flex-wrap items-center gap-3 text-sm">
       <span className="flex items-center gap-2">
-        {transfer.sourceBranchId ? (
-          <Store className="size-5" />
-        ) : (
-          <Warehouse className="size-5" />
-        )}{" "}
+        <Store className="size-5" />{" "}
         {transfer.sourceName}
       </span>
       <ArrowRight className="size-5 text-emerald-700" />
@@ -268,10 +263,9 @@ function ManagedStockTransferList() {
   const scoped = rows.filter(
     (t) =>
       !operatingContext ||
-      (operatingContext.type === "warehouse"
-        ? t.sourceWarehouseId === operatingContext.id
-        : t.sourceBranchId === operatingContext.id ||
-          t.destinationBranchId === operatingContext.id),
+      (operatingContext.type === "branch" &&
+        (t.sourceBranchId === operatingContext.id ||
+          t.destinationBranchId === operatingContext.id)),
   );
   const shown = scoped
     .filter(
@@ -292,8 +286,7 @@ function ManagedStockTransferList() {
         <div>
           <h1 className="text-3xl font-semibold">Move stock</h1>
           <p className="mt-2 text-[var(--muted)]">
-            Between your warehouse and stores, or directly from one branch to
-            another.
+            From Head Office to a store, or directly between any two stores.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -636,7 +629,7 @@ export function StockTransferForm({
               .filter((l) => l.id !== destination)
               .map((l) => (
                 <option key={l.id} value={l.id}>
-                  {l.type === "warehouse" ? "Warehouse" : "Branch"}: {l.name}
+                  {l.branchId ? "Store" : "Location"}: {l.name}
                   {options.locations.filter((x) => x.name === l.name).length > 1
                     ? ` — ${l.stockArea}`
                     : ""}

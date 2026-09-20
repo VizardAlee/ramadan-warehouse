@@ -1,2 +1,5 @@
-import { MasterDataPage } from "@/features/administration/master-data-page";
-export default function Page() { return <MasterDataPage collectionName="warehouses"/>; }
+import { redirect } from "next/navigation";
+
+export default function Page() {
+  redirect("/administration/branches");
+}

@@ -17,7 +17,6 @@ import type {
   InventoryLocation,
   PermissionId,
   Product,
-  Warehouse,
 } from "@/types/domain";
 
 interface ProductCost {
@@ -115,11 +114,7 @@ export function PostingForm({
   const locations =
     useOrganizationCollection<InventoryLocation>("inventoryLocations");
   const branches = useOrganizationCollection<Branch>("branches");
-  const warehouses = useOrganizationCollection<Warehouse>("warehouses");
   const [message, setMessage] = useState<string | null>(null);
-  const [openingDestinationType, setOpeningDestinationType] = useState<
-    "warehouse" | "branch"
-  >("warehouse");
   const form = useForm<Values, unknown, ParsedValues>({
     resolver: zodResolver(schema),
     defaultValues: {
@@ -135,10 +130,7 @@ export function PostingForm({
     (item) => item.productId === productId || item.id === productId,
   )?.defaultUnitCostMinor ?? product?.defaultUnitCostMinor;
   const locationOptions = locations.data.filter(
-    (item) => item.status === "active",
-  );
-  const openingWarehouseOptions = locationOptions.filter(
-    (item) => item.type === "warehouse",
+    (item) => item.status === "active" && Boolean(item.branchId),
   );
   const openingBranchOptions = locationOptions.filter(
     (item) => item.type === "branch",
@@ -146,15 +138,6 @@ export function PostingForm({
   const canManageLocations = profile
     ? hasPermission(profile, "location.manage")
     : false;
-  const warehousesWithoutLocations = canManageLocations
-    ? warehouses.data.filter(
-        (warehouse) =>
-          warehouse.status === "active" &&
-          !openingWarehouseOptions.some(
-            (location) => location.warehouseId === warehouse.id,
-          ),
-      )
-    : [];
   const branchesWithoutLocations = canManageLocations
     ? branches.data.filter(
         (branch) =>
@@ -164,22 +147,13 @@ export function PostingForm({
           ),
       )
     : [];
-  const openingDestinationOptions =
-    openingDestinationType === "warehouse"
-      ? openingWarehouseOptions
-      : openingBranchOptions;
-  const openingOwnersWithoutLocations =
-    openingDestinationType === "warehouse"
-      ? warehousesWithoutLocations
-      : branchesWithoutLocations;
+  const openingDestinationOptions = openingBranchOptions;
+  const openingOwnersWithoutLocations = branchesWithoutLocations;
   const locationLabel = (item: InventoryLocation) => {
-    const warehouse = warehouses.data.find(
-      (candidate) => candidate.id === item.warehouseId,
-    );
     const branch = branches.data.find(
       (candidate) => candidate.id === item.branchId,
     );
-    const owner = warehouse?.name ?? branch?.name;
+    const owner = branch?.name;
     return owner && owner !== item.name
       ? `${owner} — ${item.name}`
       : owner ?? item.name;
@@ -209,13 +183,12 @@ export function PostingForm({
     if (onlyOwnerWithoutLocation)
       form.setValue(
         "destinationLocationId",
-        `setup-${openingDestinationType}:${onlyOwnerWithoutLocation.id}`,
+        `setup-branch:${onlyOwnerWithoutLocation.id}`,
       );
   }, [
     form,
     mode,
     openingDestinationOptions,
-    openingDestinationType,
     openingOwnersWithoutLocations,
     products.data,
   ]);
@@ -268,36 +241,6 @@ export function PostingForm({
     }
     try {
       let destinationLocationId = values.destinationLocationId;
-      if (
-        mode === "opening" &&
-        destinationLocationId?.startsWith("setup-warehouse:")
-      ) {
-        const warehouseId = destinationLocationId.slice(
-          "setup-warehouse:".length,
-        );
-        const warehouse = warehouses.data.find(
-          (candidate) => candidate.id === warehouseId,
-        );
-        if (!warehouse) {
-          form.setError("destinationLocationId", {
-            message: "That warehouse is no longer available. Select it again.",
-          });
-          return;
-        }
-        const created = await callAdministration<
-          object,
-          { id: string; saved: boolean }
-        >("saveInventoryLocation", {
-          name: `${warehouse.name} Stock`,
-          code: warehouse.code,
-          type: "warehouse",
-          warehouseId: warehouse.id,
-          status: "active",
-          systemManaged: false,
-          idempotencyKey: crypto.randomUUID(),
-        });
-        destinationLocationId = created.id;
-      }
       if (
         mode === "opening" &&
         destinationLocationId?.startsWith("setup-branch:")
@@ -418,7 +361,7 @@ export function PostingForm({
         </h1>
         <p className="text-[var(--muted)]">
           {mode === "opening"
-            ? "Record stock already held by the business in a warehouse or store/branch."
+            ? "Record stock already held by the business at Head Office or another store."
             : "Record the inventory movement securely."}
         </p>
       </div>
@@ -427,9 +370,9 @@ export function PostingForm({
       )}
       {mode === "opening" && (
         <aside className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-950">
-          <strong>Opening balance:</strong> choose whether the stock is already
-          in a warehouse or already in a store/branch, then select the place and
-          enter the quantity. Future movements between them use transfers.
+          <strong>Opening balance:</strong> select the store where the stock is
+          physically held, then enter the quantity. Head Office is a selling
+          store and also the central distribution point.
         </aside>
       )}
       <div className="form-grid rounded-xl border bg-white p-[clamp(1rem,3vw,1.5rem)]">
@@ -454,25 +397,6 @@ export function PostingForm({
             </span>
           )}
         </label>
-        {mode === "opening" && (
-          <label className="text-sm">
-            2. Where is this stock now?
-            <select
-              value={openingDestinationType}
-              onChange={(event) => {
-                setOpeningDestinationType(
-                  event.target.value as "warehouse" | "branch",
-                );
-                form.setValue("destinationLocationId", "");
-                form.clearErrors("destinationLocationId");
-              }}
-              className="mt-1 w-full rounded-lg border p-2.5"
-            >
-              <option value="warehouse">Warehouse</option>
-              <option value="branch">Store / branch</option>
-            </select>
-          </label>
-        )}
         {mode === "movement" ? (
           <>
             <label className="text-sm">
@@ -522,7 +446,7 @@ export function PostingForm({
         ) : (
           <label className="text-sm">
             {mode === "opening"
-              ? `3. ${openingDestinationType === "warehouse" ? "Warehouse" : "Store / branch"}`
+              ? "2. Store / Head Office"
               : "Destination location"}
             <select
               {...form.register("destinationLocationId")}
@@ -530,7 +454,7 @@ export function PostingForm({
             >
               <option value="">
                 {mode === "opening"
-                  ? `Select ${openingDestinationType === "warehouse" ? "warehouse" : "store / branch"}…`
+                  ? "Select store or Head Office…"
                   : "Select…"}
               </option>
               {(mode === "opening" ? openingDestinationOptions : locationOptions).map((item) => (
@@ -539,11 +463,11 @@ export function PostingForm({
                 </option>
               ))}
               {mode === "opening" && openingOwnersWithoutLocations.length > 0 && (
-                <optgroup label={`${openingDestinationType === "warehouse" ? "Warehouses" : "Stores / branches"} ready for automatic stock setup`}>
+                <optgroup label="Stores ready for automatic stock setup">
                   {openingOwnersWithoutLocations.map((owner) => (
                     <option
                       key={owner.id}
-                      value={`setup-${openingDestinationType}:${owner.id}`}
+                      value={`setup-branch:${owner.id}`}
                     >
                       {owner.name} (set up automatically)
                     </option>
@@ -561,27 +485,27 @@ export function PostingForm({
               openingDestinationOptions.length === 0 &&
               openingOwnersWithoutLocations.length === 0 && (
               <span className="mt-2 block text-xs text-amber-800">
-                No available {openingDestinationType === "warehouse" ? "warehouse" : "store/branch"} was found.
+                No available store or Head Office was found.
                 {canManageLocations ? (
                   <>
                     {" "}
                     <Link
                       className="font-semibold underline"
-                      href={openingDestinationType === "warehouse" ? "/administration/warehouses" : "/administration/branches"}
+                      href="/administration/branches"
                     >
                       Create one first
                     </Link>
                     .
                   </>
                 ) : (
-                  ` Ask an administrator to configure your assigned ${openingDestinationType === "warehouse" ? "warehouse" : "store/branch"}.`
+                  " Ask an administrator to configure your assigned store."
                 )}
               </span>
             )}
           </label>
         )}
         <label className="text-sm">
-          {mode === "opening" ? `4. Quantity${product ? ` (${product.unitOfMeasure})` : ""}` : "Quantity"}
+          {mode === "opening" ? `3. Quantity${product ? ` (${product.unitOfMeasure})` : ""}` : "Quantity"}
           <input
             type="number"
             {...form.register("quantity")}

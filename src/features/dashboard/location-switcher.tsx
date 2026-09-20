@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, Store, Warehouse } from "lucide-react";
+import { Building2, Check, Store } from "lucide-react";
 import { useOperatingContextOptions } from "@/features/auth/use-operating-context-options";
 
 export function DashboardLocationSwitcher() {
@@ -18,7 +18,7 @@ export function DashboardLocationSwitcher() {
           Working location
         </p>
         <h2 id="working-location-title" className="mt-1 text-xl font-semibold">
-          Switch branch or warehouse
+          Switch store
         </h2>
         <p className="mt-1 max-w-3xl text-sm leading-6 text-[var(--muted)]">
           Dashboard totals update to the selected assignment. Your authorized
@@ -43,7 +43,7 @@ export function DashboardLocationSwitcher() {
             }`}
           >
             <span className="grid size-11 shrink-0 place-items-center rounded-xl bg-white text-[var(--brand)] shadow-sm">
-              <Warehouse className="size-5" />
+              <Building2 className="size-5" />
             </span>
             <span className="min-w-0 flex-1">
               <span className="block text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">
@@ -62,7 +62,7 @@ export function DashboardLocationSwitcher() {
         )}
         {options.map((option) => {
           const selected = option.value === activeValue;
-          const Icon = option.type === "warehouse" ? Warehouse : Store;
+          const Icon = Store;
           return (
             <button
               key={option.value}

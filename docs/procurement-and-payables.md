@@ -8,7 +8,7 @@ order, a physical receipt, a supplier invoice, and a payment as the same event.
 
 1. An authorized user creates or updates an organization supplier record.
 2. An authorized manager creates a purchase order for one operational location
-   (Head Office, a store, or a legacy warehouse) and one of its stock
+   (Head Office or another store) and one of its stock
    locations. Product identity, SKU, tracking policy, ordered unit cost, and
    VAT are snapshotted on each line.
 3. The creator submits the order. An assigned manager may approve
@@ -66,9 +66,10 @@ Auditors are read-only. System administrators retain organization-wide access.
 
 New purchase orders persist canonical `operationalLocationType`,
 `operationalLocationId`, and `operationalLocationName` fields alongside the
-existing optional `branchId` or `warehouseId`. Existing warehouse purchase
-orders require no destructive migration: read paths retain their historical
-warehouse fields, while new Head Office/store orders use branch ownership.
+existing optional `branchId` or historical `warehouseId`. Existing warehouse
+purchase orders require no destructive migration: read paths retain their
+historical warehouse fields, while the UI creates new orders only for Head
+Office/stores using branch ownership.
 
 This phase does not yet add operating-expense bills, bank-statement import and
 reconciliation, accounting-period close, or complete financial statements.

@@ -53,9 +53,7 @@ export default function ExpensesPage() {
   const contextInput =
     operatingContext?.type === "branch"
       ? { branchId: operatingContext.id }
-      : operatingContext?.type === "warehouse"
-        ? { warehouseId: operatingContext.id }
-        : {};
+      : {};
 
   async function load() {
     if (!profile) return;
@@ -67,7 +65,7 @@ export default function ExpensesPage() {
         Workspace
       >("getExpenseWorkspace", contextInput);
       setWorkspace(result);
-      if (operatingContext)
+      if (operatingContext?.type === "branch")
         setForm((current) => ({
           ...current,
           scopeType: operatingContext.type,
@@ -112,11 +110,7 @@ export default function ExpensesPage() {
   }
   async function createExpense() {
     const scope =
-      form.scopeType === "branch"
-        ? { branchId: form.scopeId }
-        : form.scopeType === "warehouse"
-          ? { warehouseId: form.scopeId }
-          : {};
+      form.scopeType === "branch" ? { branchId: form.scopeId } : {};
     await run(
       () =>
         callAdministration("createExpense", {
@@ -151,11 +145,7 @@ export default function ExpensesPage() {
       </div>
     );
   const scopeOptions =
-    form.scopeType === "branch"
-      ? (workspace?.branches ?? [])
-      : form.scopeType === "warehouse"
-        ? (workspace?.warehouses ?? [])
-        : [];
+    form.scopeType === "branch" ? (workspace?.branches ?? []) : [];
 
   return (
     <div className="space-y-5">
@@ -257,8 +247,7 @@ export default function ExpensesPage() {
                 className="mt-1 w-full rounded-lg border p-3"
               >
                 <option value="organization">Whole organization</option>
-                <option value="branch">Store / branch</option>
-                <option value="warehouse">Warehouse</option>
+                <option value="branch">Store / Head Office</option>
               </select>
             </label>
             {form.scopeType !== "organization" && (

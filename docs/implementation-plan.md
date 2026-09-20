@@ -87,9 +87,10 @@ the workflow preserves accountability without forcing three separate people.
 
 The location model now treats one designated branch as **Head office / central
 distribution**, allowing the same physical site to sell and supply other
-stores. New operational setup is branch-first. Legacy warehouse records and
-their ledger history remain compatible and are never silently deleted or
-reclassified.
+stores. New operational setup is store-only: warehouse administration,
+assignment, opening-stock, procurement, expense, and transfer choices are no
+longer exposed. Legacy warehouse records and their ledger history remain
+read-compatible and are never silently deleted or reclassified.
 
 Phase 2 adds reusable customer accounts, administrator-only credit decisions,
 live credit-limit enforcement, online credit checkout, an immutable customer

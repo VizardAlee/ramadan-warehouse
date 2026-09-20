@@ -237,8 +237,8 @@ export const stockTransfers = onCall({ enforceAppCheck }, async (request) => {
     );
   if (input.action === "options") {
     // Only names/identities needed to request stock are discoverable across branches.
-    const [locations, branches, warehouses] = await Promise.all(
-      ["inventoryLocations", "branches", "warehouses"].map((collection) =>
+    const [locations, branches] = await Promise.all(
+      ["inventoryLocations", "branches"].map((collection) =>
         db
           .collection(collection)
           .where("organizationId", "==", actor.organizationId)
@@ -246,7 +246,7 @@ export const stockTransfers = onCall({ enforceAppCheck }, async (request) => {
       ),
     );
     const units = new Map(
-      [...branches!.docs, ...warehouses!.docs]
+      branches!.docs
         .filter((d) => d.get("status") === "active")
         .map((d) => [d.id, d.get("name")]),
     );
@@ -254,13 +254,13 @@ export const stockTransfers = onCall({ enforceAppCheck }, async (request) => {
       locations: locations!.docs
         .filter(
           (d) =>
-            ["branch", "warehouse"].includes(d.get("type")) &&
+            d.get("type") === "branch" &&
             d.get("status") === "active" &&
-            units.has(d.get("branchId") ?? d.get("warehouseId")),
+            units.has(d.get("branchId")),
         )
         .map((d) => ({
           id: d.id,
-          name: units.get(d.get("branchId") ?? d.get("warehouseId")),
+          name: units.get(d.get("branchId")),
           stockArea: d.get("name"),
           type: d.get("type"),
           branchId: d.get("branchId") ?? null,

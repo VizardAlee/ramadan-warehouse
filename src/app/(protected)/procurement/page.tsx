@@ -115,10 +115,7 @@ export default function ProcurementPage() {
       const selectedDestination =
         contextKey ||
         destinationKey ||
-        (result.branches[0] ? `branch:${result.branches[0].id}` : "") ||
-        (result.warehouses[0]
-          ? `warehouse:${result.warehouses[0].id}`
-          : "");
+        (result.branches[0] ? `branch:${result.branches[0].id}` : "");
       setDestinationKey(selectedDestination);
       const [ownerType, ownerId] = selectedDestination.split(":");
       setLocationId(
@@ -153,10 +150,7 @@ export default function ProcurementPage() {
           setWorkspace(result);
           const selectedDestination =
             contextKey ||
-            (result.branches[0] ? `branch:${result.branches[0].id}` : "") ||
-            (result.warehouses[0]
-              ? `warehouse:${result.warehouses[0].id}`
-              : "");
+            (result.branches[0] ? `branch:${result.branches[0].id}` : "");
           setDestinationKey(selectedDestination);
           const [ownerType, ownerId] = selectedDestination.split(":");
           setLocationId(
@@ -271,7 +265,7 @@ export default function ProcurementPage() {
           <p className="text-[var(--muted)]">
             Create the supplier once, record the order, receive real goods, then
             match and pay the supplier invoice. Managers can complete every step
-            within their assigned Head Office, store, or legacy warehouse.
+            within their assigned Head Office or store.
           </p>
         </div>
         <Button variant="outline" disabled={busy} onClick={() => void load()}>
@@ -418,14 +412,6 @@ export default function ProcurementPage() {
                       ? "Head Office"
                       : "Store"}{" "}
                     · {record.name}
-                  </option>
-                ))}
-                {workspace.warehouses.map((record) => (
-                  <option
-                    key={`warehouse:${record.id}`}
-                    value={`warehouse:${record.id}`}
-                  >
-                    Legacy warehouse · {record.name}
                   </option>
                 ))}
               </select>

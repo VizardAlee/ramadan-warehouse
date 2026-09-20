@@ -17,7 +17,7 @@ import { LoginForm } from "@/features/auth/login-form";
 
 export const metadata: Metadata = {
   title: "Sign in",
-  description: "Secure access to AB Ramadan's connected warehouse, branch, inventory, and sales operations.",
+  description: "Secure access to AB Ramadan's connected stores, inventory, distribution, and sales operations.",
 };
 
 const capabilities = [
@@ -57,7 +57,7 @@ export default function LoginPage() {
             <span>Completely accountable.</span>
           </h1>
           <p className="login-lede">
-            Run warehouses, stores, sales, purchasing and finance from one auditable source of truth—built for the speed of real business.
+            Run Head Office, stores, sales, purchasing and finance from one auditable source of truth—built for the speed of real business.
           </p>
 
           <div className="login-capabilities" aria-label="Platform capabilities">
@@ -66,14 +66,14 @@ export default function LoginPage() {
             ))}
           </div>
 
-          <div className="login-flow" aria-label="Live warehouse-to-store workflow illustration">
+          <div className="login-flow" aria-label="Live Head-Office-to-store workflow illustration">
             <div className="login-flow-grid" />
             <div className="login-route login-route-one" />
             <div className="login-route login-route-two" />
 
             <article className="login-node login-node-warehouse">
               <span className="login-node-icon"><Building2 /></span>
-              <div><small>ORIGIN</small><strong>Central warehouse</strong><span>Stock verified</span></div>
+              <div><small>ORIGIN</small><strong>Head Office store</strong><span>Stock verified</span></div>
               <CheckCircle2 className="login-node-check" />
             </article>
 

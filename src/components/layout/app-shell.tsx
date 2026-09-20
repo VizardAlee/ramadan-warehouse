@@ -144,7 +144,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         <div className="text-center">
           <PackageCheck className="mx-auto mb-3 size-9 animate-pulse text-[var(--brand)]" />
           <p className="text-sm text-[var(--muted)]">
-            Verifying warehouse access…
+            Verifying store access…
           </p>
         </div>
       </main>
@@ -208,7 +208,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           <span>
             AB Ramadan
             <small className="block text-xs font-normal text-emerald-200">
-              Warehouse operations
+              Store operations
             </small>
           </span>
         </Link>

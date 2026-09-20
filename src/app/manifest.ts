@@ -5,7 +5,7 @@ export default function manifest(): MetadataRoute.Manifest {
     id: "/",
     name: "AB Ramadan Warehouse",
     short_name: "ABR Warehouse",
-    description: "Inventory, branch POS, sales, finance, requests, and warehouse operations for AB Ramadan Ltd.",
+    description: "Inventory, store POS, sales, finance, requests, and distribution operations for AB Ramadan Ltd.",
     start_url: "/",
     scope: "/",
     display: "standalone",

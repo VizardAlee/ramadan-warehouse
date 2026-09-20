@@ -35,16 +35,10 @@ const organizationWideRoles: readonly RoleId[] = [
   "finance_officer",
   "auditor",
 ];
-const warehouseRoles: readonly RoleId[] = [
+const legacyWarehouseRoles: readonly RoleId[] = [
   "warehouse_manager",
   "warehouse_officer",
 ];
-const branchRoles: readonly RoleId[] = [
-  "branch_manager",
-  "branch_requester",
-  "sales_cashier",
-];
-
 export function hasOrganizationWideOperatingAccess(profile: UserProfile) {
   return assignedRoles(profile).some((role) =>
     organizationWideRoles.includes(role),
@@ -58,20 +52,8 @@ function assignedRoles(profile: UserProfile): RoleId[] {
 export function availableOperatingContexts(
   profile: UserProfile,
 ): OperatingContext[] {
-  const roles = assignedRoles(profile);
   if (hasOrganizationWideOperatingAccess(profile)) return [];
-  const contexts: OperatingContext[] = [];
-  if (roles.some((role) => warehouseRoles.includes(role))) {
-    contexts.push(
-      ...profile.warehouseIds.map((id) => ({ type: "warehouse" as const, id })),
-    );
-  }
-  if (roles.some((role) => branchRoles.includes(role))) {
-    contexts.push(
-      ...profile.branchIds.map((id) => ({ type: "branch" as const, id })),
-    );
-  }
-  return contexts;
+  return profile.branchIds.map((id) => ({ type: "branch" as const, id }));
 }
 
 export function isAvailableOperatingContext(
@@ -95,19 +77,15 @@ export function narrowProfileToOperatingContext(
   if (hasOrganizationWideOperatingAccess(profile)) return profile;
   if (!context || !isAvailableOperatingContext(context, profile)) return profile;
   const roles = assignedRoles(profile);
-  const contextRoles = roles.filter((role) =>
-    context.type === "warehouse"
-      ? warehouseRoles.includes(role)
-      : branchRoles.includes(role),
-  );
+  const storeRole = roles.find((role) => !legacyWarehouseRoles.includes(role));
   return {
     ...profile,
     // Keep the primary role relevant to the selected location for legacy UI
     // labels, but never discard permissions contributed by other assigned roles.
-    roleId: contextRoles[0] ?? roles[0]!,
+    roleId: storeRole ?? roles[0]!,
     roleIds: roles,
-    branchIds: context.type === "branch" ? [context.id] : [],
-    warehouseIds: context.type === "warehouse" ? [context.id] : [],
+    branchIds: [context.id],
+    warehouseIds: [],
   };
 }
 
