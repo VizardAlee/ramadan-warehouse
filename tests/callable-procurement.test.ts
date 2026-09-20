@@ -28,9 +28,12 @@ const adminAuth = getAdminAuth(adminApp),
 const organizationId = "procurement-test-org",
   warehouseId = "warehouse-procurement",
   locationId = "procurement-receiving",
+  headOfficeId = "branch-head-office",
+  headOfficeLocationId = "head-office-receiving",
   productId = "product-procurement";
 let administrator: ReturnType<typeof client>,
-  warehouseManager: ReturnType<typeof client>;
+  warehouseManager: ReturnType<typeof client>,
+  headOfficeManager: ReturnType<typeof client>;
 
 function client(name: string) {
   const app = initializeApp(
@@ -63,7 +66,11 @@ async function createActor(email: string, roleId: string) {
     email,
     displayName: roleId,
     roleId,
-    branchIds: [],
+    roleIds:
+      roleId === "branch_manager"
+        ? ["warehouse_manager", "branch_manager"]
+        : [roleId],
+    branchIds: roleId === "branch_manager" ? [headOfficeId] : [],
     warehouseIds: roleId === "warehouse_manager" ? [warehouseId] : [],
     status: "active",
     authDisabled: false,
@@ -93,12 +100,35 @@ beforeAll(async () => {
     "procurement-warehouse@example.test",
     "warehouse_manager",
   );
+  headOfficeManager = await createActor(
+    "procurement-head-office@example.test",
+    "branch_manager",
+  );
   const now = FieldValue.serverTimestamp();
   await Promise.all([
     adminDb.doc(`warehouses/${warehouseId}`).set({
       organizationId,
       name: "Central Warehouse",
       code: "CWH",
+      status: "active",
+      createdAt: now,
+      updatedAt: now,
+    }),
+    adminDb.doc(`branches/${headOfficeId}`).set({
+      organizationId,
+      name: "Head Office",
+      code: "HO",
+      branchType: "head_office",
+      status: "active",
+      createdAt: now,
+      updatedAt: now,
+    }),
+    adminDb.doc(`inventoryLocations/${headOfficeLocationId}`).set({
+      organizationId,
+      branchId: headOfficeId,
+      name: "Head Office Stock",
+      code: "HO-STOCK",
+      type: "branch",
       status: "active",
       createdAt: now,
       updatedAt: now,
@@ -137,6 +167,97 @@ beforeAll(async () => {
 afterAll(async () => Promise.all(apps.map((app) => deleteApp(app))));
 
 describe.sequential("procurement callables", () => {
+  it("receives a purchase directly into Head Office without creating a warehouse", async () => {
+    const supplier = await call<{ supplierId: string }>(
+      administrator,
+      "saveSupplier",
+      {
+        name: "Head Office Supply Partner",
+        phone: "07011112222",
+        paymentTermsDays: 0,
+        active: true,
+        idempotencyKey: crypto.randomUUID(),
+      },
+    );
+    const context = { type: "branch", id: headOfficeId };
+    const workspace = await call<{
+      branches: Array<{ id: string; branchType: string }>;
+      locations: Array<{ id: string; branchId?: string }>;
+    }>(headOfficeManager, "getProcurementWorkspace", {
+      branchId: headOfficeId,
+      operatingContext: context,
+    });
+    expect(workspace.branches).toContainEqual(
+      expect.objectContaining({ id: headOfficeId, branchType: "head_office" }),
+    );
+    expect(workspace.locations).toContainEqual(
+      expect.objectContaining({ id: headOfficeLocationId, branchId: headOfficeId }),
+    );
+    const order = await call<{
+      purchaseOrderId: string;
+      purchaseOrderNumber: string;
+    }>(headOfficeManager, "createPurchaseOrder", {
+      supplierId: supplier.supplierId,
+      branchId: headOfficeId,
+      receivingLocationId: headOfficeLocationId,
+      lines: [
+        {
+          productId,
+          quantity: 2,
+          unitCostMinor: 12_000,
+          vatRateBasisPoints: 0,
+        },
+      ],
+      idempotencyKey: crypto.randomUUID(),
+      operatingContext: context,
+    });
+    expect(order.purchaseOrderNumber).toMatch(/^PO-HO-/);
+    await call(headOfficeManager, "submitPurchaseOrder", {
+      purchaseOrderId: order.purchaseOrderId,
+      idempotencyKey: crypto.randomUUID(),
+      operatingContext: context,
+    });
+    await call(headOfficeManager, "approvePurchaseOrder", {
+      purchaseOrderId: order.purchaseOrderId,
+      idempotencyKey: crypto.randomUUID(),
+      operatingContext: context,
+    });
+    const item = (
+      await adminDb
+        .collection("purchaseOrderItems")
+        .where("purchaseOrderId", "==", order.purchaseOrderId)
+        .get()
+    ).docs[0]!;
+    await call(headOfficeManager, "receivePurchaseOrderItem", {
+      purchaseOrderId: order.purchaseOrderId,
+      purchaseOrderItemId: item.id,
+      quantity: 2,
+      receivedAt: new Date().toISOString(),
+      serialNumbers: [],
+      idempotencyKey: crypto.randomUUID(),
+      operatingContext: context,
+    });
+    const [savedOrder, balance] = await Promise.all([
+      adminDb.doc(`purchaseOrders/${order.purchaseOrderId}`).get(),
+      adminDb
+        .doc(
+          `inventoryBalances/${balanceDocumentId(organizationId, productId, headOfficeLocationId)}`,
+        )
+        .get(),
+    ]);
+    expect(savedOrder.data()).toMatchObject({
+      branchId: headOfficeId,
+      operationalLocationType: "head_office",
+      operationalLocationId: headOfficeId,
+    });
+    expect(savedOrder.data()).not.toHaveProperty("warehouseId");
+    expect(balance.data()).toMatchObject({
+      branchId: headOfficeId,
+      onHandQuantity: 2,
+      availableQuantity: 2,
+    });
+  });
+
   it("matches approved purchasing, receipt, supplier invoice, AP, and payment without over-receipt", async () => {
     const supplier = await call<{ supplierId: string; supplierNumber: string }>(
       administrator,

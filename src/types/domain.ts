@@ -251,8 +251,13 @@ export interface PurchaseOrder {
   purchaseOrderNumber: string;
   supplierId: string;
   supplierName: string;
-  warehouseId: string;
-  warehouseName: string;
+  branchId?: string;
+  branchName?: string;
+  warehouseId?: string;
+  warehouseName?: string;
+  operationalLocationType?: "head_office" | "store" | "legacy_warehouse";
+  operationalLocationId?: string;
+  operationalLocationName?: string;
   receivingLocationId: string;
   status: "draft" | "submitted" | "approved" | "partially_received" | "received";
   netAmountMinor: number;
@@ -282,7 +287,10 @@ export interface SupplierInvoice {
   supplierName: string;
   purchaseOrderId: string;
   purchaseOrderNumber: string;
-  warehouseId: string;
+  branchId?: string;
+  warehouseId?: string;
+  operationalLocationType?: "head_office" | "store" | "legacy_warehouse";
+  operationalLocationId?: string;
   supplierInvoiceNumber: string;
   status: "submitted" | "approved" | "partially_paid" | "paid";
   netAmountMinor: number;

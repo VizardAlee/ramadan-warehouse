@@ -11,6 +11,7 @@ import {
   hasRole,
   hasServerPermission,
   requireAccess,
+  requireBranchScope,
   requirePermission,
   requireWarehouseScope,
 } from "../auth/authorize.js";
@@ -52,6 +53,35 @@ function clean(values: Record<string, unknown>) {
       ([, value]) => value !== undefined && value !== "",
     ),
   );
+}
+type ProcurementLocationScope = {
+  branchId?: string;
+  warehouseId?: string;
+};
+function requireProcurementScope(
+  actor: Awaited<ReturnType<typeof requireAccess>>,
+  scope: ProcurementLocationScope,
+) {
+  if (scope.branchId) return requireBranchScope(actor, scope.branchId);
+  if (scope.warehouseId) return requireWarehouseScope(actor, scope.warehouseId);
+  throw new HttpsError(
+    "failed-precondition",
+    "The procurement record has no operating location.",
+  );
+}
+function procurementScopeFrom(
+  snapshot: FirebaseFirestore.DocumentSnapshot,
+): ProcurementLocationScope {
+  return {
+    branchId:
+      typeof snapshot.get("branchId") === "string"
+        ? String(snapshot.get("branchId"))
+        : undefined,
+    warehouseId:
+      typeof snapshot.get("warehouseId") === "string"
+        ? String(snapshot.get("warehouseId"))
+        : undefined,
+  };
 }
 function year() {
   return new Date().getUTCFullYear();
@@ -95,6 +125,7 @@ function writeJournal(
     referenceId: string;
     referenceNumber: string;
     description: string;
+    branchId?: string;
     warehouseId?: string;
     effectiveAt: Timestamp;
     lines: Array<{
@@ -116,6 +147,7 @@ function writeJournal(
     values.journal,
     clean({
       organizationId: actor.organizationId,
+      branchId: values.branchId,
       warehouseId: values.warehouseId,
       journalNumber,
       journalType: values.journalType,
@@ -160,6 +192,7 @@ function writeJournal(
       db.collection("journalLines").doc(),
       clean({
         organizationId: actor.organizationId,
+        branchId: values.branchId,
         warehouseId: values.warehouseId,
         journalEntryId: values.journal.id,
         journalNumber,
@@ -296,39 +329,23 @@ export const getProcurementWorkspace = onCall(
     const actor = await requireAccess(request);
     requirePermission(actor, "procurement.read");
     const input = parseInput(procurementWorkspaceInput, request.data);
+    if (input.branchId) requireBranchScope(actor, input.branchId);
     if (input.warehouseId) requireWarehouseScope(actor, input.warehouseId);
-    const purchaseOrdersQuery = input.warehouseId
-      ? db
-          .collection("purchaseOrders")
-          .where("organizationId", "==", actor.organizationId)
-          .where("warehouseId", "==", input.warehouseId)
-          .limit(input.limit)
-      : db
-          .collection("purchaseOrders")
-          .where("organizationId", "==", actor.organizationId)
-          .limit(input.limit);
-    const purchaseItemsQuery = input.warehouseId
-      ? db
-          .collection("purchaseOrderItems")
-          .where("organizationId", "==", actor.organizationId)
-          .where("warehouseId", "==", input.warehouseId)
-          .limit(500)
-      : db
-          .collection("purchaseOrderItems")
-          .where("organizationId", "==", actor.organizationId)
-          .limit(500);
-    const invoicesQuery = input.warehouseId
-      ? db
-          .collection("supplierInvoices")
-          .where("organizationId", "==", actor.organizationId)
-          .where("warehouseId", "==", input.warehouseId)
-          .limit(input.limit)
-      : db
-          .collection("supplierInvoices")
-          .where("organizationId", "==", actor.organizationId)
-          .limit(input.limit);
+    const scopedQuery = (collection: string, limit: number) => {
+      let query: FirebaseFirestore.Query = db
+        .collection(collection)
+        .where("organizationId", "==", actor.organizationId);
+      if (input.branchId) query = query.where("branchId", "==", input.branchId);
+      if (input.warehouseId)
+        query = query.where("warehouseId", "==", input.warehouseId);
+      return query.limit(limit);
+    };
+    const purchaseOrdersQuery = scopedQuery("purchaseOrders", input.limit);
+    const purchaseItemsQuery = scopedQuery("purchaseOrderItems", 500);
+    const invoicesQuery = scopedQuery("supplierInvoices", input.limit);
     const [
       suppliers,
+      branches,
       warehouses,
       locations,
       products,
@@ -341,6 +358,12 @@ export const getProcurementWorkspace = onCall(
         .where("organizationId", "==", actor.organizationId)
         .where("active", "==", true)
         .limit(200)
+        .get(),
+      db
+        .collection("branches")
+        .where("organizationId", "==", actor.organizationId)
+        .where("status", "==", "active")
+        .limit(100)
         .get(),
       db
         .collection("warehouses")
@@ -364,34 +387,47 @@ export const getProcurementWorkspace = onCall(
       purchaseItemsQuery.get(),
       invoicesQuery.get(),
     ]);
-    const visibleWarehouseIds =
+    const organizationWide =
       hasRole(actor, "system_administrator") ||
       hasRole(actor, "operations_administrator") ||
       hasRole(actor, "finance_officer") ||
-      hasRole(actor, "auditor")
-        ? null
-        : new Set(actor.warehouseIds);
-    const visible = (warehouseId: unknown) =>
-      !visibleWarehouseIds || visibleWarehouseIds.has(String(warehouseId));
+      hasRole(actor, "auditor");
+    const visible = (document: FirebaseFirestore.DocumentSnapshot) =>
+      organizationWide ||
+      (typeof document.get("branchId") === "string" &&
+        actor.branchIds.includes(String(document.get("branchId")))) ||
+      (typeof document.get("warehouseId") === "string" &&
+        actor.warehouseIds.includes(String(document.get("warehouseId"))));
     return {
       suppliers: suppliers.docs.map((document) => ({
         id: document.id,
         ...document.data(),
       })),
+      branches: branches.docs
+        .filter(
+          (document) => organizationWide || actor.branchIds.includes(document.id),
+        )
+        .map((document) => ({
+          id: document.id,
+          name: document.get("name"),
+          code: document.get("code"),
+          branchType: document.get("branchType") ?? "store",
+        })),
       warehouses: warehouses.docs
-        .filter((document) => visible(document.id))
+        .filter(
+          (document) =>
+            organizationWide || actor.warehouseIds.includes(document.id),
+        )
         .map((document) => ({
           id: document.id,
           name: document.get("name"),
           code: document.get("code"),
         })),
       locations: locations.docs
-        .filter(
-          (document) =>
-            document.get("warehouseId") && visible(document.get("warehouseId")),
-        )
+        .filter(visible)
         .map((document) => ({
           id: document.id,
+          branchId: document.get("branchId"),
           warehouseId: document.get("warehouseId"),
           name: document.get("name"),
           code: document.get("code"),
@@ -404,14 +440,14 @@ export const getProcurementWorkspace = onCall(
         unitOfMeasure: document.get("unitOfMeasure"),
       })),
       purchaseOrders: purchaseOrders.docs
-        .filter((document) => visible(document.get("warehouseId")))
+        .filter(visible)
         .map((document) => ({ id: document.id, ...document.data() })),
       purchaseOrderItems: purchaseOrderItems.docs
-        .filter((document) => visible(document.get("warehouseId")))
+        .filter(visible)
         .map((document) => ({ id: document.id, ...document.data() })),
       supplierInvoices: hasServerPermission(actor, "payables.read")
         ? invoices.docs
-            .filter((document) => visible(document.get("warehouseId")))
+            .filter(visible)
             .map((document) => ({ id: document.id, ...document.data() }))
         : [],
     };
@@ -424,9 +460,13 @@ export const createPurchaseOrder = onCall(
     const actor = await requireAccess(request);
     requirePermission(actor, "procurement.create");
     const input = parseInput(createPurchaseOrderInput, request.data);
-    requireWarehouseScope(actor, input.warehouseId);
+    requireProcurementScope(actor, input);
+    const ownerType = input.branchId ? "branch" : "warehouse";
+    const ownerId = input.branchId ?? input.warehouseId!;
     const supplier = db.doc(`suppliers/${input.supplierId}`),
-      warehouse = db.doc(`warehouses/${input.warehouseId}`),
+      owner = db.doc(
+        `${ownerType === "branch" ? "branches" : "warehouses"}/${ownerId}`,
+      ),
       receivingLocation = db.doc(
         `inventoryLocations/${input.receivingLocationId}`,
       );
@@ -447,7 +487,7 @@ export const createPurchaseOrder = onCall(
       const snapshots = await transaction.getAll(
         operation,
         supplier,
-        warehouse,
+        owner,
         receivingLocation,
         counter,
         ...products,
@@ -455,7 +495,7 @@ export const createPurchaseOrder = onCall(
       let cursor = 0;
       const previous = snapshots[cursor++]!,
         supplierSnapshot = snapshots[cursor++]!,
-        warehouseSnapshot = snapshots[cursor++]!,
+        ownerSnapshot = snapshots[cursor++]!,
         locationSnapshot = snapshots[cursor++]!,
         counterSnapshot = snapshots[cursor++]!;
       if (previous.exists) {
@@ -476,23 +516,23 @@ export const createPurchaseOrder = onCall(
           "Select an active supplier.",
         );
       if (
-        !warehouseSnapshot.exists ||
-        warehouseSnapshot.get("organizationId") !== actor.organizationId ||
-        warehouseSnapshot.get("status") !== "active"
+        !ownerSnapshot.exists ||
+        ownerSnapshot.get("organizationId") !== actor.organizationId ||
+        ownerSnapshot.get("status") !== "active"
       )
         throw new HttpsError(
           "failed-precondition",
-          "Warehouse is unavailable.",
+          "Receiving operating location is unavailable.",
         );
       if (
         !locationSnapshot.exists ||
         locationSnapshot.get("organizationId") !== actor.organizationId ||
-        locationSnapshot.get("warehouseId") !== input.warehouseId ||
+        locationSnapshot.get(`${ownerType}Id`) !== ownerId ||
         locationSnapshot.get("status") !== "active"
       )
         throw new HttpsError(
           "failed-precondition",
-          "Select an active stock location inside the warehouse.",
+          "Select an active stock location inside the receiving location.",
         );
       const productSnapshots = snapshots.slice(cursor);
       const calculated = input.lines.map((line, index) => {
@@ -512,7 +552,7 @@ export const createPurchaseOrder = onCall(
       });
       const sequence = Number(counterSnapshot.get("value") ?? 0) + 1,
         purchaseOrderNumber = sequenceNumber(
-          `PO-${String(warehouseSnapshot.get("code"))}`,
+          `PO-${String(ownerSnapshot.get("code"))}`,
           sequence,
         ),
         now = FieldValue.serverTimestamp();
@@ -536,8 +576,20 @@ export const createPurchaseOrder = onCall(
           supplierId: supplier.id,
           supplierNumber: supplierSnapshot.get("supplierNumber"),
           supplierName: supplierSnapshot.get("name"),
-          warehouseId: warehouse.id,
-          warehouseName: warehouseSnapshot.get("name"),
+          branchId: input.branchId,
+          branchName:
+            ownerType === "branch" ? ownerSnapshot.get("name") : undefined,
+          warehouseId: input.warehouseId,
+          warehouseName:
+            ownerType === "warehouse" ? ownerSnapshot.get("name") : undefined,
+          operationalLocationType:
+            ownerType === "branch"
+              ? ownerSnapshot.get("branchType") === "head_office"
+                ? "head_office"
+                : "store"
+              : "legacy_warehouse",
+          operationalLocationId: owner.id,
+          operationalLocationName: ownerSnapshot.get("name"),
           receivingLocationId: receivingLocation.id,
           receivingLocationName: locationSnapshot.get("name"),
           status: "draft",
@@ -557,12 +609,20 @@ export const createPurchaseOrder = onCall(
         }),
       );
       for (const line of calculated)
-        transaction.create(db.collection("purchaseOrderItems").doc(), {
+        transaction.create(db.collection("purchaseOrderItems").doc(), clean({
           organizationId: actor.organizationId,
           purchaseOrderId: purchaseOrder.id,
           purchaseOrderNumber,
           supplierId: supplier.id,
-          warehouseId: warehouse.id,
+          branchId: input.branchId,
+          warehouseId: input.warehouseId,
+          operationalLocationType:
+            ownerType === "branch"
+              ? ownerSnapshot.get("branchType") === "head_office"
+                ? "head_office"
+                : "store"
+              : "legacy_warehouse",
+          operationalLocationId: owner.id,
           productId: line.product.id,
           sku: line.product.get("sku"),
           productName: line.product.get("name"),
@@ -577,7 +637,7 @@ export const createPurchaseOrder = onCall(
           grossAmountMinor: line.gross,
           currency: "NGN",
           createdAt: now,
-        });
+        }));
       transaction.create(operation, {
         organizationId: actor.organizationId,
         action: "createPurchaseOrder",
@@ -593,12 +653,14 @@ export const createPurchaseOrder = onCall(
         entityId: purchaseOrder.id,
         correlationId: correlationId(),
         sourceFunction: "createPurchaseOrder",
-        after: {
+        after: clean({
           purchaseOrderNumber,
           supplierId: supplier.id,
-          warehouseId: warehouse.id,
+          branchId: input.branchId,
+          warehouseId: input.warehouseId,
+          operationalLocationId: owner.id,
           grossAmountMinor: total("gross"),
-        },
+        }),
       });
       result = {
         purchaseOrderId: purchaseOrder.id,
@@ -624,7 +686,7 @@ async function purchaseOrderStatusAction(
   const initial = await purchaseOrder.get();
   if (!initial.exists || initial.get("organizationId") !== actor.organizationId)
     throw new HttpsError("not-found", "Purchase order not found.");
-  requireWarehouseScope(actor, String(initial.get("warehouseId")));
+  requireProcurementScope(actor, procurementScopeFrom(initial));
   const operation = db.doc(
     `idempotencyKeys/${actor.organizationId}_${action}PurchaseOrder_${input.idempotencyKey}`,
   );
@@ -725,7 +787,7 @@ export const receivePurchaseOrderItem = onCall(
         "failed-precondition",
         "Only an approved open purchase order can be received.",
       );
-    requireWarehouseScope(actor, String(orderSnapshot.get("warehouseId")));
+    requireProcurementScope(actor, procurementScopeFrom(orderSnapshot));
     if (
       !itemSnapshot.exists ||
       itemSnapshot.get("purchaseOrderId") !== purchaseOrder.id
@@ -883,7 +945,10 @@ export const receivePurchaseOrderItem = onCall(
           purchaseOrderNumber: currentOrder.get("purchaseOrderNumber"),
           purchaseOrderItemId: item.id,
           supplierId: currentOrder.get("supplierId"),
+          branchId: currentOrder.get("branchId"),
           warehouseId: currentOrder.get("warehouseId"),
+          operationalLocationType: currentOrder.get("operationalLocationType"),
+          operationalLocationId: currentOrder.get("operationalLocationId"),
           receivingLocationId: currentOrder.get("receivingLocationId"),
           productId: target.get("productId"),
           sku: target.get("sku"),
@@ -935,7 +1000,7 @@ export const submitSupplierInvoice = onCall(
     const order = await purchaseOrder.get();
     if (!order.exists || order.get("organizationId") !== actor.organizationId)
       throw new HttpsError("not-found", "Purchase order not found.");
-    requireWarehouseScope(actor, String(order.get("warehouseId")));
+    requireProcurementScope(actor, procurementScopeFrom(order));
     const itemRefs = input.lines.map((line) =>
       db.doc(`purchaseOrderItems/${line.purchaseOrderItemId}`),
     );
@@ -1011,7 +1076,10 @@ export const submitSupplierInvoice = onCall(
           supplierName: order.get("supplierName"),
           purchaseOrderId: purchaseOrder.id,
           purchaseOrderNumber: order.get("purchaseOrderNumber"),
+          branchId: order.get("branchId"),
           warehouseId: order.get("warehouseId"),
+          operationalLocationType: order.get("operationalLocationType"),
+          operationalLocationId: order.get("operationalLocationId"),
           supplierInvoiceNumber: input.supplierInvoiceNumber,
           invoiceDate: input.invoiceDate,
           dueDate: input.dueDate,
@@ -1028,12 +1096,15 @@ export const submitSupplierInvoice = onCall(
         }),
       );
       for (const line of calculated)
-        transaction.create(db.collection("supplierInvoiceItems").doc(), {
+        transaction.create(db.collection("supplierInvoiceItems").doc(), clean({
           organizationId: actor.organizationId,
           supplierInvoiceId: invoice.id,
           purchaseOrderId: purchaseOrder.id,
           purchaseOrderItemId: line.itemSnapshot.id,
+          branchId: order.get("branchId"),
           warehouseId: order.get("warehouseId"),
+          operationalLocationType: order.get("operationalLocationType"),
+          operationalLocationId: order.get("operationalLocationId"),
           productId: line.itemSnapshot.get("productId"),
           sku: line.itemSnapshot.get("sku"),
           productName: line.itemSnapshot.get("productName"),
@@ -1045,7 +1116,7 @@ export const submitSupplierInvoice = onCall(
           grossAmountMinor: line.gross,
           currency: "NGN",
           createdAt: now,
-        });
+        }));
       transaction.create(uniqueness, {
         organizationId: actor.organizationId,
         supplierId: order.get("supplierId"),
@@ -1093,7 +1164,7 @@ export const approveSupplierInvoice = onCall(
       initial.get("organizationId") !== actor.organizationId
     )
       throw new HttpsError("not-found", "Supplier invoice not found.");
-    requireWarehouseScope(actor, String(initial.get("warehouseId")));
+    requireProcurementScope(actor, procurementScopeFrom(initial));
     const invoiceItems = await db
       .collection("supplierInvoiceItems")
       .where("supplierInvoiceId", "==", invoice.id)
@@ -1195,7 +1266,8 @@ export const approveSupplierInvoice = onCall(
         referenceId: invoice.id,
         referenceNumber: String(current.get("supplierInvoiceNumber")),
         description: `Supplier invoice ${String(current.get("supplierInvoiceNumber"))}`,
-        warehouseId: String(current.get("warehouseId")),
+        branchId: current.get("branchId") || undefined,
+        warehouseId: current.get("warehouseId") || undefined,
         effectiveAt,
         lines,
       });
@@ -1239,10 +1311,13 @@ export const approveSupplierInvoice = onCall(
           Number(current.get("netAmountMinor")),
         updatedAt: now,
       });
-      transaction.create(db.collection("supplierAccountEntries").doc(), {
+      transaction.create(db.collection("supplierAccountEntries").doc(), clean({
         organizationId: actor.organizationId,
         supplierId: supplier.id,
+        branchId: current.get("branchId"),
         warehouseId: current.get("warehouseId"),
+        operationalLocationType: current.get("operationalLocationType"),
+        operationalLocationId: current.get("operationalLocationId"),
         entryType: "supplier_invoice",
         referenceType: "supplierInvoice",
         referenceId: invoice.id,
@@ -1254,7 +1329,7 @@ export const approveSupplierInvoice = onCall(
         effectiveAt,
         createdAt: now,
         createdBy: actor.userId,
-      });
+      }));
       transaction.create(operation, {
         organizationId: actor.organizationId,
         action: "approveSupplierInvoice",
@@ -1332,6 +1407,7 @@ export const recordSupplierPayment = onCall(
         );
       input.allocations.forEach((allocation, index) => {
         const invoice = invoices[index]!;
+        requireProcurementScope(actor, procurementScopeFrom(invoice));
         if (
           !invoice.exists ||
           invoice.get("organizationId") !== actor.organizationId ||

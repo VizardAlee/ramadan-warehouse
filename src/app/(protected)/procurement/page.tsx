@@ -23,10 +23,17 @@ import type {
 
 interface Workspace {
   suppliers: Supplier[];
+  branches: Array<{
+    id: string;
+    name: string;
+    code: string;
+    branchType: "head_office" | "store";
+  }>;
   warehouses: Array<{ id: string; name: string; code: string }>;
   locations: Array<{
     id: string;
-    warehouseId: string;
+    branchId?: string;
+    warehouseId?: string;
     name: string;
     code: string;
   }>;
@@ -53,6 +60,11 @@ const blankLine = (): DraftLine => ({
   unitCostNaira: "",
   vatPercent: "0",
 });
+function procurementScopeFromKey(key: string) {
+  const [type, id] = key.split(":");
+  if (!id) return {};
+  return type === "branch" ? { branchId: id } : { warehouseId: id };
+}
 
 export default function ProcurementPage() {
   const { user, profile, operatingContext } = useAuth();
@@ -66,7 +78,7 @@ export default function ProcurementPage() {
     email: "",
     paymentTermsDays: "0",
   });
-  const [warehouseId, setWarehouseId] = useState("");
+  const [destinationKey, setDestinationKey] = useState("");
   const [locationId, setLocationId] = useState("");
   const [supplierId, setSupplierId] = useState("");
   const [lines, setLines] = useState<DraftLine[]>([blankLine()]);
@@ -82,8 +94,13 @@ export default function ProcurementPage() {
   const can = (permission: Parameters<typeof hasPermission>[1]) =>
     Boolean(profile && hasPermission(profile, permission));
   const canApproveOwnWork = Boolean(profile && canSelfAuthorize(profile));
-  const contextWarehouseId =
-    operatingContext?.type === "warehouse" ? operatingContext.id : "";
+  const contextKey = operatingContext
+    ? `${operatingContext.type}:${operatingContext.id}`
+    : "";
+  const contextScope = useMemo(
+    () => procurementScopeFromKey(contextKey),
+    [contextKey],
+  );
 
   async function load() {
     if (!profile) return;
@@ -91,20 +108,24 @@ export default function ProcurementPage() {
     setError(null);
     try {
       const result = await callAdministration<
-        { warehouseId?: string },
+        { warehouseId?: string; branchId?: string },
         Workspace
-      >("getProcurementWorkspace", {
-        warehouseId: contextWarehouseId || undefined,
-      });
+      >("getProcurementWorkspace", contextScope);
       setWorkspace(result);
-      const selectedWarehouse =
-        contextWarehouseId || warehouseId || result.warehouses[0]?.id || "";
-      setWarehouseId(selectedWarehouse);
+      const selectedDestination =
+        contextKey ||
+        destinationKey ||
+        (result.branches[0] ? `branch:${result.branches[0].id}` : "") ||
+        (result.warehouses[0]
+          ? `warehouse:${result.warehouses[0].id}`
+          : "");
+      setDestinationKey(selectedDestination);
+      const [ownerType, ownerId] = selectedDestination.split(":");
       setLocationId(
         (current) =>
           current ||
           result.locations.find(
-            (location) => location.warehouseId === selectedWarehouse,
+            (location) => location[`${ownerType}Id` as "branchId" | "warehouseId"] === ownerId,
           )?.id ||
           "",
       );
@@ -124,18 +145,23 @@ export default function ProcurementPage() {
       if (!profile) return;
       setBusy(true);
       setError(null);
-      void callAdministration<{ warehouseId?: string }, Workspace>(
+      void callAdministration<{ warehouseId?: string; branchId?: string }, Workspace>(
         "getProcurementWorkspace",
-        { warehouseId: contextWarehouseId || undefined },
+        contextScope,
       )
         .then((result) => {
           setWorkspace(result);
-          const selectedWarehouse =
-            contextWarehouseId || result.warehouses[0]?.id || "";
-          setWarehouseId(selectedWarehouse);
+          const selectedDestination =
+            contextKey ||
+            (result.branches[0] ? `branch:${result.branches[0].id}` : "") ||
+            (result.warehouses[0]
+              ? `warehouse:${result.warehouses[0].id}`
+              : "");
+          setDestinationKey(selectedDestination);
+          const [ownerType, ownerId] = selectedDestination.split(":");
           setLocationId(
             result.locations.find(
-              (location) => location.warehouseId === selectedWarehouse,
+              (location) => location[`${ownerType}Id` as "branchId" | "warehouseId"] === ownerId,
             )?.id || "",
           );
           setSupplierId(result.suppliers[0]?.id || "");
@@ -150,7 +176,7 @@ export default function ProcurementPage() {
         .finally(() => setBusy(false));
     }, 0);
     return () => window.clearTimeout(timeout);
-  }, [profile, contextWarehouseId]);
+  }, [profile, contextKey, contextScope]);
 
   async function run(action: () => Promise<unknown>, success: string) {
     setBusy(true);
@@ -186,11 +212,13 @@ export default function ProcurementPage() {
     setSupplier({ name: "", phone: "", email: "", paymentTermsDays: "0" });
   }
   async function createOrder() {
+    const [ownerType, ownerId] = destinationKey.split(":");
     await run(
       () =>
         callAdministration("createPurchaseOrder", {
           supplierId,
-          warehouseId,
+          branchId: ownerType === "branch" ? ownerId : undefined,
+          warehouseId: ownerType === "warehouse" ? ownerId : undefined,
           receivingLocationId: locationId,
           lines: lines.map((line) => ({
             productId: line.productId,
@@ -206,7 +234,10 @@ export default function ProcurementPage() {
   }
   const selectedLocations =
     workspace?.locations.filter(
-      (location) => location.warehouseId === warehouseId,
+      (location) => {
+        const [ownerType, ownerId] = destinationKey.split(":");
+        return location[`${ownerType}Id` as "branchId" | "warehouseId"] === ownerId;
+      },
     ) ?? [];
   const itemsByOrder = useMemo(
     () =>
@@ -240,7 +271,7 @@ export default function ProcurementPage() {
           <p className="text-[var(--muted)]">
             Create the supplier once, record the order, receive real goods, then
             match and pay the supplier invoice. Managers can complete every step
-            within their assigned warehouse.
+            within their assigned Head Office, store, or legacy warehouse.
           </p>
         </div>
         <Button variant="outline" disabled={busy} onClick={() => void load()}>
@@ -361,25 +392,40 @@ export default function ProcurementPage() {
               </select>
             </label>
             <label className="text-sm">
-              Receiving warehouse
+              Receiving location
               <select
-                value={warehouseId}
-                disabled={Boolean(contextWarehouseId)}
+                value={destinationKey}
+                disabled={Boolean(contextKey)}
                 onChange={(event) => {
-                  const id = event.target.value;
-                  setWarehouseId(id);
+                  const key = event.target.value;
+                  const [ownerType, ownerId] = key.split(":");
+                  setDestinationKey(key);
                   setLocationId(
                     workspace.locations.find(
-                      (location) => location.warehouseId === id,
+                      (location) =>
+                        location[
+                          `${ownerType}Id` as "branchId" | "warehouseId"
+                        ] === ownerId,
                     )?.id || "",
                   );
                 }}
                 className="mt-1 w-full rounded-lg border p-3"
               >
-                <option value="">Select warehouse</option>
+                <option value="">Select receiving location</option>
+                {workspace.branches.map((record) => (
+                  <option key={`branch:${record.id}`} value={`branch:${record.id}`}>
+                    {record.branchType === "head_office"
+                      ? "Head Office"
+                      : "Store"}{" "}
+                    · {record.name}
+                  </option>
+                ))}
                 {workspace.warehouses.map((record) => (
-                  <option key={record.id} value={record.id}>
-                    {record.name}
+                  <option
+                    key={`warehouse:${record.id}`}
+                    value={`warehouse:${record.id}`}
+                  >
+                    Legacy warehouse · {record.name}
                   </option>
                 ))}
               </select>
@@ -518,7 +564,7 @@ export default function ProcurementPage() {
               disabled={
                 busy ||
                 !supplierId ||
-                !warehouseId ||
+                !destinationKey ||
                 !locationId ||
                 lines.some(
                   (line) =>
@@ -548,7 +594,7 @@ export default function ProcurementPage() {
                 <div>
                   <strong>{order.purchaseOrderNumber}</strong>
                   <p className="text-sm text-[var(--muted)]">
-                    {order.supplierName} → {order.warehouseName}
+                    {order.supplierName} → {order.operationalLocationName ?? order.branchName ?? order.warehouseName}
                   </p>
                   <p className="mt-1 text-sm">
                     {formatNaira(order.grossAmountMinor)} ·{" "}
@@ -706,7 +752,7 @@ export default function ProcurementPage() {
                                         idempotencyKey: crypto.randomUUID(),
                                       },
                                     ),
-                                  `${draft.quantity} ${item.unitOfMeasure} received into ${order.warehouseName}.`,
+                                  `${draft.quantity} ${item.unitOfMeasure} received into ${order.operationalLocationName ?? order.branchName ?? order.warehouseName}.`,
                                 )
                               }
                             >

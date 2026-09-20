@@ -21,12 +21,17 @@ export const saveSupplierInput = z.object({
 
 export const procurementWorkspaceInput = z.object({
   warehouseId: id.optional(),
+  branchId: id.optional(),
   limit: z.number().int().min(1).max(200).default(100),
+}).superRefine((value, context) => {
+  if (value.branchId && value.warehouseId)
+    context.addIssue({ code: "custom", path: ["branchId"], message: "Choose one operating location." });
 });
 
 export const createPurchaseOrderInput = z.object({
   supplierId: id,
-  warehouseId: id,
+  warehouseId: id.optional(),
+  branchId: id.optional(),
   receivingLocationId: id,
   expectedAt: z.string().datetime().optional(),
   notes: optionalText(500),
@@ -41,6 +46,9 @@ export const createPurchaseOrderInput = z.object({
       context.addIssue({ code: "custom", message: "Each product may appear only once." });
   }),
   idempotencyKey: z.string().uuid(),
+}).superRefine((value, context) => {
+  if (Boolean(value.branchId) === Boolean(value.warehouseId))
+    context.addIssue({ code: "custom", path: ["branchId"], message: "Choose exactly one receiving operating location." });
 });
 
 export const purchaseOrderActionInput = z.object({

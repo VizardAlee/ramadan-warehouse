@@ -7,16 +7,17 @@ order, a physical receipt, a supplier invoice, and a payment as the same event.
 ## Workflow
 
 1. An authorized user creates or updates an organization supplier record.
-2. A warehouse user creates a purchase order for one warehouse and one of its
-   receiving locations. Product identity, SKU, tracking policy, ordered unit
-   cost, and VAT are snapshotted on each line.
-3. The creator submits the order. An assigned warehouse manager may approve
+2. An authorized manager creates a purchase order for one operational location
+   (Head Office, a store, or a legacy warehouse) and one of its stock
+   locations. Product identity, SKU, tracking policy, ordered unit cost, and
+   VAT are snapshotted on each line.
+3. The creator submits the order. An assigned manager may approve
    their own order immediately; the decision and actor are retained in audit.
-4. Warehouse staff record physical receipts only against an approved order.
+4. Assigned staff record physical receipts only against an approved order.
    Each receipt posts through the existing inventory transaction service and
    increases the destination location balance at the PO cost. Serial or lot
    evidence is required when the product tracking policy requires it.
-5. A warehouse manager or finance user matches a supplier invoice only to
+5. A location manager or finance user matches a supplier invoice only to
    quantities already received and not already invoiced. An assigned warehouse
    manager may approve and pay their own matched invoice. A non-manager finance
    creator still needs another authorized approver.
@@ -57,11 +58,17 @@ reference.
 
 ## Scope and current boundary
 
-Warehouse managers can manage suppliers and complete purchasing, receipt,
-invoice, approval, and payment for assigned warehouses. Officers only receive
-approved goods. Finance users operate organization-wide but retain separation
-when approving their own entries. Auditors are read-only. System administrators
-retain organization-wide access.
+Managers can complete purchasing, receipt, invoice, approval, and payment for
+their assigned operating location when their combined roles grant those
+permissions. Officers only receive approved goods. Finance users operate
+organization-wide but retain separation when approving their own entries.
+Auditors are read-only. System administrators retain organization-wide access.
+
+New purchase orders persist canonical `operationalLocationType`,
+`operationalLocationId`, and `operationalLocationName` fields alongside the
+existing optional `branchId` or `warehouseId`. Existing warehouse purchase
+orders require no destructive migration: read paths retain their historical
+warehouse fields, while new Head Office/store orders use branch ownership.
 
 This phase does not yet add operating-expense bills, bank-statement import and
 reconciliation, accounting-period close, or complete financial statements.
