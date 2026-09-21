@@ -171,3 +171,14 @@ export {
   prepareAccountingPeriodClose,
   completeAccountingPeriodClose,
 } from "./callable/accounting-close.js";
+export {
+  generateFinancialStatement,
+  getTaxWorkspace,
+} from "./callable/financial-reports.js";
+export {
+  getAftersalesWorkspace,
+  createAftersalesCase,
+  updateAftersalesCase,
+  setAftersalesCharge,
+  recordAftersalesPayment,
+} from "./callable/aftersales.js";

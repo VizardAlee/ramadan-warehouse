@@ -4,6 +4,7 @@ import { HttpsError, onCall } from "firebase-functions/v2/https";
 import type { z } from "zod";
 import { db } from "../admin.js";
 import { accountingPeriodReference, assertAccountingPeriodOpen } from "../accounting/period-lock.js";
+import { bankAccountSummary, resolveSettlementAccount } from "../accounting/settlement-account.js";
 import { writeAuditLog } from "../audit/write-audit-log.js";
 import {
   hasServerPermission,
@@ -316,6 +317,7 @@ export const getPosWorkspace = onCall(
       customers,
       salesCredits,
       pendingOrders,
+      bankAccounts,
     ] =
       await Promise.all([
         db.doc(`branches/${input.branchId}`).get(),
@@ -358,6 +360,11 @@ export const getPosWorkspace = onCall(
         db.collection("salesOrders")
           .where("organizationId", "==", actor.organizationId)
           .where("branchId", "==", input.branchId)
+          .limit(100)
+          .get(),
+        db.collection("bankAccounts")
+          .where("organizationId", "==", actor.organizationId)
+          .where("active", "==", true)
           .limit(100)
           .get(),
       ]);
@@ -443,6 +450,7 @@ export const getPosWorkspace = onCall(
         remainingAmountMinor: Number(credit.get("remainingAmountMinor") ?? 0),
         returnId: credit.get("returnId"),
       })),
+      bankAccounts: bankAccounts.docs.map(bankAccountSummary),
       pendingOrders: pendingOrders.docs
         .filter((order) =>
           ["order_received", "payment_accepted"].includes(
@@ -823,6 +831,17 @@ export const createPosSaleOrder = onCall(
     const actor = await requireAccess(request);
     requirePermission(actor, "sales.order.create");
     const input = parseInput(commitSaleInput, request.data);
+    if (
+      input.payments.some(
+        (payment) =>
+          ["card", "bank_transfer"].includes(payment.method) &&
+          !payment.bankAccountId,
+      )
+    )
+      throw new HttpsError(
+        "invalid-argument",
+        "Select the company bank account receiving each card or bank-transfer payment.",
+      );
     if (input.creditAmountMinor > 0)
       requirePermission(actor, "sales.credit.create");
     requireBranchScope(actor, input.branchId);
@@ -1051,7 +1070,20 @@ async function postPosSale(
   input: CommitSaleInput,
   allowWorkflowShift = false,
 ) {
-    requirePermission(actor, "sales.create");
+  requirePermission(actor, "sales.create");
+  if (
+    !allowWorkflowShift &&
+    !input.offline &&
+    input.payments.some(
+      (payment) =>
+        ["card", "bank_transfer"].includes(payment.method) &&
+        !payment.bankAccountId,
+    )
+  )
+    throw new HttpsError(
+      "invalid-argument",
+      "Select the company bank account receiving each card or bank-transfer payment.",
+    );
     if (input.creditAmountMinor > 0)
       requirePermission(actor, "sales.credit.create");
     requireBranchScope(actor, input.branchId);
@@ -1087,6 +1119,11 @@ async function postPosSale(
     const salesCreditReferences = input.payments.map((payment, index) =>
       db.doc(`salesCredits/${payment.method === "exchange_credit" ? payment.reference : `no-sales-credit-${index}`}`),
     );
+    const bankAccountReferences = input.payments.map((payment, index) =>
+      db.doc(
+        `bankAccounts/${payment.bankAccountId ?? `no-bank-account-${index}`}`,
+      ),
+    );
     const productReferences = input.lines.map((line) =>
       db.doc(`products/${line.productId}`),
     );
@@ -1118,6 +1155,7 @@ async function postPosSale(
         accountingPeriod,
         customer,
         ...salesCreditReferences,
+        ...bankAccountReferences,
         ...productReferences,
         ...centralPriceReferences,
         ...branchPriceReferences,
@@ -1135,6 +1173,7 @@ async function postPosSale(
       const accountingPeriodSnapshot = snapshots[cursor++]!;
       const customerSnapshot = snapshots[cursor++]!;
       const salesCreditSnapshots = snapshots.slice(cursor, (cursor += input.payments.length));
+      const bankAccountSnapshots = snapshots.slice(cursor, (cursor += input.payments.length));
       const products = snapshots.slice(cursor, (cursor += input.lines.length));
       const centralPrices = snapshots.slice(cursor, (cursor += input.lines.length));
       const branchPrices = snapshots.slice(cursor, (cursor += input.lines.length));
@@ -1218,6 +1257,23 @@ async function postPosSale(
         const credit = salesCreditSnapshots[index]!;
         if (!credit.exists || credit.get("organizationId") !== actor.organizationId || credit.get("branchId") !== input.branchId || credit.get("status") !== "active" || Number(credit.get("remainingAmountMinor") ?? 0) < payment.amountMinor)
           throw new HttpsError("failed-precondition", "The selected exchange credit is unavailable or insufficient.", { code: "EXCHANGE_CREDIT_UNAVAILABLE" });
+      });
+      const settlementAccounts = input.payments.map((payment, index) => {
+        if (payment.method === "cash")
+          return { accountCode: "1010", accountName: accountNames["1010"]! };
+        if (payment.method === "exchange_credit")
+          return { accountCode: "2200", accountName: accountNames["2200"]! };
+        if (!payment.bankAccountId && (allowWorkflowShift || input.offline))
+          return {
+            accountCode: paymentAccount[payment.method]!,
+            accountName: accountNames[paymentAccount[payment.method]!]!,
+          };
+        return resolveSettlementAccount(
+          actor.organizationId,
+          payment.method,
+          payment.bankAccountId,
+          bankAccountSnapshots[index],
+        );
       });
       const resolvedLines = input.lines.map((line, index) => {
         const product = products[index]!;
@@ -1326,8 +1382,9 @@ async function postPosSale(
           error instanceof Error ? error.message : "Payment total is invalid.",
         );
       }
-      const paymentJournalLines = input.payments.map((payment) => ({
-        accountCode: paymentAccount[payment.method]!,
+      const paymentJournalLines = input.payments.map((payment, index) => ({
+        accountCode: settlementAccounts[index]!.accountCode,
+        accountName: settlementAccounts[index]!.accountName,
         debitMinor: payment.amountMinor,
         creditMinor: 0,
       }));
@@ -1563,7 +1620,8 @@ async function postPosSale(
           balanceAfter: 0,
         });
       });
-      input.payments.forEach((payment) => {
+      input.payments.forEach((payment, index) => {
+        const settlement = settlementAccounts[index]!;
         transaction.create(db.collection("salePayments").doc(), clean({
           organizationId: actor.organizationId,
           branchId: input.branchId,
@@ -1572,6 +1630,11 @@ async function postPosSale(
           method: payment.method,
           amountMinor: payment.amountMinor,
           reference: payment.reference,
+          bankAccountId: settlement.bankAccountId,
+          bankName: settlement.bankName,
+          bankAccountName: settlement.bankAccountName,
+          accountNumberLast4: settlement.accountNumberLast4,
+          ledgerAccountCode: settlement.accountCode,
           status: input.offline && payment.method !== "cash"
             ? "awaiting_verification"
             : "recorded",
@@ -1647,7 +1710,7 @@ async function postPosSale(
         transaction.set(account, {
           organizationId: actor.organizationId,
           code: line.accountCode,
-          name: accountNames[line.accountCode],
+          name: "accountName" in line ? line.accountName : accountNames[line.accountCode],
           currency: "NGN",
           active: true,
           systemManaged: true,
@@ -1660,7 +1723,7 @@ async function postPosSale(
           journalNumber,
           accountId: account.id,
           accountCode: line.accountCode,
-          accountName: accountNames[line.accountCode],
+          accountName: "accountName" in line ? line.accountName : accountNames[line.accountCode],
           debitMinor: line.debitMinor,
           creditMinor: line.creditMinor,
           currency: "NGN",

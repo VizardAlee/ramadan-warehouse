@@ -47,6 +47,13 @@ interface Workspace {
   purchaseOrders: PurchaseOrder[];
   purchaseOrderItems: PurchaseOrderItem[];
   supplierInvoices: SupplierInvoice[];
+  bankAccounts: Array<{
+    id: string;
+    bankName: string;
+    accountName: string;
+    accountNumberLast4: string;
+    ledgerAccountCode: string;
+  }>;
 }
 interface DraftLine {
   productId: string;
@@ -88,8 +95,15 @@ export default function ProcurementPage() {
   const [invoiceNumbers, setInvoiceNumbers] = useState<Record<string, string>>(
     {},
   );
-  const [paymentReferences, setPaymentReferences] = useState<
-    Record<string, string>
+  const [paymentDrafts, setPaymentDrafts] = useState<
+    Record<
+      string,
+      {
+        method: "cash" | "card" | "bank_transfer";
+        bankAccountId: string;
+        reference: string;
+      }
+    >
   >({});
   const can = (permission: Parameters<typeof hasPermission>[1]) =>
     Boolean(profile && hasPermission(profile, permission));
@@ -826,7 +840,13 @@ export default function ProcurementPage() {
             may approve their own matched invoice; every action is audited.
           </p>
           <div className="mt-4 space-y-3">
-            {workspace?.supplierInvoices.map((invoice) => (
+            {workspace?.supplierInvoices.map((invoice) => {
+              const payment = paymentDrafts[invoice.id] ?? {
+                method: "bank_transfer" as const,
+                bankAccountId: "",
+                reference: "",
+              };
+              return (
               <article
                 key={invoice.id}
                 className="flex flex-col justify-between gap-3 rounded-xl border p-4 lg:flex-row lg:items-center"
@@ -873,29 +893,90 @@ export default function ProcurementPage() {
                   {["approved", "partially_paid"].includes(invoice.status) &&
                     can("payables.pay") && (
                       <>
-                        <input
-                          value={paymentReferences[invoice.id] ?? ""}
+                        <select
+                          aria-label="Supplier payment method"
+                          value={payment.method}
                           onChange={(event) =>
-                            setPaymentReferences({
-                              ...paymentReferences,
-                              [invoice.id]: event.target.value,
+                            setPaymentDrafts({
+                              ...paymentDrafts,
+                              [invoice.id]: {
+                                ...payment,
+                                method: event.target.value as typeof payment.method,
+                                bankAccountId:
+                                  event.target.value === "cash"
+                                    ? ""
+                                    : payment.bankAccountId,
+                              },
                             })
                           }
-                          placeholder="Bank payment reference"
+                          className="min-h-10 rounded-lg border px-3"
+                        >
+                          <option value="bank_transfer">Bank transfer</option>
+                          <option value="card">Card / POS</option>
+                          <option value="cash">Cash</option>
+                        </select>
+                        <select
+                          aria-label="Company bank account"
+                          value={payment.bankAccountId}
+                          disabled={payment.method === "cash"}
+                          onChange={(event) =>
+                            setPaymentDrafts({
+                              ...paymentDrafts,
+                              [invoice.id]: {
+                                ...payment,
+                                bankAccountId: event.target.value,
+                              },
+                            })
+                          }
+                          className="min-h-10 rounded-lg border px-3 disabled:bg-slate-100"
+                        >
+                          <option value="">
+                            {payment.method === "cash"
+                              ? "Cash on hand"
+                              : "Select bank account"}
+                          </option>
+                          {workspace.bankAccounts.map((account) => (
+                            <option key={account.id} value={account.id}>
+                              {account.bankName} · {account.accountName} · ••••
+                              {account.accountNumberLast4}
+                            </option>
+                          ))}
+                        </select>
+                        <input
+                          value={payment.reference}
+                          onChange={(event) =>
+                            setPaymentDrafts({
+                              ...paymentDrafts,
+                              [invoice.id]: {
+                                ...payment,
+                                reference: event.target.value,
+                              },
+                            })
+                          }
+                          placeholder={
+                            payment.method === "cash"
+                              ? "Reference (optional)"
+                              : "Payment reference"
+                          }
                           className="min-h-10 rounded-lg border px-3"
                         />
                         <Button
                           disabled={
                             busy ||
-                            !(paymentReferences[invoice.id] ?? "").trim()
+                            (payment.method !== "cash" &&
+                              (!payment.reference.trim() ||
+                                !payment.bankAccountId))
                           }
                           onClick={() =>
                             void run(
                               () =>
                                 callAdministration("recordSupplierPayment", {
                                   supplierId: invoice.supplierId,
-                                  method: "bank_transfer",
-                                  reference: paymentReferences[invoice.id],
+                                  method: payment.method,
+                                  bankAccountId:
+                                    payment.bankAccountId || undefined,
+                                  reference:
+                                    payment.reference || undefined,
                                   allocations: [
                                     {
                                       supplierInvoiceId: invoice.id,
@@ -916,7 +997,8 @@ export default function ProcurementPage() {
                     )}
                 </div>
               </article>
-            ))}
+              );
+            })}
             {!workspace?.supplierInvoices.length && (
               <p className="rounded-lg bg-slate-50 p-6 text-center text-sm text-[var(--muted)]">
                 No supplier invoices recorded.

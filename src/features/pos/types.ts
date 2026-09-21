@@ -65,6 +65,13 @@ export interface PosWorkspace {
   products: PosProduct[];
   customers: PosCustomer[];
   salesCredits: PosSalesCredit[];
+  bankAccounts: Array<{
+    id: string;
+    bankName: string;
+    accountName: string;
+    accountNumberLast4: string;
+    ledgerAccountCode: string;
+  }>;
   pendingOrders: PosPendingOrder[];
   openShift: PosShift | null;
   refreshedAt: string;
@@ -86,6 +93,7 @@ export interface HeldPosSale {
   customerId?: string;
   paymentMethod: PosCheckoutMethod;
   paymentReference?: string;
+  bankAccountId?: string;
   discountAmount: string;
   discountReason: string;
   creditPaidAmount: string;
@@ -114,6 +122,7 @@ export interface PosSalePayload {
     method: PosPaymentMethod;
     amountMinor: number;
     reference?: string;
+    bankAccountId?: string;
   }>;
   customerId?: string;
   creditAmountMinor?: number;

@@ -26,6 +26,7 @@ const adminAuth = getAdminAuth(adminApp),
   apps: FirebaseApp[] = [];
 const organizationId = "expense-test-org",
   branchId = "expense-branch";
+const bankAccountId = "expense-bank-account";
 let administrator: ReturnType<typeof client>,
   financeOfficer: ReturnType<typeof client>,
   branchManager: ReturnType<typeof client>;
@@ -97,16 +98,26 @@ beforeAll(async () => {
     "expense-branch@example.test",
     "branch_manager",
   );
-  await adminDb
-    .doc(`branches/${branchId}`)
-    .set({
+  await Promise.all([
+    adminDb.doc(`branches/${branchId}`).set({
       organizationId,
       name: "Igbo Road Branch",
       code: "IRB",
       status: "active",
       createdAt: FieldValue.serverTimestamp(),
       updatedAt: FieldValue.serverTimestamp(),
-    });
+    }),
+    adminDb.doc(`bankAccounts/${bankAccountId}`).set({
+      organizationId,
+      bankName: "Test Bank",
+      accountName: "Operating Account",
+      accountNumberLast4: "9012",
+      ledgerAccountCode: "1042",
+      active: true,
+      createdAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
+    }),
+  ]);
 });
 afterAll(async () => Promise.all(apps.map((app) => deleteApp(app))));
 
@@ -231,6 +242,7 @@ describe.sequential("expense callables", () => {
       call(financeOfficer, "recordExpensePayment", {
         expenseId: expense.expenseId,
         method: "bank_transfer",
+        bankAccountId,
         reference: "BANK-TOO-MUCH",
         amountMinor: 60_000,
         paidAt: new Date().toISOString(),
@@ -244,6 +256,7 @@ describe.sequential("expense callables", () => {
       {
         expenseId: expense.expenseId,
         method: "bank_transfer",
+        bankAccountId,
         reference: "BANK-EXP-001",
         amountMinor: 20_000,
         paidAt: new Date().toISOString(),
@@ -276,6 +289,9 @@ describe.sequential("expense callables", () => {
       .collection("journalLines")
       .where("journalEntryId", "==", paymentJournal.docs[0]!.id)
       .get();
+    expect((await adminDb.doc(`expensePayments/${firstPayment.paymentId}`).get()).data())
+      .toMatchObject({ bankAccountId, ledgerAccountCode: "1042" });
+    expect(paymentLines.docs.map((line) => line.get("accountCode"))).toContain("1042");
     expect(paymentLines.docs.map((line) => line.get("accountCode"))).toContain(
       "2300",
     );

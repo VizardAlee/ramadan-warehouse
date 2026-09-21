@@ -40,10 +40,35 @@ legacy warehouse identifiers remain resolvable for historical transactions.
    reconciliation, complete financial statements, and an effective-dated,
    review-gated Nigerian tax-rule engine. No statutory rate is activated
    without authoritative verification and approval.
+   Current incremental slice: POS card/bank receipts and supplier/expense
+   disbursements select an existing active company bank account; trusted
+   posting validates organization ownership, records an account snapshot, and
+   uses its configured ledger code in the journal. Existing posted payments
+   remain unchanged. Older queued offline POS orders lacking an account retain
+   their historical clearing-account fallback during synchronization; new
+   online orders require an explicit selection. The Accounting entry point
+   links the existing banking and month-close controls with the financial
+   and tax views. The Reports screen now exposes
+   ledger-derived draft income, balance, cash-flow, and trial-balance views
+   with CSV export. The Tax Centre displays posted VAT ledger evidence and a
+   rule register, but no unverified statutory rule is auto-activated. Full
+   effective-dated tax configuration, filing, manual journals, transfers
+   between company financial accounts, and statement sign-off remain open.
 6. **Services, aftersales, and simple delivery.** Reuse customer, payment,
    accounting, notification, and evidence components. Service items never
    behave as stocked products; delivery tracks only operational status and the
    split between provider payable and company-retained income.
+   Current aftersales slice: store-scoped warranty and non-warranty cases link
+   to one existing customer and optionally a sale, product, and serial; staff
+   record complaint, diagnosis, service, collection, complimentary/charge
+   decision, and partial payments. Payment posts an idempotent balanced journal
+   using the selected company account; the case and audit retain immutable
+   payment references. This slice does not move inventory or rewrite the
+   original sale. Supplier warranty returns, parts consumption, photo
+   evidence, service invoicing/receivables, explicit tax treatment, technician
+   assignment, notifications, and warranty eligibility rules remain later
+   work. A quoted but unpaid aftersales charge is a case balance, not yet a
+   posted receivable; revenue is posted when payment is recorded.
 7. **Commercial documents, reports, and dashboard.** Add quotation, proforma,
    invoice conversion, A4 waybill, statements, product/location analytics, and
    server-maintained aggregates. Dashboards use real persisted data and do not

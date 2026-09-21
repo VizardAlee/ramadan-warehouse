@@ -298,6 +298,14 @@ service cloud.firestore {
       allow read: if sameOrganization(resource.data) && salesScope(resource.data);
       allow create, update, delete: if false;
     }
+    match /aftersalesCases/{documentId} {
+      allow read: if sameOrganization(resource.data) && salesScope(resource.data);
+      allow create, update, delete: if false;
+    }
+    match /aftersalesPayments/{documentId} {
+      allow read: if sameOrganization(resource.data) && salesScope(resource.data);
+      allow create, update, delete: if false;
+    }
     match /saleReturnItems/{documentId} {
       allow read: if sameOrganization(resource.data) && salesScope(resource.data);
       allow create, update, delete: if false;

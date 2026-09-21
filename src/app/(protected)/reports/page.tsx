@@ -19,6 +19,7 @@ import {
   inventoryReportColumnLabel,
   readableInventoryCsvRows,
 } from "@/features/reports/inventory-report-presentation";
+import { FinancialStatements } from "@/features/reports/financial-statements";
 import { hasPermission } from "@/lib/permissions/roles";
 import type {
   Branch,
@@ -36,7 +37,7 @@ const inventoryReports = {
   count: ["Stock-count variance", "generateStockCountVarianceReport"],
 } as const;
 type InventoryReportKey = keyof typeof inventoryReports;
-type ReportFamily = "sales" | "inventory";
+type ReportFamily = "sales" | "inventory" | "financial";
 
 interface InventoryReportResult {
   rows: Record<string, unknown>[];
@@ -142,11 +143,14 @@ export default function ReportsPage() {
   const canReadSales = Boolean(
     profile && hasPermission(profile, "reports.sales.read"),
   );
+  const canReadFinancial = Boolean(
+    profile && hasPermission(profile, "finance.journal.read"),
+  );
   const includeCosts = Boolean(
     profile && hasPermission(profile, "inventory.cost.read"),
   );
   const [family, setFamily] = useState<ReportFamily>(
-    canReadSales ? "sales" : "inventory",
+    canReadSales ? "sales" : canReadFinancial ? "financial" : "inventory",
   );
   const [kind, setKind] = useState<InventoryReportKey>("stock");
   const [productId, setProductId] = useState("");
@@ -329,7 +333,7 @@ export default function ReportsPage() {
     }
   }
 
-  if (!canReadInventory && !canReadSales)
+  if (!canReadInventory && !canReadSales && !canReadFinancial)
     return (
       <div className="rounded-xl border bg-white p-8">
         You do not have permission to view reports.
@@ -356,6 +360,14 @@ export default function ReportsPage() {
             Sales register
           </Button>
         )}
+        {canReadFinancial && (
+          <Button
+            variant={family === "financial" ? "primary" : "ghost"}
+            onClick={() => setFamily("financial")}
+          >
+            Financial statements
+          </Button>
+        )}
         {canReadInventory && (
           <Button
             variant={family === "inventory" ? "primary" : "ghost"}
@@ -366,7 +378,9 @@ export default function ReportsPage() {
         )}
       </div>
 
-      {family === "sales" && canReadSales ? (
+      {family === "financial" && canReadFinancial ? (
+        <FinancialStatements />
+      ) : family === "sales" && canReadSales ? (
         <>
           <section className="grid gap-3 rounded-xl border bg-white p-4 sm:grid-cols-2 lg:grid-cols-5">
             <label className="text-sm font-medium">

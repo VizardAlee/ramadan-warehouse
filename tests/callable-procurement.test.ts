@@ -31,6 +31,7 @@ const organizationId = "procurement-test-org",
   headOfficeId = "branch-head-office",
   headOfficeLocationId = "head-office-receiving",
   productId = "product-procurement";
+const bankAccountId = "procurement-bank-account";
 let administrator: ReturnType<typeof client>,
   warehouseManager: ReturnType<typeof client>,
   headOfficeManager: ReturnType<typeof client>;
@@ -106,6 +107,16 @@ beforeAll(async () => {
   );
   const now = FieldValue.serverTimestamp();
   await Promise.all([
+    adminDb.doc(`bankAccounts/${bankAccountId}`).set({
+      organizationId,
+      bankName: "Test Bank",
+      accountName: "Purchasing",
+      accountNumberLast4: "5678",
+      ledgerAccountCode: "1041",
+      active: true,
+      createdAt: now,
+      updatedAt: now,
+    }),
     adminDb.doc(`warehouses/${warehouseId}`).set({
       organizationId,
       name: "Central Warehouse",
@@ -400,6 +411,7 @@ describe.sequential("procurement callables", () => {
       {
         supplierId: supplier.supplierId,
         method: "bank_transfer",
+        bankAccountId,
         reference: "BANK-PAY-001",
         allocations: [
           { supplierInvoiceId: invoice.supplierInvoiceId, amountMinor: 53_750 },
@@ -424,5 +436,10 @@ describe.sequential("procurement callables", () => {
     expect(paymentJournal.docs[0]!.get("totalDebitMinor")).toBe(
       paymentJournal.docs[0]!.get("totalCreditMinor"),
     );
+    expect((await adminDb.doc(`supplierPayments/${payment.paymentId}`).get()).data())
+      .toMatchObject({ bankAccountId, ledgerAccountCode: "1041" });
+    const paymentLines = await adminDb.collection("journalLines")
+      .where("journalEntryId", "==", paymentJournal.docs[0]!.id).get();
+    expect(paymentLines.docs.map((line) => line.get("accountCode"))).toContain("1041");
   });
 });

@@ -5,6 +5,7 @@ import {
   accountingPeriodReference,
   assertAccountingPeriodOpen,
 } from "../accounting/period-lock.js";
+import { bankAccountSummary, resolveSettlementAccount } from "../accounting/settlement-account.js";
 import { writeAuditLog } from "../audit/write-audit-log.js";
 import {
   canSelfAuthorize,
@@ -41,11 +42,6 @@ const accountNames: Readonly<Record<string, string>> = {
   "1200": "Inventory asset",
   "1300": "Input VAT recoverable",
   "2000": "Accounts payable",
-};
-const paymentAccounts: Readonly<Record<string, string>> = {
-  cash: "1010",
-  card: "1020",
-  bank_transfer: "1030",
 };
 function clean(values: Record<string, unknown>) {
   return Object.fromEntries(
@@ -130,6 +126,7 @@ function writeJournal(
     effectiveAt: Timestamp;
     lines: Array<{
       accountCode: string;
+      accountName?: string;
       debitMinor: number;
       creditMinor: number;
     }>;
@@ -180,7 +177,7 @@ function writeJournal(
       {
         organizationId: actor.organizationId,
         code: line.accountCode,
-        name: accountNames[line.accountCode],
+        name: line.accountName ?? accountNames[line.accountCode] ?? line.accountCode,
         currency: "NGN",
         active: true,
         systemManaged: true,
@@ -198,7 +195,7 @@ function writeJournal(
         journalNumber,
         accountId: account.id,
         accountCode: line.accountCode,
-        accountName: accountNames[line.accountCode],
+        accountName: line.accountName ?? accountNames[line.accountCode] ?? line.accountCode,
         debitMinor: line.debitMinor,
         creditMinor: line.creditMinor,
         currency: "NGN",
@@ -352,6 +349,7 @@ export const getProcurementWorkspace = onCall(
       purchaseOrders,
       purchaseOrderItems,
       invoices,
+      bankAccounts,
     ] = await Promise.all([
       db
         .collection("suppliers")
@@ -386,6 +384,11 @@ export const getProcurementWorkspace = onCall(
       purchaseOrdersQuery.get(),
       purchaseItemsQuery.get(),
       invoicesQuery.get(),
+      db.collection("bankAccounts")
+        .where("organizationId", "==", actor.organizationId)
+        .where("active", "==", true)
+        .limit(100)
+        .get(),
     ]);
     const organizationWide =
       hasRole(actor, "system_administrator") ||
@@ -403,6 +406,7 @@ export const getProcurementWorkspace = onCall(
         id: document.id,
         ...document.data(),
       })),
+      bankAccounts: bankAccounts.docs.map(bankAccountSummary),
       branches: branches.docs
         .filter(
           (document) => organizationWide || actor.branchIds.includes(document.id),
@@ -1361,6 +1365,9 @@ export const recordSupplierPayment = onCall(
       invoiceRefs = input.allocations.map((allocation) =>
         db.doc(`supplierInvoices/${allocation.supplierInvoiceId}`),
       );
+    const bankAccount = input.bankAccountId
+      ? db.doc(`bankAccounts/${input.bankAccountId}`)
+      : db.doc("bankAccounts/no-bank-account");
     const operation = db.doc(
         `idempotencyKeys/${actor.organizationId}_recordSupplierPayment_${input.idempotencyKey}`,
       ),
@@ -1381,12 +1388,14 @@ export const recordSupplierPayment = onCall(
         supplier,
         journalCounter,
         accountingPeriod,
+        bankAccount,
         ...invoiceRefs,
       );
       const previous = snapshots[0]!,
         supplierSnapshot = snapshots[1]!,
         journalCounterSnapshot = snapshots[2]!,
-        accountingPeriodSnapshot = snapshots[3]!;
+        accountingPeriodSnapshot = snapshots[3]!,
+        bankAccountSnapshot = snapshots[4]!;
       if (previous.exists) {
         result = {
           paymentId: String(previous.get("entityId")),
@@ -1400,7 +1409,7 @@ export const recordSupplierPayment = onCall(
         supplierSnapshot.get("organizationId") !== actor.organizationId
       )
         throw new HttpsError("failed-precondition", "Supplier is unavailable.");
-      const invoices = snapshots.slice(4),
+      const invoices = snapshots.slice(5),
         total = input.allocations.reduce(
           (sum, allocation) => sum + allocation.amountMinor,
           0,
@@ -1430,10 +1439,17 @@ export const recordSupplierPayment = onCall(
         );
       const now = FieldValue.serverTimestamp(),
         paymentNumber = `PAY-${payment.id.slice(0, 10).toUpperCase()}`;
+      const settlement = resolveSettlementAccount(
+        actor.organizationId,
+        input.method,
+        input.bankAccountId,
+        bankAccountSnapshot,
+      );
       const lines = [
         { accountCode: "2000", debitMinor: total, creditMinor: 0 },
         {
-          accountCode: paymentAccounts[input.method]!,
+          accountCode: settlement.accountCode,
+          accountName: settlement.accountName,
           debitMinor: 0,
           creditMinor: total,
         },
@@ -1490,6 +1506,11 @@ export const recordSupplierPayment = onCall(
           paymentNumber,
           method: input.method,
           reference: input.reference,
+          bankAccountId: settlement.bankAccountId,
+          bankName: settlement.bankName,
+          bankAccountName: settlement.bankAccountName,
+          accountNumberLast4: settlement.accountNumberLast4,
+          ledgerAccountCode: settlement.accountCode,
           amountMinor: total,
           currency: "NGN",
           status: "recorded",
@@ -1533,6 +1554,8 @@ export const recordSupplierPayment = onCall(
           supplierId: supplier.id,
           amountMinor: total,
           method: input.method,
+          bankAccountId: settlement.bankAccountId ?? null,
+          ledgerAccountCode: settlement.accountCode,
         },
       });
     });

@@ -29,6 +29,7 @@ const organizationId = "sales-test-org";
 const branchId = "branch-sales";
 const locationId = "branch-sales-location";
 const productId = "product-sales";
+const bankAccountId = "sales-bank-account";
 let administrator: ReturnType<typeof client>;
 let branchManager: ReturnType<typeof client>;
 let cashier: ReturnType<typeof client>;
@@ -108,6 +109,16 @@ beforeAll(async () => {
   );
   const now = FieldValue.serverTimestamp();
   await Promise.all([
+    adminDb.doc(`bankAccounts/${bankAccountId}`).set({
+      organizationId,
+      bankName: "Test Bank",
+      accountName: "Sales Collections",
+      accountNumberLast4: "1234",
+      ledgerAccountCode: "1040",
+      active: true,
+      createdAt: now,
+      updatedAt: now,
+    }),
     adminDb.doc(`organizations/${organizationId}`).set({
       legalName: "AB Ramadan Ltd.",
       tradingName: "ABR",
@@ -379,6 +390,30 @@ describe.sequential("sales callables", () => {
     ).rejects.toMatchObject({ code: "functions/permission-denied" });
   });
 
+  it("routes a bank-transfer sale to the selected company account", async () => {
+    const shift = (await adminDb.collection("posShifts")
+      .where("branchId", "==", branchId)
+      .where("status", "==", "open")
+      .get()).docs.find((item) => item.get("openedBy") === branchManager.auth.currentUser?.uid);
+    if (!shift) throw new Error("The manager shift was not opened.");
+    const posted = await call<{ saleId: string }>(branchManager, "commitPosSale", {
+      branchId,
+      shiftId: shift.id,
+      deviceId: shift.get("deviceId"),
+      recordedAt: new Date().toISOString(),
+      offline: false,
+      lines: [{ productId, quantity: 1 }],
+      payments: [{ method: "bank_transfer", bankAccountId, amountMinor: 11_825, reference: "TRANSFER-SALES-001" }],
+      idempotencyKey: crypto.randomUUID(),
+      operatingContext: { type: "branch", id: branchId },
+    });
+    const payment = await adminDb.collection("salePayments").where("saleId", "==", posted.saleId).get();
+    expect(payment.docs[0]!.data()).toMatchObject({ bankAccountId, ledgerAccountCode: "1040", accountNumberLast4: "1234" });
+    const journal = await adminDb.collection("journalEntries").where("referenceId", "==", posted.saleId).get();
+    const lines = await adminDb.collection("journalLines").where("journalEntryId", "==", journal.docs[0]!.id).get();
+    expect(lines.docs.map((line) => line.get("accountCode"))).toContain("1040");
+  });
+
   it("rejects stale offline prices, then posts an exact cached snapshot once", async () => {
     await call(administrator, "saveProductSalesPrice", {
       productId,
@@ -483,7 +518,7 @@ describe.sequential("sales callables", () => {
       grossAmountMinor: 12_900,
     });
     const finalBalance = await before.ref.get();
-    expect(finalBalance.get("onHandQuantity")).toBe(7);
+    expect(finalBalance.get("onHandQuantity")).toBe(6);
   });
 
   it("keeps stock unchanged through order receipt and payment acceptance, then releases it on confirmation", async () => {
@@ -527,7 +562,7 @@ describe.sequential("sales callables", () => {
         recordedAt: new Date().toISOString(),
         offline: false,
         lines: [{ productId, quantity: 1 }],
-        payments: [{ method: "cash", amountMinor: 12_900 }],
+        payments: [{ method: "bank_transfer", bankAccountId, amountMinor: 12_900, reference: "TRANSFER-WORKFLOW-001" }],
         idempotencyKey: crypto.randomUUID(),
         operatingContext: { type: "branch", id: branchId },
       },
@@ -571,6 +606,8 @@ describe.sequential("sales callables", () => {
     expect((await balance.get()).get("onHandQuantity")).toBe(
       Number(before.get("onHandQuantity")) - 1,
     );
+    const receiptPayment = await adminDb.collection("salePayments").where("saleId", "==", completed.saleId).get();
+    expect(receiptPayment.docs[0]!.data()).toMatchObject({ bankAccountId, ledgerAccountCode: "1040" });
     expect((await adminDb.doc(`salesOrders/${order.orderId}`).get()).data()).toMatchObject({
       status: "completed",
       saleId: completed.saleId,

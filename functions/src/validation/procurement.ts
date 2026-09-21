@@ -95,6 +95,7 @@ export const supplierInvoiceActionInput = z.object({
 export const recordSupplierPaymentInput = z.object({
   supplierId: id,
   method: z.enum(["cash", "card", "bank_transfer"]),
+  bankAccountId: id.optional(),
   reference: optionalText(160),
   allocations: z.array(z.object({
     supplierInvoiceId: id,
@@ -104,6 +105,8 @@ export const recordSupplierPaymentInput = z.object({
   notes: optionalText(500),
   idempotencyKey: z.string().uuid(),
 }).superRefine((value, context) => {
+  if (value.method !== "cash" && !value.bankAccountId)
+    context.addIssue({ code: "custom", path: ["bankAccountId"], message: "Select the company bank account funding this payment." });
   if (value.method !== "cash" && !value.reference)
     context.addIssue({ code: "custom", path: ["reference"], message: "Record the external payment reference." });
   const invoiceIds = value.allocations.map((allocation) => allocation.supplierInvoiceId);

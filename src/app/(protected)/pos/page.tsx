@@ -100,6 +100,7 @@ export default function PosPage() {
   const [search, setSearch] = useState("");
   const [paymentMethod, setPaymentMethod] = useState<PosCheckoutMethod>("cash");
   const [paymentReference, setPaymentReference] = useState("");
+  const [paymentBankAccountId, setPaymentBankAccountId] = useState("");
   const [customerId, setCustomerId] = useState("");
   const [customerDialogOpen, setCustomerDialogOpen] = useState(false);
   const [newCustomer, setNewCustomer] = useState({
@@ -386,6 +387,7 @@ export default function PosPage() {
     setCart([]);
     setPaymentMethod("cash");
     setPaymentReference("");
+    setPaymentBankAccountId("");
     setCustomerId("");
     setDiscountAmount("");
     setDiscountReason("");
@@ -410,6 +412,7 @@ export default function PosPage() {
         customerId: customerId || undefined,
         paymentMethod,
         paymentReference: paymentReference.trim() || undefined,
+        bankAccountId: paymentBankAccountId || undefined,
         discountAmount,
         discountReason,
         creditPaidAmount,
@@ -485,6 +488,11 @@ export default function PosPage() {
     setPaymentReference(
       restoredPaymentMethod === heldSale.paymentMethod
         ? heldSale.paymentReference ?? ""
+        : "",
+    );
+    setPaymentBankAccountId(
+      workspace.bankAccounts.some((account) => account.id === heldSale.bankAccountId)
+        ? heldSale.bankAccountId ?? ""
         : "",
     );
     setDiscountAmount(restoredDiscountAmount);
@@ -634,6 +642,18 @@ export default function PosPage() {
       setError("Select an available exchange credit while online.");
       return;
     }
+    const needsBankAccount =
+      ["card", "bank_transfer"].includes(paymentMethod) ||
+      (paymentMethod === "customer_credit" &&
+        creditPaidAmountMinor > 0 &&
+        ["card", "bank_transfer"].includes(creditUpfrontMethod));
+    if (
+      needsBankAccount &&
+      !paymentBankAccountId
+    ) {
+      setError("Select the company bank account receiving this payment.");
+      return;
+    }
     setBusy(true);
     setError(null);
     const idempotencyKey = crypto.randomUUID();
@@ -671,6 +691,7 @@ export default function PosPage() {
                   method: creditUpfrontMethod,
                   amountMinor: creditPaidAmountMinor,
                   reference: paymentReference.trim() || undefined,
+                  bankAccountId: paymentBankAccountId || undefined,
                 },
               ]
             : []
@@ -696,6 +717,7 @@ export default function PosPage() {
                   method: paymentMethod as PosPaymentMethod,
                   amountMinor: totals.grossAmountMinor,
                   reference: paymentReference.trim() || undefined,
+                  bankAccountId: paymentBankAccountId || undefined,
                 },
               ],
       customerId: customerId || undefined,
@@ -1548,6 +1570,7 @@ export default function PosPage() {
                 onChange={(event) => {
                   setPaymentMethod(event.target.value as PosCheckoutMethod);
                   setPaymentReference("");
+                  setPaymentBankAccountId("");
                   setCreditPaidAmount("0.00");
                 }}
                 className="mt-1 w-full rounded-lg border p-3"
@@ -1607,16 +1630,31 @@ export default function PosPage() {
                       </select>
                     </label>
                     {creditUpfrontMethod !== "cash" && (
-                      <label className="block text-sm font-medium">
-                        Payment reference (optional)
-                        <input
-                          value={paymentReference}
-                          onChange={(event) =>
-                            setPaymentReference(event.target.value)
-                          }
-                          className="mt-1 w-full rounded-lg border p-3"
-                        />
-                      </label>
+                      <>
+                        <label className="block text-sm font-medium">
+                          Company bank account
+                          <select
+                            value={paymentBankAccountId}
+                            onChange={(event) => setPaymentBankAccountId(event.target.value)}
+                            className="mt-1 w-full rounded-lg border p-3"
+                          >
+                            <option value="">Select account</option>
+                            {workspace.bankAccounts.map((account) => (
+                              <option key={account.id} value={account.id}>
+                                {account.bankName} · {account.accountName} · ••••{account.accountNumberLast4}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        <label className="block text-sm font-medium">
+                          Payment reference (optional)
+                          <input
+                            value={paymentReference}
+                            onChange={(event) => setPaymentReference(event.target.value)}
+                            className="mt-1 w-full rounded-lg border p-3"
+                          />
+                        </label>
+                      </>
                     )}
                   </>
                 )}
@@ -1647,15 +1685,32 @@ export default function PosPage() {
                 </span>
               </label>
             ) : paymentMethod !== "cash" ? (
-              <label className="mt-3 block text-sm font-medium">
-                Payment reference (optional)
-                <input
-                  value={paymentReference}
-                  onChange={(event) => setPaymentReference(event.target.value)}
-                  className="mt-1 w-full rounded-lg border p-3"
-                  placeholder="Terminal or transfer reference"
-                />
-              </label>
+              <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                <label className="block text-sm font-medium">
+                  Company bank account
+                  <select
+                    value={paymentBankAccountId}
+                    onChange={(event) => setPaymentBankAccountId(event.target.value)}
+                    className="mt-1 w-full rounded-lg border p-3"
+                  >
+                    <option value="">Select account</option>
+                    {workspace.bankAccounts.map((account) => (
+                      <option key={account.id} value={account.id}>
+                        {account.bankName} · {account.accountName} · ••••{account.accountNumberLast4}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="block text-sm font-medium">
+                  Payment reference (optional)
+                  <input
+                    value={paymentReference}
+                    onChange={(event) => setPaymentReference(event.target.value)}
+                    className="mt-1 w-full rounded-lg border p-3"
+                    placeholder="Terminal or transfer reference"
+                  />
+                </label>
+              </div>
             ) : null}
             <Button
               className="mt-5 w-full"
@@ -1673,7 +1728,12 @@ export default function PosPage() {
                     selectedCustomer?.creditStatus !== "approved" ||
                     selectedCustomer.availableCreditMinor < creditAmountMinor)) ||
                 (paymentMethod === "exchange_credit" &&
-                  (!online || !paymentReference))
+                  (!online || !paymentReference)) ||
+                ((["card", "bank_transfer"].includes(paymentMethod) ||
+                  (paymentMethod === "customer_credit" &&
+                    creditPaidAmountMinor > 0 &&
+                    ["card", "bank_transfer"].includes(creditUpfrontMethod))) &&
+                  !paymentBankAccountId)
               }
               onClick={() => void checkout()}
             >

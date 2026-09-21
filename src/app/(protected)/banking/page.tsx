@@ -197,8 +197,8 @@ export default function BankingPage() {
           </p>
           <h1 className="text-3xl font-semibold">Bank reconciliation</h1>
           <p className="text-[var(--muted)]">
-            Import the statement, match every deposit and withdrawal to account
-            1030, then complete the reconciled period. Managers and
+            Import the statement, match every deposit and withdrawal to this
+            bank account&apos;s ledger, then complete the reconciled period. Managers and
             administrators may complete their own preparation; every action is
             audited.
           </p>
@@ -237,9 +237,9 @@ export default function BankingPage() {
             1. Add a bank account
           </summary>
           <p className="mt-1 text-sm text-[var(--muted)]">
-            Only the last four digits are stored. Ledger code 1030 is the
-            existing bank-transfer clearing account; use a separate 10xx code
-            for each additional real bank account.
+            Only the last four digits are stored. Give each real bank account
+            its own 10xx ledger code; sales receipts and supplier/expense
+            payments will use the account selected at checkout or payment.
           </p>
           <div className="mt-4 grid gap-3 md:grid-cols-3">
             <label className="text-sm">

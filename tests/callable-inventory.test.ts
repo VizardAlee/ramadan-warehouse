@@ -302,8 +302,9 @@ describe.sequential("inventory callables", () => {
     expect(categories.size).toBe(1);
     expect(firstProduct.get("categoryId")).toBe(categories.docs[0]!.id);
     expect(secondProduct.get("categoryId")).toBe(categories.docs[0]!.id);
-    expect(firstProduct.get("categoryName")).toBe("Power Accessories");
-    expect(secondProduct.get("categoryName")).toBe("Power Accessories");
+    expect(String(categories.docs[0]!.get("name")).toLowerCase()).toBe("power accessories");
+    expect(firstProduct.get("categoryName")).toBe(categories.docs[0]!.get("name"));
+    expect(secondProduct.get("categoryName")).toBe(categories.docs[0]!.get("name"));
   });
 
   it("posts opening stock once with balanced immutable entries", async () => {

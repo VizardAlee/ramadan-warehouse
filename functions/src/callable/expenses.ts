@@ -5,6 +5,7 @@ import {
   accountingPeriodReference,
   assertAccountingPeriodOpen,
 } from "../accounting/period-lock.js";
+import { bankAccountSummary, resolveSettlementAccount } from "../accounting/settlement-account.js";
 import { writeAuditLog } from "../audit/write-audit-log.js";
 import {
   canSelfAuthorize,
@@ -35,11 +36,6 @@ const accountNames: Readonly<Record<string, string>> = {
   "1300": "Input VAT recoverable",
   "2300": "Accrued operating expenses",
   "6000": "Operating expenses",
-};
-const settlementAccounts: Readonly<Record<string, string>> = {
-  cash: "1010",
-  card: "1020",
-  bank_transfer: "1030",
 };
 
 function clean(values: Record<string, unknown>) {
@@ -105,6 +101,7 @@ function writeJournal(
     effectiveAt: Timestamp;
     lines: Array<{
       accountCode: string;
+      accountName?: string;
       debitMinor: number;
       creditMinor: number;
     }>;
@@ -158,7 +155,7 @@ function writeJournal(
         {
           organizationId: actor.organizationId,
           code: line.accountCode,
-          name: accountNames[line.accountCode],
+          name: line.accountName ?? accountNames[line.accountCode] ?? line.accountCode,
           currency: "NGN",
           active: true,
           systemManaged: true,
@@ -176,7 +173,7 @@ function writeJournal(
           journalNumber,
           accountId: account.id,
           accountCode: line.accountCode,
-          accountName: accountNames[line.accountCode],
+          accountName: line.accountName ?? accountNames[line.accountCode] ?? line.accountCode,
           debitMinor: line.debitMinor,
           creditMinor: line.creditMinor,
           currency: "NGN",
@@ -200,7 +197,7 @@ export const getExpenseWorkspace = onCall(
     if (input.branchId) query = query.where("branchId", "==", input.branchId);
     if (input.warehouseId)
       query = query.where("warehouseId", "==", input.warehouseId);
-    const [categories, branches, warehouses, expenses] = await Promise.all([
+    const [categories, branches, warehouses, expenses, bankAccounts] = await Promise.all([
       db
         .collection("expenseCategories")
         .where("organizationId", "==", actor.organizationId)
@@ -220,6 +217,11 @@ export const getExpenseWorkspace = onCall(
         .limit(100)
         .get(),
       query.limit(input.limit).get(),
+      db.collection("bankAccounts")
+        .where("organizationId", "==", actor.organizationId)
+        .where("active", "==", true)
+        .limit(100)
+        .get(),
     ]);
     return {
       categories: categories.docs.map((document) => ({
@@ -249,6 +251,7 @@ export const getExpenseWorkspace = onCall(
       expenses: expenses.docs
         .filter((document) => expenseVisible(actor, document.data()))
         .map((document) => ({ id: document.id, ...document.data() })),
+      bankAccounts: bankAccounts.docs.map(bankAccountSummary),
     };
   },
 );
@@ -587,6 +590,9 @@ export const recordExpensePayment = onCall(
         `journalCounters/${uniquenessDocumentId(actor.organizationId, "general")}`,
       ),
       journal = db.collection("journalEntries").doc();
+    const bankAccount = input.bankAccountId
+      ? db.doc(`bankAccounts/${input.bankAccountId}`)
+      : db.doc("bankAccounts/no-bank-account");
     const effectiveAt = Timestamp.fromDate(new Date(input.paidAt));
     const accountingPeriod = accountingPeriodReference(
       actor.organizationId,
@@ -599,11 +605,13 @@ export const recordExpensePayment = onCall(
         current,
         journalCounterSnapshot,
         accountingPeriodSnapshot,
+        bankAccountSnapshot,
       ] = await transaction.getAll(
         operation,
         expense,
         journalCounter,
         accountingPeriod,
+        bankAccount,
       );
       if (previous!.exists) {
         result = {
@@ -630,10 +638,17 @@ export const recordExpensePayment = onCall(
       const nextOutstanding = outstanding - input.amountMinor,
         now = FieldValue.serverTimestamp(),
         paymentNumber = `EPY-${payment.id.slice(0, 10).toUpperCase()}`;
+      const settlement = resolveSettlementAccount(
+        actor.organizationId,
+        input.method,
+        input.bankAccountId,
+        bankAccountSnapshot,
+      );
       const lines = [
         { accountCode: "2300", debitMinor: input.amountMinor, creditMinor: 0 },
         {
-          accountCode: settlementAccounts[input.method]!,
+          accountCode: settlement.accountCode,
+          accountName: settlement.accountName,
           debitMinor: 0,
           creditMinor: input.amountMinor,
         },
@@ -670,6 +685,11 @@ export const recordExpensePayment = onCall(
           payeeName: current!.get("payeeName"),
           method: input.method,
           reference: input.reference,
+          bankAccountId: settlement.bankAccountId,
+          bankName: settlement.bankName,
+          bankAccountName: settlement.bankAccountName,
+          accountNumberLast4: settlement.accountNumberLast4,
+          ledgerAccountCode: settlement.accountCode,
           amountMinor: input.amountMinor,
           currency: "NGN",
           paidAt: effectiveAt,
@@ -698,6 +718,8 @@ export const recordExpensePayment = onCall(
           paymentId: payment.id,
           amountMinor: input.amountMinor,
           method: input.method,
+          bankAccountId: settlement.bankAccountId ?? null,
+          ledgerAccountCode: settlement.accountCode,
           outstandingAmountMinor: nextOutstanding,
         },
       });

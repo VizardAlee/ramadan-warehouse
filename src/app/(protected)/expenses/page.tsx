@@ -14,12 +14,21 @@ interface Workspace {
   branches: Array<{ id: string; name: string; code: string }>;
   warehouses: Array<{ id: string; name: string; code: string }>;
   expenses: OperatingExpense[];
+  bankAccounts: BankAccountOption[];
+}
+interface BankAccountOption {
+  id: string;
+  bankName: string;
+  accountName: string;
+  accountNumberLast4: string;
+  ledgerAccountCode: string;
 }
 type PaymentMethod = "cash" | "card" | "bank_transfer";
 interface PaymentDraft {
   amountNaira: string;
   method: PaymentMethod;
   reference: string;
+  bankAccountId: string;
 }
 
 function localDate() {
@@ -350,6 +359,7 @@ export default function ExpensesPage() {
               amountNaira: (expense.outstandingAmountMinor / 100).toFixed(2),
               method: "bank_transfer" as PaymentMethod,
               reference: "",
+              bankAccountId: "",
             };
             const paymentMinor = Number(draft.amountNaira) * 100;
             const validPayment =
@@ -431,7 +441,7 @@ export default function ExpensesPage() {
                 </div>
                 {["approved", "partially_paid"].includes(expense.status) &&
                   can("expenses.pay") && (
-                    <div className="mt-4 grid gap-2 border-t pt-4 sm:grid-cols-[10rem_11rem_minmax(0,1fr)_auto]">
+                    <div className="mt-4 grid gap-2 border-t pt-4 md:grid-cols-2 xl:grid-cols-[10rem_11rem_minmax(14rem,1fr)_minmax(12rem,1fr)_auto]">
                       <input
                         aria-label="Payment amount in naira"
                         type="number"
@@ -459,6 +469,10 @@ export default function ExpensesPage() {
                             [expense.id]: {
                               ...draft,
                               method: event.target.value as PaymentMethod,
+                              bankAccountId:
+                                event.target.value === "cash"
+                                  ? ""
+                                  : draft.bankAccountId,
                             },
                           })
                         }
@@ -467,6 +481,33 @@ export default function ExpensesPage() {
                         <option value="bank_transfer">Bank transfer</option>
                         <option value="card">Card / POS</option>
                         <option value="cash">Cash</option>
+                      </select>
+                      <select
+                        aria-label="Company bank account"
+                        value={draft.bankAccountId}
+                        disabled={draft.method === "cash"}
+                        onChange={(event) =>
+                          setPayments({
+                            ...payments,
+                            [expense.id]: {
+                              ...draft,
+                              bankAccountId: event.target.value,
+                            },
+                          })
+                        }
+                        className="rounded-lg border p-3 disabled:bg-slate-100"
+                      >
+                        <option value="">
+                          {draft.method === "cash"
+                            ? "Cash on hand"
+                            : "Select bank account"}
+                        </option>
+                        {workspace.bankAccounts.map((account) => (
+                          <option key={account.id} value={account.id}>
+                            {account.bankName} · {account.accountName} · ••••
+                            {account.accountNumberLast4}
+                          </option>
+                        ))}
                       </select>
                       <input
                         value={draft.reference}
@@ -490,7 +531,8 @@ export default function ExpensesPage() {
                         disabled={
                           busy ||
                           !validPayment ||
-                          (draft.method !== "cash" && !draft.reference.trim())
+                          (draft.method !== "cash" && !draft.reference.trim()) ||
+                          (draft.method !== "cash" && !draft.bankAccountId)
                         }
                         onClick={() =>
                           void run(
@@ -502,6 +544,8 @@ export default function ExpensesPage() {
                                   Number(draft.amountNaira),
                                 ),
                                 reference: draft.reference || undefined,
+                                bankAccountId:
+                                  draft.bankAccountId || undefined,
                                 paidAt: new Date().toISOString(),
                                 idempotencyKey: crypto.randomUUID(),
                               }),

@@ -43,12 +43,15 @@ export const expenseActionInput = z.object({
 export const recordExpensePaymentInput = z.object({
   expenseId: id,
   method: z.enum(["cash", "card", "bank_transfer"]),
+  bankAccountId: id.optional(),
   amountMinor: positiveMoney,
   reference: optionalText(160),
   paidAt: z.string().datetime(),
   notes: optionalText(500),
   idempotencyKey: z.string().uuid(),
 }).superRefine((value, context) => {
+  if (value.method !== "cash" && !value.bankAccountId)
+    context.addIssue({ code: "custom", path: ["bankAccountId"], message: "Select the company bank account funding this payment." });
   if (value.method !== "cash" && !value.reference)
     context.addIssue({ code: "custom", path: ["reference"], message: "Record the external payment reference." });
 });

@@ -165,6 +165,17 @@ async function seed() {
         saleId: id,
         status: "submitted",
       });
+      await db.doc(`aftersalesCases/${id}-service`).set({
+        organizationId: "org-1",
+        branchId,
+        saleId: id,
+        status: "open",
+      });
+      await db.doc(`aftersalesPayments/${id}-service-payment`).set({
+        organizationId: "org-1",
+        branchId,
+        caseId: `${id}-service`,
+      });
       await db.doc(`saleReturnItems/${id}-return-item`).set({
         organizationId: "org-1",
         branchId,
@@ -396,6 +407,18 @@ async function seed() {
 }
 
 describe("Firestore baseline rules", () => {
+  it("keeps aftersales cases and payments branch-scoped and server-write-only", async () => {
+    await seed();
+    const branchDb = environment.authenticatedContext("branch-manager").firestore();
+    const adminDb = environment.authenticatedContext("admin").firestore();
+    await assertSucceeds(branchDb.doc("aftersalesCases/sale-1-service").get());
+    await assertSucceeds(branchDb.doc("aftersalesPayments/sale-1-service-payment").get());
+    await assertFails(branchDb.doc("aftersalesCases/sale-2-service").get());
+    await assertFails(branchDb.doc("aftersalesPayments/sale-2-service-payment").get());
+    await assertSucceeds(adminDb.doc("aftersalesCases/sale-2-service").get());
+    await assertFails(adminDb.doc("aftersalesCases/sale-1-service").update({ status: "completed" }));
+    await assertFails(adminDb.doc("aftersalesPayments/new-payment").set({ organizationId: "org-1", branchId: "branch-1" }));
+  });
   it("limits accounting period evidence to authorized read-only roles", async () => {
     await seed();
     const adminDb = environment.authenticatedContext("admin").firestore();

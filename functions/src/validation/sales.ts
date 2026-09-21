@@ -179,6 +179,7 @@ export const commitSaleInput = z.object({
         method: z.enum(salePaymentMethods),
         amountMinor: positiveMoney,
         reference: z.string().trim().max(120).optional(),
+        bankAccountId: id.optional(),
       }),
     )
     .min(0)
