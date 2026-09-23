@@ -1,4 +1,4 @@
-const VERSION = "v3";
+const VERSION = "v4";
 const STATIC_CACHE = `abr-static-${VERSION}`;
 const PAGE_CACHE = `abr-pages-${VERSION}`;
 const OWN_CACHES = [STATIC_CACHE, PAGE_CACHE];
@@ -29,6 +29,36 @@ self.addEventListener("activate", (event) => {
 
 self.addEventListener("message", (event) => {
   if (event.data?.type === "SKIP_WAITING") self.skipWaiting();
+});
+
+self.addEventListener("push", (event) => {
+  if (!event.data) return;
+  let payload;
+  try { payload = event.data.json(); } catch { return; }
+  if (!payload || typeof payload.title !== "string" || typeof payload.href !== "string") return;
+  const destination = new URL(payload.href, self.location.origin);
+  if (destination.origin !== self.location.origin) return;
+  event.waitUntil(self.registration.showNotification(payload.title, {
+    body: typeof payload.body === "string" ? payload.body : "Open AB Ramadan to review this task.",
+    icon: "/icons/abr-192.png",
+    badge: "/icons/abr-192.png",
+    tag: typeof payload.tag === "string" ? payload.tag : undefined,
+    data: { href: destination.pathname + destination.search },
+  }));
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const destination = new URL(event.notification.data?.href || "/notifications", self.location.origin);
+  if (destination.origin !== self.location.origin) return;
+  event.waitUntil(self.clients.matchAll({ type: "window", includeUncontrolled: true }).then(async (clients) => {
+    const existing = clients.find((client) => new URL(client.url).origin === self.location.origin);
+    if (existing) {
+      await existing.navigate(destination.href);
+      return existing.focus();
+    }
+    return self.clients.openWindow(destination.href);
+  }));
 });
 
 async function networkFirstNavigation(request) {

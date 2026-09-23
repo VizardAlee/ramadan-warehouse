@@ -9,3 +9,5 @@ setGlobalOptions({ region: environment.FUNCTIONS_REGION, maxInstances: 20, timeo
 export const enforceAppCheck = environment.APP_ENV === "emulator" ? false : environment.WAREHOUSE_APP_CHECK_ENABLED;
 export const bootstrapSecret = defineSecret("WAREHOUSE_BOOTSTRAP_SECRET");
 export const bootstrapSecrets = process.env.FUNCTIONS_EMULATOR === "true" ? [] : [bootstrapSecret];
+export const webPushVapidSecret = defineSecret("WAREHOUSE_WEB_PUSH_VAPID");
+export const webPushSecrets = process.env.FUNCTIONS_EMULATOR === "true" ? [] : [webPushVapidSecret];

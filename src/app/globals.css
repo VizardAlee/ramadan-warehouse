@@ -56,6 +56,7 @@ button:active:not(:disabled) { transform: scale(.975); }
 button, input, select, textarea { font: inherit; }
 button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 3px solid color-mix(in srgb, var(--brand) 32%, transparent); outline-offset: 2px; }
 input, select, textarea { min-height: 44px; max-width: 100%; background: white; }
+.input { min-height: 44px; border: 1px solid var(--border); border-radius: .6rem; padding: .55rem .75rem; background: white; }
 textarea { min-height: 96px; }
 ::selection { background: #d9e0fb; color: #263573; }
 

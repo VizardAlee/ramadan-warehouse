@@ -5,6 +5,8 @@ import { environment } from "../config.js";
 import { attemptIntegrationDelivery, integrationEventSchema, MockIntegrationAdapter, NoopIntegrationAdapter } from "../integrations/outbox.js";
 import { attemptNotificationDelivery, EmulatorNotificationAdapter, LogNotificationAdapter, NoopNotificationAdapter } from "../notifications/delivery.js";
 import { deliverInAppNotification, supportsInAppDelivery, type InboxEvent } from "../notifications/in-app.js";
+import { deliverPendingWebPush } from "../notifications/web-push.js";
+import { webPushSecrets } from "../config.js";
 import { scheduledJobReliability } from "./schedule-options.js";
 
 const notificationAdapter = () => environment.NOTIFICATION_ADAPTER_MODE === "log" ? new LogNotificationAdapter() : environment.NOTIFICATION_ADAPTER_MODE === "emulator" ? new EmulatorNotificationAdapter() : new NoopNotificationAdapter();
@@ -23,7 +25,8 @@ export async function runNotificationDeliveryJob(limit = 100) {
     const result = await attemptNotificationDelivery(event, adapter);
     if (result.attempted) { await snapshot.ref.update(result.patch); attempted++; }
   }
-  const summary = { skipped: false, examined: snapshots.size, attempted };
+  const pushAttempted = await deliverPendingWebPush();
+  const summary = { skipped: false, examined: snapshots.size, attempted, pushAttempted };
   logger.info("notification_delivery_job_completed", summary);
   return summary;
 }
@@ -44,7 +47,7 @@ export async function runIntegrationOutboxJob(limit = 100) {
 }
 
 export const deliverPendingNotifications = onSchedule(
-  { schedule: "every 1 minutes", ...scheduledJobReliability },
+  { schedule: "every 1 minutes", ...scheduledJobReliability, secrets: webPushSecrets },
   async () => { await runNotificationDeliveryJob(); },
 );
 export const deliverIntegrationOutbox = onSchedule(

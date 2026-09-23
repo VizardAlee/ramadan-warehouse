@@ -5,6 +5,7 @@ import { doc, getDoc } from "firebase/firestore";
 import { httpsCallable } from "firebase/functions";
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { getFirebaseServices } from "@/lib/firebase/client";
+import { detachBrowserPush } from "@/features/notifications/push-subscription";
 import type { UserProfile } from "@/types/domain";
 import {
   availableOperatingContexts,
@@ -147,9 +148,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setError(null);
     await signInWithEmailAndPassword(getFirebaseServices().auth, email, password);
   }, []);
-  const logout = useCallback(() => {
+  const logout = useCallback(async () => {
     const current = getFirebaseServices().auth.currentUser;
     if (current) window.localStorage.removeItem(offlineProfileKey(current.uid));
+    try { await detachBrowserPush(); } catch { /* Sign-out must remain available offline. */ }
     return signOut(getFirebaseServices().auth);
   }, []);
   const refreshAuthorization = useCallback(async () => {

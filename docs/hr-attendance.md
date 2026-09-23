@@ -1,0 +1,9 @@
+# HR attendance foundation
+
+`employees` is a separate organization-scoped staff register. An employee need not have a Firebase Authentication user. An optional `userId` links one app account to one employee, while `externalAttendanceId` maps an external fingerprint terminal's staff code. Neither identifier grants app permissions.
+
+System administrators can maintain versioned monthly salary terms in `employeeCompensationVersions`; the current snapshot is `employeeCompensation/{employeeId}`. This is a salary register, **not payroll processing**: it does not calculate deductions, payslips, liabilities or disburse money. Operations administrators can maintain staff and manual attendance but cannot read compensation by default. Firestore denies all direct client access; callables check the union of active assigned roles and organization. Changes are audited.
+
+`attendanceEvents` is append-only and records clock-in/out, source, event time, ingest time, employee and store. Manual corrections require a reason. `ingestExternalAttendance` is the internal idempotent adapter contract for a future fingerprint connector. It resolves a device staff ID through `employeeExternalIds`, records a deterministic event, and writes an audit entry. It never receives or stores fingerprint images/templates. It is deliberately **not a public HTTP endpoint**: device credentials, payload protocol, networking and Cloud Run invocation policy must be selected against the actual scanner model before enabling an external adapter. Do not give a scanner administrator Firebase credentials.
+
+The HR page also keeps append-only dated staff activities (leave, training, performance, incident, notes). Employee tables use server-side cursor paging with 25/50/100 rows. Recent attendance and activity panels show the latest 25 events; fuller date-range reports and payroll calculations are later work.

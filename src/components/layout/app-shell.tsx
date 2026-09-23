@@ -12,6 +12,7 @@ import {
   Gauge,
   HandCoins,
   History,
+  UsersRound,
   Landmark,
   LogOut,
   MoreHorizontal,
@@ -62,6 +63,7 @@ const navigation = [
   { href: "/costs", label: "Costs", icon: ReceiptText, permissions: ["transfers.cost.read", "transfers.cost.create", "transfers.cost.approve", "transfers.cost.reconcile"] },
   { href: "/reports", label: "Reports", icon: FileBarChart, permissions: ["reports.inventory.read", "reports.requests.read", "reports.transfers.read", "reports.sales.read", "finance.journal.read"] },
   { href: "/administration", label: "Administration", icon: Settings, permissions: ["organization.manage", "branch.manage", "warehouse.manage", "location.manage", "user.manage", "role.manage"] },
+  { href: "/hr", label: "HR & attendance", icon: UsersRound, permissions: ["hr.read"] },
   { href: "/audit", label: "Audit", icon: History, permissions: ["audit.read"] },
   { href: "/guide", label: "User guide", icon: CircleHelp, permissions: [] },
 ] as const;

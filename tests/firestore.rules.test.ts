@@ -820,4 +820,22 @@ describe("Firestore baseline rules", () => {
     await assertSucceeds(owner.doc(path).update({ readAt: new Date() }));
     await assertFails(owner.doc(path).update({ readAt: new Date() }));
   });
+  it("keeps push endpoints, employee records, salaries and attendance server-only", async () => {
+    await seed();
+    await environment.withSecurityRulesDisabled(async (context) => {
+      const db = context.firestore();
+      await db.doc("users/branch-manager/pushSubscriptions/device-1").set({ organizationId: "org-1", endpoint: "https://push.example/device" });
+      await db.doc("employees/employee-1").set({ organizationId: "org-1", fullName: "Test Worker" });
+      await db.doc("employeeCompensation/employee-1").set({ organizationId: "org-1", monthlySalaryMinor: 100_000 });
+      await db.doc("attendanceEvents/event-1").set({ organizationId: "org-1", employeeId: "employee-1" });
+      await db.doc("employeeActivityEvents/activity-1").set({ organizationId: "org-1", employeeId: "employee-1" });
+    });
+    for (const identity of ["admin", "branch-manager", "finance", "foreign-user"]) {
+      const db = environment.authenticatedContext(identity).firestore();
+      for (const path of ["users/branch-manager/pushSubscriptions/device-1", "employees/employee-1", "employeeCompensation/employee-1", "attendanceEvents/event-1", "employeeActivityEvents/activity-1"]) {
+        await assertFails(db.doc(path).get());
+        await assertFails(db.doc(path).set({ organizationId: "org-1" }));
+      }
+    }
+  });
 });

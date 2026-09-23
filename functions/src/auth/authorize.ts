@@ -21,6 +21,11 @@ export type Permission =
   | "location.manage"
   | "user.manage"
   | "role.manage"
+  | "hr.read"
+  | "hr.manage"
+  | "hr.attendance.manage"
+  | "hr.compensation.read"
+  | "hr.compensation.manage"
   | "audit.read"
   | "products.read"
   | "products.create"
@@ -229,6 +234,9 @@ const rolePermissions: Readonly<Record<RoleId, readonly Permission[]>> = {
   ],
   operations_administrator: [
     "user.manage",
+    "hr.read",
+    "hr.manage",
+    "hr.attendance.manage",
     "products.read",
     "inventory.read",
     "inventory.reconcile",

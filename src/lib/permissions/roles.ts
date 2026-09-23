@@ -10,6 +10,9 @@ const permissionsByRole: Readonly<Record<RoleId, readonly PermissionId[]>> = {
   system_administrator: permissionIds,
   operations_administrator: [
     "user.manage",
+    "hr.read",
+    "hr.manage",
+    "hr.attendance.manage",
     "report.read",
     "request.approve",
     "transfer.create",

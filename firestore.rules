@@ -87,6 +87,29 @@ service cloud.firestore {
       allow create, delete: if false;
     }
 
+    match /users/{userId}/pushSubscriptions/{subscriptionId} {
+      allow read, write: if false;
+    }
+
+    match /employees/{employeeId} {
+      allow read, write: if false;
+    }
+    match /employeeCompensation/{employeeId} {
+      allow read, write: if false;
+    }
+    match /employeeCompensationVersions/{versionId} {
+      allow read, write: if false;
+    }
+    match /attendanceEvents/{eventId} {
+      allow read, write: if false;
+    }
+    match /employeeActivityEvents/{eventId} {
+      allow read, write: if false;
+    }
+    match /pushDeliveries/{deliveryId} {
+      allow read, write: if false;
+    }
+
     match /organizations/{organizationId} {
       allow get: if active() && organizationId == profile().organizationId;
       allow list: if false;

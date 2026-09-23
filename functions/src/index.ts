@@ -115,6 +115,8 @@ export {
 } from "./callable/operational-readiness.js";
 export { previewCsvImport, confirmCsvImport } from "./callable/csv-imports.js";
 export { deliverPendingNotifications, deliverIntegrationOutbox } from "./jobs/delivery-jobs.js";
+export { getWebPushPublicKey, saveWebPushSubscription, removeWebPushSubscription, queueNotificationPush } from "./notifications/web-push.js";
+export { getHrWorkspace, saveEmployee, saveEmployeeCompensation, recordAttendanceEvent, recordEmployeeActivity } from "./callable/hr.js";
 export {
   saveProductSalesPrice,
   saveBranchSalesPrice,
