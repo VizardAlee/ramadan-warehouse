@@ -76,6 +76,17 @@ service cloud.firestore {
       allow create, update, delete: if false;
     }
 
+    match /users/{userId}/notifications/{notificationId} {
+      allow read: if active() && request.auth.uid == userId && sameOrganization(resource.data);
+      allow update: if active() && request.auth.uid == userId && sameOrganization(resource.data)
+        && resource.data.recipientId == userId && resource.data.readAt == null
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["readAt"])
+        && request.resource.data.readAt is timestamp
+        && request.resource.data.readAt <= request.time
+        && request.resource.data.readAt >= request.time - duration.value(5, "m");
+      allow create, delete: if false;
+    }
+
     match /organizations/{organizationId} {
       allow get: if active() && organizationId == profile().organizationId;
       allow list: if false;

@@ -14,6 +14,7 @@ import {
   requirePermission,
 } from "../auth/authorize.js";
 import { enforceAppCheck } from "../config.js";
+import { writeInAppEvent } from "../notifications/in-app.js";
 import {
   balanceDocumentId,
   issueCost,
@@ -941,6 +942,14 @@ export const createPosSaleOrder = onCall(
         createdBy: actor.userId,
         updatedAt: now,
       });
+      writeInAppEvent(transaction, {
+        organizationId: actor.organizationId,
+        entityId: order.id,
+        eventType: "sales_order.received",
+        branchId: input.branchId,
+        referenceNumber: orderNumber,
+        actorUserId: actor.userId,
+      });
       transaction.create(operation, {
         organizationId: actor.organizationId,
         action: "createPosSaleOrder",
@@ -1034,6 +1043,14 @@ export const acceptPosSaleOrderPayment = onCall(
         paymentAcceptedBy: actor.userId,
         updatedAt: now,
         updatedBy: actor.userId,
+      });
+      writeInAppEvent(transaction, {
+        organizationId: actor.organizationId,
+        entityId: order.id,
+        eventType: "sales_order.payment_accepted",
+        branchId,
+        referenceNumber: String(orderSnapshot!.get("orderNumber")),
+        actorUserId: actor.userId,
       });
       transaction.create(operation, {
         organizationId: actor.organizationId,
@@ -1845,6 +1862,14 @@ export const confirmPosSaleOrder = onCall(
         completedAt: now,
         updatedAt: now,
         updatedBy: actor.userId,
+      });
+      writeInAppEvent(transaction, {
+        organizationId: actor.organizationId,
+        entityId: order.id,
+        eventType: "sales_order.completed",
+        branchId,
+        referenceNumber: String(latest.get("orderNumber")),
+        actorUserId: actor.userId,
       });
       writeAuditLog(transaction, actor, {
         action: "sales_order.payment_confirmed_inventory_released",

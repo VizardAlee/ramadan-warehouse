@@ -17,6 +17,7 @@ import { getAuth as getAdminAuth } from "firebase-admin/auth";
 import { FieldValue, getFirestore } from "firebase-admin/firestore";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { balanceDocumentId } from "../functions/src/inventory/calculations";
+import { deliverInAppNotification, type InboxEvent } from "../functions/src/notifications/in-app";
 
 const projectId = "demo-ramadan-warehouse";
 const adminApp =
@@ -568,6 +569,14 @@ describe.sequential("sales callables", () => {
       },
     );
     expect(order.orderNumber).toMatch(/^ORD-IRB-/);
+    const receivedEvent = await adminDb.doc(`notificationEvents/sales_order_received_${order.orderId}`).get();
+    expect(receivedEvent.exists).toBe(true);
+    expect(await deliverInAppNotification({ id: receivedEvent.id, ...receivedEvent.data() } as InboxEvent)).toMatchObject({ delivered: true });
+    const managerInbox = adminDb.doc(`users/${branchManager.auth.currentUser!.uid}/notifications/salesOrders_${order.orderId}`);
+    expect((await managerInbox.get()).get("actionRequired")).toBe(true);
+    await managerInbox.update({ readAt: FieldValue.serverTimestamp() });
+    await deliverInAppNotification({ id: receivedEvent.id, ...receivedEvent.data() } as InboxEvent);
+    expect((await managerInbox.get()).get("readAt")).not.toBeNull();
     expect((await balance.get()).get("onHandQuantity")).toBe(
       before.get("onHandQuantity"),
     );
@@ -581,6 +590,11 @@ describe.sequential("sales callables", () => {
         operatingContext: { type: "branch", id: branchId },
       }),
     ).resolves.toMatchObject({ status: "payment_accepted" });
+    const acceptedEvent = await adminDb.doc(`notificationEvents/sales_order_payment_accepted_${order.orderId}`).get();
+    expect(await deliverInAppNotification({ id: acceptedEvent.id, ...acceptedEvent.data() } as InboxEvent)).toMatchObject({ delivered: true });
+    expect((await managerInbox.get()).data()).toMatchObject({ actionRequired: true, eventType: "sales_order.payment_accepted", readAt: null });
+    const cashierInbox = await adminDb.doc(`users/${cashier.auth.currentUser!.uid}/notifications/salesOrders_${order.orderId}`).get();
+    expect(cashierInbox.get("actionRequired")).toBe(false);
     expect((await balance.get()).get("onHandQuantity")).toBe(
       before.get("onHandQuantity"),
     );
@@ -602,6 +616,9 @@ describe.sequential("sales callables", () => {
       operatingContext: { type: "branch", id: branchId },
     });
     expect(completed).toMatchObject({ status: "completed" });
+    const completedEvent = await adminDb.doc(`notificationEvents/sales_order_completed_${order.orderId}`).get();
+    expect(await deliverInAppNotification({ id: completedEvent.id, ...completedEvent.data() } as InboxEvent)).toMatchObject({ delivered: true });
+    expect((await managerInbox.get()).data()).toMatchObject({ actionRequired: false, eventType: "sales_order.completed" });
     expect(completed.receiptNumber).toMatch(/^RCT-IRB-/);
     expect((await balance.get()).get("onHandQuantity")).toBe(
       Number(before.get("onHandQuantity")) - 1,

@@ -794,4 +794,30 @@ describe("Firestore baseline rules", () => {
     await assertFails(financeDb.doc("bankStatementTransactions/bank-transaction-1").update({ status: "reconciled" }));
     await assertFails(adminDb.doc("bankReconciliations/bank-reconciliation-1").update({ status: "closed" }));
   });
+  it("keeps inbox entries private and allows only the recipient to mark one read", async () => {
+    await seed();
+    await environment.withSecurityRulesDisabled(async (context) => {
+      await context.firestore().doc("users/branch-manager/notifications/order-1").set({
+        organizationId: "org-1",
+        recipientId: "branch-manager",
+        title: "Payment needs confirmation",
+        occurredAt: new Date(),
+        readAt: null,
+      });
+    });
+    const owner = environment.authenticatedContext("branch-manager").firestore();
+    const other = environment.authenticatedContext("sales-cashier").firestore();
+    const admin = environment.authenticatedContext("admin").firestore();
+    const path = "users/branch-manager/notifications/order-1";
+    await assertSucceeds(owner.doc(path).get());
+    await assertSucceeds(owner.collection("users/branch-manager/notifications").where("organizationId", "==", "org-1").orderBy("occurredAt", "desc").limit(50).get());
+    await assertFails(owner.collection("users/branch-manager/notifications").get());
+    await assertFails(other.doc(path).get());
+    await assertFails(admin.doc(path).get());
+    await assertFails(owner.doc(path).set({ organizationId: "org-1", recipientId: "branch-manager" }));
+    await assertFails(owner.doc(path).update({ title: "Changed" }));
+    await assertFails(other.doc(path).update({ readAt: new Date() }));
+    await assertSucceeds(owner.doc(path).update({ readAt: new Date() }));
+    await assertFails(owner.doc(path).update({ readAt: new Date() }));
+  });
 });

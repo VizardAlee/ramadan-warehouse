@@ -41,6 +41,8 @@ import type { BranchRequest, Product, WarehouseTransfer } from "@/types/domain";
 import type { StockTransfer } from "../../../../functions/src/transfers/simple-model";
 import { formatNaira } from "@/features/inventory/format";
 import { hasPermission } from "@/lib/permissions/roles";
+import { NotificationCard } from "@/features/notifications/notification-card";
+import { useNotifications } from "@/features/notifications/use-notifications";
 
 interface PageResult<T> {
   rows: T[];
@@ -88,6 +90,7 @@ async function loadSalesRegister(branchId?: string): Promise<DashboardSale[]> {
 
 export default function DashboardPage() {
   const { profile, operatingContext } = useAuth();
+  const { rows: notifications, error: notificationError, markRead } = useNotifications();
   const products = useOrganizationCollection<Product>("products");
   const [requests, setRequests] = useState<BranchRequest[]>([]);
   const [transfers, setTransfers] = useState<DashboardTransfer[]>([]);
@@ -184,6 +187,17 @@ export default function DashboardPage() {
         description={`Welcome, ${profile?.displayName ?? "administrator"}. Priorities and operational queues appear here as real master data and stock are configured.`}
       />
       <DashboardLocationSwitcher />
+      <section aria-label="Needs your attention" className="space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="text-lg font-semibold">Needs your attention</h2>
+            <p className="text-sm text-[var(--muted)]">Current tasks for your assigned locations.</p>
+          </div>
+          <Link href="/notifications" className="inline-flex min-h-10 items-center gap-1 font-semibold text-[var(--brand)]">View notifications <ArrowRight className="size-4" /></Link>
+        </div>
+        {notificationError && <p role="alert" className="text-sm text-amber-800">{notificationError}</p>}
+        {notifications.filter((item) => item.actionRequired).length ? notifications.filter((item) => item.actionRequired).slice(0, 3).map((item) => <NotificationCard key={item.id} item={item} onRead={markRead} />) : <p className="rounded-xl border bg-white p-4 text-sm text-[var(--muted)]">No action is waiting for you.</p>}
+      </section>
       <aside className="flex flex-wrap items-center gap-4 rounded-xl border border-emerald-200 bg-emerald-50 p-4">
         <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-white text-[var(--brand)]">
           <BookOpenCheck className="size-5" />

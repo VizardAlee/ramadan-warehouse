@@ -782,6 +782,14 @@
         { "fieldPath": "productId", "order": "ASCENDING" },
         { "fieldPath": "itemStatus", "order": "ASCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "notifications",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "organizationId", "order": "ASCENDING" },
+        { "fieldPath": "occurredAt", "order": "DESCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []

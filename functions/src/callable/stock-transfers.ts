@@ -201,7 +201,10 @@ function event(
       eventType: `stock_transfer.${action}`,
       templateKey: "stock_transfer_v1",
       branchId: transfer.destinationBranchId,
+      sourceBranchId: transfer.sourceBranchId,
+      destinationBranchId: transfer.destinationBranchId,
       warehouseId: transfer.sourceWarehouseId,
+      referenceNumber: transfer.number,
       recipientRoles:
         action === "created" || action === "report_problem"
           ? ["system_administrator", "operations_administrator"]

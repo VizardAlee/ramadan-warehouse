@@ -2,6 +2,7 @@
 
 import {
   Archive,
+  Bell,
   Wrench,
   Boxes,
   ClipboardList,
@@ -36,6 +37,7 @@ import { useDialogFocus } from "@/components/ui/use-dialog-focus";
 import { useAuth } from "@/features/auth/auth-context";
 import { useOperatingContextOptions } from "@/features/auth/use-operating-context-options";
 import { PwaControls } from "@/features/pwa/pwa-controls";
+import { useNotifications } from "@/features/notifications/use-notifications";
 import { useConnectivity } from "@/lib/connectivity";
 import { hasAnyPermission } from "@/lib/permissions/roles";
 import { cn } from "@/lib/utils";
@@ -141,6 +143,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const secondaryNavigation = visibleNavigation.slice(5);
   const moreSheetRef = useDialogFocus<HTMLElement>(open, () => setOpen(false));
   const { online } = useConnectivity();
+  const { unreadCount } = useNotifications();
   useEffect(() => {
     if (!loading && !user) router.replace("/login");
   }, [loading, user, router]);
@@ -317,6 +320,15 @@ export function AppShell({ children }: { children: ReactNode }) {
               </label>
             )}
             <PwaControls />
+            <Link
+              href="/notifications"
+              title="Notifications"
+              aria-label={`Notifications${unreadCount ? `, ${unreadCount} unread` : ""}`}
+              className="relative inline-flex size-10 shrink-0 items-center justify-center rounded-lg text-slate-700 transition-colors hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand)]"
+            >
+              <Bell className="size-5" />
+              {unreadCount > 0 && <span className="absolute -right-0.5 -top-0.5 grid min-h-5 min-w-5 place-items-center rounded-full bg-[var(--accent)] px-1 text-[10px] font-bold text-slate-900">{unreadCount > 9 ? "9+" : unreadCount}</span>}
+            </Link>
             <Link
               href="/guide"
               title="Open user guide"

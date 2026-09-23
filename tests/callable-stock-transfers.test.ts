@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { balanceDocumentId } from "../functions/src/inventory/calculations";
+import { deliverInAppNotification, type InboxEvent } from "../functions/src/notifications/in-app";
 import {
   pendingStock,
   type StockTransfer,
@@ -107,7 +108,21 @@ describe.sequential("simple manager stock transfers", () => {
   it("finishes in three tasks without logistics records or extra staff", async () => {
     const before = await balance(h.originLocationId);
     const id = await create(20, {}, h.manager);
+    const deliver = async (eventType: string) => {
+      const events = await h.db.collection("notificationEvents").where("entityId", "==", id).get();
+      const notification = events.docs.find((item) => item.get("eventType") === eventType);
+      expect(notification).toBeDefined();
+      expect(await deliverInAppNotification({ id: notification!.id, ...notification!.data() } as InboxEvent)).toMatchObject({ delivered: true });
+    };
+    const sourceInbox = h.db.doc(`users/${h.manager.uid}/notifications/stockTransfers_${id}`);
+    const destinationInbox = h.db.doc(`users/${h.receiver.uid}/notifications/stockTransfers_${id}`);
+    await deliver("stock_transfer.created");
+    expect((await sourceInbox.get()).get("actionRequired")).toBe(true);
+    expect((await destinationInbox.get()).get("actionRequired")).toBe(false);
     await approve(id, {}, h.manager); // The assigned source manager can approve their own request.
+    await deliver("stock_transfer.approve");
+    expect((await sourceInbox.get()).get("actionRequired")).toBe(false);
+    expect((await destinationInbox.get()).get("actionRequired")).toBe(true);
     expect(await balance(h.originLocationId)).toMatchObject({
       onHandQuantity: before!.onHandQuantity,
       reservedQuantity: 20,
@@ -115,6 +130,8 @@ describe.sequential("simple manager stock transfers", () => {
     });
     expect((await read(id)).status).toBe("awaiting_receipt");
     await receive(id);
+    await deliver("stock_transfer.receive");
+    expect((await destinationInbox.get()).get("actionRequired")).toBe(false);
     expect(await read(id)).toMatchObject({ status: "completed", version: 2 });
     expect(await balance(h.originLocationId)).toMatchObject({
       onHandQuantity: before!.onHandQuantity - 20,
