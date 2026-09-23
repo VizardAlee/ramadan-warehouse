@@ -1,6 +1,7 @@
 "use client";
 
 import { Printer, X } from "lucide-react";
+import Image from "next/image";
 import { Button } from "@/components/ui/button";
 import { formatNaira } from "@/features/inventory/format";
 import type { SaleDocument } from "@/features/pos/types";
@@ -36,7 +37,11 @@ export function SaleDocumentDialog({
         data-print-document
       >
         <header className="flex items-start justify-between gap-4 border-b p-5 sm:p-7">
-          <div>
+          <div className="flex min-w-0 items-start gap-3 sm:gap-5">
+            <span className="grid size-16 shrink-0 place-items-center overflow-hidden rounded-lg border bg-white p-1 sm:size-20">
+              <Image src="/abr-logo.jpg" alt="AB Ramadan logo" width={384} height={455} className="brand-logo" />
+            </span>
+            <div className="min-w-0">
             <p className="text-xs font-semibold uppercase tracking-[.16em] text-[var(--brand)]">
               {document.official
                 ? "Official sales document"
@@ -65,6 +70,7 @@ export function SaleDocumentDialog({
                 Registration: {document.organization.registrationNumber}
               </p>
             )}
+            </div>
           </div>
           <Button
             variant="ghost"

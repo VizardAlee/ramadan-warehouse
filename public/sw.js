@@ -1,15 +1,15 @@
-const VERSION = "v2";
+const VERSION = "v3";
 const STATIC_CACHE = `abr-static-${VERSION}`;
 const PAGE_CACHE = `abr-pages-${VERSION}`;
 const OWN_CACHES = [STATIC_CACHE, PAGE_CACHE];
 const PRECACHE = [
   "/offline",
   "/manifest.webmanifest",
-  "/warehouse-icon.svg",
-  "/icons/icon-192.png",
-  "/icons/icon-512.png",
-  "/icons/maskable-512.png",
-  "/icons/apple-touch-icon.png",
+  "/icons/abr-192.png",
+  "/icons/abr-512.png",
+  "/icons/abr-maskable-512.png",
+  "/icons/abr-apple-180.png",
+  "/abr-logo.jpg",
 ];
 
 self.addEventListener("install", (event) => {
@@ -71,6 +71,8 @@ self.addEventListener("fetch", (event) => {
     url.pathname.startsWith("/_next/static/") ||
     url.pathname.startsWith("/_next/image") ||
     url.pathname.startsWith("/icons/") ||
+    url.pathname === "/abr-app-icon.png" ||
+    url.pathname === "/abr-logo.jpg" ||
     url.pathname === "/warehouse-icon.svg"
   ) event.respondWith(staleWhileRevalidate(event.request));
 });

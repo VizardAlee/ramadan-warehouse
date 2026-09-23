@@ -27,6 +27,7 @@ import {
   X,
 } from "lucide-react";
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
@@ -190,8 +191,8 @@ export function AppShell({ children }: { children: ReactNode }) {
           href={href}
           aria-current={active(href) ? "page" : undefined}
           className={cn(
-            "group relative flex min-h-11 items-center gap-3 rounded-xl px-3 text-sm text-emerald-50 transition-all hover:translate-x-0.5 hover:bg-white/10",
-            active(href) && "bg-white/15 font-semibold text-white shadow-[inset_3px_0_0_#fbbf24]",
+            "group relative flex min-h-11 items-center gap-3 rounded-xl px-3 text-sm text-indigo-50 transition-all hover:translate-x-0.5 hover:bg-white/10",
+            active(href) && "bg-white/15 font-semibold text-white shadow-[inset_3px_0_0_#f6b333]",
           )}
         >
           <span className={cn("grid size-8 shrink-0 place-items-center rounded-lg transition-colors group-hover:bg-white/10", active(href) && "bg-white/10")}><Icon className="size-4" /></span>
@@ -202,17 +203,17 @@ export function AppShell({ children }: { children: ReactNode }) {
   );
   return (
     <div className="min-h-dvh xl:grid xl:grid-cols-[16rem_minmax(0,1fr)]">
-      <aside className="fixed inset-y-0 left-0 z-40 hidden w-64 bg-[#10291f] px-5 py-5 text-white xl:block">
+      <aside className="fixed inset-y-0 left-0 z-40 hidden w-64 bg-[#202f69] px-5 py-5 text-white xl:block">
         <Link
           href="/dashboard"
           className="mb-8 flex min-h-11 items-center gap-3 font-semibold"
         >
-          <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-amber-400 text-[#10291f]">
-            <Boxes />
+          <span className="grid size-11 shrink-0 place-items-center overflow-hidden rounded-xl bg-white p-1 shadow-sm">
+            <Image src="/abr-logo.jpg" alt="AB Ramadan logo" width={384} height={455} className="brand-logo" priority />
           </span>
           <span>
             AB Ramadan
-            <small className="block text-xs font-normal text-emerald-200">
+            <small className="block text-xs font-normal text-indigo-100">
               Store operations
             </small>
           </span>
@@ -267,7 +268,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                   className={cn(
                     "flex min-h-14 items-center gap-3 rounded-xl border bg-white px-4 text-sm font-semibold text-slate-700",
                     active(href) &&
-                      "border-emerald-300 bg-emerald-50 text-[var(--brand-dark)]",
+                      "border-indigo-300 bg-indigo-50 text-[var(--brand-dark)]",
                   )}
                 >
                   <span className="grid size-10 shrink-0 place-items-center rounded-lg bg-slate-100">
@@ -369,7 +370,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               aria-current={active(href) ? "page" : undefined}
               className={cn(
                 "flex min-h-14 flex-col items-center justify-center gap-1 rounded-xl px-1 text-[.65rem] font-medium text-slate-600 transition-all active:scale-95",
-                active(href) && "bg-emerald-50 text-[var(--brand-dark)] shadow-[inset_0_2px_0_#34d399]",
+                active(href) && "bg-indigo-50 text-[var(--brand-dark)] shadow-[inset_0_2px_0_#f6b333]",
               )}
             >
               <Icon className="size-5" />

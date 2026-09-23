@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Image from "next/image";
 import {
   ArrowRight,
   BarChart3,
@@ -36,10 +37,10 @@ export default function LoginPage() {
 
       <header className="login-header">
         <div className="login-brand">
-          <span className="login-brand-mark"><Boxes aria-hidden="true" /></span>
+          <span className="login-brand-mark"><Image src="/abr-logo.jpg" alt="AB Ramadan logo" width={384} height={455} className="brand-logo" priority /></span>
           <span>
             <strong>AB Ramadan</strong>
-            <small>Warehouse &amp; Retail OS</small>
+            <small>Store &amp; Business Operations</small>
           </span>
         </div>
         <div className="login-secure-pill">

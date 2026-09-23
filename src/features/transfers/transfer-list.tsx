@@ -205,7 +205,7 @@ export function TransferList({ view = "all" }: { view?: string }) {
           <Link
             key={key}
             href={`/transfers/${key}`}
-            className={`inline-flex min-h-11 items-center whitespace-nowrap rounded-lg border px-3 text-sm ${view === key ? "bg-emerald-950 text-white" : "bg-white"}`}
+            className={`inline-flex min-h-11 items-center whitespace-nowrap rounded-lg border px-3 text-sm ${view === key ? "bg-[var(--brand-dark)] text-white" : "bg-white"}`}
           >
             {label}
           </Link>

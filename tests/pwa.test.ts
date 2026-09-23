@@ -24,10 +24,10 @@ describe("PWA install and offline contract", () => {
       expect.objectContaining({ sizes: "512x512", type: "image/png", purpose: "any" }),
       expect.objectContaining({ sizes: "512x512", type: "image/png", purpose: "maskable" }),
     ]));
-    expect(pngDimensions("public/icons/icon-192.png")).toEqual({ width: 192, height: 192 });
-    expect(pngDimensions("public/icons/icon-512.png")).toEqual({ width: 512, height: 512 });
-    expect(pngDimensions("public/icons/maskable-512.png")).toEqual({ width: 512, height: 512 });
-    expect(pngDimensions("public/icons/apple-touch-icon.png")).toEqual({ width: 180, height: 180 });
+    expect(pngDimensions("public/icons/abr-192.png")).toEqual({ width: 192, height: 192 });
+    expect(pngDimensions("public/icons/abr-512.png")).toEqual({ width: 512, height: 512 });
+    expect(pngDimensions("public/icons/abr-maskable-512.png")).toEqual({ width: 512, height: 512 });
+    expect(pngDimensions("public/icons/abr-apple-180.png")).toEqual({ width: 180, height: 180 });
   });
 
   it("limits offline caching to the app shell, static assets, and visited POS shell", () => {

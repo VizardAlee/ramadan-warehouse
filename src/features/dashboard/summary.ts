@@ -160,14 +160,14 @@ export function summarizeSalesPaymentMix(sales: readonly DashboardSale[]) {
     {
       label: "Paid in full",
       value: sales.filter((sale) => sale.creditAmountMinor === 0).length,
-      color: "#116149",
+      color: "#34458f",
     },
     {
       label: "Part-paid",
       value: sales.filter(
         (sale) => sale.creditAmountMinor > 0 && sale.amountPaidMinor > 0,
       ).length,
-      color: "#e7aa2d",
+      color: "#f6b333",
     },
     {
       label: "On credit",

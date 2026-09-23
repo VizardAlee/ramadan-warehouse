@@ -38,8 +38,8 @@ export function DashboardLocationSwitcher() {
             onClick={() => selectValue("")}
             className={`flex min-h-20 items-center gap-3 rounded-xl border p-4 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 ${
               !activeValue
-                ? "border-emerald-500 bg-emerald-50 text-emerald-950"
-                : "bg-white hover:border-emerald-300 hover:bg-emerald-50/40"
+                ? "border-indigo-500 bg-indigo-50 text-indigo-950"
+                : "bg-white hover:border-indigo-300 hover:bg-indigo-50/40"
             }`}
           >
             <span className="grid size-11 shrink-0 place-items-center rounded-xl bg-white text-[var(--brand)] shadow-sm">
@@ -72,8 +72,8 @@ export function DashboardLocationSwitcher() {
               onClick={() => selectValue(option.value)}
               className={`flex min-h-20 items-center gap-3 rounded-xl border p-4 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 ${
                 selected
-                  ? "border-emerald-500 bg-emerald-50 text-emerald-950"
-                  : "bg-white hover:border-emerald-300 hover:bg-emerald-50/40"
+                  ? "border-indigo-500 bg-indigo-50 text-indigo-950"
+                  : "bg-white hover:border-indigo-300 hover:bg-indigo-50/40"
               }`}
             >
               <span className="grid size-11 shrink-0 place-items-center rounded-xl bg-white text-[var(--brand)] shadow-sm">

@@ -153,12 +153,12 @@ export default function DashboardPage() {
     { label: "Open discrepancies", value: summary?.discrepancies, icon: AlertTriangle, href: "/transfers", emphasis: Boolean(summary?.discrepancies) },
   ];
   const mixData = summary ? [
-    { label: "Open requests", value: summary.requests, color: "#116149" },
-    { label: "Transfers on track", value: Math.max(0, summary.transfers - summary.discrepancies), color: "#2a8b72" },
-    { label: "Active products", value: summary.products, color: "#e7aa2d" },
+    { label: "Open requests", value: summary.requests, color: "#34458f" },
+    { label: "Transfers on track", value: Math.max(0, summary.transfers - summary.discrepancies), color: "#6074bd" },
+    { label: "Active products", value: summary.products, color: "#f6b333" },
     { label: "Discrepancies", value: summary.discrepancies, color: "#c8563d" },
   ] : [];
-  const pipelineColors = ["#116149", "#2a8b72", "#e7aa2d", "#c8563d"];
+  const pipelineColors = ["#34458f", "#6074bd", "#f6b333", "#c8563d"];
   const pipelineData = summarizeTransferPipeline(scopedRecords.transfers).map((item, index) => ({
     ...item,
     color: pipelineColors[index]!,
