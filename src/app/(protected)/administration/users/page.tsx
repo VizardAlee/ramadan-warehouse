@@ -1,7 +1,7 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { MailPlus, Search, UserPlus } from "lucide-react";
+import { MailPlus, Search, UserPlus, UserX } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
@@ -84,6 +84,7 @@ export default function UsersPage() {
   const [message, setMessage] = useState<string | null>(null);
   const [invitationLink, setInvitationLink] = useState<string | null>(null);
   const [reissuingUserId, setReissuingUserId] = useState<string | null>(null);
+  const [disablingUserId, setDisablingUserId] = useState<string | null>(null);
   const dialogRef = useDialogFocus<HTMLFormElement>(showForm, () =>
     setShowForm(false),
   );
@@ -195,6 +196,25 @@ export default function UsersPage() {
       );
     } finally {
       setReissuingUserId(null);
+    }
+  }
+  async function disableUser(target: UserProfile) {
+    if (target.id === authenticatedUser?.uid || target.status !== "active") return;
+    if (!window.confirm(`Disable ${target.displayName}? They will lose app access. Their sales, stock and audit history will be retained.`)) return;
+    setMessage(null);
+    setDisablingUserId(target.id);
+    try {
+      await callAdministration("updateOrganizationUser", {
+        userId: target.id,
+        status: "inactive",
+        reason: "Administrator disabled user access; historical records retained",
+        idempotencyKey: crypto.randomUUID(),
+      });
+      setMessage(`${target.displayName} was disabled. Historical activity remains available for audit.`);
+    } catch (cause) {
+      setMessage(cause instanceof Error ? cause.message : "This user could not be disabled.");
+    } finally {
+      setDisablingUserId(null);
     }
   }
   if (!allowed)
@@ -384,6 +404,16 @@ export default function UsersPage() {
                       <Button variant="ghost" onClick={() => open(user)}>
                         Edit
                       </Button>
+                      {user.id !== authenticatedUser?.uid && user.status === "active" && (
+                        <Button
+                          variant="ghost"
+                          disabled={disablingUserId === user.id}
+                          onClick={() => void disableUser(user)}
+                        >
+                          <UserX className="size-4" />
+                          {disablingUserId === user.id ? "Disabling…" : "Disable"}
+                        </Button>
+                      )}
                     </div>
                   </td>
                 </tr>
