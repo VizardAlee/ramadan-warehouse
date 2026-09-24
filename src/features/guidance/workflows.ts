@@ -114,19 +114,19 @@ export const salesWorkflowSteps: readonly WorkflowStep[] = [
   {
     title: "Receive order",
     detail:
-      "Select the customer and products. Saving the order does not reduce stock.",
+      "Select products and enter quantities directly. Add a named customer here if needed, apply a reasoned discount, or hold the basket on this device. Receiving the order does not reduce stock.",
     href: "/pos",
   },
   {
     title: "Accept payment",
     detail:
-      "A cashier records the payment. A user with multiple sales roles may continue the same order.",
+      "Choose cash, a named company bank account for card/transfer, approved customer credit with any upfront payment, or available exchange credit. A user with multiple sales roles may continue the same order.",
     href: "/pos",
   },
   {
     title: "Confirm & release",
     detail:
-      "An authorized manager confirms payment. Only then is stock released and the receipt posted.",
+      "An authorized user confirms payment. The current POS flow then posts stock, receipt, VAT and accounts together. Do not confirm before goods are ready to leave; delayed customer collection is not a separate POS step yet.",
     href: "/pos",
   },
   {
@@ -138,13 +138,13 @@ export const salesWorkflowSteps: readonly WorkflowStep[] = [
   {
     title: "After-sale",
     detail:
-      "Use the original receipt for returns, refunds, exchanges, or approved credit.",
+      "Use the original receipt for a partial or full return, refund or exchange credit. Open a separate aftersales case for warranty, repair or installation work.",
     href: "/returns",
   },
   {
     title: "Reconcile",
     detail:
-      "Download reports, reconcile banking, and complete the monthly close.",
-    href: "/accounting",
+      "Count stock and till cash, then reconcile company bank accounts. Review reports and month close separately.",
+    href: "/daily-reconciliation",
   },
 ];

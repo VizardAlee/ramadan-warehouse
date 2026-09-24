@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import {
   salesWorkflowSteps,
   setupWorkflowSteps,
@@ -42,5 +44,15 @@ describe("visual user guide", () => {
         "Reconcile",
       ]),
     );
+  });
+
+  it("covers newer task routes and does not imply deferred collection is already available", () => {
+    const page = readFileSync(join(process.cwd(), "src/app/(protected)/guide/page.tsx"), "utf8");
+    for (const route of ["/procurement", "/daily-reconciliation", "/aftersales", "/finance", "/tax", "/hr", "/notifications", "/administration/users"]) {
+      expect(page).toContain(`href="${route}"`);
+    }
+    expect(page).toContain("hasAnyPermission");
+    expect(page).toContain("An external fingerprint connector needs its own integration setup");
+    expect(salesWorkflowSteps[4]?.detail).toContain("delayed customer collection is not a separate POS step yet");
   });
 });
