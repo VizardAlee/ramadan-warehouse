@@ -191,7 +191,10 @@ export function AppShell({ children }: { children: ReactNode }) {
     ? `${activeOption.typeLabel}: ${activeOption.name}`
     : null;
   const desktopNav = (
-    <nav aria-label="Desktop navigation" className="space-y-1">
+    <nav
+      aria-label="Desktop navigation"
+      className="min-h-0 flex-1 space-y-1 overflow-y-auto overscroll-y-contain pb-[max(1rem,env(safe-area-inset-bottom))] pr-1 [scrollbar-width:thin]"
+    >
       {visibleNavigation.map(({ href, label, icon: Icon }) => (
         <Link
           key={href}
@@ -210,10 +213,10 @@ export function AppShell({ children }: { children: ReactNode }) {
   );
   return (
     <div className="min-h-dvh xl:grid xl:grid-cols-[16rem_minmax(0,1fr)]">
-      <aside className="fixed inset-y-0 left-0 z-40 hidden w-64 bg-[#202f69] px-5 py-5 text-white xl:block">
+      <aside className="fixed inset-y-0 left-0 z-40 hidden w-64 flex-col overflow-hidden bg-[#202f69] px-5 py-5 text-white xl:flex">
         <Link
           href="/dashboard"
-          className="mb-8 flex min-h-11 items-center gap-3 font-semibold"
+          className="mb-8 flex min-h-11 shrink-0 items-center gap-3 font-semibold"
         >
           <span className="grid size-11 shrink-0 place-items-center overflow-hidden rounded-xl bg-white p-1 shadow-sm">
             <Image src="/abr-logo.jpg" alt="AB Ramadan logo" width={384} height={455} className="brand-logo" priority />
