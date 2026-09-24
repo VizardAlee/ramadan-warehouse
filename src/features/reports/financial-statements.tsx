@@ -1,7 +1,7 @@
 "use client";
 
 import { Download, Loader2 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { callAdministration } from "@/features/administration/api";
 import { formatNaira } from "@/features/inventory/format";
@@ -62,27 +62,42 @@ export function FinancialStatements() {
   const [result, setResult] = useState<StatementResult | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [errorKey, setErrorKey] = useState<string | null>(null);
+  const requestVersion = useRef(0);
+  const reportKey = JSON.stringify([reportType, fromDate, toDate]);
+  const currentResult = result?.reportType === reportType && result.fromDate === fromDate && result.toDate === toDate ? result : null;
+  const validDates = Boolean(fromDate && toDate && fromDate <= toDate);
 
-  async function load() {
-    setBusy(true);
-    setError(null);
-    try {
-      setResult(
-        await callAdministration("generateFinancialStatement", {
-          reportType,
-          fromDate,
-          toDate,
-        }),
-      );
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "The statement could not be generated.");
-    } finally {
-      setBusy(false);
-    }
-  }
+  useEffect(() => {
+    const version = ++requestVersion.current;
+    const timer = window.setTimeout(() => {
+      if (!validDates) {
+        setBusy(false);
+        return;
+      }
+      void (async () => {
+        setBusy(true);
+        setError(null);
+        try {
+          const statement: StatementResult = await callAdministration("generateFinancialStatement", { reportType, fromDate, toDate });
+          if (version === requestVersion.current) setResult(statement);
+        } catch (cause) {
+          if (version !== requestVersion.current) return;
+          setError(cause instanceof Error ? cause.message : "The statement could not be generated.");
+          setErrorKey(reportKey);
+        } finally {
+          if (version === requestVersion.current) setBusy(false);
+        }
+      })();
+    }, 250);
+    return () => {
+      window.clearTimeout(timer);
+      requestVersion.current += 1;
+    };
+  }, [fromDate, reportKey, reportType, toDate, validDates]);
   function download() {
-    if (!result) return;
-    const rows = result.rows.map((row) => [
+    if (!currentResult) return;
+    const rows = currentResult.rows.map((row) => [
       row.section,
       row.accountCode,
       row.accountName,
@@ -98,14 +113,14 @@ export function FinancialStatements() {
     const url = URL.createObjectURL(new Blob(["\uFEFF", csv], { type: "text/csv;charset=utf-8" }));
     const anchor = document.createElement("a");
     anchor.href = url;
-    anchor.download = `${result.reportType}-${result.fromDate}-to-${result.toDate}.csv`;
+    anchor.download = `${currentResult.reportType}-${currentResult.fromDate}-to-${currentResult.toDate}.csv`;
     anchor.click();
     URL.revokeObjectURL(url);
   }
 
   return (
     <div className="space-y-4">
-      <section className="grid gap-3 rounded-xl border bg-white p-4 md:grid-cols-4">
+      <section className="grid gap-3 rounded-xl border bg-white p-4 md:grid-cols-3">
         <label className="text-sm font-medium">
           Statement
           <select value={reportType} onChange={(event) => setReportType(event.target.value as StatementType)} className="mt-1 w-full rounded-lg border p-2.5">
@@ -120,29 +135,28 @@ export function FinancialStatements() {
           To date
           <input type="date" value={toDate} onChange={(event) => setToDate(event.target.value)} className="mt-1 w-full rounded-lg border p-2.5" />
         </label>
-        <Button className="self-end" disabled={busy || !fromDate || !toDate} onClick={() => void load()}>
-          {busy && <Loader2 className="mr-2 size-4 animate-spin" />} Generate
-        </Button>
       </section>
-      {error && <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-800">{error}</p>}
-      {result && (
+      {!validDates && <p role="alert" className="rounded-lg bg-amber-50 p-3 text-sm text-amber-900">Select a valid date range; the from date must be on or before the to date.</p>}
+      {validDates && !currentResult && !(error && errorKey === reportKey) && <p role="status" className="flex items-center gap-2 text-sm text-[var(--muted)]"><Loader2 className="size-4 animate-spin" /> Updating statement…</p>}
+      {error && errorKey === reportKey && <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-800">{error}</p>}
+      {currentResult && (
         <>
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <h2 className="text-xl font-semibold">{labels[result.reportType]}</h2>
-              <p className="text-sm text-[var(--muted)]">{result.fromDate} to {result.toDate} · NGN</p>
+              <h2 className="text-xl font-semibold">{labels[currentResult.reportType]}</h2>
+              <p className="text-sm text-[var(--muted)]">{currentResult.fromDate} to {currentResult.toDate} · NGN</p>
             </div>
-            <Button variant="secondary" onClick={download}><Download className="mr-2 size-4" /> Download CSV</Button>
+            <Button variant="secondary" disabled={busy} onClick={download}><Download className="mr-2 size-4" /> Download CSV</Button>
           </div>
           <p className="rounded-lg bg-amber-50 p-3 text-sm text-amber-900">
             These are ledger-derived draft statements. The balance sheet includes cumulative unclosed earnings; the cash-flow grouping follows posted journal types. Review classifications, opening balances, adjustments, and any unmatched entries before external use.
-            {result.reportType === "balance_sheet" && result.balanced === false && " The balance sheet does not balance; investigate the ledger before relying on it."}
+            {currentResult.reportType === "balance_sheet" && currentResult.balanced === false && " The balance sheet does not balance; investigate the ledger before relying on it."}
           </p>
           <div className="responsive-table-wrap">
             <table className="responsive-table text-sm">
               <thead className="bg-slate-50"><tr><th className="px-3 py-2">Section</th><th className="px-3 py-2">Account</th><th className="px-3 py-2 text-right">Debit</th><th className="px-3 py-2 text-right">Credit</th><th className="px-3 py-2 text-right">Amount</th></tr></thead>
               <tbody>
-                {result.rows.map((row, index) => (
+                {currentResult.rows.map((row, index) => (
                   <tr key={`${row.section}-${row.accountCode}-${index}`} className="border-t">
                     <td data-label="Section" className="px-3 py-2">{row.section ?? "Trial balance"}</td>
                     <td data-label="Account" className="px-3 py-2"><strong>{row.accountName ?? row.section}</strong>{row.accountCode && <span className="ml-2 font-mono text-xs text-[var(--muted)]">{row.accountCode}</span>}</td>
@@ -155,15 +169,15 @@ export function FinancialStatements() {
             </table>
           </div>
           <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            {result.totalDebitMinor !== undefined && <Summary label="Total debits" value={result.totalDebitMinor} />}
-            {result.totalCreditMinor !== undefined && <Summary label="Total credits" value={result.totalCreditMinor} />}
-            {result.incomeMinor !== undefined && <Summary label="Income" value={result.incomeMinor} />}
-            {result.expenseMinor !== undefined && <Summary label="Expenses" value={result.expenseMinor} />}
-            {result.profitMinor !== undefined && <Summary label="Profit / (loss)" value={result.profitMinor} />}
-            {result.assetsMinor !== undefined && <Summary label="Assets" value={result.assetsMinor} />}
-            {result.liabilitiesMinor !== undefined && <Summary label="Liabilities" value={result.liabilitiesMinor} />}
-            {result.equityMinor !== undefined && <Summary label="Equity" value={result.equityMinor} />}
-            {result.netCashMovementMinor !== undefined && <Summary label="Net cash movement" value={result.netCashMovementMinor} />}
+            {currentResult.totalDebitMinor !== undefined && <Summary label="Total debits" value={currentResult.totalDebitMinor} />}
+            {currentResult.totalCreditMinor !== undefined && <Summary label="Total credits" value={currentResult.totalCreditMinor} />}
+            {currentResult.incomeMinor !== undefined && <Summary label="Income" value={currentResult.incomeMinor} />}
+            {currentResult.expenseMinor !== undefined && <Summary label="Expenses" value={currentResult.expenseMinor} />}
+            {currentResult.profitMinor !== undefined && <Summary label="Profit / (loss)" value={currentResult.profitMinor} />}
+            {currentResult.assetsMinor !== undefined && <Summary label="Assets" value={currentResult.assetsMinor} />}
+            {currentResult.liabilitiesMinor !== undefined && <Summary label="Liabilities" value={currentResult.liabilitiesMinor} />}
+            {currentResult.equityMinor !== undefined && <Summary label="Equity" value={currentResult.equityMinor} />}
+            {currentResult.netCashMovementMinor !== undefined && <Summary label="Net cash movement" value={currentResult.netCashMovementMinor} />}
           </section>
         </>
       )}

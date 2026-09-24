@@ -35,7 +35,7 @@ export function useTablePagination<T>(rows: readonly T[], initialPageSize = 25) 
   return {
     ...result,
     pageSize,
-    setPage: (value: number) => setRequestedPage(value),
+    setPage: setRequestedPage,
     setPageSize,
   };
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import { Download, FileText, Loader2 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
   PaginatedTableControls,
@@ -167,6 +167,26 @@ export default function ReportsPage() {
   const [saleDocument, setSaleDocument] = useState<SaleDocument | null>(null);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [inventoryLoadedKey, setInventoryLoadedKey] = useState<string | null>(null);
+  const [salesLoadedKey, setSalesLoadedKey] = useState<string | null>(null);
+  const inventoryRequestVersion = useRef(0);
+  const salesRequestVersion = useRef(0);
+  const activeFamily: ReportFamily =
+    family === "sales" && canReadSales
+      ? "sales"
+      : family === "financial" && canReadFinancial
+        ? "financial"
+        : family === "inventory" && canReadInventory
+          ? "inventory"
+          : canReadSales
+            ? "sales"
+            : canReadFinancial
+              ? "financial"
+              : "inventory";
+  const inventoryQueryKey = JSON.stringify([kind, productId, locationId, includeCosts]);
+  const salesQueryKey = JSON.stringify([branchId, fromDate, toDate]);
+  const inventoryReady = inventoryLoadedKey === inventoryQueryKey;
+  const salesReady = salesLoadedKey === salesQueryKey;
   const inventoryLookups = useMemo(
     () => ({
       products: Object.fromEntries(
@@ -188,78 +208,138 @@ export default function ReportsPage() {
     [branches.data, locations.data, products.data, warehouses.data],
   );
   const inventoryDisplayRows = useMemo(
-    () => humanizeInventoryReportRows(inventoryRows, inventoryLookups),
-    [inventoryLookups, inventoryRows],
+    () => humanizeInventoryReportRows(inventoryReady ? inventoryRows : [], inventoryLookups),
+    [inventoryLookups, inventoryReady, inventoryRows],
   );
   const inventoryColumns = useMemo(
     () => [...new Set(inventoryDisplayRows.flatMap((row) => Object.keys(row)))],
     [inventoryDisplayRows],
   );
-  const salesPagination = useTablePagination(salesRows);
+  const salesPagination = useTablePagination(salesReady ? salesRows : []);
   const inventoryPagination = useTablePagination(inventoryDisplayRows);
+  const setInventoryPage = inventoryPagination.setPage;
+  const setSalesPage = salesPagination.setPage;
 
-  async function loadInventory(next = false) {
+  useEffect(() => {
+    if (activeFamily !== "inventory" || !canReadInventory) return;
+    const version = ++inventoryRequestVersion.current;
+    const timer = window.setTimeout(() => {
+      void (async () => {
+        setLoading(true);
+        setMessage(null);
+        setInventoryPage(1);
+        try {
+          const result = await callAdministration<object, InventoryReportResult>(inventoryReports[kind][1], {
+            productId: productId || undefined,
+            locationId: locationId || undefined,
+            limit: 50,
+            includeCosts,
+          });
+          if (version !== inventoryRequestVersion.current) return;
+          setInventoryRows(result.rows);
+          setInventoryCursor(result.nextCursor);
+          setInventoryLoadedKey(inventoryQueryKey);
+          if (!result.rows.length) setMessage("No rows matched the selected inventory filters.");
+        } catch (cause) {
+          if (version !== inventoryRequestVersion.current) return;
+          setMessage(cause instanceof Error ? cause.message : "The inventory report query was rejected.");
+        } finally {
+          if (version === inventoryRequestVersion.current) setLoading(false);
+        }
+      })();
+    }, 250);
+    return () => {
+      window.clearTimeout(timer);
+      inventoryRequestVersion.current += 1;
+    };
+  }, [activeFamily, canReadInventory, includeCosts, inventoryQueryKey, kind, locationId, productId, setInventoryPage]);
+
+  useEffect(() => {
+    if (activeFamily !== "sales" || !canReadSales) return;
+    const version = ++salesRequestVersion.current;
+    const timer = window.setTimeout(() => {
+      void (async () => {
+        setLoading(true);
+        setMessage(null);
+        setSalesPage(1);
+        if (fromDate && toDate && fromDate > toDate) {
+          setMessage("The from date must be on or before the to date.");
+          setLoading(false);
+          return;
+        }
+        try {
+          const result = await callAdministration<object, SalesReportResult>("generateSalesReport", {
+            reportType: "sales_register",
+            branchId: branchId || undefined,
+            fromDate: fromDate || undefined,
+            toDate: toDate || undefined,
+            limit: 100,
+          });
+          if (version !== salesRequestVersion.current) return;
+          setSalesRows(result.rows);
+          setSalesCursor(result.nextCursor);
+          setSalesLoadedKey(salesQueryKey);
+          if (!result.rows.length) setMessage("No posted sales matched the selected filters.");
+        } catch (cause) {
+          if (version !== salesRequestVersion.current) return;
+          setMessage(cause instanceof Error ? cause.message : "The sales report query was rejected.");
+        } finally {
+          if (version === salesRequestVersion.current) setLoading(false);
+        }
+      })();
+    }, 250);
+    return () => {
+      window.clearTimeout(timer);
+      salesRequestVersion.current += 1;
+    };
+  }, [activeFamily, branchId, canReadSales, fromDate, salesQueryKey, setSalesPage, toDate]);
+
+  async function loadInventoryNext() {
+    if (!inventoryCursor || !inventoryReady || loading) return;
+    const version = inventoryRequestVersion.current;
     setLoading(true);
     setMessage(null);
-    if (!next) inventoryPagination.setPage(1);
     try {
-      const result = await callAdministration<object, InventoryReportResult>(
-        inventoryReports[kind][1],
-        {
-          productId: productId || undefined,
-          locationId: locationId || undefined,
-          cursor: next ? inventoryCursor : undefined,
-          limit: 50,
-          includeCosts,
-        },
-      );
-      setInventoryRows((current) =>
-        next ? [...current, ...result.rows] : result.rows,
-      );
+      const result = await callAdministration<object, InventoryReportResult>(inventoryReports[kind][1], {
+        productId: productId || undefined,
+        locationId: locationId || undefined,
+        cursor: inventoryCursor,
+        limit: 50,
+        includeCosts,
+      });
+      if (version !== inventoryRequestVersion.current) return;
+      setInventoryRows((current) => [...current, ...result.rows]);
       setInventoryCursor(result.nextCursor);
-      if (!result.rows.length)
-        setMessage("No rows matched this inventory report page.");
     } catch (cause) {
-      setMessage(
-        cause instanceof Error
-          ? cause.message
-          : "The inventory report query was rejected.",
-      );
+      if (version === inventoryRequestVersion.current)
+        setMessage(cause instanceof Error ? cause.message : "The next inventory report page could not be loaded.");
     } finally {
-      setLoading(false);
+      if (version === inventoryRequestVersion.current) setLoading(false);
     }
   }
 
-  async function loadSales(next = false) {
+  async function loadSalesNext() {
+    if (!salesCursor || !salesReady || loading) return;
+    const version = salesRequestVersion.current;
     setLoading(true);
     setMessage(null);
-    if (!next) salesPagination.setPage(1);
     try {
-      const result = await callAdministration<object, SalesReportResult>(
-        "generateSalesReport",
-        {
-          reportType: "sales_register",
-          branchId: branchId || undefined,
-          fromDate: fromDate || undefined,
-          toDate: toDate || undefined,
-          cursor: next ? salesCursor : undefined,
-          limit: 100,
-        },
-      );
-      setSalesRows((current) =>
-        next ? [...current, ...result.rows] : result.rows,
-      );
+      const result = await callAdministration<object, SalesReportResult>("generateSalesReport", {
+        reportType: "sales_register",
+        branchId: branchId || undefined,
+        fromDate: fromDate || undefined,
+        toDate: toDate || undefined,
+        cursor: salesCursor,
+        limit: 100,
+      });
+      if (version !== salesRequestVersion.current) return;
+      setSalesRows((current) => [...current, ...result.rows]);
       setSalesCursor(result.nextCursor);
-      if (!result.rows.length)
-        setMessage("No posted sales matched the selected filters.");
     } catch (cause) {
-      setMessage(
-        cause instanceof Error
-          ? cause.message
-          : "The sales report query was rejected.",
-      );
+      if (version === salesRequestVersion.current)
+        setMessage(cause instanceof Error ? cause.message : "The next sales report page could not be loaded.");
     } finally {
-      setLoading(false);
+      if (version === salesRequestVersion.current) setLoading(false);
     }
   }
 
@@ -347,14 +427,14 @@ export default function ReportsPage() {
           Reports &amp; sales documents
         </h1>
         <p className="text-[var(--muted)]">
-          Download server-scoped reports and reprint official invoices and
-          receipts.
+          Reports update when you change filters. Download server-scoped results
+          or reprint official invoices and receipts when needed.
         </p>
       </header>
       <div className="flex gap-2 rounded-xl border bg-white p-2">
         {canReadSales && (
           <Button
-            variant={family === "sales" ? "primary" : "ghost"}
+            variant={activeFamily === "sales" ? "primary" : "ghost"}
             onClick={() => setFamily("sales")}
           >
             Sales register
@@ -362,7 +442,7 @@ export default function ReportsPage() {
         )}
         {canReadFinancial && (
           <Button
-            variant={family === "financial" ? "primary" : "ghost"}
+            variant={activeFamily === "financial" ? "primary" : "ghost"}
             onClick={() => setFamily("financial")}
           >
             Financial statements
@@ -370,7 +450,7 @@ export default function ReportsPage() {
         )}
         {canReadInventory && (
           <Button
-            variant={family === "inventory" ? "primary" : "ghost"}
+            variant={activeFamily === "inventory" ? "primary" : "ghost"}
             onClick={() => setFamily("inventory")}
           >
             Inventory reports
@@ -378,11 +458,11 @@ export default function ReportsPage() {
         )}
       </div>
 
-      {family === "financial" && canReadFinancial ? (
+      {activeFamily === "financial" && canReadFinancial ? (
         <FinancialStatements />
-      ) : family === "sales" && canReadSales ? (
+      ) : activeFamily === "sales" && canReadSales ? (
         <>
-          <section className="grid gap-3 rounded-xl border bg-white p-4 sm:grid-cols-2 lg:grid-cols-5">
+          <section className="grid gap-3 rounded-xl border bg-white p-4 sm:grid-cols-2 lg:grid-cols-4">
             <label className="text-sm font-medium">
               Branch
               <select
@@ -418,21 +498,14 @@ export default function ReportsPage() {
             </label>
             <Button
               className="self-end"
-              disabled={loading}
-              onClick={() => void loadSales(false)}
-            >
-              {loading && <Loader2 className="mr-2 size-4 animate-spin" />}Run
-              report
-            </Button>
-            <Button
-              className="self-end"
               variant="secondary"
-              disabled={loading}
+              disabled={loading || !salesReady || Boolean(fromDate && toDate && fromDate > toDate)}
               onClick={() => void downloadCompleteSalesCsv()}
             >
               <Download className="mr-2 size-4" /> Download CSV
             </Button>
           </section>
+          {!salesReady && !message && <p role="status" className="flex items-center gap-2 text-sm text-[var(--muted)]"><Loader2 className="size-4 animate-spin" /> Updating sales report…</p>}
           <div className="responsive-table-wrap">
             <table className="responsive-table text-xs">
               <thead className="bg-slate-50">
@@ -503,18 +576,18 @@ export default function ReportsPage() {
               </tbody>
             </table>
           </div>
-          {salesRows.length > 0 && (
+          {salesReady && salesRows.length > 0 && (
             <PaginatedTableControls
               pagination={salesPagination}
               total={salesRows.length}
               itemLabel="sales"
             />
           )}
-          {salesCursor && (
+          {salesReady && salesCursor && (
             <Button
               variant="secondary"
               disabled={loading}
-              onClick={() => void loadSales(true)}
+              onClick={() => void loadSalesNext()}
             >
               Load next page
             </Button>
@@ -522,54 +595,26 @@ export default function ReportsPage() {
         </>
       ) : canReadInventory ? (
         <>
-          <section className="grid gap-3 rounded-xl border bg-white p-4 md:grid-cols-4">
-            <select
-              value={kind}
-              onChange={(event) => {
-                setKind(event.target.value as InventoryReportKey);
-                setInventoryRows([]);
-                setInventoryCursor(null);
-              }}
-              className="rounded-lg border p-2.5"
-            >
-              {Object.entries(inventoryReports).map(([key, [label]]) => (
-                <option key={key} value={key}>
-                  {label}
-                </option>
-              ))}
-            </select>
-            <select
-              value={productId}
-              onChange={(event) => setProductId(event.target.value)}
-              className="rounded-lg border p-2.5"
-            >
-              <option value="">All products</option>
-              {products.data.map((product) => (
-                <option key={product.id} value={product.id}>
-                  {product.sku} — {product.name}
-                </option>
-              ))}
-            </select>
-            <select
-              value={locationId}
-              onChange={(event) => setLocationId(event.target.value)}
-              className="rounded-lg border p-2.5"
-            >
-              <option value="">All locations</option>
-              {locations.data.map((location) => (
-                <option key={location.id} value={location.id}>
-                  {location.name}
-                </option>
-              ))}
-            </select>
-            <Button
-              disabled={loading}
-              onClick={() => void loadInventory(false)}
-            >
-              {loading && <Loader2 className="mr-2 size-4 animate-spin" />}Run
-              report
-            </Button>
+          <section className="grid gap-3 rounded-xl border bg-white p-4 md:grid-cols-3">
+            <label className="text-sm font-medium">Report
+              <select value={kind} onChange={(event) => setKind(event.target.value as InventoryReportKey)} className="mt-1 w-full rounded-lg border p-2.5">
+                {Object.entries(inventoryReports).map(([key, [label]]) => <option key={key} value={key}>{label}</option>)}
+              </select>
+            </label>
+            <label className="text-sm font-medium">Product
+              <select value={productId} onChange={(event) => setProductId(event.target.value)} className="mt-1 w-full rounded-lg border p-2.5">
+                <option value="">All products</option>
+                {products.data.map((product) => <option key={product.id} value={product.id}>{product.sku} — {product.name}</option>)}
+              </select>
+            </label>
+            <label className="text-sm font-medium">Stock location
+              <select value={locationId} onChange={(event) => setLocationId(event.target.value)} className="mt-1 w-full rounded-lg border p-2.5">
+                <option value="">All locations</option>
+                {locations.data.map((location) => <option key={location.id} value={location.id}>{location.name}</option>)}
+              </select>
+            </label>
           </section>
+          {!inventoryReady && !message && <p role="status" className="flex items-center gap-2 text-sm text-[var(--muted)]"><Loader2 className="size-4 animate-spin" /> Updating inventory report…</p>}
           <p className="text-sm text-[var(--muted)]">
             Product, branch, warehouse and stock-area references are shown as
             business names. Technical IDs are shortened only when no business
@@ -628,11 +673,11 @@ export default function ReportsPage() {
               itemLabel="inventory report rows"
             />
           )}
-          {inventoryCursor && (
+          {inventoryReady && inventoryCursor && (
             <Button
               variant="secondary"
               disabled={loading}
-              onClick={() => void loadInventory(true)}
+              onClick={() => void loadInventoryNext()}
             >
               Load next page
             </Button>

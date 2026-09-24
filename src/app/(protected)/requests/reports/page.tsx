@@ -1,6 +1,6 @@
 "use client";
 import { Download, Loader2 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
   PaginatedTableControls,
@@ -28,44 +28,59 @@ export default function RequestReportsPage() {
   const [rows, setRows] = useState<Record<string, unknown>[]>([]);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
-  const pagination = useTablePagination(rows);
+  const [loadedKey, setLoadedKey] = useState<string | null>(null);
+  const requestVersion = useRef(0);
+  const allowed = Boolean(profile && hasPermission(profile, "reports.requests.read"));
+  const queryKey = JSON.stringify([reportType, status, priority]);
+  const ready = loadedKey === queryKey;
+  const visibleRows = useMemo(() => ready ? rows : [], [ready, rows]);
+  const pagination = useTablePagination(visibleRows);
+  const setPage = pagination.setPage;
   const columns = useMemo(
     () => [
       ...new Set(
-        rows
+        visibleRows
           .flatMap((row) => Object.keys(row))
-          .filter((key) => rowValue(rows, key)),
+          .filter((key) => rowValue(visibleRows, key)),
       ),
     ],
-    [rows],
+    [visibleRows],
   );
-  async function load() {
-    setLoading(true);
-    setMessage(null);
-    pagination.setPage(1);
-    try {
-      const result = await callAdministration<
-        object,
-        { rows: Record<string, unknown>[] }
-      >("generateBranchRequestReport", {
-        reportType,
-        status: status || undefined,
-        priority: priority || undefined,
-        limit: 100,
-      });
-      setRows(result.rows);
-      if (!result.rows.length)
-        setMessage("No rows matched the selected report.");
-    } catch {
-      setMessage("The report could not be generated for this scope.");
-    } finally {
-      setLoading(false);
-    }
-  }
+  useEffect(() => {
+    if (!allowed) return;
+    const version = ++requestVersion.current;
+    const timer = window.setTimeout(() => {
+      void (async () => {
+        setLoading(true);
+        setMessage(null);
+        setPage(1);
+        try {
+          const result = await callAdministration<object, { rows: Record<string, unknown>[] }>("generateBranchRequestReport", {
+            reportType,
+            status: status || undefined,
+            priority: priority || undefined,
+            limit: 100,
+          });
+          if (version !== requestVersion.current) return;
+          setRows(result.rows);
+          setLoadedKey(queryKey);
+          if (!result.rows.length) setMessage("No rows matched the selected report.");
+        } catch {
+          if (version === requestVersion.current) setMessage("The report could not be generated for this scope.");
+        } finally {
+          if (version === requestVersion.current) setLoading(false);
+        }
+      })();
+    }, 250);
+    return () => {
+      window.clearTimeout(timer);
+      requestVersion.current += 1;
+    };
+  }, [allowed, priority, queryKey, reportType, setPage, status]);
   function exportCsv() {
     const body = [
       columns.map(csvCell).join(","),
-      ...rows.map((row) =>
+      ...visibleRows.map((row) =>
         columns.map((column) => csvCell(row[column])).join(","),
       ),
     ].join("\n");
@@ -76,7 +91,7 @@ export default function RequestReportsPage() {
     anchor.click();
     URL.revokeObjectURL(url);
   }
-  if (!profile || !hasPermission(profile, "reports.requests.read"))
+  if (!allowed)
     return (
       <div className="rounded-xl border bg-white p-8">
         You do not have permission to view request reports.
@@ -88,32 +103,35 @@ export default function RequestReportsPage() {
         <div>
           <h1 className="text-3xl font-semibold">Request reports</h1>
           <p className="text-[var(--muted)]">
-            Paginated, organization- and branch-scoped demand and approval
-            views.
+            Organization- and branch-scoped demand and approval views update
+            when you change filters.
           </p>
         </div>
-        {hasPermission(profile, "reports.requests.export") &&
-          rows.length > 0 && (
-            <Button variant="secondary" onClick={exportCsv}>
+        {profile && hasPermission(profile, "reports.requests.export") &&
+          ready && visibleRows.length > 0 && (
+            <Button variant="secondary" disabled={loading} onClick={exportCsv}>
               <Download className="mr-2 size-4" />
               Export loaded rows
             </Button>
           )}
       </div>
-      <section className="grid gap-3 rounded-xl border bg-white p-4 md:grid-cols-4">
+      <section className="grid gap-3 rounded-xl border bg-white p-4 md:grid-cols-3">
+        <label className="text-sm font-medium">Report
         <select
-          className="rounded-lg border p-2.5"
+          className="mt-1 w-full rounded-lg border p-2.5"
           value={reportType}
           onChange={(event) =>
             setReportType(event.target.value as (typeof reportTypes)[number])
           }
         >
           {reportTypes.map((type) => (
-            <option key={type}>{type.replaceAll("_", " ")}</option>
+            <option key={type} value={type}>{type.replaceAll("_", " ")}</option>
           ))}
         </select>
+        </label>
+        <label className="text-sm font-medium">Status
         <select
-          className="rounded-lg border p-2.5"
+          className="mt-1 w-full rounded-lg border p-2.5"
           value={status}
           onChange={(event) => setStatus(event.target.value)}
         >
@@ -132,8 +150,10 @@ export default function RequestReportsPage() {
             <option key={value}>{value}</option>
           ))}
         </select>
+        </label>
+        <label className="text-sm font-medium">Priority
         <select
-          className="rounded-lg border p-2.5"
+          className="mt-1 w-full rounded-lg border p-2.5"
           value={priority}
           onChange={(event) => setPriority(event.target.value)}
         >
@@ -142,11 +162,9 @@ export default function RequestReportsPage() {
             <option key={value}>{value}</option>
           ))}
         </select>
-        <Button disabled={loading} onClick={load}>
-          {loading && <Loader2 className="mr-2 size-4 animate-spin" />}Run
-          report
-        </Button>
+        </label>
       </section>
+      {!ready && !message && <p role="status" className="flex items-center gap-2 text-sm text-[var(--muted)]"><Loader2 className="size-4 animate-spin" /> Updating request report…</p>}
       {message && (
         <p className="rounded-lg bg-amber-50 p-3 text-sm">{message}</p>
       )}
@@ -176,10 +194,10 @@ export default function RequestReportsPage() {
           </tbody>
         </table>
       </div>
-      {rows.length > 0 && (
+      {ready && visibleRows.length > 0 && (
         <PaginatedTableControls
           pagination={pagination}
-          total={rows.length}
+          total={visibleRows.length}
           itemLabel="report rows"
         />
       )}
