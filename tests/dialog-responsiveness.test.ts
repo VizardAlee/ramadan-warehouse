@@ -20,5 +20,6 @@ describe("dialog responsiveness", () => {
     expect(styles).toMatch(
       /@media \(max-height: 700px\)[\s\S]*?margin-block: 0/,
     );
+    expect(styles.match(/@keyframes app-view-enter \{([\s\S]*?)\}/)?.[1]).not.toContain("transform");
   });
 });

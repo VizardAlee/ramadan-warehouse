@@ -23,8 +23,8 @@ export function OperationalMixChart({ data }: { data: readonly ChartDatum[] }) {
   return (
     <figure className="rounded-xl border bg-white p-5 sm:p-6">
       <figcaption>
-        <h2 className="section-title">Operational mix</h2>
-        <p className="mt-1 text-sm text-[var(--muted)]">Current workload and active catalogue at a glance.</p>
+        <h2 className="section-title">Open work by type</h2>
+        <p className="mt-1 text-sm text-[var(--muted)]">Requests, active transfers, and discrepancies in your current view.</p>
       </figcaption>
       <div className="mt-5 grid items-center gap-6 sm:grid-cols-[minmax(9rem,12rem)_1fr]">
         <div

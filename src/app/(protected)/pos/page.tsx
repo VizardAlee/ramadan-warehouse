@@ -18,6 +18,7 @@ import {
   UserPlus,
   Wifi,
   WifiOff,
+  X,
 } from "lucide-react";
 import {
   type FormEvent,
@@ -98,6 +99,7 @@ export default function PosPage() {
   const [heldSales, setHeldSales] = useState<HeldPosSale[]>([]);
   const [queued, setQueued] = useState<QueuedPosSale[]>([]);
   const [search, setSearch] = useState("");
+  const [cartOpen, setCartOpen] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<PosCheckoutMethod>("cash");
   const [paymentReference, setPaymentReference] = useState("");
   const [paymentBankAccountId, setPaymentBankAccountId] = useState("");
@@ -132,6 +134,7 @@ export default function PosPage() {
     customerDialogOpen,
     () => setCustomerDialogOpen(false),
   );
+  const cartDialogRef = useDialogFocus<HTMLElement>(cartOpen && !customerDialogOpen, () => setCartOpen(false));
   const branchContextId =
     operatingContext?.type === "branch" ? operatingContext.id : undefined;
   const assignedBranchId =
@@ -423,6 +426,7 @@ export default function PosPage() {
         updatedAt: now,
       });
       resetSaleDraft();
+      setCartOpen(false);
       await refreshHeldSales();
       setMessage("Sale held on this device. A new transaction is ready.");
     } catch (cause) {
@@ -579,6 +583,7 @@ export default function PosPage() {
         idempotencyKey: crypto.randomUUID(),
       });
       setClosingCash("");
+      setCartOpen(false);
       await loadWorkspace();
       setMessage("Shift closed and cash variance recorded.");
     } catch (cause) {
@@ -761,6 +766,8 @@ export default function PosPage() {
         });
       }
       resetSaleDraft();
+      setCartOpen(false);
+      if (online) window.requestAnimationFrame(() => document.getElementById("pos-orders")?.scrollIntoView({ behavior: "smooth", block: "start" }));
     } catch (cause) {
       setError(
         cause instanceof Error
@@ -949,7 +956,7 @@ export default function PosPage() {
     );
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-5 pb-16 lg:pb-0">
       <header className="brand-hero flex flex-col gap-5 rounded-2xl p-5 sm:flex-row sm:items-end sm:justify-between sm:p-7">
         <div>
           <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[.16em] text-emerald-100">
@@ -998,6 +1005,19 @@ export default function PosPage() {
           </label>
         )}
       </header>
+
+      <nav aria-label="Point of sale workspace" className="sticky top-16 z-20 flex flex-wrap gap-2 rounded-xl border bg-white/95 p-2 shadow-sm backdrop-blur">
+        <a href={workspace?.openShift ? "#pos-catalogue" : "#pos-shift"} className="inline-flex min-h-10 items-center rounded-lg bg-[var(--brand)] px-4 text-sm font-semibold text-white">New sale</a>
+        <a href="#pos-orders" className="inline-flex min-h-10 items-center rounded-lg border px-4 text-sm font-semibold text-slate-700">
+          Awaiting action{workspace?.pendingOrders.length ? ` (${workspace.pendingOrders.length})` : ""}
+        </a>
+        <button type="button" disabled={!workspace?.openShift} onClick={() => {
+          if (window.matchMedia("(max-width: 1023px)").matches) setCartOpen(true);
+          document.getElementById("pos-cart")?.scrollIntoView({ behavior: "smooth", block: "start" });
+        }} className="inline-flex min-h-10 items-center rounded-lg border px-4 text-sm font-semibold text-slate-700 disabled:opacity-50">
+          Held sales{heldSales.length ? ` (${heldSales.length})` : ""}
+        </button>
+      </nav>
 
       {!online && (
         <div className="flex gap-3 rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950">
@@ -1060,7 +1080,7 @@ export default function PosPage() {
       )}
 
       {workspace && (
-        <section className="rounded-2xl border bg-white p-4 shadow-sm sm:p-5">
+        <section id="pos-orders" className="scroll-mt-40 rounded-2xl border bg-white p-4 shadow-sm sm:p-5">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <p className="text-xs font-semibold uppercase tracking-[.14em] text-[var(--brand)]">
@@ -1188,7 +1208,7 @@ export default function PosPage() {
           </div>
         </div>
       ) : !workspace.openShift ? (
-        <section className="mx-auto max-w-xl rounded-2xl border bg-white p-6 shadow-sm">
+        <section id="pos-shift" className="mx-auto max-w-xl scroll-mt-40 rounded-2xl border bg-white p-6 shadow-sm">
           <Banknote className="mb-4 size-9 text-[var(--brand)]" />
           <h2 className="text-2xl font-semibold">Open the sales shift</h2>
           <p className="mt-2 text-sm text-[var(--muted)]">
@@ -1223,7 +1243,7 @@ export default function PosPage() {
         </section>
       ) : (
         <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_24rem]">
-          <section className="space-y-4">
+          <section id="pos-catalogue" className="scroll-mt-40 space-y-4">
             <div className="glass-panel rounded-2xl p-4">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
@@ -1336,14 +1356,23 @@ export default function PosPage() {
             </div>
           </section>
 
-          <aside className="glass-panel h-fit overflow-hidden rounded-2xl p-5 lg:sticky lg:top-20">
+          {cartOpen && <button type="button" aria-label="Close sale cart" onClick={() => setCartOpen(false)} className="fixed inset-0 z-40 bg-slate-950/50 lg:hidden" />}
+          <aside
+            id="pos-cart"
+            ref={cartDialogRef}
+            role={cartOpen ? "dialog" : undefined}
+            aria-modal={cartOpen ? true : undefined}
+            aria-label={cartOpen ? "Current sale and held sales" : undefined}
+            className={`glass-panel scroll-mt-40 h-fit overflow-y-auto rounded-t-2xl p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] lg:sticky lg:top-20 lg:block lg:max-h-[calc(100dvh-7rem)] lg:rounded-2xl ${cartOpen ? "fixed inset-x-0 bottom-0 z-50 max-h-[min(88dvh,48rem)]" : "hidden"}`}
+          >
             <div className="flex items-center justify-between">
               <h2 className="flex items-center gap-2 text-xl font-semibold">
                 <ShoppingCart className="size-5" /> Current sale
               </h2>
-              <span className="text-sm text-[var(--muted)]">
-                {totals.totalQuantity} items
-              </span>
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-[var(--muted)]">{totals.totalQuantity} items</span>
+                <button type="button" onClick={() => setCartOpen(false)} aria-label="Close cart" className="grid size-9 place-items-center rounded-lg border lg:hidden"><X className="size-4" /></button>
+              </div>
             </div>
             <Button
               type="button"
@@ -1771,6 +1800,13 @@ export default function PosPage() {
             </details>
           </aside>
         </div>
+      )}
+
+      {workspace?.openShift && (
+        <button type="button" onClick={() => setCartOpen(true)} className="fixed inset-x-4 bottom-[calc(4.6rem+env(safe-area-inset-bottom))] z-30 flex min-h-12 items-center justify-between rounded-xl bg-[var(--brand)] px-4 font-semibold text-white shadow-xl lg:hidden">
+          <span className="flex items-center gap-2"><ShoppingCart className="size-5" /> Current sale · {totals.totalQuantity} items</span>
+          <span>{formatNaira(totals.grossAmountMinor)}</span>
+        </button>
       )}
 
       {customerDialogOpen && (

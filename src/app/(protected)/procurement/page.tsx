@@ -8,7 +8,7 @@ import {
   Truck,
   WalletCards,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { callAdministration } from "@/features/administration/api";
 import { useAuth } from "@/features/auth/auth-context";
@@ -75,6 +75,8 @@ function procurementScopeFromKey(key: string) {
 
 export default function ProcurementPage() {
   const { user, profile, operatingContext } = useAuth();
+  const newOrderRef = useRef<HTMLDetailsElement>(null);
+  const newSupplierRef = useRef<HTMLDetailsElement>(null);
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -194,18 +196,20 @@ export default function ProcurementPage() {
       await action();
       setMessage(success);
       await load();
+      return true;
     } catch (cause) {
       setError(
         cause instanceof Error
           ? cause.message
           : "The operation could not be completed.",
       );
+      return false;
     } finally {
       setBusy(false);
     }
   }
   async function createSupplier() {
-    await run(
+    const created = await run(
       () =>
         callAdministration("saveSupplier", {
           name: supplier.name,
@@ -217,11 +221,14 @@ export default function ProcurementPage() {
         }),
       "Supplier created and ready for purchasing.",
     );
-    setSupplier({ name: "", phone: "", email: "", paymentTermsDays: "0" });
+    if (created) {
+      setSupplier({ name: "", phone: "", email: "", paymentTermsDays: "0" });
+      if (newSupplierRef.current) newSupplierRef.current.open = false;
+    }
   }
   async function createOrder() {
     const [ownerType, ownerId] = destinationKey.split(":");
-    await run(
+    const created = await run(
       () =>
         callAdministration("createPurchaseOrder", {
           supplierId,
@@ -238,7 +245,11 @@ export default function ProcurementPage() {
         }),
       "Draft purchase order created. Review it before submission.",
     );
-    setLines([blankLine()]);
+    if (created) {
+      setLines([blankLine()]);
+      if (newOrderRef.current) newOrderRef.current.open = false;
+      document.getElementById("purchase-orders")?.scrollIntoView({ behavior: "smooth" });
+    }
   }
   const selectedLocations =
     workspace?.locations.filter(
@@ -303,10 +314,16 @@ export default function ProcurementPage() {
         </div>
       )}
 
+      <nav aria-label="Purchasing workspace" className="sticky top-16 z-20 flex flex-wrap gap-2 rounded-xl border bg-white/95 p-2 shadow-sm backdrop-blur">
+        <a href="#purchase-orders" className="inline-flex min-h-10 items-center rounded-lg bg-[var(--brand)] px-4 text-sm font-semibold text-white">Orders{workspace?.purchaseOrders.length ? ` (${workspace.purchaseOrders.length})` : ""}</a>
+        {can("procurement.create") && <button type="button" onClick={() => { if (newOrderRef.current) { newOrderRef.current.open = true; newOrderRef.current.scrollIntoView({ behavior: "smooth" }); } }} className="inline-flex min-h-10 items-center rounded-lg border px-4 text-sm font-semibold">New order</button>}
+        {can("suppliers.manage") && <button type="button" onClick={() => { if (newSupplierRef.current) { newSupplierRef.current.open = true; newSupplierRef.current.scrollIntoView({ behavior: "smooth" }); } }} className="inline-flex min-h-10 items-center rounded-lg border px-4 text-sm font-semibold">Add supplier</button>}
+      </nav>
+
       {can("suppliers.manage") && (
-        <details className="rounded-xl border bg-white p-5">
+        <details ref={newSupplierRef} id="new-supplier" className="scroll-mt-40 rounded-xl border bg-white p-5">
           <summary className="cursor-pointer text-lg font-semibold">
-            1. Add supplier
+            Add supplier when needed
           </summary>
           <p className="mt-1 text-sm text-[var(--muted)]">
             Supplier details are reused on orders, invoices, payments, and
@@ -375,9 +392,9 @@ export default function ProcurementPage() {
       )}
 
       {can("procurement.create") && workspace && (
-        <details open className="rounded-xl border bg-white p-5">
+        <details ref={newOrderRef} id="new-purchase-order" className="scroll-mt-40 rounded-xl border bg-white p-5">
           <summary className="cursor-pointer text-lg font-semibold">
-            2. Create purchase order
+            Create purchase order
           </summary>
           <p className="mt-1 text-sm text-[var(--muted)]">
             Costs are entered in naira with two decimal places. Product names
@@ -581,11 +598,14 @@ export default function ProcurementPage() {
         </details>
       )}
 
-      <section className="rounded-xl border bg-white p-5">
+      <section id="purchase-orders" className="scroll-mt-40 rounded-xl border bg-white p-5">
         <h2 className="text-xl font-semibold">Purchase orders</h2>
         <p className="text-sm text-[var(--muted)]">
           Submission freezes the commercial snapshot. An assigned manager may
           approve their own order; every decision remains in the audit trail.
+        </p>
+        <p className="mt-3 rounded-lg bg-indigo-50 p-3 text-sm text-[var(--brand-dark)]">
+          Follow each order here: create → approve → receive goods → match invoice → pay. Only the next available actions appear on each order.
         </p>
         <div className="mt-4 space-y-4">
           {workspace?.purchaseOrders.map((order) => (

@@ -9,6 +9,7 @@ import {
   ClipboardCheck,
   ContactRound,
   CircleHelp,
+  ChevronDown,
   FileBarChart,
   Gauge,
   HandCoins,
@@ -69,6 +70,15 @@ const navigation = [
   { href: "/audit", label: "Audit", icon: History, permissions: ["audit.read"] },
   { href: "/guide", label: "User guide", icon: CircleHelp, permissions: [] },
 ] as const;
+const navigationGroups = [
+  { label: "Sales & customers", hrefs: ["/pos", "/customers", "/returns", "/aftersales"] },
+  { label: "Stock & movement", hrefs: ["/products", "/inventory", "/requests", "/transfers", "/daily-reconciliation"] },
+  { label: "Purchasing", hrefs: ["/procurement", "/costs"] },
+  { label: "Money & accounts", hrefs: ["/expenses", "/banking", "/finance", "/accounting", "/tax"] },
+  { label: "Insights", hrefs: ["/reports", "/audit"] },
+  { label: "People & settings", hrefs: ["/administration", "/hr", "/guide"] },
+] as const;
+const mobilePriority = ["/dashboard", "/pos", "/transfers", "/inventory", "/procurement", "/reports", "/requests"];
 const titleFromPath = (pathname: string) => {
   const segments = pathname.split("/").filter(Boolean);
   const section = segments.at(-1) ?? "Dashboard";
@@ -119,6 +129,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const [open, setOpen] = useState(false);
+  const [expandedGroup, setExpandedGroup] = useState<{ pathname: string; label: string } | null>(null);
   const {
     options: contexts,
     activeValue: contextValue,
@@ -143,8 +154,13 @@ export function AppShell({ children }: { children: ReactNode }) {
         : [],
     [profile],
   );
-  const mobilePrimary = visibleNavigation.slice(0, 5);
-  const secondaryNavigation = visibleNavigation.slice(5);
+  const mobilePrimary = mobilePriority
+    .map((href) => visibleNavigation.find((item) => item.href === href))
+    .filter((item): item is (typeof visibleNavigation)[number] => Boolean(item))
+    .slice(0, 4);
+  const secondaryNavigation = visibleNavigation.filter(
+    (item) => !mobilePrimary.some((primary) => primary.href === item.href),
+  );
   const moreSheetRef = useDialogFocus<HTMLElement>(open, () => setOpen(false));
   const { online } = useConnectivity();
   const { unreadCount } = useNotifications();
@@ -195,7 +211,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       aria-label="Desktop navigation"
       className="min-h-0 flex-1 space-y-1 overflow-y-auto overscroll-y-contain pb-[max(1rem,env(safe-area-inset-bottom))] pr-1 [scrollbar-width:thin]"
     >
-      {visibleNavigation.map(({ href, label, icon: Icon }) => (
+      {visibleNavigation.filter((item) => item.href === "/dashboard").map(({ href, label, icon: Icon }) => (
         <Link
           key={href}
           href={href}
@@ -209,6 +225,46 @@ export function AppShell({ children }: { children: ReactNode }) {
           <span>{label}</span>
         </Link>
       ))}
+      {navigationGroups.map((group) => {
+        const items = visibleNavigation.filter((item) =>
+          (group.hrefs as readonly string[]).includes(item.href),
+        );
+        if (items.length === 0) return null;
+        const groupActive = items.some((item) => active(item.href));
+        const choice = expandedGroup?.pathname === pathname ? expandedGroup.label : null;
+        const expanded = choice === group.label || (choice === null && groupActive);
+        return (
+          <section key={group.label} className="pt-2">
+            <button
+              type="button"
+              aria-expanded={expanded}
+              onClick={() => setExpandedGroup({ pathname, label: expanded ? "" : group.label })}
+              className="flex min-h-10 w-full items-center justify-between rounded-lg px-3 text-left text-[.68rem] font-bold uppercase tracking-[.12em] text-indigo-100 transition-colors hover:bg-white/10 hover:text-white"
+            >
+              {group.label}
+              <ChevronDown className={cn("size-4 transition-transform", expanded && "rotate-180")} />
+            </button>
+            {expanded && (
+              <div id={`nav-${group.label.replaceAll(/[^a-z]+/gi, "-").toLowerCase()}`} className="mt-1 space-y-1">
+                {items.map(({ href, label, icon: Icon }) => (
+                  <Link
+                    key={href}
+                    href={href}
+                    aria-current={active(href) ? "page" : undefined}
+                    className={cn(
+                      "group flex min-h-10 items-center gap-3 rounded-xl px-3 text-sm text-indigo-50 transition-colors hover:bg-white/10",
+                      active(href) && "bg-white/15 font-semibold text-white shadow-[inset_3px_0_0_#f6b333]",
+                    )}
+                  >
+                    <Icon className="size-4 shrink-0" />
+                    <span>{label}</span>
+                  </Link>
+                ))}
+              </div>
+            )}
+          </section>
+        );
+      })}
     </nav>
   );
   return (
@@ -253,7 +309,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                   More destinations
                 </h2>
                 <p className="mt-1 text-sm text-[var(--muted)]">
-                  Guidance, administration, reporting, costs, and audit history.
+                  Find the rest of your authorized tasks by category.
                 </p>
               </div>
               <Button
@@ -265,28 +321,28 @@ export function AppShell({ children }: { children: ReactNode }) {
                 <X />
               </Button>
             </div>
-            <nav
-              aria-label="Secondary navigation"
-              className="grid gap-3 sm:grid-cols-2"
-            >
-              {secondaryNavigation.map(({ href, label, icon: Icon }) => (
-                <Link
-                  key={href}
-                  href={href}
-                  onClick={() => setOpen(false)}
-                  aria-current={active(href) ? "page" : undefined}
-                  className={cn(
-                    "flex min-h-14 items-center gap-3 rounded-xl border bg-white px-4 text-sm font-semibold text-slate-700",
-                    active(href) &&
-                      "border-indigo-300 bg-indigo-50 text-[var(--brand-dark)]",
-                  )}
-                >
-                  <span className="grid size-10 shrink-0 place-items-center rounded-lg bg-slate-100">
-                    <Icon className="size-5" />
-                  </span>
-                  {label}
-                </Link>
-              ))}
+            <nav aria-label="Secondary navigation" className="space-y-5">
+              {navigationGroups.map((group) => {
+                const items = secondaryNavigation.filter((item) =>
+                  (group.hrefs as readonly string[]).includes(item.href),
+                );
+                if (!items.length) return null;
+                return (
+                  <section key={group.label}>
+                    <h3 className="mb-2 text-xs font-bold uppercase tracking-[.12em] text-[var(--muted)]">{group.label}</h3>
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      {items.map(({ href, label, icon: Icon }) => (
+                        <Link key={href} href={href} onClick={() => setOpen(false)} aria-current={active(href) ? "page" : undefined} className={cn(
+                          "flex min-h-12 items-center gap-3 rounded-xl border bg-white px-3 text-sm font-semibold text-slate-700",
+                          active(href) && "border-indigo-300 bg-indigo-50 text-[var(--brand-dark)]",
+                        )}>
+                          <Icon className="size-4 shrink-0" />{label}
+                        </Link>
+                      ))}
+                    </div>
+                  </section>
+                );
+              })}
             </nav>
           </section>
         </div>
@@ -399,7 +455,9 @@ export function AppShell({ children }: { children: ReactNode }) {
           {secondaryNavigation.length > 0 && (
             <button
               onClick={() => setOpen(true)}
-              className="flex min-h-14 flex-col items-center justify-center gap-1 rounded-lg px-1 text-[.65rem] font-medium text-slate-600"
+              aria-label="More destinations"
+              aria-current={secondaryNavigation.some((item) => active(item.href)) ? "page" : undefined}
+              className={cn("flex min-h-14 flex-col items-center justify-center gap-1 rounded-lg px-1 text-[.65rem] font-medium text-slate-600", secondaryNavigation.some((item) => active(item.href)) && "bg-indigo-50 text-[var(--brand-dark)]")}
             >
               <MoreHorizontal className="size-5" />
               <span>More</span>

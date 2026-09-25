@@ -158,7 +158,6 @@ export default function DashboardPage() {
   const mixData = summary ? [
     { label: "Open requests", value: summary.requests, color: "#34458f" },
     { label: "Transfers on track", value: Math.max(0, summary.transfers - summary.discrepancies), color: "#6074bd" },
-    { label: "Active products", value: summary.products, color: "#f6b333" },
     { label: "Discrepancies", value: summary.discrepancies, color: "#c8563d" },
   ] : [];
   const pipelineColors = ["#34458f", "#6074bd", "#f6b333", "#c8563d"];
@@ -181,7 +180,7 @@ export default function DashboardPage() {
           operatingContext?.type === "branch"
             ? "Branch overview"
             : operatingContext?.type === "warehouse"
-              ? "Warehouse overview"
+              ? "Central stock overview"
               : "Organization overview"
         }
         description={`Welcome, ${profile?.displayName ?? "administrator"}. Priorities and operational queues appear here as real master data and stock are configured.`}
@@ -203,7 +202,7 @@ export default function DashboardPage() {
           <BookOpenCheck className="size-5" />
         </span>
         <div className="min-w-0 flex-1">
-          <p className="font-semibold text-emerald-950">New to ABR Warehouse?</p>
+          <p className="font-semibold text-emerald-950">New to AB Ramadan?</p>
           <p className="mt-1 text-sm text-emerald-900">Follow the visual setup, stock movement, sales, and accounting workflows.</p>
         </div>
         <Link href="/guide" className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-[var(--brand)] px-4 text-sm font-semibold text-white">
@@ -270,13 +269,13 @@ export default function DashboardPage() {
         <EmptyState
           icon={PackageCheck}
           title="Production workspace is ready"
-          description="Start with real branches and warehouse configuration, then add the approved product catalogue and opening inventory. No sample business records have been created."
+          description="Set up Head Office and your stores, then add the product catalogue and opening stock. No sample business records have been created."
           action={<Link href="/administration" className="inline-flex min-h-11 items-center rounded-lg bg-[var(--brand)] px-4 text-sm font-semibold text-white">Configure master data</Link>}
         />
       ) : (
         <section className="rounded-xl border bg-white p-5 sm:p-6">
           <h2 className="section-title">Operational priorities</h2>
-          <p className="mt-2 max-w-3xl text-sm leading-6 text-[var(--muted)]">Review discrepancies first, then approvals and active warehouse movements. Counts reflect the records available to your current role.</p>
+          <p className="mt-2 max-w-3xl text-sm leading-6 text-[var(--muted)]">Review discrepancies first, then requests and active store movements. Counts reflect the records available to your current role.</p>
         </section>
       )}
     </div>

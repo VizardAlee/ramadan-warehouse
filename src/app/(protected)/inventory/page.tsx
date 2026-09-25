@@ -1,13 +1,15 @@
 "use client";
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import { CursorTablePagination } from "@/components/ui/table-pagination";
 import { callAdministration } from "@/features/administration/api";
+import { useOrganizationCollection } from "@/features/administration/use-organization-collection";
 import {
   formatDateTime,
   formatNaira,
   formatQuantity,
 } from "@/features/inventory/format";
-import type { InventoryBalance } from "@/types/domain";
+import type { InventoryBalance, InventoryLocation } from "@/types/domain";
 
 function fetchStockPosition(cursor?: string, limit = 25) {
   return callAdministration<
@@ -21,6 +23,7 @@ function fetchStockPosition(cursor?: string, limit = 25) {
 }
 
 export default function InventoryPage() {
+  const locations = useOrganizationCollection<InventoryLocation>("inventoryLocations");
   const [rows, setRows] = useState<InventoryBalance[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
   const [pageStarts, setPageStarts] = useState<(string | null)[]>([null]);
@@ -129,8 +132,10 @@ export default function InventoryPage() {
             ) : (
               rows.map((row) => (
                 <tr key={row.id} className="border-t">
-                  <td data-label="SKU" data-primary="true" className="px-4 py-3 font-mono">{row.sku}</td>
-                  <td data-label="Location" className="px-4 font-mono text-xs">{row.locationId}</td>
+                  <td data-label="SKU" data-primary="true" className="px-4 py-3 font-mono">
+                    <Link href={`/products/${row.productId}#movement-history`} className="font-semibold text-[var(--brand)] underline underline-offset-2" title="Open product stock history">{row.sku}</Link>
+                  </td>
+                  <td data-label="Location" className="px-4 text-sm">{locations.data.find((location) => location.id === row.locationId)?.name ?? row.locationId}</td>
                   <td data-label="On hand" className="px-4">{row.onHandQuantity}</td>
                   <td data-label="Reserved" className="px-4">{row.reservedQuantity}</td>
                   <td data-label="Available" className="px-4 font-semibold">{row.availableQuantity}</td>

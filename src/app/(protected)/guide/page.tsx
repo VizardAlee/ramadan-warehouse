@@ -45,7 +45,7 @@ export default function GuidePage() {
         </p>
         <h1 className="mt-2 text-3xl font-semibold">What do you want to do?</h1>
         <p className="mt-2 text-[var(--muted)]">
-          Choose a task. You do not need to learn every part of the system.
+          Choose a task. On a computer, related pages sit together in the side menu; on a phone, use the main shortcuts or More.
         </p>
       </header>
       <nav
@@ -69,7 +69,7 @@ export default function GuidePage() {
               <PackageCheck className="mb-3 size-7 text-emerald-800" />
               <strong>Goods have arrived</strong>
               <p className="mt-2 text-sm">
-                Open Action required, count the goods, and confirm arrival.
+                Open Action required, tap Take action, count the goods, and confirm arrival. Full details remains available for exceptions.
               </p>
             </Link>
           </>
@@ -79,7 +79,7 @@ export default function GuidePage() {
             <ShoppingCart className="mb-3 size-7 text-emerald-800" />
             <strong>Make a sale</strong>
             <p className="mt-2 text-sm">
-              Select your branch, open a shift, then add products to the sale.
+              Select your store, open a shift, then add products. On a phone, use the bottom Current sale button to review the cart.
             </p>
           </Link>
         )}
@@ -175,6 +175,9 @@ export default function GuidePage() {
               location shows work assigned elsewhere.
             </li>
             <li>
+              Use Take action to confirm from the queue without leaving it; open Full details for a wider view of the same audited transfer.
+            </li>
+            <li>
               A source-location manager or administrator confirms the stock. The
               receiving branch manager or administrator confirms arrival.
             </li>
@@ -200,13 +203,14 @@ export default function GuidePage() {
           <p className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-950">
             Offline POS can save an order for later sync using an already-open cached shift. Opening a new shift, creating a customer and credit sales require a connection. A held basket is only on this device and does not reserve stock.
           </p>
+          <p className="rounded-xl border bg-white p-4 text-sm leading-6">Use New sale, Awaiting action and Held sales at the top of POS to jump between tasks. On smaller screens, tap Current sale above the bottom menu to open the cart; your basket stays in place while you browse.</p>
         </section>
       )}
       {canPurchase && (
         <section id="purchasing" className="scroll-mt-24 rounded-2xl border bg-white p-5">
           <h2 className="text-xl font-semibold">Purchasing and supplier payments</h2>
           <ol className="mt-3 list-decimal space-y-2 pl-5 text-sm leading-6">
-            <li>In <Link className="font-semibold underline" href="/procurement">Purchasing</Link>, choose the supplier and receiving store. The store is also where you can sell; there is no separate warehouse to create.</li>
+            <li>In <Link className="font-semibold underline" href="/procurement">Purchasing</Link>, review existing orders first. Expand New order only when needed, then choose the supplier and receiving store. There is no separate warehouse to create.</li>
             <li>Create and approve the purchase order, then record the goods actually received. Check quantities and any tracked serials before posting.</li>
             <li>Record the supplier invoice and any outstanding payment. Choose the company account used for a bank or card payment; do not mark a bank payment as cash.</li>
           </ol>

@@ -12,9 +12,11 @@ import {
   RefreshCw,
   ShieldCheck,
   Store,
+  X,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
+import { useDialogFocus } from "@/components/ui/use-dialog-focus";
 import { callAdministration } from "@/features/administration/api";
 import { useAuth } from "@/features/auth/auth-context";
 import { useConnectivity } from "@/lib/connectivity";
@@ -208,6 +210,7 @@ function ManagedStockTransferList() {
   const [filter, setFilter] = useState(canCreate ? "attention" : "all"),
     [error, setError] = useState(""),
     [loading, setLoading] = useState(true);
+  const [quickTransferId, setQuickTransferId] = useState<string | null>(null);
   const load = useCallback((isActive: () => boolean = () => true) => {
     const fetchRows = async () => {
       const result: StockTransfer[] = [];
@@ -237,6 +240,10 @@ function ManagedStockTransferList() {
         if (isActive()) setLoading(false);
       });
   }, []);
+  const quickViewRef = useDialogFocus<HTMLElement>(Boolean(quickTransferId), () => {
+    setQuickTransferId(null);
+    void load();
+  });
   useEffect(() => {
     let active = true;
     void load(() => active);
@@ -366,10 +373,9 @@ function ManagedStockTransferList() {
       ) : (
         <div className="grid gap-4 lg:grid-cols-2">
           {shown.map((t) => (
-            <Link
+            <article
               key={t.id}
-              href={`/transfers/simple/${t.id}`}
-              className={`${panel} block transition-colors hover:border-emerald-600`}
+              className={`${panel} transition-colors hover:border-indigo-300`}
             >
               <div className="mb-4 flex flex-wrap justify-between gap-2">
                 <strong>{t.number}</strong>
@@ -386,17 +392,36 @@ function ManagedStockTransferList() {
                   .map((l) => `${l.productName} × ${l.requested}`)
                   .join(" · ")}
               </p>
-              <p className="mt-3 font-medium text-emerald-800">
+              <p className="mt-3 font-medium text-[var(--brand)]">
                 {simpleTransferActionCopy({
                   status: t.status,
                   sourceName: t.sourceName,
                   destinationName: t.destinationName,
                   canAct: Boolean(mine(t)),
-                })}{" "}
-                →
+                })}
               </p>
-            </Link>
+              <div className="mt-4 flex flex-wrap gap-2">
+                <Button type="button" onClick={() => setQuickTransferId(t.id)}>
+                  {mine(t) ? "Take action" : "Quick view"}
+                </Button>
+                <Link href={`/transfers/simple/${t.id}`} className="inline-flex min-h-11 items-center rounded-xl border px-4 text-sm font-semibold text-[var(--brand)]">
+                  Full details
+                </Link>
+              </div>
+            </article>
           ))}
+        </div>
+      )}
+      {quickTransferId && (
+        <div className="fixed inset-0 z-50">
+          <button type="button" className="absolute inset-0 bg-slate-950/55" aria-label="Close transfer quick view" onClick={() => { setQuickTransferId(null); void load(); }} />
+          <section ref={quickViewRef} role="dialog" aria-modal="true" aria-label="Transfer quick view" className="absolute inset-y-0 right-0 w-full max-w-3xl overflow-y-auto bg-[var(--background)] p-4 shadow-2xl sm:p-6">
+            <div className="mb-4 flex items-center justify-between gap-3">
+              <p className="font-semibold">Transfer action</p>
+              <Button type="button" variant="outline" size="icon" aria-label="Close transfer quick view" onClick={() => { setQuickTransferId(null); void load(); }}><X className="size-4" /></Button>
+            </div>
+            <StockTransferDetail transferId={quickTransferId} embedded />
+          </section>
         </div>
       )}
       <footer className="flex flex-wrap gap-5 text-sm">
@@ -793,7 +818,7 @@ export function StockTransferForm({
   );
 }
 
-export function StockTransferDetail({ transferId }: { transferId: string }) {
+export function StockTransferDetail({ transferId, embedded = false }: { transferId: string; embedded?: boolean }) {
   const { profile } = useAuth();
   const { online } = useConnectivity();
   const [detail, setDetail] = useState<Detail | null>(null),
@@ -886,7 +911,7 @@ export function StockTransferDetail({ transferId }: { transferId: string }) {
   if (!detail || !transfer)
     return (
       <div className="page-stack">
-        <Link href="/transfers">← All transfers</Link>
+        {!embedded && <Link href="/transfers">← All transfers</Link>}
         {error ? (
           <Notice text={error} />
         ) : (
@@ -912,9 +937,7 @@ export function StockTransferDetail({ transferId }: { transferId: string }) {
   return (
     <div className="page-stack mx-auto max-w-5xl">
       <div className="flex items-center justify-between">
-        <Link className="underline" href="/transfers">
-          ← All transfers
-        </Link>
+        {!embedded && <Link className="underline" href="/transfers">← All transfers</Link>}
         <Button variant="secondary" disabled={busy} onClick={() => void load()}>
           <RefreshCw className="mr-2 size-4" />
           Refresh
