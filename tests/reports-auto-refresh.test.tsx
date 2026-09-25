@@ -33,6 +33,29 @@ afterEach(() => {
 });
 
 describe("automatic reports", () => {
+  it("links an inventory report product to its movement history without exposing its ID as a column", async () => {
+    api.call.mockImplementation(async (name: string) => name === "generateStockPositionReport"
+      ? {
+          rows: [{
+            id: "balance-1",
+            productId: "product-1",
+            sku: "PANEL-620",
+            productName: "620W Solar Panel",
+            onHandQuantity: 20,
+          }],
+          nextCursor: null,
+        }
+      : { rows: [], nextCursor: null });
+    render(<ReportsPage />);
+    fireEvent.click(screen.getByRole("button", { name: "Inventory reports" }));
+
+    const link = await screen.findByRole("link", {
+      name: "View inventory history for PANEL-620 — 620W Solar Panel",
+    });
+    expect(link.getAttribute("href")).toBe("/products/product-1#movement-history");
+    expect(screen.queryByRole("columnheader", { name: "Product Id" })).toBeNull();
+  });
+
   it("loads on entry and refreshes sales, inventory and financial filters without a generate click", async () => {
     render(<ReportsPage />);
     await waitFor(() => expect(api.call).toHaveBeenCalledWith("generateSalesReport", expect.objectContaining({ reportType: "sales_register" })));

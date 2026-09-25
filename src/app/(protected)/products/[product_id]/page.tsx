@@ -76,6 +76,10 @@ export default function ProductDetailPage() {
       })
       .catch(() => setError("Unable to load SKU history."));
   }, [pageSize, productId]);
+  useEffect(() => {
+    if (summary && window.location.hash === "#movement-history")
+      document.getElementById("movement-history")?.scrollIntoView({ block: "start" });
+  }, [summary]);
   function nextHistoryPage() {
     if (!cursor) return;
     setPageStarts((current) => [...current, cursor]);
@@ -165,7 +169,7 @@ export default function ProductDetailPage() {
           </table>
         </div>
       </section>
-      <section className="rounded-xl border bg-white p-5">
+      <section id="movement-history" className="scroll-mt-24 rounded-xl border bg-white p-5">
         <h2 className="text-lg font-semibold">Movement history</h2>
         <div className="responsive-table-wrap mt-4">
           <table className="responsive-table text-xs">

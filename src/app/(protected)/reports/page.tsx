@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { Download, FileText, Loader2 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -215,8 +216,17 @@ export default function ReportsPage() {
     () => [...new Set(inventoryDisplayRows.flatMap((row) => Object.keys(row)))],
     [inventoryDisplayRows],
   );
+  const inventoryTableRows = useMemo(
+    () => inventoryDisplayRows.map((display, index) => ({
+      display,
+      productId: typeof inventoryRows[index]?.productId === "string"
+        ? inventoryRows[index].productId as string
+        : null,
+    })),
+    [inventoryDisplayRows, inventoryRows],
+  );
   const salesPagination = useTablePagination(salesReady ? salesRows : []);
-  const inventoryPagination = useTablePagination(inventoryDisplayRows);
+  const inventoryPagination = useTablePagination(inventoryTableRows);
   const setInventoryPage = inventoryPagination.setPage;
   const setSalesPage = salesPagination.setPage;
 
@@ -647,9 +657,9 @@ export default function ReportsPage() {
                 </tr>
               </thead>
               <tbody>
-                {inventoryPagination.rows.map((row, index) => (
+                {inventoryPagination.rows.map(({ display, productId: rowProductId }, index) => (
                   <tr
-                    key={String(row.id ?? `${inventoryPagination.page}-${index}`)}
+                    key={`${inventoryPagination.page}-${index}`}
                     className="border-t"
                   >
                     {inventoryColumns.map((column) => (
@@ -658,7 +668,16 @@ export default function ReportsPage() {
                         data-label={inventoryReportColumnLabel(column)}
                         className="max-w-72 px-3 py-2"
                       >
-                        {formatInventoryReportValue(column, row[column])}
+                        {column === "product" && rowProductId ? (
+                          <Link
+                            href={`/products/${encodeURIComponent(rowProductId)}#movement-history`}
+                            prefetch={false}
+                            aria-label={`View inventory history for ${display.product}`}
+                            className="font-medium text-[var(--brand)] underline underline-offset-2 hover:text-[var(--brand-dark)]"
+                          >
+                            {formatInventoryReportValue(column, display[column])}
+                          </Link>
+                        ) : formatInventoryReportValue(column, display[column])}
                       </td>
                     ))}
                   </tr>
