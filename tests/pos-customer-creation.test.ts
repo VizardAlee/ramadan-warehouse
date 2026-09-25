@@ -13,6 +13,6 @@ describe("POS customer creation", () => {
     expect(page).toContain("setCustomerId(result.customerId)");
     expect(page).toContain("Your current sale is unchanged");
     expect(page).toContain("app-dialog-panel max-w-lg");
-    expect(page).not.toContain('href="/customers"');
+    expect(page).toContain('href="/customers" target="_blank" rel="noopener noreferrer"');
   });
 });

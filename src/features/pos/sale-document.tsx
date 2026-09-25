@@ -3,6 +3,7 @@
 import { Printer, X } from "lucide-react";
 import Image from "next/image";
 import { Button } from "@/components/ui/button";
+import { AppDialog } from "@/components/ui/app-dialog";
 import { formatNaira } from "@/features/inventory/format";
 import type { SaleDocument } from "@/features/pos/types";
 
@@ -25,8 +26,7 @@ export function SaleDocumentDialog({
     : "Pending synchronization";
 
   return (
-    <div
-      className="app-dialog-backdrop"
+    <AppDialog
       role="dialog"
       aria-modal="true"
       aria-label="Official sale invoice and receipt"
@@ -277,6 +277,6 @@ export function SaleDocumentDialog({
           </Button>
         </footer>
       </section>
-    </div>
+    </AppDialog>
   );
 }

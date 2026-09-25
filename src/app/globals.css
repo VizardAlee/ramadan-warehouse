@@ -231,7 +231,7 @@ textarea { min-height: 96px; }
 .app-dialog-panel {
   min-width: 0;
   width: 100%;
-  max-width: calc(100vw - 1rem);
+  max-width: min(var(--dialog-max-width, 36rem), calc(100vw - 1rem));
   max-height: calc(100dvh - 1rem);
   margin-block: auto;
   overflow-x: hidden;
@@ -241,6 +241,13 @@ textarea { min-height: 96px; }
   touch-action: pan-y;
   -webkit-overflow-scrolling: touch;
 }
+.app-dialog-panel.max-w-sm { --dialog-max-width: 24rem; }
+.app-dialog-panel.max-w-md { --dialog-max-width: 28rem; }
+.app-dialog-panel.max-w-lg { --dialog-max-width: 32rem; }
+.app-dialog-panel.max-w-xl { --dialog-max-width: 36rem; }
+.app-dialog-panel.max-w-2xl { --dialog-max-width: 42rem; }
+.app-dialog-panel.max-w-3xl { --dialog-max-width: 48rem; }
+.app-dialog-panel.max-w-5xl { --dialog-max-width: 64rem; }
 @supports (height: 100svh) {
   .app-dialog-panel { max-height: calc(100svh - 1rem); }
 }
@@ -253,7 +260,7 @@ textarea { min-height: 96px; }
     padding-left: max(1rem, env(safe-area-inset-left));
   }
   .app-dialog-panel {
-    max-width: calc(100vw - 2rem);
+    max-width: min(var(--dialog-max-width, 36rem), calc(100vw - 2rem));
     max-height: calc(100dvh - 2rem);
   }
   @supports (height: 100svh) {
@@ -269,7 +276,7 @@ textarea { min-height: 96px; }
     padding-left: max(.5rem, env(safe-area-inset-left));
   }
   .app-dialog-panel {
-    max-width: calc(100vw - 1rem);
+    max-width: min(var(--dialog-max-width, 36rem), calc(100vw - 1rem));
     max-height: calc(100dvh - 1rem);
     margin-block: 0;
   }

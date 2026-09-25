@@ -27,7 +27,9 @@ import {
   useMemo,
   useState,
 } from "react";
+import Link from "next/link";
 import { Button } from "@/components/ui/button";
+import { AppDialog } from "@/components/ui/app-dialog";
 import { useDialogFocus } from "@/components/ui/use-dialog-focus";
 import { callAdministration } from "@/features/administration/api";
 import { useOrganizationCollection } from "@/features/administration/use-organization-collection";
@@ -113,6 +115,7 @@ export default function PosPage() {
   const [discountAmount, setDiscountAmount] = useState("");
   const [discountReason, setDiscountReason] = useState("");
   const [creditPaidAmount, setCreditPaidAmount] = useState("0.00");
+  const [creditIntent, setCreditIntent] = useState<"credit" | "part">("credit");
   const [creditUpfrontMethod, setCreditUpfrontMethod] = useState<
     "cash" | "card" | "bank_transfer"
   >("cash");
@@ -166,6 +169,9 @@ export default function PosPage() {
   );
   const canManageCustomers = Boolean(
     profile && hasPermission(profile, "customers.manage"),
+  );
+  const canApproveCustomerCredit = Boolean(
+    profile && hasPermission(profile, "customers.credit.approve"),
   );
   const baseTotals = useMemo(() => calculatePosCart(cart), [cart]);
   const discountAmountMinor = useMemo(() => {
@@ -395,6 +401,7 @@ export default function PosPage() {
     setDiscountAmount("");
     setDiscountReason("");
     setCreditPaidAmount("0.00");
+    setCreditIntent("credit");
     setCreditUpfrontMethod("cash");
   }
 
@@ -419,6 +426,7 @@ export default function PosPage() {
         discountAmount,
         discountReason,
         creditPaidAmount,
+        creditIntent,
         creditUpfrontMethod,
         grossAmountMinor: totals.grossAmountMinor,
         totalQuantity: totals.totalQuantity,
@@ -502,6 +510,7 @@ export default function PosPage() {
     setDiscountAmount(restoredDiscountAmount);
     setDiscountReason(restoredDiscountReason);
     setCreditPaidAmount(heldSale.creditPaidAmount);
+    setCreditIntent(heldSale.creditIntent ?? (Number(heldSale.creditPaidAmount) > 0 ? "part" : "credit"));
     setCreditUpfrontMethod(heldSale.creditUpfrontMethod);
     await removeHeldSale(heldSale.id);
     await refreshHeldSales();
@@ -627,10 +636,14 @@ export default function PosPage() {
     }
     if (
       paymentMethod === "customer_credit" &&
-      (creditPaidAmountMinor < 0 || creditPaidAmountMinor >= totals.grossAmountMinor)
+      (creditPaidAmountMinor < 0 ||
+        (creditIntent === "part" && creditPaidAmountMinor <= 0) ||
+        creditPaidAmountMinor >= totals.grossAmountMinor)
     ) {
       setError(
-        "The amount paid now must be zero or less than the sale total. Use a normal payment method when fully paid.",
+        creditIntent === "part"
+          ? "Enter a part payment greater than zero and less than the sale total."
+          : "The amount paid now must be less than the sale total. Use a normal payment method when fully paid.",
       );
       return;
     }
@@ -1144,7 +1157,9 @@ export default function PosPage() {
                         className={`rounded-full px-2.5 py-1 text-xs font-semibold ${awaitingPayment ? "bg-amber-100 text-amber-900" : "bg-emerald-100 text-emerald-900"}`}
                       >
                         {awaitingPayment
-                          ? "Awaiting payment acceptance"
+                          ? order.paymentMethods.length === 0
+                            ? "Awaiting credit acknowledgement"
+                            : "Awaiting payment acceptance"
                           : "Awaiting confirmation"}
                       </span>
                     </div>
@@ -1156,7 +1171,7 @@ export default function PosPage() {
                           disabled={!online || busy || !workspace.openShift}
                           onClick={() => void acceptOrderPayment(order.id)}
                         >
-                          Accept payment
+                          {order.paymentMethods.length === 0 ? "Acknowledge credit sale" : "Accept payment"}
                         </Button>
                       ) : (
                         <p className="mt-3 text-xs text-[var(--muted)]">
@@ -1592,54 +1607,103 @@ export default function PosPage() {
                 Leave as walk-in only when no customer record is needed.
               </p>
             </div>
-            <label className="mt-4 block text-sm font-medium">
-              Payment method
-              <select
-                value={paymentMethod}
-                onChange={(event) => {
-                  setPaymentMethod(event.target.value as PosCheckoutMethod);
-                  setPaymentReference("");
-                  setPaymentBankAccountId("");
-                  setCreditPaidAmount("0.00");
-                }}
-                className="mt-1 w-full rounded-lg border p-3"
-              >
-                <option value="cash">Cash</option>
-                <option value="card">Card / POS terminal</option>
-                <option value="bank_transfer">Bank transfer</option>
-                {canCreateCredit && (
-                  <option value="customer_credit" disabled={!online}>
-                    Approved customer credit
-                  </option>
-                )}
-                <option value="exchange_credit" disabled={!online}>
-                  Exchange credit
-                </option>
-              </select>
-            </label>
+            <fieldset className="mt-4">
+              <legend className="text-sm font-semibold">How is the customer paying?</legend>
+              <div className="mt-2 grid grid-cols-3 gap-2">
+                {([
+                  ["full", "Pay in full"],
+                  ["credit", "Pay later"],
+                  ["part", "Part payment"],
+                ] as const).map(([mode, label]) => {
+                  const selected = mode === "full"
+                    ? paymentMethod !== "customer_credit"
+                    : paymentMethod === "customer_credit" && creditIntent === mode;
+                  return (
+                    <button
+                      key={mode}
+                      type="button"
+                      aria-pressed={selected}
+                      disabled={mode !== "full" && (!canCreateCredit || !online)}
+                      onClick={() => {
+                        setPaymentMethod(mode === "full" ? "cash" : "customer_credit");
+                        setCreditIntent(mode === "part" ? "part" : "credit");
+                        setCreditPaidAmount(mode === "part" ? "" : "0.00");
+                        setPaymentReference("");
+                        setPaymentBankAccountId("");
+                      }}
+                      className={`min-h-12 rounded-lg border px-2 py-2 text-xs font-semibold transition-colors sm:text-sm ${selected ? "border-[var(--brand)] bg-indigo-50 text-[var(--brand-dark)]" : "bg-white text-slate-700"} disabled:cursor-not-allowed disabled:opacity-45`}
+                    >
+                      {label}
+                    </button>
+                  );
+                })}
+              </div>
+              {!canCreateCredit && (
+                <p className="mt-2 text-xs text-[var(--muted)]">Credit and part payments require the sales credit permission.</p>
+              )}
+              {canCreateCredit && !online && (
+                <p className="mt-2 text-xs text-amber-800">Credit and part payments require an online customer and credit-limit check.</p>
+              )}
+            </fieldset>
+            {paymentMethod !== "customer_credit" && (
+              <label className="mt-4 block text-sm font-medium">
+                Payment method
+                <select
+                  value={paymentMethod}
+                  onChange={(event) => {
+                    setPaymentMethod(event.target.value as PosCheckoutMethod);
+                    setPaymentReference("");
+                    setPaymentBankAccountId("");
+                  }}
+                  className="mt-1 w-full rounded-lg border p-3"
+                >
+                  <option value="cash">Cash</option>
+                  <option value="card">Card / POS terminal</option>
+                  <option value="bank_transfer">Bank transfer</option>
+                  <option value="exchange_credit" disabled={!online}>Exchange credit</option>
+                </select>
+              </label>
+            )}
             {paymentMethod === "customer_credit" ? (
               <div className="mt-3 space-y-3 rounded-xl border border-amber-200 bg-amber-50 p-3">
                 <p className="text-sm font-semibold text-amber-950">
-                  Customer credit
+                  {creditIntent === "part" ? "Part payment and customer balance" : "Customer pays later"}
                 </p>
                 <p className="text-xs text-amber-900">
                   {selectedCustomer?.creditStatus === "approved"
-                    ? `${selectedCustomer.name} has ${formatNaira(selectedCustomer.availableCreditMinor)} available.`
-                    : "Select a customer with administrator-approved credit above."}
+                    ? `${selectedCustomer.name} has ${formatNaira(selectedCustomer.availableCreditMinor)} available credit.`
+                    : selectedCustomer
+                      ? `${selectedCustomer.name} needs administrator-approved credit before this order can be received.`
+                      : "Select a named customer with administrator-approved credit above."}
                 </p>
-                <label className="block text-sm font-medium">
-                  Amount paid now (₦)
-                  <input
-                    type="number"
-                    min="0"
-                    max={Math.max(0, totals.grossAmountMinor - 1) / 100}
-                    step="0.01"
-                    inputMode="decimal"
-                    value={creditPaidAmount}
-                    onChange={(event) => setCreditPaidAmount(event.target.value)}
-                    className="mt-1 w-full rounded-lg border p-3"
-                  />
-                </label>
+                {selectedCustomer && selectedCustomer.creditStatus !== "approved" && canApproveCustomerCredit && (
+                  <Link href="/customers" target="_blank" rel="noopener noreferrer" className="inline-flex min-h-10 items-center text-sm font-semibold text-[var(--brand)] underline underline-offset-2">
+                    Open customer credit approval in a new tab
+                  </Link>
+                )}
+                {creditIntent === "part" && (
+                  <label className="block text-sm font-medium">
+                    Amount paid now (₦)
+                    <input
+                      type="number"
+                      min="0.01"
+                      max={Math.max(0, totals.grossAmountMinor - 1) / 100}
+                      step="0.01"
+                      inputMode="decimal"
+                      required
+                      value={creditPaidAmount}
+                      onChange={(event) => setCreditPaidAmount(event.target.value)}
+                      className="mt-1 w-full rounded-lg border p-3"
+                      placeholder="0.00"
+                    />
+                  </label>
+                )}
+                {creditIntent === "part" && (creditPaidAmountMinor <= 0 || creditPaidAmountMinor >= totals.grossAmountMinor) && (
+                  <p className="text-xs font-medium text-red-800">Enter an amount greater than ₦0.00 and less than the sale total.</p>
+                )}
+                {selectedCustomer?.creditStatus === "approved" && creditAmountMinor > selectedCustomer.availableCreditMinor && (
+                  <p className="text-xs font-medium text-red-800">The balance exceeds this customer’s available credit. Collect more now or ask an administrator to review the credit limit.</p>
+                )}
                 {creditPaidAmountMinor > 0 && (
                   <>
                     <label className="block text-sm font-medium">
@@ -1688,9 +1752,15 @@ export default function PosPage() {
                   </>
                 )}
                 <div className="flex justify-between border-t border-amber-200 pt-2 text-sm font-semibold">
-                  <span>Balance going to customer account</span>
+                  <span>Balance due later</span>
                   <span>{formatNaira(Math.max(0, creditAmountMinor))}</span>
                 </div>
+                <p className="text-xs text-amber-900">The balance is recorded on the customer account. Further payments can be recorded in Customers; payment acceptance and confirmation remain separate audited steps.</p>
+                {selectedCustomer && (
+                  <Button type="button" variant="outline" disabled={!online || busy} onClick={() => void loadWorkspace()} className="w-full text-xs">
+                    Refresh customer credit status
+                  </Button>
+                )}
               </div>
             ) : paymentMethod === "exchange_credit" ? (
               <label className="mt-3 block text-sm font-medium">
@@ -1753,6 +1823,7 @@ export default function PosPage() {
                   (!online ||
                     !customerId ||
                     creditPaidAmountMinor < 0 ||
+                    (creditIntent === "part" && creditPaidAmountMinor <= 0) ||
                     creditPaidAmountMinor >= totals.grossAmountMinor ||
                     selectedCustomer?.creditStatus !== "approved" ||
                     selectedCustomer.availableCreditMinor < creditAmountMinor)) ||
@@ -1810,8 +1881,8 @@ export default function PosPage() {
       )}
 
       {customerDialogOpen && (
-        <div
-          className="app-dialog-backdrop app-dialog-backdrop-high"
+        <AppDialog
+          className="app-dialog-backdrop-high"
           role="dialog"
           aria-modal="true"
           aria-labelledby="pos-customer-title"
@@ -1912,7 +1983,7 @@ export default function PosPage() {
               </Button>
             </div>
           </form>
-        </div>
+        </AppDialog>
       )}
 
       {receipt?.document ? (
@@ -1921,8 +1992,7 @@ export default function PosPage() {
           onClose={() => setReceipt(null)}
         />
       ) : receipt ? (
-        <div
-          className="app-dialog-backdrop"
+        <AppDialog
           role="dialog"
           aria-modal="true"
           aria-label="Sale receipt"
@@ -1961,7 +2031,7 @@ export default function PosPage() {
               </Button>
             </div>
           </section>
-        </div>
+        </AppDialog>
       ) : null}
 
       {priceProductId &&
@@ -1976,8 +2046,7 @@ export default function PosPage() {
             : 0;
           const belowBase = enteredMinor < product.basePriceMinor;
           return (
-            <div
-              className="app-dialog-backdrop"
+            <AppDialog
               role="dialog"
               aria-modal="true"
               aria-label="Branch selling price"
@@ -2033,7 +2102,7 @@ export default function PosPage() {
                   </Button>
                 </div>
               </section>
-            </div>
+            </AppDialog>
           );
         })()}
     </div>

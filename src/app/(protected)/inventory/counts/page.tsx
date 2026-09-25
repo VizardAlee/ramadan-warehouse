@@ -1,6 +1,7 @@
 "use client";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
+import { AppDialog } from "@/components/ui/app-dialog";
 import {
   PaginatedTableControls,
   useTablePagination,
@@ -247,8 +248,7 @@ export default function CountsPage() {
         />
       )}
       {workspace && (
-        <div
-          className="app-dialog-backdrop"
+        <AppDialog
           role="dialog"
           aria-modal="true"
           aria-labelledby="stock-count-title"
@@ -346,7 +346,7 @@ export default function CountsPage() {
               )}
             </div>
           </section>
-        </div>
+        </AppDialog>
       )}
     </div>
   );

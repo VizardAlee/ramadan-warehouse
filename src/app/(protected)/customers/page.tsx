@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { AppDialog } from "@/components/ui/app-dialog";
 import { callAdministration } from "@/features/administration/api";
 import { useOrganizationCollection } from "@/features/administration/use-organization-collection";
 import { useAuth } from "@/features/auth/auth-context";
@@ -345,8 +346,7 @@ export default function CustomersPage() {
       </section>
 
       {action && (
-        <div
-          className="app-dialog-backdrop"
+        <AppDialog
           role="dialog"
           aria-modal="true"
           aria-label="Customer action"
@@ -572,7 +572,7 @@ export default function CustomersPage() {
               </Button>
             </div>
           </section>
-        </div>
+        </AppDialog>
       )}
     </div>
   );

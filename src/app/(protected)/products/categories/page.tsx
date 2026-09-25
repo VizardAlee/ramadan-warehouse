@@ -5,6 +5,7 @@ import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { Button } from "@/components/ui/button";
+import { AppDialog } from "@/components/ui/app-dialog";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { useDialogFocus } from "@/components/ui/use-dialog-focus";
 import { callAdministration } from "@/features/administration/api";
@@ -119,8 +120,7 @@ export default function CategoriesPage() {
         </p>
       )}
       {open && (
-        <div
-          className="app-dialog-backdrop"
+        <AppDialog
           role="dialog"
           aria-modal="true"
           aria-label="Product category editor"
@@ -170,7 +170,7 @@ export default function CategoriesPage() {
               <Button>Save securely</Button>
             </div>
           </form>
-        </div>
+        </AppDialog>
       )}
     </div>
   );

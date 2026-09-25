@@ -97,6 +97,7 @@ export interface HeldPosSale {
   discountAmount: string;
   discountReason: string;
   creditPaidAmount: string;
+  creditIntent?: "credit" | "part";
   creditUpfrontMethod: "cash" | "card" | "bank_transfer";
   grossAmountMinor: number;
   totalQuantity: number;

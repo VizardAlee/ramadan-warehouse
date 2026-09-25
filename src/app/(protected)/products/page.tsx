@@ -6,6 +6,7 @@ import { useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { Button } from "@/components/ui/button";
+import { AppDialog } from "@/components/ui/app-dialog";
 import { StatusBadge } from "@/components/ui/status-badge";
 import {
   PaginatedTableControls,
@@ -405,8 +406,7 @@ export default function ProductsPage() {
         />
       )}
       {open && (
-        <div
-          className="app-dialog-backdrop"
+        <AppDialog
           role="dialog"
           aria-modal="true"
           aria-label="Product editor"
@@ -588,7 +588,7 @@ export default function ProductsPage() {
               </Button>
             </div>
           </form>
-        </div>
+        </AppDialog>
       )}
     </div>
   );

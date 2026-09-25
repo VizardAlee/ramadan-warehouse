@@ -12,6 +12,8 @@ describe("dialog responsiveness", () => {
     expect(styles).toContain(".app-dialog-backdrop");
     expect(styles).toContain("overflow-y: auto");
     expect(styles).toContain(".app-dialog-panel");
+    expect(styles).toContain("max-width: min(var(--dialog-max-width, 36rem), calc(100vw - 1rem))");
+    expect(styles).toContain(".app-dialog-panel.max-w-lg { --dialog-max-width: 32rem; }");
     expect(styles).toContain("max-height: calc(100dvh - 1rem)");
     expect(styles).toContain("@media (max-height: 700px)");
     expect(styles).toMatch(

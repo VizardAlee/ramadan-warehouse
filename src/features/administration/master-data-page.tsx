@@ -6,6 +6,7 @@ import { useState } from "react";
 import { useForm, useWatch } from "react-hook-form";
 import { z } from "zod";
 import { Button } from "@/components/ui/button";
+import { AppDialog } from "@/components/ui/app-dialog";
 import { StatusBadge } from "@/components/ui/status-badge";
 import {
   PaginatedTableControls,
@@ -261,8 +262,7 @@ export function MasterDataPage({
         />
       )}
       {open && (
-        <div
-          className="app-dialog-backdrop"
+        <AppDialog
           role="dialog"
           aria-modal="true"
           aria-labelledby="master-data-dialog-title"
@@ -422,7 +422,7 @@ export function MasterDataPage({
               </Button>
             </div>
           </form>
-        </div>
+        </AppDialog>
       )}
     </div>
   );

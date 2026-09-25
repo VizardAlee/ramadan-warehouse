@@ -2,6 +2,7 @@
 
 import { Download, RefreshCw, Share, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { AppDialog } from "@/components/ui/app-dialog";
 import { usePwa } from "@/features/pwa/pwa-provider";
 
 export function PwaControls() {
@@ -40,8 +41,8 @@ export function PwaControls() {
         </Button>
       )}
       {showManualInstructions && (
-        <div
-          className="app-dialog-backdrop app-dialog-backdrop-high"
+        <AppDialog
+          className="app-dialog-backdrop-high"
           role="dialog"
           aria-modal="true"
           aria-labelledby="ios-install-title"
@@ -125,7 +126,7 @@ export function PwaControls() {
               Got it
             </Button>
           </section>
-        </div>
+        </AppDialog>
       )}
     </>
   );

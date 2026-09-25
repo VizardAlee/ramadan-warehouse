@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { AppDialog } from "@/components/ui/app-dialog";
 import { useDialogFocus } from "@/components/ui/use-dialog-focus";
 import { callAdministration } from "@/features/administration/api";
 import {
@@ -181,8 +182,7 @@ export function CatalogImportDialog({
         Import catalogue
       </Button>
       {open && (
-        <div
-          className="app-dialog-backdrop"
+        <AppDialog
           role="dialog"
           aria-modal="true"
           aria-labelledby="catalogue-import-title"
@@ -407,7 +407,7 @@ export function CatalogImportDialog({
               </Button>
             </div>
           </div>
-        </div>
+        </AppDialog>
       )}
     </>
   );
