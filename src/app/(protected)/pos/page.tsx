@@ -36,6 +36,7 @@ import { useOrganizationCollection } from "@/features/administration/use-organiz
 import { useAuth } from "@/features/auth/auth-context";
 import {
   calculatePosCart,
+  posLineUnitPriceMinor,
   provisionalReceiptReference,
   reconcileHeldCart,
 } from "@/features/pos/calculations";
@@ -133,11 +134,15 @@ export default function PosPage() {
   const [priceProductId, setPriceProductId] = useState<string | null>(null);
   const [branchPrice, setBranchPrice] = useState("");
   const [priceReason, setPriceReason] = useState("");
+  const [salePriceProductId, setSalePriceProductId] = useState<string | null>(null);
+  const [salePrice, setSalePrice] = useState("");
+  const [salePriceReason, setSalePriceReason] = useState("");
   const customerDialogRef = useDialogFocus<HTMLFormElement>(
     customerDialogOpen,
     () => setCustomerDialogOpen(false),
   );
-  const cartDialogRef = useDialogFocus<HTMLElement>(cartOpen && !customerDialogOpen, () => setCartOpen(false));
+  const salePriceDialogRef = useDialogFocus<HTMLFormElement>(Boolean(salePriceProductId), () => setSalePriceProductId(null));
+  const cartDialogRef = useDialogFocus<HTMLElement>(cartOpen && !customerDialogOpen && !salePriceProductId && !priceProductId, () => setCartOpen(false));
   const branchContextId =
     operatingContext?.type === "branch" ? operatingContext.id : undefined;
   const assignedBranchId =
@@ -394,6 +399,7 @@ export default function PosPage() {
 
   function resetSaleDraft() {
     setCart([]);
+    setSalePriceProductId(null);
     setPaymentMethod("cash");
     setPaymentReference("");
     setPaymentBankAccountId("");
@@ -418,6 +424,11 @@ export default function PosPage() {
         lines: cart.map((line) => ({
           productId: line.product.id,
           quantity: line.quantity,
+          ...(line.sellingPriceMinor !== undefined ? {
+            catalogUnitPriceMinor: line.product.unitPriceMinor,
+            sellingPriceMinor: line.sellingPriceMinor,
+            priceOverrideReason: line.priceOverrideReason,
+          } : {}),
         })),
         customerId: customerId || undefined,
         paymentMethod,
@@ -521,6 +532,9 @@ export default function PosPage() {
       restored.omittedProductCount > 0
         ? `${restored.omittedProductCount} unavailable product removed`
         : "",
+      restored.resetPriceCount > 0
+        ? `${restored.resetPriceCount} sale price reset because the catalogue price changed`
+        : "",
       !customerStillAvailable && heldSale.customerId
         ? "customer selection cleared"
         : "",
@@ -614,6 +628,12 @@ export default function PosPage() {
       totals.grossAmountMinor <= 0
     )
       return;
+    if (cart.some((line) => line.sellingPriceMinor !== undefined &&
+      (line.sellingPriceMinor < line.product.basePriceMinor ||
+        (line.priceOverrideReason?.trim().length ?? 0) < 3))) {
+      setError("Review the sale price and reason for each edited item before receiving the order.");
+      return;
+    }
     if (!discountIsValid) {
       setError("Enter a valid discount that does not exceed the product subtotal.");
       return;
@@ -690,16 +710,20 @@ export default function PosPage() {
       recordedAt: new Date().toISOString(),
       offline: !online,
       provisionalReceiptReference: !online ? provisional : undefined,
-      lines: cart.map(({ product, quantity }) => ({
+      lines: cart.map(({ product, quantity, sellingPriceMinor, priceOverrideReason }) => ({
         productId: product.id,
         quantity,
-        ...(!online
+        ...(!online || sellingPriceMinor !== undefined
           ? {
               priceVersion: product.priceVersion,
               unitPriceMinor: product.unitPriceMinor,
               vatRateBasisPoints: product.vatRateBasisPoints,
             }
           : {}),
+        ...(sellingPriceMinor !== undefined ? {
+          sellingPriceMinor,
+          priceOverrideReason,
+        } : {}),
       })),
       payments:
         paymentMethod === "customer_credit"
@@ -956,6 +980,34 @@ export default function PosPage() {
     } finally {
       setBusy(false);
     }
+  }
+
+  function saveSalePrice() {
+    const line = cart.find((item) => item.product.id === salePriceProductId);
+    if (!line) return;
+    let amountMinor: number;
+    try {
+      amountMinor = nairaToKobo(Number(salePrice));
+    } catch {
+      setError("Enter a valid selling price in naira and kobo.");
+      return;
+    }
+    if (amountMinor <= 0 || amountMinor < line.product.basePriceMinor) {
+      setError(`The sale price must be at least the central price of ${formatNaira(line.product.basePriceMinor)}.`);
+      return;
+    }
+    if (amountMinor !== line.product.unitPriceMinor && salePriceReason.trim().length < 3) {
+      setError("Explain the price change in at least three characters for the audit record.");
+      return;
+    }
+    setCart((current) => current.map((item) => item.product.id !== line.product.id
+      ? item
+      : amountMinor === item.product.unitPriceMinor
+        ? { product: item.product, quantity: item.quantity }
+        : { ...item, sellingPriceMinor: amountMinor, priceOverrideReason: salePriceReason.trim() }));
+    setSalePriceProductId(null);
+    setSalePriceReason("");
+    setError(null);
   }
 
   if (!canUsePos)
@@ -1355,7 +1407,7 @@ export default function PosPage() {
                             setPriceReason("");
                           }}
                         >
-                          Price
+                          Branch price
                         </Button>
                       )}
                     </div>
@@ -1464,14 +1516,15 @@ export default function PosPage() {
                     <div className="flex justify-between gap-3">
                       <strong className="text-sm">{line.product.name}</strong>
                       <span className="text-sm">
-                        {formatNaira(
-                          line.quantity * line.product.unitPriceMinor,
-                        )}
+                        {formatNaira(line.quantity * posLineUnitPriceMinor(line))}
                       </span>
                     </div>
                     <div className="mt-3 flex items-center justify-between">
                       <span className="text-xs text-[var(--muted)]">
-                        {formatNaira(line.product.unitPriceMinor)} each
+                        {formatNaira(posLineUnitPriceMinor(line))} each
+                        {line.sellingPriceMinor !== undefined && (
+                          <span className="ml-1 text-amber-700">· this sale only</span>
+                        )}
                       </span>
                       <div className="flex items-center gap-2">
                         <Button
@@ -1518,6 +1571,20 @@ export default function PosPage() {
                         </Button>
                       </div>
                     </div>
+                    {canReceiveOrder && (
+                      <button
+                        type="button"
+                        className="mt-2 min-h-10 text-sm font-semibold text-[var(--brand)] underline underline-offset-2"
+                        onClick={() => {
+                          setSalePriceProductId(line.product.id);
+                          setSalePrice(String(posLineUnitPriceMinor(line) / 100));
+                          setSalePriceReason(line.priceOverrideReason ?? "");
+                          setError(null);
+                        }}
+                      >
+                        Edit price for this sale
+                      </button>
+                    )}
                   </div>
                 ))
               )}
@@ -2033,6 +2100,44 @@ export default function PosPage() {
           </section>
         </AppDialog>
       ) : null}
+
+      {salePriceProductId && (() => {
+        const line = cart.find((item) => item.product.id === salePriceProductId);
+        if (!line) return null;
+        let enteredMinor = 0;
+        try { enteredMinor = nairaToKobo(Number(salePrice)); } catch { /* Keep the action disabled. */ }
+        const changed = enteredMinor !== line.product.unitPriceMinor;
+        return (
+          <AppDialog className="app-dialog-backdrop-high" role="dialog" aria-modal="true" aria-labelledby="sale-price-title">
+            <form
+              ref={salePriceDialogRef}
+              className="app-dialog-panel max-w-md rounded-2xl bg-white p-5 shadow-2xl sm:p-6"
+              onSubmit={(event) => { event.preventDefault(); saveSalePrice(); }}
+            >
+              <h2 id="sale-price-title" className="text-xl font-semibold">Price for this sale</h2>
+              <p className="mt-1 text-sm text-[var(--muted)]">{line.product.name}. This change affects only the current order, not the branch catalogue.</p>
+              <div className="mt-4 rounded-lg bg-slate-50 p-3 text-sm">
+                Current catalogue: {formatNaira(line.product.unitPriceMinor)} · Central minimum: {formatNaira(line.product.basePriceMinor)}
+              </div>
+              <label className="mt-4 block text-sm font-medium">
+                Selling price before VAT (₦)
+                <input type="number" min={line.product.basePriceMinor / 100} step="0.01" inputMode="decimal" required value={salePrice} onChange={(event) => setSalePrice(event.target.value)} className="mt-1 w-full rounded-lg border p-3 text-lg" />
+              </label>
+              {changed && (
+                <label className="mt-4 block text-sm font-medium">
+                  Reason for price change
+                  <textarea required minLength={3} maxLength={300} value={salePriceReason} onChange={(event) => setSalePriceReason(event.target.value)} className="mt-1 w-full rounded-lg border p-3" placeholder="For example, agreed customer price" />
+                </label>
+              )}
+              <p className="mt-2 text-xs text-[var(--muted)]">VAT and the sale total will recalculate. The final price and reason are recorded for audit.</p>
+              <div className="mt-5 flex flex-wrap justify-end gap-2 border-t pt-4">
+                <Button type="button" variant="outline" onClick={() => setSalePriceProductId(null)}>Cancel</Button>
+                <Button type="submit" disabled={enteredMinor < line.product.basePriceMinor || enteredMinor <= 0 || (changed && salePriceReason.trim().length < 3)}>Apply to sale</Button>
+              </div>
+            </form>
+          </AppDialog>
+        );
+      })()}
 
       {priceProductId &&
         workspace &&

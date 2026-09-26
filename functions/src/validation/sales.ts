@@ -161,6 +161,8 @@ export const commitSaleInput = z.object({
         priceVersion: z.number().int().positive().optional(),
         unitPriceMinor: money.optional(),
         vatRateBasisPoints: z.number().int().min(0).max(10_000).optional(),
+        sellingPriceMinor: positiveMoney.optional(),
+        priceOverrideReason: z.string().trim().min(3).max(300).optional(),
       }),
     )
     .min(1)
@@ -172,6 +174,14 @@ export const commitSaleInput = z.object({
           code: "custom",
           message: "Each product may appear only once in a sale.",
         });
+      lines.forEach((line, index) => {
+        if ((line.sellingPriceMinor === undefined) !== (line.priceOverrideReason === undefined))
+          context.addIssue({
+            code: "custom",
+            path: [index, "priceOverrideReason"],
+            message: "A sale-specific price requires an audit reason.",
+          });
+      });
     }),
   payments: z
     .array(

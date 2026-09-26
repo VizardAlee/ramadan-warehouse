@@ -80,6 +80,8 @@ export interface PosWorkspace {
 export interface PosCartLine {
   product: PosProduct;
   quantity: number;
+  sellingPriceMinor?: number;
+  priceOverrideReason?: string;
 }
 
 export interface HeldPosSale {
@@ -89,6 +91,9 @@ export interface HeldPosSale {
   lines: Array<{
     productId: string;
     quantity: number;
+    catalogUnitPriceMinor?: number;
+    sellingPriceMinor?: number;
+    priceOverrideReason?: string;
   }>;
   customerId?: string;
   paymentMethod: PosCheckoutMethod;
@@ -118,6 +123,8 @@ export interface PosSalePayload {
     priceVersion?: number;
     unitPriceMinor?: number;
     vatRateBasisPoints?: number;
+    sellingPriceMinor?: number;
+    priceOverrideReason?: string;
   }>;
   payments: Array<{
     method: PosPaymentMethod;

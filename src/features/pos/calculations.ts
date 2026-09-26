@@ -13,6 +13,11 @@ export interface ReconciledHeldCart {
   lines: PosCartLine[];
   adjustedProductCount: number;
   omittedProductCount: number;
+  resetPriceCount: number;
+}
+
+export function posLineUnitPriceMinor(line: PosCartLine): number {
+  return line.sellingPriceMinor ?? line.product.unitPriceMinor;
 }
 
 export function reconcileHeldCart(
@@ -23,6 +28,7 @@ export function reconcileHeldCart(
   const productById = new Map(products.map((product) => [product.id, product]));
   let adjustedProductCount = 0;
   let omittedProductCount = 0;
+  let resetPriceCount = 0;
   const lines = heldLines.flatMap<PosCartLine>((heldLine) => {
     const product = productById.get(heldLine.productId);
     if (!product || !Number.isSafeInteger(heldLine.quantity) || heldLine.quantity <= 0) {
@@ -40,9 +46,21 @@ export function reconcileHeldCart(
     }
     const quantity = Math.min(heldLine.quantity, available);
     if (quantity !== heldLine.quantity) adjustedProductCount += 1;
-    return [{ product, quantity }];
+    const keepPrice = heldLine.sellingPriceMinor !== undefined &&
+      heldLine.catalogUnitPriceMinor === product.unitPriceMinor &&
+      heldLine.sellingPriceMinor >= product.basePriceMinor &&
+      Boolean(heldLine.priceOverrideReason);
+    if (heldLine.sellingPriceMinor !== undefined && !keepPrice) resetPriceCount += 1;
+    return [{
+      product,
+      quantity,
+      ...(keepPrice ? {
+        sellingPriceMinor: heldLine.sellingPriceMinor,
+        priceOverrideReason: heldLine.priceOverrideReason,
+      } : {}),
+    }];
   });
-  return { lines, adjustedProductCount, omittedProductCount };
+  return { lines, adjustedProductCount, omittedProductCount, resetPriceCount };
 }
 
 export function calculatePosCart(
@@ -54,7 +72,10 @@ export function calculatePosCart(
   const subtotalAmountMinor = lines.reduce((sum, line) => {
     if (!Number.isSafeInteger(line.quantity) || line.quantity <= 0)
       throw new Error("Cart quantities must be positive whole numbers.");
-    return sum + line.quantity * line.product.unitPriceMinor;
+    const unitPriceMinor = posLineUnitPriceMinor(line);
+    if (!Number.isSafeInteger(unitPriceMinor) || unitPriceMinor <= 0)
+      throw new Error("Sale prices must be positive whole amounts in kobo.");
+    return sum + line.quantity * unitPriceMinor;
   }, 0);
   if (discountAmountMinor > subtotalAmountMinor)
     throw new Error("Discount cannot exceed the product subtotal.");
@@ -64,7 +85,7 @@ export function calculatePosCart(
     (totals, line) => {
       if (!Number.isSafeInteger(line.quantity) || line.quantity <= 0)
         throw new Error("Cart quantities must be positive whole numbers.");
-      const subtotal = line.quantity * line.product.unitPriceMinor;
+      const subtotal = line.quantity * posLineUnitPriceMinor(line);
       const lineDiscount =
         discountAmountMinor === 0
           ? 0

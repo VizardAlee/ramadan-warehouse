@@ -855,6 +855,11 @@ export const createPosSaleOrder = onCall(
     const operation = db.doc(
       `idempotencyKeys/${actor.organizationId}_createPosSaleOrder_${input.idempotencyKey}`,
     );
+    const pricedLines = input.lines.filter((line) => line.sellingPriceMinor !== undefined);
+    const centralPriceReferences = pricedLines.map((line) => db.doc(`productSalesPrices/${line.productId}`));
+    const branchPriceReferences = pricedLines.map((line) => db.doc(
+      `branchSalesPrices/${branchPriceId(actor.organizationId, input.branchId, line.productId)}`,
+    ));
     let result = {
       orderId: order.id,
       orderNumber: "",
@@ -862,8 +867,11 @@ export const createPosSaleOrder = onCall(
       created: true,
     };
     await db.runTransaction(async (transaction) => {
-      const [previousOperation, branchSnapshot, shiftSnapshot, counterSnapshot] =
-        await transaction.getAll(operation, branch, shift, counter);
+      const snapshots = await transaction.getAll(
+        operation, branch, shift, counter,
+        ...centralPriceReferences, ...branchPriceReferences,
+      );
+      const [previousOperation, branchSnapshot, shiftSnapshot, counterSnapshot] = snapshots;
       if (previousOperation!.exists) {
         result = {
           orderId: String(previousOperation!.get("entityId")),
@@ -873,6 +881,24 @@ export const createPosSaleOrder = onCall(
         };
         return;
       }
+      pricedLines.forEach((line, index) => {
+        const central = snapshots[4 + index]!;
+        const override = snapshots[4 + pricedLines.length + index]!;
+        if (!central.exists || central.get("organizationId") !== actor.organizationId || central.get("active") !== true)
+          throw new HttpsError("failed-precondition", "The central product price is unavailable.");
+        const centralBasePrice = Number(central.get("basePriceMinor"));
+        if (line.sellingPriceMinor! < centralBasePrice)
+          throw new HttpsError("failed-precondition", "A POS-specific price cannot be below the central price. Ask an administrator to approve a branch price first.");
+        const centralVersion = Number(central.get("version"));
+        const overrideActive = override.exists && override.get("active") === true &&
+          (Number(override.get("sellingPriceMinor")) >= centralBasePrice ||
+            (override.get("belowBaseApproved") === true && Number(override.get("basePriceVersion")) === centralVersion));
+        const catalogPrice = overrideActive ? Number(override.get("sellingPriceMinor")) : centralBasePrice;
+        const catalogVersion = overrideActive ? Number(override.get("version")) : centralVersion;
+        if (line.unitPriceMinor !== catalogPrice || line.priceVersion !== catalogVersion ||
+          line.vatRateBasisPoints !== Number(central.get("vatRateBasisPoints")))
+          throw new HttpsError("failed-precondition", "The catalogue price changed. Refresh the POS and review this sale price.");
+      });
       if (
         !branchSnapshot!.exists ||
         branchSnapshot!.get("organizationId") !== actor.organizationId ||
@@ -973,6 +999,12 @@ export const createPosSaleOrder = onCall(
             (sum, line) => sum + line.quantity,
             0,
           ),
+          priceOverrides: pricedLines.map((line) => ({
+            productId: line.productId,
+            catalogUnitPriceMinor: line.unitPriceMinor,
+            sellingPriceMinor: line.sellingPriceMinor,
+            reason: line.priceOverrideReason,
+          })),
         },
       });
     });
@@ -1333,15 +1365,22 @@ async function postPosSale(
           ? Number(override.get("version"))
           : Number(central.get("version"));
         if (
-          input.offline &&
+          (input.offline || line.sellingPriceMinor !== undefined) &&
           (line.unitPriceMinor !== unitPriceMinor ||
             line.vatRateBasisPoints !== vatRateBasisPoints ||
             line.priceVersion !== priceVersion)
         )
           throw new HttpsError(
             "failed-precondition",
-            "An offline sale uses an outdated price. Refresh it for explicit review.",
+            input.offline
+              ? "An offline sale uses an outdated price. Refresh it for explicit review."
+              : "The catalogue price changed. Refresh it and review the sale price before confirming.",
             { code: "STALE_POS_PRICE", productId: product.id },
+          );
+        if (line.sellingPriceMinor !== undefined && line.sellingPriceMinor < centralBasePrice)
+          throw new HttpsError(
+            "failed-precondition",
+            "A POS-specific price cannot be below the central price. Ask an administrator to approve a branch price first.",
           );
         const onHandQuantity = Number(balance.get("onHandQuantity") ?? 0);
         const reservedQuantity = Number(balance.get("reservedQuantity") ?? 0);
@@ -1368,10 +1407,12 @@ async function postPosSale(
           input: line,
           product,
           balance,
-          unitPriceMinor,
+          unitPriceMinor: line.sellingPriceMinor ?? unitPriceMinor,
           vatRateBasisPoints,
           priceVersion,
-          priceSource: overrideActive ? "branch" : "central",
+          priceSource: line.sellingPriceMinor !== undefined ? "pos_override" : overrideActive ? "branch" : "central",
+          catalogUnitPriceMinor: unitPriceMinor,
+          priceOverrideReason: line.priceOverrideReason,
           issued,
           reservedQuantity,
         };
@@ -1568,6 +1609,8 @@ async function postPosSale(
           trackingType: line.product.get("trackingType"),
           quantity: line.input.quantity,
           unitPriceMinor: line.unitPriceMinor,
+          catalogUnitPriceMinor: line.catalogUnitPriceMinor,
+          priceOverrideReason: line.priceOverrideReason ?? null,
           basePriceMinor: centralPrices[index]!.get("basePriceMinor"),
           priceVersion: line.priceVersion,
           priceSource: line.priceSource,
@@ -1791,6 +1834,12 @@ async function postPosSale(
           customerId: input.customerId ?? null,
           creditAmountMinor: input.creditAmountMinor,
           source: input.offline ? "offline_sync" : "online_pos",
+          priceOverrides: resolvedLines.filter((line) => line.priceOverrideReason).map((line) => ({
+            productId: line.product.id,
+            catalogUnitPriceMinor: line.catalogUnitPriceMinor,
+            sellingPriceMinor: line.unitPriceMinor,
+            reason: line.priceOverrideReason,
+          })),
         },
       });
     });

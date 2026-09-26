@@ -1099,4 +1099,48 @@ describe.sequential("sales callables", () => {
       status: "closed",
     });
   });
+
+  it("lets an order taker set an audited one-sale price without changing the catalogue", async () => {
+    const balance = adminDb.doc(`inventoryBalances/${balanceDocumentId(organizationId, productId, locationId)}`);
+    await balance.update({ onHandQuantity: 5, availableQuantity: 5, totalValueMinor: 25_000 });
+    const deviceId = crypto.randomUUID();
+    const shift = await call<{ shiftId: string }>(cashier, "openPosShift", {
+      branchId, deviceId, deviceName: "Price edit test", openingCashMinor: 0,
+      idempotencyKey: crypto.randomUUID(), operatingContext: { type: "branch", id: branchId },
+    });
+    const workspace = await call<{ products: Array<{
+      id: string; unitPriceMinor: number; basePriceMinor: number; priceVersion: number; vatRateBasisPoints: number;
+    }> }>(cashier, "getPosWorkspace", { branchId, operatingContext: { type: "branch", id: branchId } });
+    const product = workspace.products.find((item) => item.id === productId)!;
+    const price = Math.max(product.unitPriceMinor, product.basePriceMinor) + 1_000;
+    const line = {
+      productId, quantity: 1, priceVersion: product.priceVersion,
+      unitPriceMinor: product.unitPriceMinor, vatRateBasisPoints: product.vatRateBasisPoints,
+      sellingPriceMinor: price, priceOverrideReason: "Agreed customer price",
+    };
+    const payload = {
+      branchId, shiftId: shift.shiftId, deviceId, recordedAt: new Date().toISOString(), offline: false,
+      lines: [line], payments: [{ method: "cash", amountMinor: price + Math.round(price * product.vatRateBasisPoints / 10_000) }],
+      idempotencyKey: crypto.randomUUID(), operatingContext: { type: "branch", id: branchId },
+    };
+    await expect(call(cashier, "createPosSaleOrder", {
+      ...payload, idempotencyKey: crypto.randomUUID(),
+      lines: [{ ...line, sellingPriceMinor: product.basePriceMinor - 1 }],
+    })).rejects.toMatchObject({ code: "functions/failed-precondition" });
+    const order = await call<{ orderId: string }>(cashier, "createPosSaleOrder", payload);
+    await call(branchManager, "acceptPosSaleOrderPayment", {
+      orderId: order.orderId, shiftId: shift.shiftId, deviceId,
+      idempotencyKey: crypto.randomUUID(), operatingContext: { type: "branch", id: branchId },
+    });
+    const completed = await call<{ saleId: string }>(branchManager, "confirmPosSaleOrder", {
+      orderId: order.orderId, idempotencyKey: crypto.randomUUID(),
+      operatingContext: { type: "branch", id: branchId },
+    });
+    const items = await adminDb.collection("saleItems").where("saleId", "==", completed.saleId).get();
+    expect(items.docs[0]!.data()).toMatchObject({
+      unitPriceMinor: price, catalogUnitPriceMinor: product.unitPriceMinor,
+      priceOverrideReason: "Agreed customer price", priceSource: "pos_override",
+    });
+    expect((await adminDb.doc(`productSalesPrices/${productId}`).get()).get("basePriceMinor")).toBe(product.basePriceMinor);
+  });
 });
