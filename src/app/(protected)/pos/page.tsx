@@ -7,6 +7,7 @@ import {
   Minus,
   PackagePlus,
   PauseCircle,
+  Pencil,
   Play,
   Plus,
   Printer,
@@ -970,7 +971,7 @@ export default function PosPage() {
       setPriceProductId(null);
       setPriceReason("");
       await loadWorkspace();
-      setMessage(`Branch price updated for ${product.name}.`);
+      setMessage(`Store-wide price updated for ${product.name}.`);
     } catch (cause) {
       setError(
         cause instanceof Error
@@ -1337,6 +1338,10 @@ export default function PosPage() {
                   className="w-full rounded-lg border py-3 pl-10 pr-3"
                 />
               </label>
+              <p className="mt-2 text-xs text-[var(--muted)]">
+                Need a different price for one customer? Add the product, then choose
+                <strong> Change sale price</strong> in Current sale.
+              </p>
             </div>
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
               {visibleProducts.map((product) => {
@@ -1407,7 +1412,7 @@ export default function PosPage() {
                             setPriceReason("");
                           }}
                         >
-                          Branch price
+                          Store-wide price
                         </Button>
                       )}
                     </div>
@@ -1572,9 +1577,10 @@ export default function PosPage() {
                       </div>
                     </div>
                     {canReceiveOrder && (
-                      <button
+                      <Button
                         type="button"
-                        className="mt-2 min-h-10 text-sm font-semibold text-[var(--brand)] underline underline-offset-2"
+                        variant="outline"
+                        className="mt-3 w-full justify-center border-[var(--brand)] text-[var(--brand)]"
                         onClick={() => {
                           setSalePriceProductId(line.product.id);
                           setSalePrice(String(posLineUnitPriceMinor(line) / 100));
@@ -1582,8 +1588,9 @@ export default function PosPage() {
                           setError(null);
                         }}
                       >
-                        Edit price for this sale
-                      </button>
+                        <Pencil className="mr-2 size-4" />
+                        Change sale price · this order only
+                      </Button>
                     )}
                   </div>
                 ))
@@ -2154,16 +2161,20 @@ export default function PosPage() {
             <AppDialog
               role="dialog"
               aria-modal="true"
-              aria-label="Branch selling price"
+              aria-label="Store-wide selling price"
             >
               <section className="app-dialog-panel max-w-md rounded-2xl bg-white p-6 shadow-2xl">
-                <h2 className="text-xl font-semibold">Set branch price</h2>
+                <h2 className="text-xl font-semibold">Set store-wide price</h2>
                 <p className="mt-1 text-sm text-[var(--muted)]">
                   {product.name} · Central base{" "}
                   {formatNaira(product.basePriceMinor)}
                 </p>
+                <p className="mt-2 text-sm text-[var(--muted)]">
+                  This changes future sales at this store. To change just one
+                  order, use Change sale price in Current sale.
+                </p>
                 <label className="mt-5 block text-sm font-medium">
-                  Branch price before VAT (₦)
+                  Store-wide price before VAT (₦)
                   <input
                     type="number"
                     min="0.01"
