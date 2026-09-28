@@ -1125,8 +1125,8 @@ describe.sequential("sales callables", () => {
     };
     await expect(call(cashier, "createPosSaleOrder", {
       ...payload, idempotencyKey: crypto.randomUUID(),
-      lines: [{ ...line, sellingPriceMinor: product.basePriceMinor - 1 }],
-    })).rejects.toMatchObject({ code: "functions/failed-precondition" });
+      lines: [{ ...line, sellingPriceMinor: 0 }],
+    })).rejects.toMatchObject({ code: "functions/invalid-argument" });
     const order = await call<{ orderId: string }>(cashier, "createPosSaleOrder", payload);
     await call(branchManager, "acceptPosSaleOrderPayment", {
       orderId: order.orderId, shiftId: shift.shiftId, deviceId,
@@ -1141,6 +1141,31 @@ describe.sequential("sales callables", () => {
       unitPriceMinor: price, catalogUnitPriceMinor: product.unitPriceMinor,
       priceOverrideReason: "Agreed customer price", priceSource: "pos_override",
     });
+    const lowerPrice = Math.max(1, Math.min(product.unitPriceMinor, product.basePriceMinor) - 1_000);
+    const lowerOrder = await call<{ orderId: string }>(cashier, "createPosSaleOrder", {
+      ...payload,
+      lines: [{ ...line, sellingPriceMinor: lowerPrice, priceOverrideReason: "Customer negotiated discount" }],
+      payments: [{ method: "cash", amountMinor: lowerPrice + Math.round(lowerPrice * product.vatRateBasisPoints / 10_000) }],
+      idempotencyKey: crypto.randomUUID(),
+    });
+    await call(branchManager, "acceptPosSaleOrderPayment", {
+      orderId: lowerOrder.orderId, shiftId: shift.shiftId, deviceId,
+      idempotencyKey: crypto.randomUUID(), operatingContext: { type: "branch", id: branchId },
+    });
+    const lowerCompleted = await call<{ saleId: string }>(branchManager, "confirmPosSaleOrder", {
+      orderId: lowerOrder.orderId, idempotencyKey: crypto.randomUUID(),
+      operatingContext: { type: "branch", id: branchId },
+    });
+    const lowerItems = await adminDb.collection("saleItems").where("saleId", "==", lowerCompleted.saleId).get();
+    expect(lowerItems.docs[0]!.data()).toMatchObject({
+      unitPriceMinor: lowerPrice, catalogUnitPriceMinor: product.unitPriceMinor,
+      priceOverrideReason: "Customer negotiated discount", priceSource: "pos_override",
+    });
+    const lowerAudit = await adminDb.collection("auditLogs").where("entityId", "==", lowerCompleted.saleId).get();
+    expect(lowerAudit.docs.some((entry) => entry.get("after.priceOverrides")?.some(
+      (override: { sellingPriceMinor: number; reason: string }) =>
+        override.sellingPriceMinor === lowerPrice && override.reason === "Customer negotiated discount",
+    ))).toBe(true);
     expect((await adminDb.doc(`productSalesPrices/${productId}`).get()).get("basePriceMinor")).toBe(product.basePriceMinor);
   });
 

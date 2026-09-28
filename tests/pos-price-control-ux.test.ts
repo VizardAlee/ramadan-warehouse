@@ -11,5 +11,7 @@ describe("POS price controls", () => {
     expect(page).toContain("Store-wide price");
     expect(page).toContain("This changes future sales at this store.");
     expect(page).toContain("setSalePriceProductId(line.product.id)");
+    expect(page).toContain("You can set a higher or lower price for this order only.");
+    expect(page).toContain('min="0.01" step="0.01" inputMode="decimal" required value={salePrice}');
   });
 });

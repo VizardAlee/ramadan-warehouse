@@ -635,7 +635,7 @@ export default function PosPage() {
     )
       return;
     if (cart.some((line) => line.sellingPriceMinor !== undefined &&
-      (line.sellingPriceMinor < line.product.basePriceMinor ||
+      (line.sellingPriceMinor <= 0 ||
         (line.priceOverrideReason?.trim().length ?? 0) < 3))) {
       setError("Review the sale price and reason for each edited item before receiving the order.");
       return;
@@ -996,8 +996,8 @@ export default function PosPage() {
       setError("Enter a valid selling price in naira and kobo.");
       return;
     }
-    if (amountMinor <= 0 || amountMinor < line.product.basePriceMinor) {
-      setError(`The sale price must be at least the central price of ${formatNaira(line.product.basePriceMinor)}.`);
+    if (amountMinor <= 0) {
+      setError("Enter a selling price above ₦0.00.");
       return;
     }
     if (amountMinor !== line.product.unitPriceMinor && salePriceReason.trim().length < 3) {
@@ -1858,8 +1858,9 @@ export default function PosPage() {
                   ))}
                 </select>
                 <span className="mt-1 block text-xs font-normal text-[var(--muted)]">
-                  The credit is applied first. If it is below the sale total,
-                  the remaining amount is recorded as cash.
+                  Exchange credit comes from an approved return. It is applied first;
+                  any unused balance remains available. If it is below the sale total,
+                  the difference is recorded as cash.
                 </span>
               </label>
             ) : paymentMethod !== "cash" ? (
@@ -2128,11 +2129,11 @@ export default function PosPage() {
               <h2 id="sale-price-title" className="text-xl font-semibold">Price for this sale</h2>
               <p className="mt-1 text-sm text-[var(--muted)]">{line.product.name}. This change affects only the current order, not the branch catalogue.</p>
               <div className="mt-4 rounded-lg bg-slate-50 p-3 text-sm">
-                Current catalogue: {formatNaira(line.product.unitPriceMinor)} · Central minimum: {formatNaira(line.product.basePriceMinor)}
+                Current catalogue: {formatNaira(line.product.unitPriceMinor)}. You can set a higher or lower price for this order only.
               </div>
               <label className="mt-4 block text-sm font-medium">
                 Selling price before VAT (₦)
-                <input type="number" min={line.product.basePriceMinor / 100} step="0.01" inputMode="decimal" required value={salePrice} onChange={(event) => setSalePrice(event.target.value)} className="mt-1 w-full rounded-lg border p-3 text-lg" />
+                <input type="number" min="0.01" step="0.01" inputMode="decimal" required value={salePrice} onChange={(event) => setSalePrice(event.target.value)} className="mt-1 w-full rounded-lg border p-3 text-lg" />
               </label>
               {changed && (
                 <label className="mt-4 block text-sm font-medium">
@@ -2140,10 +2141,10 @@ export default function PosPage() {
                   <textarea required minLength={3} maxLength={300} value={salePriceReason} onChange={(event) => setSalePriceReason(event.target.value)} className="mt-1 w-full rounded-lg border p-3" placeholder="For example, agreed customer price" />
                 </label>
               )}
-              <p className="mt-2 text-xs text-[var(--muted)]">VAT and the sale total will recalculate. The final price and reason are recorded for audit.</p>
+              <p className="mt-2 text-xs text-[var(--muted)]">A lower price may reduce margin. VAT and the sale total will recalculate; the final price and reason are recorded for audit.</p>
               <div className="mt-5 flex flex-wrap justify-end gap-2 border-t pt-4">
                 <Button type="button" variant="outline" onClick={() => setSalePriceProductId(null)}>Cancel</Button>
-                <Button type="submit" disabled={enteredMinor < line.product.basePriceMinor || enteredMinor <= 0 || (changed && salePriceReason.trim().length < 3)}>Apply to sale</Button>
+                <Button type="submit" disabled={enteredMinor <= 0 || (changed && salePriceReason.trim().length < 3)}>Apply to sale</Button>
               </div>
             </form>
           </AppDialog>

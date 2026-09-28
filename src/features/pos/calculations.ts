@@ -48,7 +48,8 @@ export function reconcileHeldCart(
     if (quantity !== heldLine.quantity) adjustedProductCount += 1;
     const keepPrice = heldLine.sellingPriceMinor !== undefined &&
       heldLine.catalogUnitPriceMinor === product.unitPriceMinor &&
-      heldLine.sellingPriceMinor >= product.basePriceMinor &&
+      Number.isSafeInteger(heldLine.sellingPriceMinor) &&
+      heldLine.sellingPriceMinor > 0 &&
       Boolean(heldLine.priceOverrideReason);
     if (heldLine.sellingPriceMinor !== undefined && !keepPrice) resetPriceCount += 1;
     return [{

@@ -206,6 +206,9 @@ export default function GuidePage() {
           <p className="rounded-xl border bg-white p-4 text-sm leading-6">
             For a credit or part-payment sale, select a named customer in POS. A system administrator can grant credit directly without first approving that customer&apos;s credit limit; the decision, amount and administrator are audited. Other users need approved available customer credit. The customer&apos;s outstanding balance remains visible for later payment.
           </p>
+          <p className="rounded-xl border bg-white p-4 text-sm leading-6">
+            To use exchange credit, first submit and approve the original sale return with Exchange credit as its resolution. Start a new sale in the same store, choose Exchange credit as the payment method, and select the issued credit number. The credit pays up to its remaining balance; any shortfall is recorded as cash, and unused credit remains for another sale. Exchange credit requires an online connection.
+          </p>
           <p className="rounded-xl border bg-white p-4 text-sm leading-6">Use New sale, Awaiting action and Held sales at the top of POS to jump between tasks. On smaller screens, tap Current sale above the bottom menu to open the cart; your basket stays in place while you browse.</p>
         </section>
       )}

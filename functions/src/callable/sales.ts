@@ -888,8 +888,6 @@ export const createPosSaleOrder = onCall(
         if (!central.exists || central.get("organizationId") !== actor.organizationId || central.get("active") !== true)
           throw new HttpsError("failed-precondition", "The central product price is unavailable.");
         const centralBasePrice = Number(central.get("basePriceMinor"));
-        if (line.sellingPriceMinor! < centralBasePrice)
-          throw new HttpsError("failed-precondition", "A POS-specific price cannot be below the central price. Ask an administrator to approve a branch price first.");
         const centralVersion = Number(central.get("version"));
         const overrideActive = override.exists && override.get("active") === true &&
           (Number(override.get("sellingPriceMinor")) >= centralBasePrice ||
@@ -1398,11 +1396,6 @@ async function postPosSale(
               ? "An offline sale uses an outdated price. Refresh it for explicit review."
               : "The catalogue price changed. Refresh it and review the sale price before confirming.",
             { code: "STALE_POS_PRICE", productId: product.id },
-          );
-        if (line.sellingPriceMinor !== undefined && line.sellingPriceMinor < centralBasePrice)
-          throw new HttpsError(
-            "failed-precondition",
-            "A POS-specific price cannot be below the central price. Ask an administrator to approve a branch price first.",
           );
         const onHandQuantity = Number(balance.get("onHandQuantity") ?? 0);
         const reservedQuantity = Number(balance.get("reservedQuantity") ?? 0);

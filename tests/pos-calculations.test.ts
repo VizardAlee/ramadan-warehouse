@@ -98,6 +98,8 @@ describe("POS cart calculations", () => {
   it("preserves a held sale price only while its catalogue reference is current", () => {
     const line = { productId: product.id, quantity: 1, catalogUnitPriceMinor: 100_000, sellingPriceMinor: 110_000, priceOverrideReason: "Agreed price" };
     expect(reconcileHeldCart([line], [product]).lines[0]?.sellingPriceMinor).toBe(110_000);
+    expect(reconcileHeldCart([{ ...line, sellingPriceMinor: 90_000 }], [product]).lines[0]?.sellingPriceMinor).toBe(90_000);
     expect(reconcileHeldCart([line], [{ ...product, unitPriceMinor: 105_000 }])).toMatchObject({ resetPriceCount: 1 });
+    expect(reconcileHeldCart([{ ...line, sellingPriceMinor: 0 }], [product])).toMatchObject({ resetPriceCount: 1 });
   });
 });
