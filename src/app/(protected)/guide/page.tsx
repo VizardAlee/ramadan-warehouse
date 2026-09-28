@@ -203,6 +203,9 @@ export default function GuidePage() {
           <p className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-950">
             Offline POS can save an order for later sync using an already-open cached shift. Opening a new shift, creating a customer and credit sales require a connection. A held basket is only on this device and does not reserve stock.
           </p>
+          <p className="rounded-xl border bg-white p-4 text-sm leading-6">
+            For a credit or part-payment sale, select a named customer in POS. A system administrator can grant credit directly without first approving that customer&apos;s credit limit; the decision, amount and administrator are audited. Other users need approved available customer credit. The customer&apos;s outstanding balance remains visible for later payment.
+          </p>
           <p className="rounded-xl border bg-white p-4 text-sm leading-6">Use New sale, Awaiting action and Held sales at the top of POS to jump between tasks. On smaller screens, tap Current sale above the bottom menu to open the cart; your basket stays in place while you browse.</p>
         </section>
       )}

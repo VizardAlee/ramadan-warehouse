@@ -849,6 +849,7 @@ export const createPosSaleOrder = onCall(
     const order = db.collection("salesOrders").doc();
     const branch = db.doc(`branches/${input.branchId}`);
     const shift = db.doc(`posShifts/${input.shiftId}`);
+    const customer = db.doc(`customers/${input.customerId ?? "no-credit-customer-placeholder"}`);
     const counter = db.doc(
       `salesOrderCounters/${uniquenessDocumentId(actor.organizationId, input.branchId)}`,
     );
@@ -868,10 +869,10 @@ export const createPosSaleOrder = onCall(
     };
     await db.runTransaction(async (transaction) => {
       const snapshots = await transaction.getAll(
-        operation, branch, shift, counter,
+        operation, branch, shift, counter, customer,
         ...centralPriceReferences, ...branchPriceReferences,
       );
-      const [previousOperation, branchSnapshot, shiftSnapshot, counterSnapshot] = snapshots;
+      const [previousOperation, branchSnapshot, shiftSnapshot, counterSnapshot, customerSnapshot] = snapshots;
       if (previousOperation!.exists) {
         result = {
           orderId: String(previousOperation!.get("entityId")),
@@ -882,8 +883,8 @@ export const createPosSaleOrder = onCall(
         return;
       }
       pricedLines.forEach((line, index) => {
-        const central = snapshots[4 + index]!;
-        const override = snapshots[4 + pricedLines.length + index]!;
+        const central = snapshots[5 + index]!;
+        const override = snapshots[5 + pricedLines.length + index]!;
         if (!central.exists || central.get("organizationId") !== actor.organizationId || central.get("active") !== true)
           throw new HttpsError("failed-precondition", "The central product price is unavailable.");
         const centralBasePrice = Number(central.get("basePriceMinor"));
@@ -925,6 +926,16 @@ export const createPosSaleOrder = onCall(
           "permission-denied",
           "This shift belongs to another cashier.",
         );
+      if (input.creditAmountMinor > 0) {
+        if (!customerSnapshot!.exists ||
+          customerSnapshot!.get("organizationId") !== actor.organizationId ||
+          customerSnapshot!.get("active") !== true)
+          throw new HttpsError("failed-precondition", "Select an active named customer for this credit sale.");
+        if (!hasRole(actor, "system_administrator") &&
+          (customerSnapshot!.get("creditStatus") !== "approved" ||
+            input.creditAmountMinor > Number(customerSnapshot!.get("availableCreditMinor") ?? 0)))
+          throw new HttpsError("failed-precondition", "This customer needs approved available credit for the outstanding amount.");
+      }
       const sequence = Number(counterSnapshot!.get("value") ?? 0) + 1;
       const year = new Date(input.recordedAt).getUTCFullYear();
       const orderNumber = `ORD-${String(branchSnapshot!.get("code"))}-${year}-${String(sequence).padStart(6, "0")}`;
@@ -960,6 +971,10 @@ export const createPosSaleOrder = onCall(
         itemCount: input.lines.length,
         paymentMethods: input.payments.map((payment) => payment.method),
         creditAmountMinor: input.creditAmountMinor,
+        ...(input.creditAmountMinor > 0 && hasRole(actor, "system_administrator")
+          ? { creditAuthorizedBy: actor.userId, creditAuthorizedCustomerId: input.customerId,
+              creditAuthorizedAmountMinor: input.creditAmountMinor, creditAuthorizationType: "administrator_direct" }
+          : {}),
         recordedAt: input.recordedAt,
         payload: storableSalePayload(input),
         orderReceivedAt: now,
@@ -995,6 +1010,10 @@ export const createPosSaleOrder = onCall(
           branchId: input.branchId,
           orderNumber,
           grossAmountMinor,
+          creditAmountMinor: input.creditAmountMinor,
+          ...(input.creditAmountMinor > 0 && hasRole(actor, "system_administrator")
+            ? { creditAuthorizationType: "administrator_direct", creditAuthorizedBy: actor.userId }
+            : {}),
           totalQuantity: input.lines.reduce(
             (sum, line) => sum + line.quantity,
             0,
@@ -1118,6 +1137,7 @@ async function postPosSale(
   actor: SalesActor,
   input: CommitSaleInput,
   allowWorkflowShift = false,
+  workflowCreditAuthorization?: { authorizedBy: string; customerId: string; amountMinor: number },
 ) {
   requirePermission(actor, "sales.create");
   if (
@@ -1284,14 +1304,16 @@ async function postPosSale(
           "Select an active customer from this organization.",
         );
       if (input.creditAmountMinor > 0) {
-        if (
-          customerSnapshot.get("creditStatus") !== "approved"
-        )
+        const administratorAuthorized = hasRole(actor, "system_administrator") ||
+          (allowWorkflowShift && Boolean(workflowCreditAuthorization?.authorizedBy) &&
+            workflowCreditAuthorization?.customerId === input.customerId &&
+            workflowCreditAuthorization?.amountMinor === input.creditAmountMinor);
+        if (!administratorAuthorized && customerSnapshot.get("creditStatus") !== "approved")
           throw new HttpsError(
             "failed-precondition",
             "Select an active customer whose credit has been approved by a system administrator.",
           );
-        if (
+        if (!administratorAuthorized &&
           input.creditAmountMinor >
           Number(customerSnapshot.get("availableCreditMinor") ?? 0)
         )
@@ -1534,6 +1556,11 @@ async function postPosSale(
         customerAddress: input.customerId ? customerSnapshot.get("address") : undefined,
         customerTaxId: input.customerId ? customerSnapshot.get("taxId") : undefined,
         creditAmountMinor: input.creditAmountMinor,
+        ...(input.creditAmountMinor > 0 &&
+          (workflowCreditAuthorization?.authorizedBy || hasRole(actor, "system_administrator"))
+          ? { creditAuthorizationType: "administrator_direct",
+              creditAuthorizedBy: workflowCreditAuthorization?.authorizedBy ?? actor.userId }
+          : {}),
         amountPaidMinor: calculated.grossAmountMinor - input.creditAmountMinor,
         source: input.offline ? "offline_sync" : "online_pos",
         subtotalAmountMinor: calculated.subtotalAmountMinor,
@@ -1833,6 +1860,11 @@ async function postPosSale(
           discountReason: input.discountReason ?? null,
           customerId: input.customerId ?? null,
           creditAmountMinor: input.creditAmountMinor,
+          ...(input.creditAmountMinor > 0 &&
+            (workflowCreditAuthorization?.authorizedBy || hasRole(actor, "system_administrator"))
+            ? { creditAuthorizationType: "administrator_direct",
+                creditAuthorizedBy: workflowCreditAuthorization?.authorizedBy ?? actor.userId }
+            : {}),
           source: input.offline ? "offline_sync" : "online_pos",
           priceOverrides: resolvedLines.filter((line) => line.priceOverrideReason).map((line) => ({
             productId: line.product.id,
@@ -1886,7 +1918,15 @@ export const confirmPosSaleOrder = onCall(
         "Payment must be accepted before it can be confirmed and released.",
       );
     const payload = parseInput(commitSaleInput, current.get("payload"));
-    const saleResult = await postPosSale(actor, payload, true);
+    const creditAuthorizedBy = current.get("creditAuthorizedBy");
+    const workflowCreditAuthorization =
+      typeof creditAuthorizedBy === "string" &&
+      current.get("creditAuthorizationType") === "administrator_direct"
+        ? { authorizedBy: creditAuthorizedBy,
+            customerId: String(current.get("creditAuthorizedCustomerId")),
+            amountMinor: Number(current.get("creditAuthorizedAmountMinor")) }
+        : undefined;
+    const saleResult = await postPosSale(actor, payload, true, workflowCreditAuthorization);
     await db.runTransaction(async (transaction) => {
       const latest = await transaction.get(order);
       if (!latest.exists || latest.get("organizationId") !== actor.organizationId)

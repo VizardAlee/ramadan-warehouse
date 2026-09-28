@@ -1143,4 +1143,66 @@ describe.sequential("sales callables", () => {
     });
     expect((await adminDb.doc(`productSalesPrices/${productId}`).get()).get("basePriceMinor")).toBe(product.basePriceMinor);
   });
+
+  it("lets a system administrator grant credit directly without customer preapproval", async () => {
+    const balance = adminDb.doc(`inventoryBalances/${balanceDocumentId(organizationId, productId, locationId)}`);
+    await balance.update({ onHandQuantity: 5, availableQuantity: 5, totalValueMinor: 25_000 });
+    const saved = await call<{ customerId: string }>(branchManager, "saveCustomer", {
+      name: "Direct Credit Customer", phone: "07012345679", active: true,
+      idempotencyKey: crypto.randomUUID(), operatingContext: { type: "branch", id: branchId },
+    });
+    const deviceId = crypto.randomUUID();
+    const shift = await call<{ shiftId: string }>(administrator, "openPosShift", {
+      branchId, deviceId, deviceName: "Administrator credit test", openingCashMinor: 0,
+      idempotencyKey: crypto.randomUUID(), operatingContext: { type: "branch", id: branchId },
+    });
+    const workspace = await call<{ products: Array<{ id: string; unitPriceMinor: number; vatRateBasisPoints: number }> }>(
+      administrator, "getPosWorkspace", { branchId, operatingContext: { type: "branch", id: branchId } },
+    );
+    const product = workspace.products.find((item) => item.id === productId)!;
+    const creditAmountMinor = product.unitPriceMinor + Math.round(product.unitPriceMinor * product.vatRateBasisPoints / 10_000);
+    const payload = {
+      branchId, shiftId: shift.shiftId, deviceId, recordedAt: new Date().toISOString(), offline: false,
+      customerId: saved.customerId, creditAmountMinor, lines: [{ productId, quantity: 1 }], payments: [],
+      idempotencyKey: crypto.randomUUID(), operatingContext: { type: "branch", id: branchId },
+    };
+    const managerDeviceId = crypto.randomUUID();
+    const managerShift = await call<{ shiftId: string }>(branchManager, "openPosShift", {
+      branchId, deviceId: managerDeviceId, deviceName: "Manager credit test", openingCashMinor: 0,
+      idempotencyKey: crypto.randomUUID(), operatingContext: { type: "branch", id: branchId },
+    });
+    await expect(call(branchManager, "createPosSaleOrder", {
+      ...payload, shiftId: managerShift.shiftId, deviceId: managerDeviceId,
+      idempotencyKey: crypto.randomUUID(),
+    })).rejects.toMatchObject({ code: "functions/failed-precondition" });
+    const order = await call<{ orderId: string }>(administrator, "createPosSaleOrder", payload);
+    const orderRecord = await adminDb.doc(`salesOrders/${order.orderId}`).get();
+    expect(orderRecord.data()).toMatchObject({
+      creditAuthorizationType: "administrator_direct",
+      creditAuthorizedBy: administrator.auth.currentUser!.uid,
+      creditAuthorizedAmountMinor: creditAmountMinor,
+    });
+    await call(branchManager, "acceptPosSaleOrderPayment", {
+      orderId: order.orderId, shiftId: shift.shiftId, deviceId,
+      idempotencyKey: crypto.randomUUID(), operatingContext: { type: "branch", id: branchId },
+    });
+    const completed = await call<{ saleId: string }>(branchManager, "confirmPosSaleOrder", {
+      orderId: order.orderId, idempotencyKey: crypto.randomUUID(),
+      operatingContext: { type: "branch", id: branchId },
+    });
+    expect((await adminDb.doc(`sales/${completed.saleId}`).get()).data()).toMatchObject({
+      customerId: saved.customerId, creditAmountMinor,
+      creditAuthorizationType: "administrator_direct",
+      creditAuthorizedBy: administrator.auth.currentUser!.uid,
+    });
+    expect((await adminDb.doc(`customers/${saved.customerId}`).get()).data()).toMatchObject({
+      creditStatus: "pending", outstandingBalanceMinor: creditAmountMinor,
+    });
+    const direct = await call<{ saleId: string }>(administrator, "commitPosSale", {
+      ...payload, idempotencyKey: crypto.randomUUID(),
+    });
+    expect((await adminDb.doc(`sales/${direct.saleId}`).get()).data()).toMatchObject({
+      creditAuthorizationType: "administrator_direct", creditAmountMinor,
+    });
+  });
 });

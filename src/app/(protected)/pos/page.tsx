@@ -66,7 +66,7 @@ import type {
 } from "@/features/pos/types";
 import { formatNaira, nairaToKobo } from "@/features/inventory/format";
 import { useConnectivity } from "@/lib/connectivity";
-import { hasPermission } from "@/lib/permissions/roles";
+import { hasPermission, hasRole } from "@/lib/permissions/roles";
 import type { Branch } from "@/types/domain";
 
 interface SaleResult {
@@ -179,6 +179,7 @@ export default function PosPage() {
   const canApproveCustomerCredit = Boolean(
     profile && hasPermission(profile, "customers.credit.approve"),
   );
+  const canGrantCreditDirectly = Boolean(profile && hasRole(profile, "system_administrator"));
   const baseTotals = useMemo(() => calculatePosCart(cart), [cart]);
   const discountAmountMinor = useMemo(() => {
     try {
@@ -212,6 +213,10 @@ export default function PosPage() {
   const selectedCustomer = workspace?.customers.find(
     (customer) => customer.id === customerId,
   );
+  const creditIsAuthorized = Boolean(selectedCustomer &&
+    (canGrantCreditDirectly ||
+      (selectedCustomer.creditStatus === "approved" &&
+        selectedCustomer.availableCreditMinor >= creditAmountMinor)));
 
   const refreshQueue = useCallback(async () => {
     if (!selectedBranchId || !user) return;
@@ -645,13 +650,13 @@ export default function PosPage() {
     }
     if (paymentMethod === "customer_credit" && !online) {
       setError(
-        "Customer credit requires an online approval and credit-limit check.",
+        "Customer credit requires an online sale so the balance and audit record can be posted.",
       );
       return;
     }
     if (paymentMethod === "customer_credit" && !customerId) {
       setError(
-        "Select an administrator-approved customer for this credit sale.",
+        "Select a named customer for this credit sale.",
       );
       return;
     }
@@ -670,11 +675,9 @@ export default function PosPage() {
     }
     if (
       paymentMethod === "customer_credit" &&
-      (!selectedCustomer ||
-        selectedCustomer.creditStatus !== "approved" ||
-        selectedCustomer.availableCreditMinor < creditAmountMinor)
+      !creditIsAuthorized
     ) {
-      setError("The selected customer does not have enough approved credit for the outstanding amount.");
+      setError("The selected customer needs enough approved credit for the outstanding amount.");
       return;
     }
     if (paymentMethod === "exchange_credit" && (!online || !paymentReference)) {
@@ -1744,13 +1747,15 @@ export default function PosPage() {
                   {creditIntent === "part" ? "Part payment and customer balance" : "Customer pays later"}
                 </p>
                 <p className="text-xs text-amber-900">
-                  {selectedCustomer?.creditStatus === "approved"
+                  {selectedCustomer && canGrantCreditDirectly
+                    ? `As a system administrator, you can grant ${selectedCustomer.name} credit directly. The decision and outstanding amount will be audited.`
+                    : selectedCustomer?.creditStatus === "approved"
                     ? `${selectedCustomer.name} has ${formatNaira(selectedCustomer.availableCreditMinor)} available credit.`
                     : selectedCustomer
                       ? `${selectedCustomer.name} needs administrator-approved credit before this order can be received.`
                       : "Select a named customer with administrator-approved credit above."}
                 </p>
-                {selectedCustomer && selectedCustomer.creditStatus !== "approved" && canApproveCustomerCredit && (
+                {selectedCustomer && !canGrantCreditDirectly && selectedCustomer.creditStatus !== "approved" && canApproveCustomerCredit && (
                   <Link href="/customers" target="_blank" rel="noopener noreferrer" className="inline-flex min-h-10 items-center text-sm font-semibold text-[var(--brand)] underline underline-offset-2">
                     Open customer credit approval in a new tab
                   </Link>
@@ -1775,7 +1780,7 @@ export default function PosPage() {
                 {creditIntent === "part" && (creditPaidAmountMinor <= 0 || creditPaidAmountMinor >= totals.grossAmountMinor) && (
                   <p className="text-xs font-medium text-red-800">Enter an amount greater than ₦0.00 and less than the sale total.</p>
                 )}
-                {selectedCustomer?.creditStatus === "approved" && creditAmountMinor > selectedCustomer.availableCreditMinor && (
+                {!canGrantCreditDirectly && selectedCustomer?.creditStatus === "approved" && creditAmountMinor > selectedCustomer.availableCreditMinor && (
                   <p className="text-xs font-medium text-red-800">The balance exceeds this customer’s available credit. Collect more now or ask an administrator to review the credit limit.</p>
                 )}
                 {creditPaidAmountMinor > 0 && (
@@ -1899,8 +1904,7 @@ export default function PosPage() {
                     creditPaidAmountMinor < 0 ||
                     (creditIntent === "part" && creditPaidAmountMinor <= 0) ||
                     creditPaidAmountMinor >= totals.grossAmountMinor ||
-                    selectedCustomer?.creditStatus !== "approved" ||
-                    selectedCustomer.availableCreditMinor < creditAmountMinor)) ||
+                    !creditIsAuthorized)) ||
                 (paymentMethod === "exchange_credit" &&
                   (!online || !paymentReference)) ||
                 ((["card", "bank_transfer"].includes(paymentMethod) ||

@@ -12,7 +12,9 @@ describe("POS credit and part-payment choices", () => {
     expect(page).toContain("Amount paid now (₦)");
     expect(page).toContain("Balance due later");
     expect(page).toContain('creditIntent === "part" && creditPaidAmountMinor <= 0');
-    expect(page).toContain("selectedCustomer.availableCreditMinor < creditAmountMinor");
+    expect(page).toContain('hasRole(profile, "system_administrator")');
+    expect(page).toContain("creditIsAuthorized");
+    expect(page).toContain("you can grant");
     expect(types).toContain('creditIntent?: "credit" | "part"');
   });
 });
