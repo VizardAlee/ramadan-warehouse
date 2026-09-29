@@ -255,7 +255,7 @@ export default function GuidePage() {
       )}
       <section id="alerts" className="scroll-mt-24 rounded-2xl border bg-white p-5">
         <h2 className="text-xl font-semibold">Notifications</h2>
-        <p className="mt-2 text-sm leading-6">Open the <Link className="font-semibold underline" href="/notifications">notification inbox</Link> for action-needed items and recent updates. You can enable browser notifications on each supported device; the inbox remains available if push is off or unsupported. On iPhone, install the app to the Home Screen before requesting push.</p>
+        <p className="mt-2 text-sm leading-6">Tap the bell to see unread alerts, open the related task, mark one as read, or clear all. Read alerts disappear from the bell but remain in the <Link className="font-semibold underline" href="/notifications">notification inbox</Link>. You can enable browser notifications on each supported device; the inbox remains available if push is off or unsupported. On iPhone, install the app to the Home Screen before requesting push.</p>
       </section>
       {canAdmin && (
         <section id="setup" className="scroll-mt-24">

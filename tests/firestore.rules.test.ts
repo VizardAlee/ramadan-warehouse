@@ -804,6 +804,13 @@ describe("Firestore baseline rules", () => {
         occurredAt: new Date(),
         readAt: null,
       });
+      await context.firestore().doc("users/branch-manager/notifications/order-2").set({
+        organizationId: "org-1",
+        recipientId: "branch-manager",
+        title: "Another order",
+        occurredAt: new Date(),
+        readAt: null,
+      });
     });
     const owner = environment.authenticatedContext("branch-manager").firestore();
     const other = environment.authenticatedContext("sales-cashier").firestore();
@@ -819,6 +826,10 @@ describe("Firestore baseline rules", () => {
     await assertFails(other.doc(path).update({ readAt: new Date() }));
     await assertSucceeds(owner.doc(path).update({ readAt: new Date() }));
     await assertFails(owner.doc(path).update({ readAt: new Date() }));
+    const batch = owner.batch();
+    batch.update(owner.doc("users/branch-manager/notifications/order-2"), { readAt: new Date() });
+    await assertSucceeds(batch.commit());
+    await assertFails(owner.doc("users/branch-manager/notifications/order-2").delete());
   });
   it("keeps push endpoints, employee records, salaries and attendance server-only", async () => {
     await seed();
