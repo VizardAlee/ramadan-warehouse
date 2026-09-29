@@ -88,13 +88,18 @@ export const getSaleReturnWorkspace = onCall(
       .where("receiptNumber", "==", input.receiptNumber)
       .limit(1)
       .get();
-    const sale = saleQuery.docs[0];
+    const saleNumberQuery = saleQuery.empty ? await db.collection("sales")
+      .where("organizationId", "==", actor.organizationId)
+      .where("branchId", "==", input.branchId)
+      .where("saleNumber", "==", input.receiptNumber)
+      .limit(1).get() : null;
+    const sale = saleQuery.docs[0] ?? saleNumberQuery?.docs[0];
     if (!sale || sale.get("status") !== "completed")
       throw new HttpsError(
         "not-found",
         "No completed sale matches this branch receipt.",
       );
-    const [items, openShifts] = await Promise.all([
+    const [items, openShifts, customer] = await Promise.all([
       db.collection("saleItems").where("saleId", "==", sale.id).get(),
       db
         .collection("posShifts")
@@ -103,6 +108,7 @@ export const getSaleReturnWorkspace = onCall(
         .where("status", "==", "open")
         .limit(20)
         .get(),
+      sale.get("customerId") ? db.doc(`customers/${sale.get("customerId")}`).get() : Promise.resolve(null),
     ]);
     const counters = await Promise.all(
       items.docs.map((item) =>
@@ -121,6 +127,7 @@ export const getSaleReturnWorkspace = onCall(
         branchId: sale.get("branchId"),
         customerId: sale.get("customerId") ?? null,
         customerName: sale.get("customerName") ?? null,
+        customerOutstandingMinor: Number(customer?.get("outstandingBalanceMinor") ?? 0),
         grossAmountMinor: Number(sale.get("grossAmountMinor") ?? 0),
         recordedAt: sale.get("recordedAt"),
       },
@@ -137,6 +144,9 @@ export const getSaleReturnWorkspace = onCall(
           Number(counters[index]!.get("returnedQuantity") ?? 0),
         unitPriceMinor: Number(item.get("unitPriceMinor")),
         vatRateBasisPoints: Number(item.get("vatRateBasisPoints")),
+        netAmountMinor: Number(item.get("netAmountMinor") ?? Number(item.get("quantity")) * Number(item.get("unitPriceMinor"))),
+        vatAmountMinor: Number(item.get("vatAmountMinor") ?? Math.round(Number(item.get("quantity")) * Number(item.get("unitPriceMinor")) * Number(item.get("vatRateBasisPoints")) / 10_000)),
+        grossAmountMinor: Number(item.get("grossAmountMinor") ?? Number(item.get("quantity")) * Number(item.get("unitPriceMinor")) + Math.round(Number(item.get("quantity")) * Number(item.get("unitPriceMinor")) * Number(item.get("vatRateBasisPoints")) / 10_000)),
       })),
       openShifts: openShifts.docs.map((shift) => ({
         id: shift.id,
@@ -250,17 +260,20 @@ export const createSaleReturn = onCall({ enforceAppCheck }, async (request) => {
           "failed-precondition",
           "A return quantity exceeds the remaining returnable quantity.",
         );
-      const net = line.quantity * Number(item.get("unitPriceMinor"));
-      const vat = Math.round(
-        (net * Number(item.get("vatRateBasisPoints"))) / 10_000,
-      );
+      const soldQuantity = Number(item.get("quantity"));
+      const returnedQuantity = Number(counters[index]!.get("returnedQuantity") ?? 0);
+      const allocated = (total: number) => Math.round(total * (returnedQuantity + line.quantity) / soldQuantity) - Math.round(total * returnedQuantity / soldQuantity);
+      const originalNet = Number(item.get("netAmountMinor") ?? soldQuantity * Number(item.get("unitPriceMinor")));
+      const originalVat = Number(item.get("vatAmountMinor") ?? Math.round(originalNet * Number(item.get("vatRateBasisPoints")) / 10_000));
+      const net = allocated(originalNet);
+      const vat = allocated(originalVat);
       return {
         input: line,
         item,
         net,
         vat,
         gross: net + vat,
-        cost: line.quantity * Number(item.get("unitCostMinor") ?? 0),
+        cost: allocated(Number(item.get("costAmountMinor") ?? soldQuantity * Number(item.get("unitCostMinor") ?? 0))),
       };
     });
     const now = FieldValue.serverTimestamp();

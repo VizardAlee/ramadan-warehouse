@@ -35,7 +35,7 @@ function monthStart() {
 
 export default function TaxPage() {
   const { profile } = useAuth();
-  const allowed = Boolean(profile && hasPermission(profile, "finance.journal.read"));
+  const allowed = Boolean(profile && hasPermission(profile, "finance.journal.read") && hasPermission(profile, "sales.read.all"));
   const [fromDate, setFromDate] = useState(monthStart);
   const [toDate, setToDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [workspace, setWorkspace] = useState<TaxWorkspace | null>(null);

@@ -5,6 +5,7 @@ import { accountingPeriodReference, assertAccountingPeriodOpen } from "../accoun
 import { writeAuditLog } from "../audit/write-audit-log.js";
 import {
   hasRole,
+  hasServerPermission,
   requireAccess,
   requireBranchScope,
   requirePermission,
@@ -15,9 +16,65 @@ import { assertBalancedJournal } from "../sales/calculations.js";
 import { correlationId, parseInput } from "../utils/callable.js";
 import {
   customerPaymentInput,
+  customerHistoryInput,
   decideCustomerCreditInput,
   saveCustomerInput,
 } from "../validation/sales.js";
+
+export const getCustomerHistory = onCall({ enforceAppCheck }, async (request) => {
+  const actor = await requireAccess(request);
+  requirePermission(actor, "customers.read");
+  const input = parseInput(customerHistoryInput, request.data);
+  const customer = await db.doc(`customers/${input.customerId}`).get();
+  if (!customer.exists || customer.get("organizationId") !== actor.organizationId)
+    throw new HttpsError("not-found", "Customer not found.");
+  const allBranches = hasServerPermission(actor, "sales.read.all");
+  const branchId = input.branchId ?? (!allBranches && actor.branchIds.length === 1 ? actor.branchIds[0] : undefined);
+  if (!allBranches && !branchId)
+    throw new HttpsError("invalid-argument", "Select an assigned branch for this customer history.");
+  if (branchId) requireBranchScope(actor, branchId);
+  const scoped = (collection: string, dateField: string) => {
+    let query: FirebaseFirestore.Query = db.collection(collection)
+      .where("organizationId", "==", actor.organizationId)
+      .where("customerId", "==", input.customerId);
+    if (branchId) query = query.where("branchId", "==", branchId);
+    return query.orderBy(dateField, "desc").limit(input.limit + 1);
+  };
+  const [sales, returns, entries] = await Promise.all([
+    scoped("sales", "recordedAt").get(),
+    scoped("saleReturns", "createdAt").get(),
+    scoped("customerAccountEntries", "effectiveAt").get(),
+  ]);
+  const date = (value: unknown) => value instanceof Timestamp ? value.toDate().toISOString() : null;
+  const rows = [
+    ...sales.docs.map((record) => ({
+      id: `sale:${record.id}`, kind: "sale", reference: record.get("saleNumber"),
+      branchId: record.get("branchId"), amountMinor: Number(record.get("grossAmountMinor") ?? 0),
+      detail: String(record.get("paymentStatus") ?? "completed").replaceAll("_", " "),
+      at: date(record.get("recordedAt")),
+    })),
+    ...returns.docs.map((record) => ({
+      id: `return:${record.id}`, kind: "return", reference: record.get("returnNumber"),
+      branchId: record.get("branchId"), amountMinor: -Number(record.get("grossAmountMinor") ?? 0),
+      detail: `${record.get("resolution") ?? "return"} · ${record.get("status") ?? "submitted"}`.replaceAll("_", " "),
+      at: date(record.get("createdAt")),
+    })),
+    ...entries.docs.map((record) => ({
+      id: `account:${record.id}`, kind: "account", reference: record.get("referenceNumber"),
+      branchId: record.get("branchId"), amountMinor: Number(record.get("amountMinor") ?? 0),
+      detail: String(record.get("entryType") ?? "account activity").replaceAll("_", " "),
+      at: date(record.get("effectiveAt")),
+    })),
+  ].sort((left, right) => String(right.at ?? "").localeCompare(String(left.at ?? "")));
+  return {
+    customer: { id: customer.id, name: customer.get("name"), customerNumber: customer.get("customerNumber"),
+      creditStatus: customer.get("creditStatus"), creditLimitMinor: Number(customer.get("creditLimitMinor") ?? 0),
+      outstandingBalanceMinor: Number(customer.get("outstandingBalanceMinor") ?? 0),
+      availableCreditMinor: Number(customer.get("availableCreditMinor") ?? 0) },
+    rows: rows.slice(0, input.limit),
+    moreAvailable: rows.length > input.limit || [sales, returns, entries].some((result) => result.docs.length > input.limit),
+  };
+});
 
 const paymentAccount: Readonly<Record<string, { code: string; name: string }>> = {
   cash: { code: "1010", name: "Cash on hand" },

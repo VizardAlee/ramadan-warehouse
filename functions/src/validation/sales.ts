@@ -87,6 +87,12 @@ export const customerPaymentInput = z.object({
   idempotencyKey: z.string().uuid(),
 });
 
+export const customerHistoryInput = z.object({
+  customerId: id,
+  branchId: id.optional(),
+  limit: z.number().int().min(1).max(100).default(50),
+});
+
 export const openPosShiftInput = z.object({
   branchId: id,
   deviceId: id,
@@ -252,5 +258,11 @@ export const acceptPosSaleOrderPaymentInput = z.object({
 
 export const confirmPosSaleOrderInput = z.object({
   orderId: id,
+  idempotencyKey: z.string().uuid(),
+});
+
+export const rejectPosSaleOrderInput = z.object({
+  orderId: id,
+  reason: z.string().trim().min(5).max(500),
   idempotencyKey: z.string().uuid(),
 });

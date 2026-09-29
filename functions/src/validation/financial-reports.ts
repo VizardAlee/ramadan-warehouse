@@ -9,6 +9,7 @@ export const financialReportInput = z.object({
   ]),
   fromDate: z.string().date(),
   toDate: z.string().date(),
+  branchId: z.string().trim().min(1).max(128).optional(),
 }).superRefine((value, context) => {
   if (value.fromDate > value.toDate)
     context.addIssue({

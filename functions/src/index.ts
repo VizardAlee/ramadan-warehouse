@@ -127,6 +127,7 @@ export {
   closePosShift,
   createPosSaleOrder,
   acceptPosSaleOrderPayment,
+  rejectPosSaleOrder,
   confirmPosSaleOrder,
   commitPosSale,
 } from "./callable/sales.js";
@@ -134,6 +135,7 @@ export {
   saveCustomer,
   decideCustomerCredit,
   recordCustomerPayment,
+  getCustomerHistory,
 } from "./callable/customers.js";
 export {
   getSaleReturnWorkspace,

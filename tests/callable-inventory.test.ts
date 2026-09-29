@@ -724,6 +724,24 @@ describe.sequential("inventory callables", () => {
     ).rejects.toMatchObject({ code: "functions/already-exists" });
   });
 
+  it("summarizes all matching stock positions, not only a report page", async () => {
+    const balances = await adminDb.collection("inventoryBalances")
+      .where("organizationId", "==", organizationId).get();
+    const expected = balances.docs.reduce((totals, balance) => ({
+      count: totals.count + 1,
+      onHandQuantity: totals.onHandQuantity + Number(balance.get("onHandQuantity") ?? 0),
+      reservedQuantity: totals.reservedQuantity + Number(balance.get("reservedQuantity") ?? 0),
+      availableQuantity: totals.availableQuantity + Number(balance.get("availableQuantity") ?? 0),
+      valueMinor: totals.valueMinor + Number(balance.get("totalValueMinor") ?? 0),
+    }), { count: 0, onHandQuantity: 0, reservedQuantity: 0, availableQuantity: 0, valueMinor: 0 });
+    const report = await call<{
+      rows: unknown[];
+      summary: typeof expected;
+    }>(administrator, "generateInventoryValuationReport", { limit: 1, includeCosts: true });
+    expect(report.rows).toHaveLength(1);
+    expect(report.summary).toMatchObject(expected);
+  });
+
   it("reconciliation reports a deliberately introduced discrepancy", async () => {
     const healthy = await call<{ discrepancyCount: number }>(
       administrator,

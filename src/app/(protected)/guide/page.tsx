@@ -36,7 +36,7 @@ export default function GuidePage() {
   const canHr = Boolean(profile && hasPermission(profile, "hr.read"));
   const canReport = Boolean(profile && hasAnyPermission(profile, ["reports.inventory.read", "reports.requests.read", "reports.transfers.read", "reports.sales.read", "finance.journal.read"]));
   const canAdmin = Boolean(profile && hasAnyPermission(profile, ["organization.manage", "branch.manage", "warehouse.manage", "location.manage", "user.manage", "role.manage"]));
-  const canTax = Boolean(profile && hasPermission(profile, "finance.journal.read"));
+  const canTax = Boolean(profile && hasPermission(profile, "finance.journal.read") && hasPermission(profile, "sales.read.all"));
   return (
     <div className="page-stack">
       <header>
@@ -201,10 +201,13 @@ export default function GuidePage() {
             steps={salesWorkflowSteps}
           />
           <p className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-950">
-            Offline POS can save an order for later sync using an already-open cached shift. Opening a new shift, creating a customer and credit sales require a connection. A held basket is only on this device and does not reserve stock.
+            Open POS online once on each device and store to cache its screen and stock snapshot. The installed app can then open POS and save an order with an already-open shift while offline; it synchronizes when connection returns. Opening a new shift, creating a customer and credit sales require a connection. Other sections still need a connection. A held basket is only on this device and does not reserve stock.
           </p>
           <p className="rounded-xl border bg-white p-4 text-sm leading-6">
             For a credit or part-payment sale, select a named customer in POS. A system administrator can grant credit directly without first approving that customer&apos;s credit limit; the decision, amount and administrator are audited. Other users need approved available customer credit. The customer&apos;s outstanding balance remains visible for later payment.
+          </p>
+          <p className="rounded-xl border bg-white p-4 text-sm leading-6">
+            To take cash, card and bank transfer on one sale, choose Split across payment methods and enter each amount. Card and transfer lines need the receiving company account. Select a named customer and enable customer credit only when an unpaid balance is intended. An unposted order can be rejected from Awaiting action with a reason; return or reverse any money physically collected first and include its reference. A completed sale needs the Returns workflow instead.
           </p>
           <p className="rounded-xl border bg-white p-4 text-sm leading-6">
             To use exchange credit, first submit and approve the original sale return with Exchange credit as its resolution. Start a new sale in the same store, choose Exchange credit as the payment method, and select the issued credit number. The credit pays up to its remaining balance; any shortfall is recorded as cash, and unused credit remains for another sale. Exchange credit requires an online connection.
@@ -232,14 +235,14 @@ export default function GuidePage() {
       {canAftersales && (
         <section id="after-sales" className="scroll-mt-24 rounded-2xl border bg-white p-5">
           <h2 className="text-xl font-semibold">Returns and aftersales</h2>
-          <p className="mt-2 text-sm leading-6">For a returned sale, find the receipt in <Link className="font-semibold underline" href="/returns">Returns</Link>, select only the returned quantities, choose a refund or exchange credit and give the reason. An authorized user posts the return. The exchange credit can then be used in POS.</p>
+          <p className="mt-2 text-sm leading-6">For a returned sale, find its receipt or sale number in <Link className="font-semibold underline" href="/returns">Returns</Link>, select only the returned quantities, choose a refund or exchange credit and give the reason. Reduce customer receivables only up to the actual outstanding balance. An authorized user posts the return. The exchange credit can then be used in POS.</p>
           <p className="mt-2 text-sm leading-6">For installation, repair, warranty or other service work, open <Link className="font-semibold underline" href="/aftersales">Aftersales</Link>. Link the customer and sale when available, track the case status, record a charge or complimentary reason and capture payments to the correct company account.</p>
         </section>
       )}
       {(canFinance || canReport) && (
         <section id="finance" className="scroll-mt-24 rounded-2xl border bg-white p-5">
           <h2 className="flex items-center gap-2 text-xl font-semibold"><FileBarChart2 className="size-5" /> Reports and finance</h2>
-          {canReport && <p className="mt-2 text-sm leading-6">Use <Link className="font-semibold underline" href="/reports">Reports</Link> for sales, inventory and the available financial statements. Select the reporting dates and location, then download the result where export is offered.</p>}
+          {canReport && <p className="mt-2 text-sm leading-6">Use <Link className="font-semibold underline" href="/reports">Reports</Link> for sales, inventory and the available financial statements. Select the reporting dates and store or entire organization. Sales, stock and valuation cards summarize every matching record, not only visible rows. The balance sheet shows ledger-based net assets (assets less liabilities). Download the result where export is offered.</p>}
           {canFinance && <p className="mt-2 text-sm leading-6">Use <Link className="font-semibold underline" href="/finance">Accounting</Link> for company accounts and month close. {canTax && <><Link className="font-semibold underline" href="/tax">Tax Centre</Link> shows ledger VAT evidence and reviewed rule versions; it does not invent a current statutory rate or file a tax return for you.</>}</p>}
         </section>
       )}

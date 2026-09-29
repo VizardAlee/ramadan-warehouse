@@ -18,6 +18,7 @@ interface ReturnWorkspace {
     branchId: string;
     customerId: string | null;
     customerName: string | null;
+    customerOutstandingMinor: number;
     grossAmountMinor: number;
   };
   items: Array<{
@@ -31,6 +32,9 @@ interface ReturnWorkspace {
     returnableQuantity: number;
     unitPriceMinor: number;
     vatRateBasisPoints: number;
+    netAmountMinor: number;
+    vatAmountMinor: number;
+    grossAmountMinor: number;
   }>;
   openShifts: Array<{
     id: string;
@@ -130,9 +134,7 @@ export default function ReturnsPage() {
           result.items.map((item) => [item.id, "restockable"]),
         ),
       );
-      setResolution(
-        result.sale.customerId ? "customer_account" : "exchange_credit",
-      );
+      setResolution("exchange_credit");
       setRefundShiftId(result.openShifts[0]?.id ?? "");
     } catch (cause) {
       setError(
@@ -151,8 +153,10 @@ export default function ReturnsPage() {
     [workspace, quantities],
   );
   const estimatedGross = selectedLines.reduce((sum, item) => {
-    const net = (quantities[item.id] ?? 0) * item.unitPriceMinor;
-    return sum + net + Math.round((net * item.vatRateBasisPoints) / 10_000);
+    const quantity = quantities[item.id] ?? 0;
+    const previous = item.returnedQuantity;
+    return sum + Math.round(item.grossAmountMinor * (previous + quantity) / item.soldQuantity)
+      - Math.round(item.grossAmountMinor * previous / item.soldQuantity);
   }, 0);
 
   async function submitReturn() {
@@ -284,15 +288,14 @@ export default function ReturnsPage() {
             <Search className="size-5" /> Find original sale
           </h2>
           <p className="mt-1 text-sm text-[var(--muted)]">
-            Use the official receipt number printed after checkout. Product and
-            price details are reused automatically.
+            Enter the receipt or sale number. Product details and the amount actually charged, including any discount, are reused automatically.
           </p>
           <div className="mt-4 flex flex-col gap-3 sm:flex-row">
             <input
               value={receiptNumber}
               onChange={(event) => setReceiptNumber(event.target.value)}
               className="min-h-11 flex-1 rounded-lg border px-3"
-              placeholder="RCT-IRB-2026-000001"
+              placeholder="RCT-IRB-2026-000001 or SAL-IRB-2026-000001"
             />
             <Button
               disabled={busy || !branchId || !receiptNumber.trim()}
@@ -393,10 +396,11 @@ export default function ReturnsPage() {
                 <option value="bank_transfer">Bank transfer refund</option>
                 {workspace.sale.customerId && (
                   <option value="customer_account">
-                    Reduce customer receivable
+                    Reduce customer receivable (only if outstanding)
                   </option>
                 )}
               </select>
+              {resolution === "customer_account" && <span className="mt-1 block text-xs text-[var(--muted)]">Current customer receivable: {formatNaira(workspace.sale.customerOutstandingMinor)}. A larger return needs a refund or exchange credit instead.</span>}
             </label>
             <label className="text-sm font-medium">
               Reason
@@ -439,6 +443,7 @@ export default function ReturnsPage() {
                 busy ||
                 selectedLines.length === 0 ||
                 reason.trim().length < 5 ||
+                (resolution === "customer_account" && estimatedGross > workspace.sale.customerOutstandingMinor) ||
                 (resolution === "cash" && !refundShiftId)
               }
               onClick={() => void submitReturn()}

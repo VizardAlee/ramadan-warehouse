@@ -34,6 +34,8 @@ describe("PWA install and offline contract", () => {
     const worker = readFileSync(join(process.cwd(), "public/sw.js"), "utf8");
     expect(worker).toContain('"/offline"');
     expect(worker).toContain('url.pathname === "/pos"');
+    expect(worker).toContain('event.data?.type === "CACHE_POS"');
+    expect(worker).toContain('await cache.put("/pos", response)');
     expect(worker).toContain('key.startsWith("abr-")');
     expect(worker).toContain('event.request.method !== "GET"');
     expect(worker).toContain("url.origin !== self.location.origin");

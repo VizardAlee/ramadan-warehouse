@@ -1230,4 +1230,105 @@ describe.sequential("sales callables", () => {
       creditAuthorizationType: "administrator_direct", creditAmountMinor,
     });
   });
+
+  it("records split tender components and permits any sales-stage user to reject an unposted order", async () => {
+    const deviceId = crypto.randomUUID();
+    const shift = await call<{ shiftId: string }>(cashier, "openPosShift", {
+      branchId, deviceId, deviceName: "Split tender test", openingCashMinor: 0,
+      idempotencyKey: crypto.randomUUID(), operatingContext: { type: "branch", id: branchId },
+    });
+    const workspace = await call<{ products: Array<{ id: string; unitPriceMinor: number; vatRateBasisPoints: number }> }>(
+      cashier, "getPosWorkspace", { branchId, operatingContext: { type: "branch", id: branchId } },
+    );
+    const product = workspace.products.find((item) => item.id === productId)!;
+    const gross = product.unitPriceMinor + Math.round(product.unitPriceMinor * product.vatRateBasisPoints / 10_000);
+    const payments = [
+      { method: "cash", amountMinor: gross - 10_000 },
+      { method: "bank_transfer", amountMinor: 5_000, bankAccountId, reference: "TRANSFER-001" },
+      { method: "card", amountMinor: 5_000, bankAccountId, reference: "CARD-001" },
+    ];
+    const order = await call<{ orderId: string }>(cashier, "createPosSaleOrder", {
+      branchId, shiftId: shift.shiftId, deviceId, recordedAt: new Date().toISOString(), offline: false,
+      lines: [{ productId, quantity: 1 }], payments, idempotencyKey: crypto.randomUUID(),
+      operatingContext: { type: "branch", id: branchId },
+    });
+    expect((await adminDb.doc(`salesOrders/${order.orderId}`).get()).get("payload.payments")).toEqual(payments);
+    await call(branchManager, "acceptPosSaleOrderPayment", {
+      orderId: order.orderId, shiftId: shift.shiftId, deviceId,
+      idempotencyKey: crypto.randomUUID(), operatingContext: { type: "branch", id: branchId },
+    });
+    await call(cashier, "rejectPosSaleOrder", {
+      orderId: order.orderId, reason: "Customer cancelled; transfer and card authorization reversed REF-001",
+      idempotencyKey: crypto.randomUUID(), operatingContext: { type: "branch", id: branchId },
+    });
+    expect((await adminDb.doc(`salesOrders/${order.orderId}`).get()).data()).toMatchObject({
+      status: "rejected", rejectedBy: cashier.auth.currentUser!.uid,
+    });
+    await expect(call(branchManager, "confirmPosSaleOrder", {
+      orderId: order.orderId, idempotencyKey: crypto.randomUUID(), operatingContext: { type: "branch", id: branchId },
+    })).rejects.toMatchObject({ code: "functions/failed-precondition" });
+    const audit = await adminDb.collection("auditLogs").where("entityId", "==", order.orderId).get();
+    expect(audit.docs.some((record) => record.get("action") === "sales_order.rejected")).toBe(true);
+  });
+
+  it("splits a discounted sale return without exceeding the actual receipt and exposes customer history", async () => {
+    const balance = adminDb.doc(`inventoryBalances/${balanceDocumentId(organizationId, productId, locationId)}`);
+    await balance.update({ onHandQuantity: 5, availableQuantity: 5, totalValueMinor: 25_000 });
+    const customer = await call<{ customerId: string }>(branchManager, "saveCustomer", {
+      name: "Return History Customer", phone: "07012345670", active: true,
+      idempotencyKey: crypto.randomUUID(), operatingContext: { type: "branch", id: branchId },
+    });
+    const deviceId = crypto.randomUUID();
+    const shift = await call<{ shiftId: string }>(branchManager, "openPosShift", {
+      branchId, deviceId, deviceName: "Discounted return test", openingCashMinor: 0,
+      idempotencyKey: crypto.randomUUID(), operatingContext: { type: "branch", id: branchId },
+    });
+    const workspace = await call<{ products: Array<{ id: string; unitPriceMinor: number; vatRateBasisPoints: number }> }>(
+      branchManager, "getPosWorkspace", { branchId, operatingContext: { type: "branch", id: branchId } },
+    );
+    const product = workspace.products.find((item) => item.id === productId)!;
+    const net = product.unitPriceMinor * 2 - 2_000;
+    const gross = net + Math.round(net * product.vatRateBasisPoints / 10_000);
+    const posted = await call<{ saleId: string; saleNumber: string }>(branchManager, "commitPosSale", {
+      branchId, shiftId: shift.shiftId, deviceId, recordedAt: new Date().toISOString(), offline: false,
+      customerId: customer.customerId, lines: [{ productId, quantity: 2 }],
+      discountAmountMinor: 2_000, discountReason: "Customer agreed promotion",
+      payments: [{ method: "cash", amountMinor: gross }], idempotencyKey: crypto.randomUUID(),
+      operatingContext: { type: "branch", id: branchId },
+    });
+    const item = (await adminDb.collection("saleItems").where("saleId", "==", posted.saleId).get()).docs[0]!;
+    const returnWorkspace = await call<{ items: Array<{ grossAmountMinor: number }>; sale: { customerOutstandingMinor: number } }>(
+      branchManager, "getSaleReturnWorkspace", { branchId, receiptNumber: posted.saleNumber, operatingContext: { type: "branch", id: branchId } },
+    );
+    expect(returnWorkspace.items[0]!.grossAmountMinor).toBe(gross);
+    expect(returnWorkspace.sale.customerOutstandingMinor).toBe(0);
+    let credited = 0;
+    for (let index = 0; index < 2; index += 1) {
+      const created = await call<{ returnId: string }>(branchManager, "createSaleReturn", {
+        branchId, saleId: posted.saleId, lines: [{ saleItemId: item.id, quantity: 1, condition: "non_restockable" }],
+        resolution: "exchange_credit", reason: "Customer returned a discounted item",
+        idempotencyKey: crypto.randomUUID(), operatingContext: { type: "branch", id: branchId },
+      });
+      const record = await adminDb.doc(`saleReturns/${created.returnId}`).get();
+      credited += Number(record.get("grossAmountMinor"));
+      await call(branchManager, "approveSaleReturn", {
+        returnId: created.returnId, idempotencyKey: crypto.randomUUID(), operatingContext: { type: "branch", id: branchId },
+      });
+    }
+    expect(credited).toBe(gross);
+    const history = await call<{ rows: Array<{ kind: string; reference: string }> }>(branchManager, "getCustomerHistory", {
+      customerId: customer.customerId, branchId, limit: 50, operatingContext: { type: "branch", id: branchId },
+    });
+    expect(history.rows).toContainEqual(expect.objectContaining({ kind: "sale", reference: posted.saleNumber }));
+    expect(history.rows.filter((row) => row.kind === "return")).toHaveLength(2);
+    const statement = await call<{ branchId: string; netAssetsMinor: number }>(branchManager, "generateFinancialStatement", {
+      reportType: "balance_sheet", fromDate: "2026-01-01", toDate: "2026-12-31", branchId,
+      operatingContext: { type: "branch", id: branchId },
+    });
+    expect(statement.branchId).toBe(branchId);
+    expect(Number.isSafeInteger(statement.netAssetsMinor)).toBe(true);
+    await expect(call(branchManager, "generateFinancialStatement", {
+      reportType: "balance_sheet", fromDate: "2026-01-01", toDate: "2026-12-31", branchId: "another-branch",
+    })).rejects.toMatchObject({ code: "functions/permission-denied" });
+  });
 });

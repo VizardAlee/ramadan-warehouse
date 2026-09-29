@@ -1,4 +1,4 @@
-import { FieldPath, FieldValue, Timestamp } from "firebase-admin/firestore";
+import { AggregateField, FieldPath, FieldValue, Timestamp } from "firebase-admin/firestore";
 import { logger } from "firebase-functions";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
 import type { z } from "zod";
@@ -34,6 +34,7 @@ import {
   confirmPosSaleOrderInput,
   openPosShiftInput,
   posWorkspaceInput,
+  rejectPosSaleOrderInput,
   saleDocumentInput,
   salesReportInput,
   salesPriceInput,
@@ -610,6 +611,18 @@ export const generateSalesReport = onCall(
       exclusiveEnd.setUTCDate(exclusiveEnd.getUTCDate() + 1);
       query = query.where("recordedAt", "<", Timestamp.fromDate(exclusiveEnd));
     }
+    const commercialTotalsQuery = query.aggregate({
+      count: AggregateField.count(),
+      subtotalAmountMinor: AggregateField.sum("subtotalAmountMinor"),
+      discountAmountMinor: AggregateField.sum("discountAmountMinor"),
+      netAmountMinor: AggregateField.sum("netAmountMinor"),
+      vatAmountMinor: AggregateField.sum("vatAmountMinor"),
+    });
+    const settlementTotalsQuery = query.aggregate({
+      grossAmountMinor: AggregateField.sum("grossAmountMinor"),
+      amountPaidMinor: AggregateField.sum("amountPaidMinor"),
+      creditAmountMinor: AggregateField.sum("creditAmountMinor"),
+    });
     query = query
       .orderBy("recordedAt", "desc")
       .orderBy(FieldPath.documentId(), "desc");
@@ -618,7 +631,12 @@ export const generateSalesReport = onCall(
         Timestamp.fromDate(new Date(input.cursor.recordedAt)),
         input.cursor.saleId,
       );
-    const result = await query.limit(input.limit + 1).get();
+    const [result, commercialTotalsSnapshot, settlementTotalsSnapshot] = await Promise.all([
+      query.limit(input.limit + 1).get(),
+      commercialTotalsQuery.get(),
+      settlementTotalsQuery.get(),
+    ]);
+    const totals = { ...commercialTotalsSnapshot.data(), ...settlementTotalsSnapshot.data() };
     const page = result.docs.slice(0, input.limit);
     const rows = page.map((sale) => ({
       id: sale.id,
@@ -648,6 +666,7 @@ export const generateSalesReport = onCall(
     const last = page.at(-1);
     return {
       reportType: input.reportType,
+      summary: Object.fromEntries(Object.entries(totals).map(([key, value]) => [key, Number(value ?? 0)])),
       rows,
       nextCursor: result.docs.length > input.limit && last
         ? { recordedAt: iso(last.get("recordedAt")), saleId: last.id }
@@ -1128,6 +1147,39 @@ export const acceptPosSaleOrderPayment = onCall(
       orderNumber: current.get("orderNumber"),
       status: "payment_accepted" as const,
     };
+  },
+);
+
+export const rejectPosSaleOrder = onCall(
+  { enforceAppCheck },
+  async (request) => {
+    const actor = await requireAccess(request);
+    if (!["sales.order.create", "sales.payment.accept", "sales.payment.confirm"].some(
+      (permission) => hasServerPermission(actor, permission as "sales.order.create" | "sales.payment.accept" | "sales.payment.confirm"),
+    )) throw new HttpsError("permission-denied", "You cannot reject a sales order.");
+    const input = parseInput(rejectPosSaleOrderInput, request.data);
+    const order = db.doc(`salesOrders/${input.orderId}`);
+    const operation = db.doc(`idempotencyKeys/${actor.organizationId}_rejectPosSaleOrder_${input.idempotencyKey}`);
+    await db.runTransaction(async (transaction) => {
+      const [current, previous] = await transaction.getAll(order, operation);
+      if (previous!.exists) return;
+      if (!current!.exists || current!.get("organizationId") !== actor.organizationId)
+        throw new HttpsError("not-found", "Sales order not found.");
+      const branchId = String(current!.get("branchId"));
+      requireBranchScope(actor, branchId);
+      if (!["order_received", "payment_accepted"].includes(String(current!.get("status"))))
+        throw new HttpsError("failed-precondition", "Only an unposted order can be rejected. A completed sale requires a return or correction.");
+      const now = FieldValue.serverTimestamp();
+      transaction.update(order, { status: "rejected", rejectionReason: input.reason, rejectedAt: now, rejectedBy: actor.userId, updatedAt: now, updatedBy: actor.userId });
+      transaction.create(operation, { organizationId: actor.organizationId, action: "rejectPosSaleOrder", entityId: order.id, status: "completed", createdAt: now, createdBy: actor.userId });
+      writeAuditLog(transaction, actor, {
+        action: "sales_order.rejected", entityType: "salesOrder", entityId: order.id,
+        reason: input.reason, correlationId: correlationId(), sourceFunction: "rejectPosSaleOrder",
+        before: { status: current!.get("status"), paymentMethods: current!.get("paymentMethods") ?? [] },
+        after: { status: "rejected", branchId, orderNumber: current!.get("orderNumber") },
+      });
+    });
+    return { orderId: order.id, status: "rejected" as const };
   },
 );
 

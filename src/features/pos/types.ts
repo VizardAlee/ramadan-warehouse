@@ -1,5 +1,13 @@
 export type PosPaymentMethod = "cash" | "card" | "bank_transfer" | "exchange_credit";
-export type PosCheckoutMethod = PosPaymentMethod | "customer_credit";
+export type PosCheckoutMethod = PosPaymentMethod | "customer_credit" | "split";
+
+export interface SplitPaymentDraft {
+  id: string;
+  method: "cash" | "card" | "bank_transfer";
+  amount: string;
+  reference: string;
+  bankAccountId: string;
+}
 
 export interface PosCustomer {
   id: string;
@@ -104,6 +112,8 @@ export interface HeldPosSale {
   creditPaidAmount: string;
   creditIntent?: "credit" | "part";
   creditUpfrontMethod: "cash" | "card" | "bank_transfer";
+  splitPayments?: SplitPaymentDraft[];
+  splitAllowCredit?: boolean;
   grossAmountMinor: number;
   totalQuantity: number;
   createdAt: string;

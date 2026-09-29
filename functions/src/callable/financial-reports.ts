@@ -1,7 +1,7 @@
 import { Timestamp } from "firebase-admin/firestore";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
 import { db } from "../admin.js";
-import { requireAccess, requirePermission } from "../auth/authorize.js";
+import { hasServerPermission, requireAccess, requireBranchScope, requirePermission } from "../auth/authorize.js";
 import { enforceAppCheck } from "../config.js";
 import { parseInput } from "../utils/callable.js";
 import {
@@ -58,10 +58,16 @@ export const generateFinancialStatement = onCall(
     const actor = await requireAccess(request);
     requirePermission(actor, "finance.journal.read");
     const input = parseInput(financialReportInput, request.data);
+    const canReadOrganization = hasServerPermission(actor, "sales.read.all");
+    const branchId = input.branchId ?? (!canReadOrganization && actor.branchIds.length === 1 ? actor.branchIds[0] : undefined);
+    if (!canReadOrganization && !branchId)
+      throw new HttpsError("invalid-argument", "Select one assigned store for this statement.");
+    if (branchId) requireBranchScope(actor, branchId);
     let query: FirebaseFirestore.Query = db
       .collection("journalLines")
       .where("organizationId", "==", actor.organizationId)
       .where("effectiveAt", "<=", endTimestamp(input.toDate));
+    if (branchId) query = query.where("branchId", "==", branchId);
     if (input.reportType !== "balance_sheet" && input.reportType !== "trial_balance")
       query = query.where("effectiveAt", ">=", startTimestamp(input.fromDate));
     const lines = await query.limit(10_001).get();
@@ -78,7 +84,7 @@ export const generateFinancialStatement = onCall(
         balanceMinor: line.debitMinor - line.creditMinor,
       }));
       return {
-        ...input,
+        ...input, branchId: branchId ?? null,
         rows,
         totalDebitMinor: rows.reduce((sum, row) => sum + row.debitMinor, 0),
         totalCreditMinor: rows.reduce((sum, row) => sum + row.creditMinor, 0),
@@ -105,7 +111,7 @@ export const generateFinancialStatement = onCall(
       const expenseMinor = rows
         .filter((row) => row.section === "Expenses")
         .reduce((sum, row) => sum + row.amountMinor, 0);
-      return { ...input, rows, incomeMinor, expenseMinor, profitMinor: incomeMinor - expenseMinor };
+      return { ...input, branchId: branchId ?? null, rows, incomeMinor, expenseMinor, profitMinor: incomeMinor - expenseMinor };
     }
 
     if (input.reportType === "balance_sheet") {
@@ -140,11 +146,12 @@ export const generateFinancialStatement = onCall(
         .filter((row) => row.section === section)
         .reduce((sum, row) => sum + row.amountMinor, 0);
       return {
-        ...input,
+        ...input, branchId: branchId ?? null,
         rows,
         assetsMinor: sectionTotal("Assets"),
         liabilitiesMinor: sectionTotal("Liabilities"),
         equityMinor: sectionTotal("Equity"),
+        netAssetsMinor: sectionTotal("Assets") - sectionTotal("Liabilities"),
         balanced: sectionTotal("Assets") === sectionTotal("Liabilities") + sectionTotal("Equity"),
       };
     }
@@ -194,7 +201,7 @@ export const generateFinancialStatement = onCall(
     }
     const rows = [...grouped].map(([section, amountMinor]) => ({ section, amountMinor }));
     return {
-      ...input,
+      ...input, branchId: branchId ?? null,
       rows,
       netCashMovementMinor: rows.reduce((sum, row) => sum + row.amountMinor, 0),
     };
@@ -206,6 +213,8 @@ export const getTaxWorkspace = onCall(
   async (request) => {
     const actor = await requireAccess(request);
     requirePermission(actor, "finance.journal.read");
+    if (!hasServerPermission(actor, "sales.read.all"))
+      throw new HttpsError("permission-denied", "The organization Tax Centre requires organization-wide finance access.");
     const input = parseInput(taxWorkspaceInput, request.data);
     const [lines, rules] = await Promise.all([
       db.collection("journalLines")

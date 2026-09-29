@@ -63,6 +63,7 @@ import type {
   SaleDocument,
   PosWorkspace,
   QueuedPosSale,
+  SplitPaymentDraft,
 } from "@/features/pos/types";
 import { formatNaira, nairaToKobo } from "@/features/inventory/format";
 import { useConnectivity } from "@/lib/connectivity";
@@ -81,6 +82,10 @@ interface SaleOrderResult {
   orderNumber: string;
   status: "order_received" | "payment_accepted";
   created?: boolean;
+}
+
+function emptySplitPayment(method: SplitPaymentDraft["method"]): SplitPaymentDraft {
+  return { id: crypto.randomUUID(), method, amount: "", reference: "", bankAccountId: "" };
 }
 
 function deviceIdentity() {
@@ -121,6 +126,8 @@ export default function PosPage() {
   const [creditUpfrontMethod, setCreditUpfrontMethod] = useState<
     "cash" | "card" | "bank_transfer"
   >("cash");
+  const [splitPayments, setSplitPayments] = useState<SplitPaymentDraft[]>([]);
+  const [splitAllowCredit, setSplitAllowCredit] = useState(false);
   const [openingCash, setOpeningCash] = useState("0.00");
   const [closingCash, setClosingCash] = useState("");
   const [message, setMessage] = useState<string | null>(null);
@@ -138,6 +145,8 @@ export default function PosPage() {
   const [salePriceProductId, setSalePriceProductId] = useState<string | null>(null);
   const [salePrice, setSalePrice] = useState("");
   const [salePriceReason, setSalePriceReason] = useState("");
+  const [rejectOrderId, setRejectOrderId] = useState<string | null>(null);
+  const [rejectionReason, setRejectionReason] = useState("");
   const customerDialogRef = useDialogFocus<HTMLFormElement>(
     customerDialogOpen,
     () => setCustomerDialogOpen(false),
@@ -167,6 +176,7 @@ export default function PosPage() {
     profile && hasPermission(profile, "sales.payment.confirm"),
   );
   const canUsePos = canReceiveOrder || canAcceptPayment || canConfirmPayment;
+  const canRejectOrder = canUsePos;
   const canManageBranchPrice = Boolean(
     profile && hasPermission(profile, "sales.price.branch.manage"),
   );
@@ -206,9 +216,21 @@ export default function PosPage() {
       return -1;
     }
   }, [creditPaidAmount]);
+  const splitAmounts = useMemo(() => splitPayments.map((payment) => {
+    try { return nairaToKobo(Number(payment.amount)); } catch { return -1; }
+  }), [splitPayments]);
+  const splitPaidMinor = splitAmounts.reduce((sum, amount) => sum + Math.max(0, amount), 0);
+  const splitValid = paymentMethod !== "split" || (
+    splitPayments.length >= 2 && splitPayments.length <= 5 &&
+    splitAmounts.every((amount) => amount > 0) &&
+    splitPayments.every((payment) => payment.method === "cash" || Boolean(payment.bankAccountId)) &&
+    (splitAllowCredit ? splitPaidMinor < totals.grossAmountMinor : splitPaidMinor === totals.grossAmountMinor)
+  );
   const creditAmountMinor =
     paymentMethod === "customer_credit"
       ? totals.grossAmountMinor - Math.max(0, creditPaidAmountMinor)
+      : paymentMethod === "split" && splitAllowCredit
+        ? Math.max(0, totals.grossAmountMinor - splitPaidMinor)
       : 0;
   const selectedCustomer = workspace?.customers.find(
     (customer) => customer.id === customerId,
@@ -240,6 +262,10 @@ export default function PosPage() {
         >("getPosWorkspace", { branchId: selectedBranchId });
         setWorkspace(result);
         await saveCachedWorkspace(user.uid, result);
+        if ("serviceWorker" in navigator)
+          void navigator.serviceWorker.ready.then((registration) =>
+            registration.active?.postMessage({ type: "CACHE_POS" }),
+          );
       } else {
         const cached = await readCachedWorkspace(user.uid, selectedBranchId);
         if (!cached)
@@ -415,6 +441,8 @@ export default function PosPage() {
     setCreditPaidAmount("0.00");
     setCreditIntent("credit");
     setCreditUpfrontMethod("cash");
+    setSplitPayments([]);
+    setSplitAllowCredit(false);
   }
 
   async function holdSale() {
@@ -445,6 +473,8 @@ export default function PosPage() {
         creditPaidAmount,
         creditIntent,
         creditUpfrontMethod,
+        splitPayments: paymentMethod === "split" ? splitPayments : undefined,
+        splitAllowCredit: paymentMethod === "split" ? splitAllowCredit : undefined,
         grossAmountMinor: totals.grossAmountMinor,
         totalQuantity: totals.totalQuantity,
         createdAt: now,
@@ -529,6 +559,12 @@ export default function PosPage() {
     setCreditPaidAmount(heldSale.creditPaidAmount);
     setCreditIntent(heldSale.creditIntent ?? (Number(heldSale.creditPaidAmount) > 0 ? "part" : "credit"));
     setCreditUpfrontMethod(heldSale.creditUpfrontMethod);
+    setSplitPayments((heldSale.splitPayments ?? []).map((payment) => ({
+      ...payment,
+      bankAccountId: workspace.bankAccounts.some((account) => account.id === payment.bankAccountId)
+        ? payment.bankAccountId : "",
+    })));
+    setSplitAllowCredit(Boolean(heldSale.splitAllowCredit));
     await removeHeldSale(heldSale.id);
     await refreshHeldSales();
     const changes = [
@@ -644,6 +680,14 @@ export default function PosPage() {
       setError("Enter a valid discount that does not exceed the product subtotal.");
       return;
     }
+    if (!splitValid) {
+      setError("Split payments must have positive amounts that total the sale, and each card or transfer needs a company bank account. For customer credit, the paid amount must be below the total.");
+      return;
+    }
+    if (paymentMethod === "split" && splitAllowCredit && (!online || !canCreateCredit || !customerId || !creditIsAuthorized)) {
+      setError("Select a named customer with available credit and connect to the internet before leaving a split-payment balance due.");
+      return;
+    }
     if (discountAmountMinor > 0 && discountReason.trim().length < 3) {
       setError("Enter a short reason so the discount remains auditable.");
       return;
@@ -730,7 +774,14 @@ export default function PosPage() {
         } : {}),
       })),
       payments:
-        paymentMethod === "customer_credit"
+        paymentMethod === "split"
+          ? splitPayments.map((payment, index) => ({
+              method: payment.method,
+              amountMinor: splitAmounts[index]!,
+              reference: payment.reference.trim() || undefined,
+              bankAccountId: payment.bankAccountId || undefined,
+            }))
+        : paymentMethod === "customer_credit"
           ? creditPaidAmountMinor > 0
             ? [
                 {
@@ -888,6 +939,27 @@ export default function PosPage() {
           ? cause.message
           : "Payment confirmation and inventory release failed.",
       );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function rejectOrder() {
+    if (!rejectOrderId || rejectionReason.trim().length < 5) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await callAdministration("rejectPosSaleOrder", {
+        orderId: rejectOrderId,
+        reason: rejectionReason.trim(),
+        idempotencyKey: crypto.randomUUID(),
+      });
+      setRejectOrderId(null);
+      setRejectionReason("");
+      setMessage("Order rejected and removed from the payment queue. No sale, inventory issue, or journal was posted.");
+      await loadWorkspace();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "The order could not be rejected.");
     } finally {
       setBusy(false);
     }
@@ -1253,6 +1325,9 @@ export default function PosPage() {
                         Open your shift below before accepting payment.
                       </p>
                     )}
+                    {canRejectOrder && <Button type="button" variant="outline" className="mt-2 w-full border-red-200 text-red-800" disabled={!online || busy} onClick={() => { setRejectOrderId(order.id); setRejectionReason(""); }}>
+                      Reject order / payment
+                    </Button>}
                   </li>
                 );
               })}
@@ -1728,7 +1803,10 @@ export default function PosPage() {
                 <select
                   value={paymentMethod}
                   onChange={(event) => {
-                    setPaymentMethod(event.target.value as PosCheckoutMethod);
+                    const nextMethod = event.target.value as PosCheckoutMethod;
+                    setPaymentMethod(nextMethod);
+                    if (nextMethod === "split" && splitPayments.length === 0)
+                      setSplitPayments([emptySplitPayment("cash"), emptySplitPayment("bank_transfer")]);
                     setPaymentReference("");
                     setPaymentBankAccountId("");
                   }}
@@ -1737,11 +1815,45 @@ export default function PosPage() {
                   <option value="cash">Cash</option>
                   <option value="card">Card / POS terminal</option>
                   <option value="bank_transfer">Bank transfer</option>
+                  <option value="split">Split across payment methods</option>
                   <option value="exchange_credit" disabled={!online}>Exchange credit</option>
                 </select>
               </label>
             )}
-            {paymentMethod === "customer_credit" ? (
+            {paymentMethod === "split" ? (
+              <div className="mt-3 space-y-3 rounded-xl border border-indigo-200 bg-indigo-50 p-3">
+                <p className="text-sm font-semibold">Split payment</p>
+                {splitPayments.map((payment, index) => (
+                  <div key={payment.id} className="grid gap-2 rounded-lg border bg-white p-3 sm:grid-cols-2">
+                    <label className="text-sm font-medium">Method {index + 1}
+                      <select value={payment.method} onChange={(event) => setSplitPayments((items) => items.map((item) => item.id === payment.id ? { ...item, method: event.target.value as SplitPaymentDraft["method"], bankAccountId: "" } : item))} className="mt-1 w-full rounded-lg border p-2.5">
+                        <option value="cash">Cash</option><option value="bank_transfer">Bank transfer</option><option value="card">Card / POS terminal</option>
+                      </select>
+                    </label>
+                    <label className="text-sm font-medium">Amount (₦)
+                      <input type="number" inputMode="decimal" min="0.01" step="0.01" value={payment.amount} onChange={(event) => setSplitPayments((items) => items.map((item) => item.id === payment.id ? { ...item, amount: event.target.value } : item))} className="mt-1 w-full rounded-lg border p-2.5" placeholder="0.00" />
+                    </label>
+                    {payment.method !== "cash" && <>
+                      <label className="text-sm font-medium">Company bank account
+                        <select value={payment.bankAccountId} onChange={(event) => setSplitPayments((items) => items.map((item) => item.id === payment.id ? { ...item, bankAccountId: event.target.value } : item))} className="mt-1 w-full rounded-lg border p-2.5">
+                          <option value="">Select account</option>
+                          {workspace.bankAccounts.map((account) => <option key={account.id} value={account.id}>{account.bankName} · {account.accountName} · ••••{account.accountNumberLast4}</option>)}
+                        </select>
+                      </label>
+                      <label className="text-sm font-medium">Payment reference (optional)
+                        <input value={payment.reference} onChange={(event) => setSplitPayments((items) => items.map((item) => item.id === payment.id ? { ...item, reference: event.target.value } : item))} className="mt-1 w-full rounded-lg border p-2.5" />
+                      </label>
+                    </>}
+                    {splitPayments.length > 2 && <button type="button" onClick={() => setSplitPayments((items) => items.filter((item) => item.id !== payment.id))} className="text-left text-sm font-semibold text-red-700">Remove payment</button>}
+                  </div>
+                ))}
+                <Button type="button" variant="outline" disabled={splitPayments.length >= 5} onClick={() => setSplitPayments((items) => [...items, emptySplitPayment("cash")])}>Add payment method</Button>
+                {canCreateCredit && online && <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={splitAllowCredit} onChange={(event) => setSplitAllowCredit(event.target.checked)} /> Leave unpaid balance on named customer credit</label>}
+                <div className="flex justify-between border-t pt-2 text-sm"><span>Entered payments</span><strong>{formatNaira(splitPaidMinor)}</strong></div>
+                <div className="flex justify-between text-sm"><span>{splitAllowCredit ? "Customer balance due" : "Still to allocate"}</span><strong>{formatNaira(Math.max(0, totals.grossAmountMinor - splitPaidMinor))}</strong></div>
+                {!splitValid && <p className="text-xs font-medium text-red-800">Enter at least two positive payments. Their total must equal the sale, unless the remainder is approved customer credit.</p>}
+              </div>
+            ) : paymentMethod === "customer_credit" ? (
               <div className="mt-3 space-y-3 rounded-xl border border-amber-200 bg-amber-50 p-3">
                 <p className="text-sm font-semibold text-amber-950">
                   {creditIntent === "part" ? "Part payment and customer balance" : "Customer pays later"}
@@ -1908,6 +2020,8 @@ export default function PosPage() {
                     !creditIsAuthorized)) ||
                 (paymentMethod === "exchange_credit" &&
                   (!online || !paymentReference)) ||
+                !splitValid ||
+                (paymentMethod === "split" && splitAllowCredit && (!online || !canCreateCredit || !customerId || !creditIsAuthorized)) ||
                 ((["card", "bank_transfer"].includes(paymentMethod) ||
                   (paymentMethod === "customer_credit" &&
                     creditPaidAmountMinor > 0 &&
@@ -2064,6 +2178,20 @@ export default function PosPage() {
           </form>
         </AppDialog>
       )}
+
+      {rejectOrderId && <AppDialog role="dialog" aria-modal="true" aria-label="Reject sales order">
+        <section className="app-dialog-panel safe-bottom max-w-lg rounded-2xl bg-white p-5 shadow-2xl sm:p-6">
+          <h2 className="text-xl font-semibold">Reject unposted sale</h2>
+          <p className="mt-2 text-sm text-[var(--muted)]">The order leaves the queue. No sale, stock issue, or journal has been posted. If money was physically collected, return or reverse it with the provider before rejecting and keep the reference in the reason.</p>
+          <label className="mt-4 block text-sm font-medium">Reason and any refund or reversal reference
+            <textarea value={rejectionReason} onChange={(event) => setRejectionReason(event.target.value)} minLength={5} maxLength={500} className="mt-1 w-full rounded-lg border p-3" />
+          </label>
+          <div className="mt-5 flex flex-wrap justify-end gap-2 border-t pt-4">
+            <Button type="button" variant="outline" onClick={() => setRejectOrderId(null)}>Keep order</Button>
+            <Button type="button" disabled={busy || rejectionReason.trim().length < 5} onClick={() => void rejectOrder()}>Reject and audit</Button>
+          </div>
+        </section>
+      </AppDialog>}
 
       {receipt?.document ? (
         <SaleDocumentDialog

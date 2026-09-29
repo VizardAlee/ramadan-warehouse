@@ -1,4 +1,5 @@
 import {
+  AggregateField,
   FieldPath,
   FieldValue,
   Timestamp,
@@ -328,17 +329,25 @@ async function report(
         "==",
         input.locationId,
       );
-    query = query.orderBy(FieldPath.documentId());
   }
+  const summaryQuery = kind === "stock" || kind === "valuation" ? query.aggregate({
+    count: AggregateField.count(),
+    onHandQuantity: AggregateField.sum("onHandQuantity"),
+    reservedQuantity: AggregateField.sum("reservedQuantity"),
+    availableQuantity: AggregateField.sum("availableQuantity"),
+    ...(includeCosts ? { valueMinor: AggregateField.sum("totalValueMinor") } : {}),
+  }) : null;
+  if (kind !== "movement") query = query.orderBy(FieldPath.documentId());
   if (input.cursor) {
     const cursor = await db.collection(collectionName).doc(input.cursor).get();
     if (cursor.exists && cursor.get("organizationId") === actor.organizationId)
       query = query.startAfter(cursor);
   }
   query = query.limit(input.limit);
-  const snapshot = await query.get();
+  const [snapshot, summarySnapshot] = await Promise.all([query.get(), summaryQuery?.get()]);
   return {
     reportType: kind,
+    summary: summarySnapshot ? Object.fromEntries(Object.entries(summarySnapshot.data()).map(([key, value]) => [key, Number(value ?? 0)])) : null,
     rows: snapshot.docs.map((document) => serialize(document, includeCosts)),
     nextCursor:
       snapshot.size === input.limit ? (snapshot.docs.at(-1)?.id ?? null) : null,

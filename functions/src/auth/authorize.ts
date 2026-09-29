@@ -429,6 +429,7 @@ const rolePermissions: Readonly<Record<RoleId, readonly Permission[]>> = {
     "sales.returns.create",
     "sales.returns.approve",
     "reports.sales.read",
+    "finance.journal.read",
     "expenses.read",
     "expenses.create",
     "expenses.approve",

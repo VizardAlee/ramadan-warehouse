@@ -43,6 +43,7 @@ type ReportFamily = "sales" | "inventory" | "financial";
 interface InventoryReportResult {
   rows: Record<string, unknown>[];
   nextCursor: string | null;
+  summary?: { count: number; onHandQuantity: number; reservedQuantity: number; availableQuantity: number; valueMinor?: number } | null;
 }
 interface SalesReportRow {
   id: string;
@@ -74,6 +75,7 @@ interface SalesCursor {
 interface SalesReportResult {
   rows: SalesReportRow[];
   nextCursor: SalesCursor | null;
+  summary?: { count: number; subtotalAmountMinor: number; discountAmountMinor: number; netAmountMinor: number; vatAmountMinor: number; grossAmountMinor: number; amountPaidMinor: number; creditAmountMinor: number };
 }
 
 function csvCell(value: unknown) {
@@ -160,11 +162,13 @@ export default function ReportsPage() {
     [],
   );
   const [inventoryCursor, setInventoryCursor] = useState<string | null>(null);
+  const [inventorySummary, setInventorySummary] = useState<InventoryReportResult["summary"]>(null);
   const [branchId, setBranchId] = useState("");
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
   const [salesRows, setSalesRows] = useState<SalesReportRow[]>([]);
   const [salesCursor, setSalesCursor] = useState<SalesCursor | null>(null);
+  const [salesSummary, setSalesSummary] = useState<SalesReportResult["summary"]>(undefined);
   const [saleDocument, setSaleDocument] = useState<SaleDocument | null>(null);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -247,6 +251,7 @@ export default function ReportsPage() {
           });
           if (version !== inventoryRequestVersion.current) return;
           setInventoryRows(result.rows);
+          setInventorySummary(result.summary ?? null);
           setInventoryCursor(result.nextCursor);
           setInventoryLoadedKey(inventoryQueryKey);
           if (!result.rows.length) setMessage("No rows matched the selected inventory filters.");
@@ -287,6 +292,7 @@ export default function ReportsPage() {
           });
           if (version !== salesRequestVersion.current) return;
           setSalesRows(result.rows);
+          setSalesSummary(result.summary);
           setSalesCursor(result.nextCursor);
           setSalesLoadedKey(salesQueryKey);
           if (!result.rows.length) setMessage("No posted sales matched the selected filters.");
@@ -383,6 +389,17 @@ export default function ReportsPage() {
         return;
       }
       const exportRows = salesCsvRows(allRows);
+      const sum = (key: keyof SalesReportRow) => allRows.reduce((total, row) => total + Number(row[key] ?? 0), 0);
+      exportRows.push({
+        sale_number: "FILTER TOTAL", item_count: sum("itemCount"), total_quantity: sum("totalQuantity"),
+        product_subtotal_naira: (sum("subtotalAmountMinor") / 100).toFixed(2),
+        discount_naira: (sum("discountAmountMinor") / 100).toFixed(2),
+        net_amount_naira: (sum("netAmountMinor") / 100).toFixed(2),
+        vat_naira: (sum("vatAmountMinor") / 100).toFixed(2),
+        invoice_total_naira: (sum("grossAmountMinor") / 100).toFixed(2),
+        amount_paid_naira: (sum("amountPaidMinor") / 100).toFixed(2),
+        outstanding_naira: (sum("creditAmountMinor") / 100).toFixed(2),
+      });
       downloadCsv(
         `sales-register-${fromDate || "all"}-to-${toDate || "current"}.csv`,
         Object.keys(exportRows[0]!),
@@ -516,6 +533,17 @@ export default function ReportsPage() {
             </Button>
           </section>
           {!salesReady && !message && <p role="status" className="flex items-center gap-2 text-sm text-[var(--muted)]"><Loader2 className="size-4 animate-spin" /> Updating sales report…</p>}
+          {salesReady && salesSummary && <section aria-label="Filtered sales totals" className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            {[
+              ["Sales", salesSummary.count.toLocaleString("en-NG")],
+              ["Net sales", formatNaira(salesSummary.netAmountMinor)],
+              ["Discounts", formatNaira(salesSummary.discountAmountMinor)],
+              ["VAT", formatNaira(salesSummary.vatAmountMinor)],
+              ["Invoice total", formatNaira(salesSummary.grossAmountMinor)],
+              ["Paid", formatNaira(salesSummary.amountPaidMinor)],
+              ["Outstanding", formatNaira(salesSummary.creditAmountMinor)],
+            ].map(([label, value]) => <div key={label} className="rounded-xl border bg-white p-3 text-sm"><span className="text-[var(--muted)]">{label}</span><strong className="mt-1 block text-lg">{value}</strong></div>)}
+          </section>}
           <div className="responsive-table-wrap">
             <table className="responsive-table text-xs">
               <thead className="bg-slate-50">
@@ -625,6 +653,15 @@ export default function ReportsPage() {
             </label>
           </section>
           {!inventoryReady && !message && <p role="status" className="flex items-center gap-2 text-sm text-[var(--muted)]"><Loader2 className="size-4 animate-spin" /> Updating inventory report…</p>}
+          {inventoryReady && inventorySummary && <section aria-label="Filtered inventory totals" className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+            {[
+              ["Positions", inventorySummary.count.toLocaleString("en-NG")],
+              ["On hand", inventorySummary.onHandQuantity.toLocaleString("en-NG")],
+              ["Reserved", inventorySummary.reservedQuantity.toLocaleString("en-NG")],
+              ["Available", inventorySummary.availableQuantity.toLocaleString("en-NG")],
+              ...(inventorySummary.valueMinor !== undefined ? [["Stock value", formatNaira(inventorySummary.valueMinor)]] : []),
+            ].map(([label, value]) => <div key={label} className="rounded-xl border bg-white p-3 text-sm"><span className="text-[var(--muted)]">{label}</span><strong className="mt-1 block text-lg">{value}</strong></div>)}
+          </section>}
           <p className="text-sm text-[var(--muted)]">
             Product, branch, warehouse and stock-area references are shown as
             business names. Technical IDs are shortened only when no business
@@ -642,7 +679,7 @@ export default function ReportsPage() {
                 );
               }}
             >
-              <Download className="mr-2 size-4" /> Download readable CSV
+              <Download className="mr-2 size-4" /> Download loaded rows
             </Button>
           )}
           <div className="responsive-table-wrap">

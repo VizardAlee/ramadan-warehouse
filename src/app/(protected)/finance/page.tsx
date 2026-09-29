@@ -14,7 +14,8 @@ const destinations = [
 
 export default function FinancePage() {
   const { profile } = useAuth();
-  const visible = destinations.filter((item) => profile && hasPermission(profile, item.permission));
+  const visible = destinations.filter((item) => profile && hasPermission(profile, item.permission) &&
+    (item.href !== "/tax" || hasPermission(profile, "sales.read.all")));
   return (
     <div className="space-y-5">
       <header>

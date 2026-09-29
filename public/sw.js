@@ -1,4 +1,4 @@
-const VERSION = "v4";
+const VERSION = "v5";
 const STATIC_CACHE = `abr-static-${VERSION}`;
 const PAGE_CACHE = `abr-pages-${VERSION}`;
 const OWN_CACHES = [STATIC_CACHE, PAGE_CACHE];
@@ -29,6 +29,14 @@ self.addEventListener("activate", (event) => {
 
 self.addEventListener("message", (event) => {
   if (event.data?.type === "SKIP_WAITING") self.skipWaiting();
+  if (event.data?.type === "CACHE_POS") event.waitUntil((async () => {
+    try {
+      const response = await fetch("/pos", { credentials: "same-origin", cache: "no-store" });
+      if (!response.ok || new URL(response.url).pathname !== "/pos" || !response.headers.get("content-type")?.includes("text/html")) return;
+      const cache = await caches.open(PAGE_CACHE);
+      await cache.put("/pos", response);
+    } catch { /* The previous offline copy remains available. */ }
+  })());
 });
 
 self.addEventListener("push", (event) => {

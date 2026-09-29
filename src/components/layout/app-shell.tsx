@@ -42,7 +42,7 @@ import { useOperatingContextOptions } from "@/features/auth/use-operating-contex
 import { PwaControls } from "@/features/pwa/pwa-controls";
 import { useNotifications } from "@/features/notifications/use-notifications";
 import { useConnectivity } from "@/lib/connectivity";
-import { hasAnyPermission } from "@/lib/permissions/roles";
+import { hasAnyPermission, hasPermission } from "@/lib/permissions/roles";
 import { cn } from "@/lib/utils";
 import type { PermissionId } from "@/types/domain";
 
@@ -145,11 +145,11 @@ export function AppShell({ children }: { children: ReactNode }) {
       profile
         ? navigation.filter(
             (item) =>
-              item.permissions.length === 0 ||
+              (item.href !== "/tax" || hasPermission(profile, "sales.read.all")) && (item.permissions.length === 0 ||
               hasAnyPermission(
                 profile,
                 item.permissions as readonly PermissionId[],
-              ),
+              )),
           )
         : [],
     [profile],

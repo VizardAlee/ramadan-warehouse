@@ -17,7 +17,13 @@ import { formatNaira, nairaToKobo } from "@/features/inventory/format";
 import { hasPermission } from "@/lib/permissions/roles";
 import type { Branch, Customer } from "@/types/domain";
 
-type CustomerAction = "create" | "edit" | "credit" | "payment";
+type CustomerAction = "create" | "edit" | "credit" | "payment" | "history";
+
+interface CustomerHistory {
+  customer: { name: string; customerNumber: string; creditStatus: string; creditLimitMinor: number; outstandingBalanceMinor: number; availableCreditMinor: number };
+  rows: Array<{ id: string; kind: string; reference: string; branchId: string; amountMinor: number; detail: string; at: string | null }>;
+  moreAvailable: boolean;
+}
 
 const emptyForm = {
   name: "",
@@ -47,6 +53,9 @@ export default function CustomersPage() {
   const [paymentReference, setPaymentReference] = useState("");
   const [manualBranchId, setManualBranchId] = useState("");
   const [search, setSearch] = useState("");
+  const [history, setHistory] = useState<CustomerHistory | null>(null);
+  const [historyLimit, setHistoryLimit] = useState(50);
+  const [historyBranchId, setHistoryBranchId] = useState("");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -72,6 +81,8 @@ export default function CustomersPage() {
     manualBranchId ||
     activeBranches[0]?.id ||
     "";
+  const initialHistoryBranchId = contextBranchId || assignedBranchId ||
+    (profile && hasPermission(profile, "sales.read.all") ? "" : accessProfile?.branchIds[0] ?? "");
   const visible = useMemo(() => {
     const term = search.trim().toLowerCase();
     return customers.data.filter(
@@ -91,6 +102,7 @@ export default function CustomersPage() {
     setCreditLimit("");
     setPaymentAmount("");
     setPaymentReference("");
+    setHistory(null);
   }
 
   function edit(customer: Customer) {
@@ -199,6 +211,25 @@ export default function CustomersPage() {
     }
   }
 
+  async function loadHistory(customer: Customer, limit = historyLimit, selectedBranchId = historyBranchId) {
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await callAdministration<
+        { customerId: string; branchId?: string; limit: number }, CustomerHistory
+      >("getCustomerHistory", {
+        customerId: customer.id,
+        branchId: selectedBranchId || undefined,
+        limit,
+      });
+      setHistory(result);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Customer history could not be loaded.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   if (!profile || !hasPermission(profile, "customers.read"))
     return (
       <div className="rounded-xl border bg-white p-6">
@@ -297,6 +328,13 @@ export default function CustomersPage() {
               </div>
             </dl>
             <div className="mt-4 flex flex-wrap gap-2">
+              <Button variant="outline" onClick={() => {
+                setSelected(customer);
+                setHistory(null);
+                setHistoryBranchId(initialHistoryBranchId);
+                setAction("history");
+                void loadHistory(customer, historyLimit, initialHistoryBranchId);
+              }}>View history</Button>
               {canManage && (
                 <Button variant="outline" onClick={() => edit(customer)}>
                   Edit details
@@ -361,7 +399,7 @@ export default function CustomersPage() {
                     ? "Edit customer"
                     : action === "credit"
                       ? "Administrator credit decision"
-                      : "Record customer payment"}
+                      : action === "history" ? "Customer history" : "Record customer payment"}
               </h2>
             </div>
             {(action === "create" || action === "edit") && (
@@ -543,11 +581,43 @@ export default function CustomersPage() {
                 )}
               </div>
             )}
+            {action === "history" && selected && <div className="mt-5 space-y-4">
+              <p className="text-sm">{selected.customerNumber} · {selected.name}</p>
+              {error && <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-800">{error}</p>}
+              <div className="grid grid-cols-3 gap-2 rounded-lg bg-slate-50 p-3 text-xs sm:text-sm">
+                <div>Credit limit<strong className="block">{formatNaira(history?.customer.creditLimitMinor ?? selected.creditLimitMinor)}</strong></div>
+                <div>Outstanding<strong className="block">{formatNaira(history?.customer.outstandingBalanceMinor ?? selected.outstandingBalanceMinor)}</strong></div>
+                <div>Available<strong className="block">{formatNaira(history?.customer.availableCreditMinor ?? selected.availableCreditMinor)}</strong></div>
+              </div>
+              <p className="text-xs text-[var(--muted)]">Credit balances cover this customer across the organization; the location filter changes the activity list only.</p>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <label className="text-sm">Location
+                  <select value={historyBranchId} onChange={(event) => { setHistoryBranchId(event.target.value); void loadHistory(selected, historyLimit, event.target.value); }} className="mt-1 w-full rounded-lg border p-2.5">
+                    {profile && hasPermission(profile, "sales.read.all") && <option value="">All stores</option>}
+                    {activeBranches.filter((branch) => !accessProfile?.branchIds.length || accessProfile.branchIds.includes(branch.id)).map((branch) => <option key={branch.id} value={branch.id}>{branch.name}</option>)}
+                  </select>
+                </label>
+                <label className="text-sm">Recent activity
+                  <select value={historyLimit} onChange={(event) => { const limit = Number(event.target.value); setHistoryLimit(limit); void loadHistory(selected, limit, historyBranchId); }} className="mt-1 w-full rounded-lg border p-2.5">
+                    {[25, 50, 100].map((limit) => <option key={limit} value={limit}>Latest {limit}</option>)}
+                  </select>
+                </label>
+              </div>
+              {busy && <p className="text-sm text-[var(--muted)]">Loading history…</p>}
+              <div className="max-h-[min(45dvh,24rem)] space-y-2 overflow-y-auto">
+                {history?.rows.map((row) => <div key={row.id} className="flex justify-between gap-3 rounded-lg border p-3 text-sm">
+                  <div><strong>{row.reference}</strong><p className="text-xs text-[var(--muted)]">{row.kind} · {row.detail} · {row.at ? new Date(row.at).toLocaleString() : "Date pending"}</p></div>
+                  <strong className="shrink-0">{formatNaira(row.amountMinor)}</strong>
+                </div>)}
+                {history && history.rows.length === 0 && <p className="p-3 text-sm text-[var(--muted)]">No activity found for this location.</p>}
+              </div>
+              {history?.moreAvailable && <p className="text-xs text-amber-900">More history exists. Narrow by location; full export is not yet available here.</p>}
+            </div>}
             <div className="sticky bottom-0 mt-6 flex justify-end gap-3 border-t bg-white pt-4">
               <Button variant="secondary" onClick={closeAction}>
                 Cancel
               </Button>
-              <Button
+              {action !== "history" && <Button
                 disabled={
                   busy ||
                   (action === "credit" && reason.trim().length < 3) ||
@@ -569,7 +639,7 @@ export default function CustomersPage() {
                   : action === "payment"
                     ? "Record payment"
                     : "Save customer"}
-              </Button>
+              </Button>}
             </div>
           </section>
         </AppDialog>
