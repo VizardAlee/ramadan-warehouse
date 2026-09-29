@@ -39,6 +39,7 @@ import { useDialogFocus } from "@/components/ui/use-dialog-focus";
 import { useAuth } from "@/features/auth/auth-context";
 import { useOperatingContextOptions } from "@/features/auth/use-operating-context-options";
 import { PwaControls } from "@/features/pwa/pwa-controls";
+import { PwaInstallBanner } from "@/features/pwa/pwa-install-banner";
 import { NotificationMenu } from "@/features/notifications/notification-menu";
 import { useConnectivity } from "@/lib/connectivity";
 import { hasAnyPermission, hasPermission } from "@/lib/permissions/roles";
@@ -409,6 +410,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             </Button>
           </div>
         </header>
+        {online && <PwaInstallBanner />}
         {!online && (
           <div
             role="status"

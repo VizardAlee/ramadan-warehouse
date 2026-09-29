@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from "react";
 
 interface BeforeInstallPromptEvent extends Event {
   prompt(): Promise<void>;
@@ -10,7 +10,7 @@ interface BeforeInstallPromptEvent extends Event {
 interface PwaContextValue {
   installed: boolean;
   installAvailable: boolean;
-  manualInstallPlatform: "ios" | "mac-safari" | null;
+  manualInstallPlatform: "ios" | "mac-safari" | "android" | "desktop-browser" | null;
   showManualInstructions: boolean;
   updateAvailable: boolean;
   install(): Promise<void>;
@@ -19,6 +19,7 @@ interface PwaContextValue {
 }
 
 const PwaContext = createContext<PwaContextValue | null>(null);
+const subscribeStandalone = () => () => undefined;
 
 function isStandalone() {
   if (typeof window === "undefined") return false;
@@ -26,18 +27,22 @@ function isStandalone() {
   return window.matchMedia("(display-mode: standalone)").matches || safariNavigator.standalone === true;
 }
 
-function detectManualInstallPlatform(): "ios" | "mac-safari" | null {
+function detectManualInstallPlatform(): "ios" | "mac-safari" | "android" | "desktop-browser" | null {
   if (typeof window === "undefined") return null;
   const iosDevice = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
   if (iosDevice && /WebKit/.test(navigator.userAgent)) return "ios";
   const desktopSafari = /Safari/.test(navigator.userAgent) && !/Chrome|Chromium|Edg/.test(navigator.userAgent) && /Macintosh/.test(navigator.userAgent);
-  return desktopSafari ? "mac-safari" : null;
+  if (desktopSafari) return "mac-safari";
+  if (/Android/.test(navigator.userAgent)) return "android";
+  return "desktop-browser";
 }
 
 export function PwaProvider({ children }: { children: ReactNode }) {
-  const [installed, setInstalled] = useState(isStandalone);
+  const standalone = useSyncExternalStore(subscribeStandalone, isStandalone, () => false);
+  const [appInstalled, setAppInstalled] = useState(false);
+  const installed = standalone || appInstalled;
   const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null);
-  const [manualPlatform, setManualPlatform] = useState<"ios" | "mac-safari" | null>(() => isStandalone() ? null : detectManualInstallPlatform());
+  const manualPlatform = installed ? null : detectManualInstallPlatform();
   const [showManualInstructions, setShowManualInstructions] = useState(false);
   const [registration, setRegistration] = useState<ServiceWorkerRegistration | null>(null);
   const [updateAvailable, setUpdateAvailable] = useState(false);
@@ -45,12 +50,12 @@ export function PwaProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const captureInstallPrompt = (event: Event) => {
       event.preventDefault();
+      if (isStandalone()) return;
       setInstallPrompt(event as BeforeInstallPromptEvent);
     };
     const markInstalled = () => {
-      setInstalled(true);
+      setAppInstalled(true);
       setInstallPrompt(null);
-      setManualPlatform(null);
       setShowManualInstructions(false);
     };
     window.addEventListener("beforeinstallprompt", captureInstallPrompt);
@@ -79,13 +84,19 @@ export function PwaProvider({ children }: { children: ReactNode }) {
 
   const install = useCallback(async () => {
     if (installPrompt) {
-      await installPrompt.prompt();
-      const choice = await installPrompt.userChoice;
-      if (choice.outcome === "accepted") setInstallPrompt(null);
+      try {
+        await installPrompt.prompt();
+        await installPrompt.userChoice;
+      } catch {
+        setShowManualInstructions(true);
+      } finally {
+        // A beforeinstallprompt event can only be used once, including after dismissal.
+        setInstallPrompt(null);
+      }
       return;
     }
-    if (manualPlatform) setShowManualInstructions(true);
-  }, [installPrompt, manualPlatform]);
+    setShowManualInstructions(true);
+  }, [installPrompt]);
 
   const applyUpdate = useCallback(() => {
     if (!registration?.waiting) return;
@@ -100,14 +111,14 @@ export function PwaProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo<PwaContextValue>(() => ({
     installed,
-    installAvailable: Boolean(installPrompt) || Boolean(manualPlatform),
+    installAvailable: !installed,
     manualInstallPlatform: manualPlatform,
     showManualInstructions,
     updateAvailable,
     install,
     closeManualInstructions: () => setShowManualInstructions(false),
     applyUpdate,
-  }), [applyUpdate, install, installPrompt, installed, manualPlatform, showManualInstructions, updateAvailable]);
+  }), [applyUpdate, install, installed, manualPlatform, showManualInstructions, updateAvailable]);
 
   return <PwaContext.Provider value={value}>{children}</PwaContext.Provider>;
 }

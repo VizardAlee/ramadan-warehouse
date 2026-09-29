@@ -200,6 +200,9 @@ export default function GuidePage() {
             description="Prices and product information are reused. VAT is separate; confirmed sales create controlled documents. You can type a quantity, hold a basket locally and create a customer without leaving POS."
             steps={salesWorkflowSteps}
           />
+          <p className="rounded-xl border border-indigo-200 bg-indigo-50 p-4 text-sm leading-6">
+            On a new device, use the <strong>Install app</strong> banner after signing in. Chrome or Edge may open an install prompt; iPhone, iPad and Safari show short on-screen steps instead. If you dismiss the banner, use the download icon in the top bar later. Install while connected, then open POS online once to prepare its offline cache.
+          </p>
           <p className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-950">
             Open POS online once on each device and store to cache its screen and stock snapshot. The installed app can then open POS and save an order with an already-open shift while offline; it synchronizes when connection returns. Opening a new shift, creating a customer and credit sales require a connection. Other sections still need a connection. A held basket is only on this device and does not reserve stock.
           </p>
