@@ -42,6 +42,7 @@ import {
   reconcileHeldCart,
 } from "@/features/pos/calculations";
 import { SaleDocumentDialog } from "@/features/pos/sale-document";
+import { SalePriceDialog } from "@/features/pos/sale-price-dialog";
 import {
   listQueuedSales,
   listHeldSales,
@@ -2244,38 +2245,18 @@ export default function PosPage() {
       {salePriceProductId && (() => {
         const line = cart.find((item) => item.product.id === salePriceProductId);
         if (!line) return null;
-        let enteredMinor = 0;
-        try { enteredMinor = nairaToKobo(Number(salePrice)); } catch { /* Keep the action disabled. */ }
-        const changed = enteredMinor !== line.product.unitPriceMinor;
         return (
-          <AppDialog className="app-dialog-backdrop-high" role="dialog" aria-modal="true" aria-labelledby="sale-price-title">
-            <form
-              ref={salePriceDialogRef}
-              className="app-dialog-panel max-w-md rounded-2xl bg-white p-5 shadow-2xl sm:p-6"
-              onSubmit={(event) => { event.preventDefault(); saveSalePrice(); }}
-            >
-              <h2 id="sale-price-title" className="text-xl font-semibold">Price for this sale</h2>
-              <p className="mt-1 text-sm text-[var(--muted)]">{line.product.name}. This change affects only the current order, not the branch catalogue.</p>
-              <div className="mt-4 rounded-lg bg-slate-50 p-3 text-sm">
-                Current catalogue: {formatNaira(line.product.unitPriceMinor)}. You can set a higher or lower price for this order only.
-              </div>
-              <label className="mt-4 block text-sm font-medium">
-                Selling price before VAT (₦)
-                <input type="number" min="0.01" step="0.01" inputMode="decimal" required value={salePrice} onChange={(event) => setSalePrice(event.target.value)} className="mt-1 w-full rounded-lg border p-3 text-lg" />
-              </label>
-              {changed && (
-                <label className="mt-4 block text-sm font-medium">
-                  Reason for price change
-                  <textarea required minLength={3} maxLength={300} value={salePriceReason} onChange={(event) => setSalePriceReason(event.target.value)} className="mt-1 w-full rounded-lg border p-3" placeholder="For example, agreed customer price" />
-                </label>
-              )}
-              <p className="mt-2 text-xs text-[var(--muted)]">A lower price may reduce margin. VAT and the sale total will recalculate; the final price and reason are recorded for audit.</p>
-              <div className="mt-5 flex flex-wrap justify-end gap-2 border-t pt-4">
-                <Button type="button" variant="outline" onClick={() => setSalePriceProductId(null)}>Cancel</Button>
-                <Button type="submit" disabled={enteredMinor <= 0 || (changed && salePriceReason.trim().length < 3)}>Apply to sale</Button>
-              </div>
-            </form>
-          </AppDialog>
+          <SalePriceDialog
+            formRef={salePriceDialogRef}
+            productName={line.product.name}
+            currentPriceMinor={line.product.unitPriceMinor}
+            salePrice={salePrice}
+            reason={salePriceReason}
+            onPriceChange={setSalePrice}
+            onReasonChange={setSalePriceReason}
+            onApply={saveSalePrice}
+            onCancel={() => setSalePriceProductId(null)}
+          />
         );
       })()}
 
