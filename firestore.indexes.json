@@ -249,6 +249,50 @@
       ]
     },
     {
+      "collectionGroup": "sales", "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "branchId", "order": "ASCENDING" },
+        { "fieldPath": "organizationId", "order": "ASCENDING" },
+        { "fieldPath": "recordedAt", "order": "ASCENDING" },
+        { "fieldPath": "discountAmountMinor", "order": "ASCENDING" },
+        { "fieldPath": "netAmountMinor", "order": "ASCENDING" },
+        { "fieldPath": "subtotalAmountMinor", "order": "ASCENDING" },
+        { "fieldPath": "vatAmountMinor", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "sales", "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "branchId", "order": "ASCENDING" },
+        { "fieldPath": "organizationId", "order": "ASCENDING" },
+        { "fieldPath": "recordedAt", "order": "ASCENDING" },
+        { "fieldPath": "amountPaidMinor", "order": "ASCENDING" },
+        { "fieldPath": "creditAmountMinor", "order": "ASCENDING" },
+        { "fieldPath": "grossAmountMinor", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "sales", "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "organizationId", "order": "ASCENDING" },
+        { "fieldPath": "recordedAt", "order": "ASCENDING" },
+        { "fieldPath": "discountAmountMinor", "order": "ASCENDING" },
+        { "fieldPath": "netAmountMinor", "order": "ASCENDING" },
+        { "fieldPath": "subtotalAmountMinor", "order": "ASCENDING" },
+        { "fieldPath": "vatAmountMinor", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "sales", "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "organizationId", "order": "ASCENDING" },
+        { "fieldPath": "recordedAt", "order": "ASCENDING" },
+        { "fieldPath": "amountPaidMinor", "order": "ASCENDING" },
+        { "fieldPath": "creditAmountMinor", "order": "ASCENDING" },
+        { "fieldPath": "grossAmountMinor", "order": "ASCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "saleReturns",
       "queryScope": "COLLECTION",
       "fields": [
