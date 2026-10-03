@@ -52,7 +52,10 @@ describe("visual user guide", () => {
       expect(page).toContain(`href="${route}"`);
     }
     expect(page).toContain("hasAnyPermission");
-    expect(page).toContain("An external fingerprint connector needs its own integration setup");
+    expect(page).toContain("The HR page has a four-step fingerprint-device checklist");
+    const hrPage = readFileSync(join(process.cwd(), "src/app/(protected)/hr/page.tsx"), "utf8");
+    expect(hrPage).toContain("Connector not configured");
+    expect(hrPage).toContain("There is no universal “pair scanner” button yet");
     expect(salesWorkflowSteps[4]?.detail).toContain("delayed customer collection is not a separate POS step yet");
   });
 });

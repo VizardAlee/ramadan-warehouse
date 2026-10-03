@@ -261,7 +261,7 @@ export default function GuidePage() {
         <section id="people" className="scroll-mt-24 rounded-2xl border bg-white p-5">
           <h2 className="text-xl font-semibold">Employees and attendance</h2>
           <p className="mt-2 text-sm leading-6">Add employees in <Link className="font-semibold underline" href="/hr">HR &amp; attendance</Link> even if they never sign in to this app. An app user can be linked to an employee. Record attendance corrections with a reason and keep salary terms and staff activities in their separate records.</p>
-          <p className="mt-2 text-sm text-[var(--muted)]">An external fingerprint connector needs its own integration setup; recording an attendance ID alone does not connect a scanner or run payroll.</p>
+          <p className="mt-2 text-sm text-[var(--muted)]">The HR page has a four-step fingerprint-device checklist. Add employees, match each terminal user ID, obtain the device model and API/export details from its installer, then have an integrator connect and test it. Entering an attendance ID alone does not connect a scanner or run payroll; never upload fingerprint templates or device credentials to employee records.</p>
         </section>
       )}
       <section id="alerts" className="scroll-mt-24 rounded-2xl border bg-white p-5">
