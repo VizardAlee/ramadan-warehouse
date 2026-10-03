@@ -1514,7 +1514,7 @@ export default function PosPage() {
             role={cartOpen ? "dialog" : undefined}
             aria-modal={cartOpen ? true : undefined}
             aria-label={cartOpen ? "Current sale and held sales" : undefined}
-            className={`glass-panel scroll-mt-40 h-fit overflow-y-auto rounded-t-2xl p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] lg:sticky lg:top-20 lg:block lg:max-h-[calc(100dvh-7rem)] lg:rounded-2xl ${cartOpen ? "fixed inset-x-0 bottom-0 z-50 max-h-[min(88dvh,48rem)]" : "hidden"}`}
+            className={`pos-cart-panel scroll-mt-40 h-fit overflow-y-auto rounded-t-2xl p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] lg:sticky lg:top-20 lg:block lg:max-h-[calc(100dvh-7rem)] lg:rounded-2xl ${cartOpen ? "fixed inset-x-0 bottom-0 z-50 max-h-[min(88dvh,48rem)]" : "hidden"}`}
           >
             <div className="flex items-center justify-between">
               <h2 className="flex items-center gap-2 text-xl font-semibold">

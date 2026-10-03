@@ -8,7 +8,7 @@ interface ChartDatum {
 
 function donutGradient(data: readonly ChartDatum[]) {
   const total = data.reduce((sum, item) => sum + item.value, 0);
-  if (!total) return "conic-gradient(#e5ebe7 0deg 360deg)";
+  if (!total) return "conic-gradient(#e9edf7 0deg 360deg)";
   let current = 0;
   const stops = data.flatMap((item) => {
     const start = current;
@@ -57,7 +57,7 @@ export function TransferPipelineChart({ data }: { data: readonly ChartDatum[] })
     <figure className="rounded-xl border bg-white p-5 sm:p-6">
       <figcaption className="flex items-start justify-between gap-4">
         <div><h2 className="section-title">Transfer pipeline</h2><p className="mt-1 text-sm text-[var(--muted)]">Where active store-to-store movements need attention.</p></div>
-        <span className="rounded-full bg-emerald-50 px-3 py-1 text-sm font-semibold text-[var(--brand)]">{total} active</span>
+        <span className="rounded-full bg-indigo-50 px-3 py-1 text-sm font-semibold text-[var(--brand)]">{total} active</span>
       </figcaption>
       <div className="mt-6 grid gap-4" role="img" aria-label={data.map((item) => `${item.label}: ${item.value}`).join(", ")}>
         {data.map((item) => (
@@ -99,9 +99,9 @@ export function SalesTrendChart({ data }: { data: readonly SalesTrendDatum[] }) 
             <span className="mb-1 truncate text-[10px] font-semibold text-[var(--muted)] sm:text-xs">
               {item.value > 0 ? formatNaira(item.value) : "—"}
             </span>
-            <div className="flex h-36 items-end justify-center rounded-lg bg-emerald-50 px-1">
+            <div className="flex h-36 items-end justify-center rounded-lg bg-indigo-50 px-1">
               <div
-                className="w-full rounded-t-md bg-gradient-to-t from-emerald-800 to-emerald-400 transition-[height] duration-500"
+                className="w-full rounded-t-md bg-gradient-to-t from-[#273676] to-[#7889d0] transition-[height] duration-500"
                 style={{ height: item.value ? `${Math.max(8, (item.value / maximum) * 100)}%` : "0%" }}
               />
             </div>

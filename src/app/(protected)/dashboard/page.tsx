@@ -49,6 +49,16 @@ interface PageResult<T> {
   nextCursor: string | null;
 }
 
+function ChartPlaceholder({ label }: { label: string }) {
+  return (
+    <div aria-label={`${label} loading`} className="surface min-h-80 p-5 sm:p-6">
+      <Skeleton className="h-6 w-44" />
+      <Skeleton className="mt-3 h-4 w-64 max-w-full" />
+      <Skeleton className="mt-8 h-48 w-full rounded-xl" />
+    </div>
+  );
+}
+
 async function loadScopedRegister<T>(callable: string, extra: object = {}): Promise<T[]> {
   const rows: T[] = [];
   let cursor: string | undefined;
@@ -95,8 +105,10 @@ export default function DashboardPage() {
   const [requests, setRequests] = useState<BranchRequest[]>([]);
   const [transfers, setTransfers] = useState<DashboardTransfer[]>([]);
   const [sales, setSales] = useState<DashboardSale[]>([]);
-  const [registersLoading, setRegistersLoading] = useState(true);
-  const [registerError, setRegisterError] = useState<string | null>(null);
+  const [operationsLoading, setOperationsLoading] = useState(true);
+  const [salesLoading, setSalesLoading] = useState(true);
+  const [operationsError, setOperationsError] = useState(false);
+  const [salesError, setSalesError] = useState(false);
 
   useEffect(() => {
     if (!profile) return;
@@ -108,47 +120,67 @@ export default function DashboardPage() {
         : profile.branchIds.length === 1
           ? profile.branchIds[0]
           : undefined;
+    queueMicrotask(() => {
+      if (!active) return;
+      setOperationsLoading(true);
+      setOperationsError(false);
+      setSalesLoading(canReadSales);
+      setSalesError(false);
+      if (!canReadSales) setSales([]);
+    });
     void Promise.all([
       loadScopedRegister<BranchRequest>("listBranchRequests"),
       loadScopedRegister<WarehouseTransfer>("listTransfers"),
       (profile.roleIds?.length ? profile.roleIds : [profile.roleId]).some(r => ["system_administrator", "operations_administrator", "warehouse_manager", "branch_manager", "auditor", "finance_officer"].includes(r)) ? loadScopedRegister<StockTransfer>("stockTransfers", { action: "list" }) : Promise.resolve([] as StockTransfer[]),
-      canReadSales ? loadSalesRegister(salesBranchId) : Promise.resolve([]),
     ])
-      .then(([requestRows, transferRows, simpleRows, saleRows]) => {
+      .then(([requestRows, transferRows, simpleRows]) => {
         if (!active) return;
         setRequests(requestRows);
         setTransfers([...transferRows, ...simpleRows.map(t => ({ status: t.status, originWarehouseId: t.sourceWarehouseId, sourceBranchId: t.sourceBranchId, destinationBranchId: t.destinationBranchId }))]);
-        setSales(saleRows);
-        setRegisterError(null);
       })
       .catch(() => {
-        if (active)
-          setRegisterError(
-            "Some dashboard totals could not be refreshed for your assignments.",
-          );
+        if (active) {
+          setRequests([]);
+          setTransfers([]);
+          setOperationsError(true);
+        }
       })
       .finally(() => {
-        if (active) setRegistersLoading(false);
+        if (active) setOperationsLoading(false);
       });
+    if (canReadSales) {
+      void loadSalesRegister(salesBranchId)
+        .then((saleRows) => {
+          if (active) setSales(saleRows);
+        })
+        .catch(() => {
+          if (active) {
+            setSales([]);
+            setSalesError(true);
+          }
+        })
+        .finally(() => {
+          if (active) setSalesLoading(false);
+        });
+    }
     return () => {
       active = false;
     };
   }, [operatingContext, profile]);
 
-  const loading = registersLoading || products.loading;
-  const failed = registerError || products.error;
+  const operationsReady = !operationsLoading && !products.loading && !operationsError && !products.error;
   const scopedRecords = scopeDashboardRecords(
     requests,
     transfers,
     operatingContext,
   );
-  const summary = loading
-    ? null
-    : summarizeDashboard(
+  const summary = operationsReady
+    ? summarizeDashboard(
         scopedRecords.requests,
         scopedRecords.transfers,
         products.data,
-      );
+      )
+    : null;
   const cards = [
     { label: "Open branch requests", value: summary?.requests, icon: ClipboardClock, href: "/requests", emphasis: false },
     { label: "Transfers in progress", value: summary?.transfers, icon: Truck, href: "/transfers", emphasis: false },
@@ -197,21 +229,21 @@ export default function DashboardPage() {
         {notificationError && <p role="alert" className="text-sm text-amber-800">{notificationError}</p>}
         {notifications.filter((item) => item.actionRequired).length ? notifications.filter((item) => item.actionRequired).slice(0, 3).map((item) => <NotificationCard key={item.id} item={item} onRead={markRead} />) : <p className="rounded-xl border bg-white p-4 text-sm text-[var(--muted)]">No action is waiting for you.</p>}
       </section>
-      <aside className="flex flex-wrap items-center gap-4 rounded-xl border border-emerald-200 bg-emerald-50 p-4">
+      <aside className="flex flex-wrap items-center gap-4 rounded-xl border border-indigo-100 bg-indigo-50 p-4">
         <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-white text-[var(--brand)]">
           <BookOpenCheck className="size-5" />
         </span>
         <div className="min-w-0 flex-1">
-          <p className="font-semibold text-emerald-950">New to AB Ramadan?</p>
-          <p className="mt-1 text-sm text-emerald-900">Follow the visual setup, stock movement, sales, and accounting workflows.</p>
+          <p className="font-semibold text-[var(--brand-dark)]">New to AB Ramadan?</p>
+          <p className="mt-1 text-sm text-[var(--muted)]">Follow the visual setup, stock movement, sales, and accounting workflows.</p>
         </div>
         <Link href="/guide" className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-[var(--brand)] px-4 text-sm font-semibold text-white">
           Open user guide <ArrowRight className="size-4" />
         </Link>
       </aside>
-      {failed && (
+      {(operationsError || products.error || salesError) && (
         <p role="alert" className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950">
-          Some dashboard totals could not be refreshed. Use the linked registers for current operational detail.
+          Some dashboard totals could not be refreshed. Use the linked registers for current detail.
         </p>
       )}
       {canReadSales && (
@@ -223,19 +255,18 @@ export default function DashboardPage() {
               { label: "Amount received", value: formatNaira(salesSummary.amountPaidMinor), icon: HandCoins, href: "/reports" },
               { label: "Customer credit", value: formatNaira(salesSummary.creditAmountMinor), icon: ClipboardClock, href: "/customers" },
             ].map(({ label, value, icon: Icon, href }) => (
-              <Link key={label} href={href} className="rounded-xl border bg-white p-5 transition-colors hover:border-emerald-300">
+              <Link key={label} href={href} className="surface interactive-card p-5">
                 <div className="flex items-start justify-between gap-4">
-                  <div className="min-w-0"><p className="text-sm text-[var(--muted)]">{label}</p>{loading ? <Skeleton className="mt-3 h-9 w-24" /> : <p className="mt-2 truncate text-2xl font-semibold tabular-nums">{value}</p>}</div>
-                  <span className="grid size-10 shrink-0 place-items-center rounded-lg bg-emerald-50 text-[var(--brand)]"><Icon className="size-5" /></span>
+                  <div className="min-w-0"><p className="text-sm text-[var(--muted)]">{label}</p>{salesLoading ? <Skeleton className="mt-3 h-9 w-24" /> : <p className="mt-2 truncate text-2xl font-semibold tabular-nums">{salesError ? "—" : value}</p>}</div>
+                  <span className="grid size-10 shrink-0 place-items-center rounded-lg bg-indigo-50 text-[var(--brand)]"><Icon className="size-5" /></span>
                 </div>
                 <span className="mt-4 inline-flex items-center gap-1 text-xs font-semibold text-[var(--brand)]">Open details <ArrowRight className="size-3.5" /></span>
               </Link>
             ))}
           </section>
-          {!loading && (
-            <section aria-label="Sales charts" className="grid gap-4 lg:grid-cols-2">
-              <SalesTrendChart data={salesTrend} />
-              <SalesPaymentMixChart data={salesPaymentMix} />
+          {!salesError && (
+            <section aria-label="Sales charts" aria-busy={salesLoading} className="grid gap-4 lg:grid-cols-2">
+              {salesLoading ? <><ChartPlaceholder label="Sales trend" /><ChartPlaceholder label="Payment mix" /></> : <><SalesTrendChart data={salesTrend} /><SalesPaymentMixChart data={salesPaymentMix} /></>}
             </section>
           )}
         </>
@@ -247,22 +278,21 @@ export default function DashboardPage() {
       </div>
       <section aria-label="Operational summary" className="card-grid">
         {cards.map(({ label, value, icon: Icon, href, emphasis }) => (
-          <Link key={label} href={href} className={`rounded-xl border bg-white p-5 transition-colors hover:border-emerald-300 ${emphasis ? "border-amber-300 bg-amber-50" : ""}`}>
+          <Link key={label} href={href} className={`surface interactive-card p-5 ${emphasis ? "border-amber-300 bg-amber-50" : ""}`}>
             <div className="flex items-start justify-between gap-4">
               <div className="min-w-0">
                 <p className="text-sm text-[var(--muted)]">{label}</p>
-                {value === undefined ? <Skeleton className="mt-3 h-9 w-16" /> : <p className="mt-2 text-3xl font-semibold tabular-nums">{value}</p>}
+                {!operationsReady && !operationsError && !products.error ? <Skeleton className="mt-3 h-9 w-16" /> : <p className="mt-2 text-3xl font-semibold tabular-nums">{value ?? "—"}</p>}
               </div>
-              <span className="grid size-10 shrink-0 place-items-center rounded-lg bg-emerald-50 text-[var(--brand)]"><Icon className="size-5" /></span>
+              <span className="grid size-10 shrink-0 place-items-center rounded-lg bg-indigo-50 text-[var(--brand)]"><Icon className="size-5" /></span>
             </div>
             <span className="mt-4 inline-flex items-center gap-1 text-xs font-semibold text-[var(--brand)]">Open queue <ArrowRight className="size-3.5" /></span>
           </Link>
         ))}
       </section>
-      {summary && (
-        <section aria-label="Operational charts" className="grid gap-4 lg:grid-cols-2">
-          <OperationalMixChart data={mixData} />
-          <TransferPipelineChart data={pipelineData} />
+      {!operationsError && !products.error && (
+        <section aria-label="Operational charts" aria-busy={!operationsReady} className="grid gap-4 lg:grid-cols-2">
+          {summary ? <><OperationalMixChart data={mixData} /><TransferPipelineChart data={pipelineData} /></> : <><ChartPlaceholder label="Open work" /><ChartPlaceholder label="Transfer pipeline" /></>}
         </section>
       )}
       {summary && summary.products === 0 && summary.requests === 0 && summary.transfers === 0 ? (
