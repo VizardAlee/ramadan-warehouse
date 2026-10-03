@@ -38,6 +38,7 @@ export async function runTransferExceptionMonitoring(now = new Date()): Promise<
   let examined = 0;
   let alertsUpserted = 0;
   for (const organization of organizations.docs) {
+    if (organization.get("status") !== "active") continue;
     const organizationId = organization.id;
     const [transfers, discrepancies, costs, reservations, requests] = await Promise.all([
       db.collection("transfers").where("organizationId", "==", organizationId).where("status", "in", ["approved", "reserved", "packed", "ready_for_dispatch", "dispatched", "partially_dispatched", "partially_received", "disputed"]).limit(100).get(),

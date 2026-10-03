@@ -7,6 +7,7 @@ const tabs = [
   { href: "/administration/branches", label: "Stores & Head Office", permissions: ["branch.manage"] },
   { href: "/administration/locations", label: "Inventory Locations", permissions: ["location.manage"] },
   { href: "/administration/roles", label: "Roles & Permissions", permissions: ["role.manage"] },
+  { href: "/administration/reset", label: "Start fresh", permissions: ["organization.manage"] },
 ] as const;
 export default function AdministrationLayout({ children }: { children: React.ReactNode }) {
   return <div className="page-stack"><PermissionTabs label="Administration sections" tabs={tabs} />{children}</div>;

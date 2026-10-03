@@ -780,6 +780,13 @@ export async function requireAccess(
       "permission-denied",
       "The warehouse access profile is inactive or invalid.",
     );
+  const organization = await db.collection("organizations").doc(String(record.organizationId)).get();
+  if (!organization.exists || organization.get("status") !== "active")
+    throw new HttpsError(
+      "failed-precondition",
+      "This organization is not accepting operations while its data is being reset or archived.",
+      { code: "ORGANIZATION_NOT_ACTIVE", retryable: false },
+    );
   const tokenOrganizationId = request.auth?.token.organizationId;
   if (
     typeof tokenOrganizationId === "string" &&

@@ -14,9 +14,14 @@ const integrationAdapter = () => environment.INTEGRATION_ADAPTER_MODE === "mock"
 
 export async function runNotificationDeliveryJob(limit = 100) {
   if (!environment.WAREHOUSE_SCHEDULED_FUNCTIONS_ENABLED && environment.APP_ENV !== "emulator") return { skipped: true, examined: 0, attempted: 0 };
-  const snapshots = await db.collection("notificationEvents").where("status", "in", ["pending", "retry"]).limit(limit).get();
+  const organizations = await db.collection("organizations").where("status", "==", "active").get();
+  let examined = 0;
   let attempted = 0;
-  for (const snapshot of snapshots.docs) {
+  for (const organization of organizations.docs) {
+    if (attempted >= limit) break;
+    const snapshots = await db.collection("notificationEvents").where("organizationId", "==", organization.id).where("status", "in", ["pending", "retry"]).limit(limit - attempted).get();
+    examined += snapshots.size;
+    for (const snapshot of snapshots.docs) {
     const data = snapshot.data();
     const event = { id: snapshot.id, idempotencyKey: String(data.idempotencyKey), status: data.status, eventType: String(data.eventType), templateKey: String(data.templateKey ?? data.eventType), recipientIds: data.recipientIds ?? [], recipientRoles: data.recipientRoles ?? [], channelPreferences: data.channelPreferences ?? {}, attemptCount: Number(data.attemptCount ?? 0), nextRetryAt: data.nextRetryAt?.toDate?.().toISOString?.() ?? data.nextRetryAt ?? undefined, organizationId: data.organizationId, entityId: data.entityId, branchId: data.branchId, sourceBranchId: data.sourceBranchId, destinationBranchId: data.destinationBranchId, warehouseId: data.warehouseId, referenceNumber: data.referenceNumber, createdAt: data.createdAt } as InboxEvent;
     const adapter = supportsInAppDelivery(event.eventType)
@@ -24,24 +29,31 @@ export async function runNotificationDeliveryJob(limit = 100) {
       : notificationAdapter();
     const result = await attemptNotificationDelivery(event, adapter);
     if (result.attempted) { await snapshot.ref.update(result.patch); attempted++; }
+    }
   }
   const pushAttempted = await deliverPendingWebPush();
-  const summary = { skipped: false, examined: snapshots.size, attempted, pushAttempted };
+  const summary = { skipped: false, examined, attempted, pushAttempted };
   logger.info("notification_delivery_job_completed", summary);
   return summary;
 }
 
 export async function runIntegrationOutboxJob(limit = 100) {
   if (!environment.WAREHOUSE_SCHEDULED_FUNCTIONS_ENABLED && environment.APP_ENV !== "emulator") return { skipped: true, examined: 0, attempted: 0 };
-  const snapshots = await db.collection("integrationOutbox").where("status", "in", ["pending", "retry"]).limit(limit).get();
+  const organizations = await db.collection("organizations").where("status", "==", "active").get();
+  let examined = 0;
   let attempted = 0;
-  for (const snapshot of snapshots.docs) {
+  for (const organization of organizations.docs) {
+    if (attempted >= limit) break;
+    const snapshots = await db.collection("integrationOutbox").where("organizationId", "==", organization.id).where("status", "in", ["pending", "retry"]).limit(limit - attempted).get();
+    examined += snapshots.size;
+    for (const snapshot of snapshots.docs) {
     const parsed = integrationEventSchema.safeParse(snapshot.data());
     if (!parsed.success) { await snapshot.ref.update({ status: "dead_letter", deadLetter: true, lastError: "Schema validation failed" }); continue; }
     const result = await attemptIntegrationDelivery({ ...parsed.data, status: String(snapshot.get("status")), retryCount: Number(snapshot.get("retryCount") ?? 0) }, integrationAdapter());
     if (result.attempted) { await snapshot.ref.update(result.patch); attempted++; }
+    }
   }
-  const summary = { skipped: false, examined: snapshots.size, attempted };
+  const summary = { skipped: false, examined, attempted };
   logger.info("integration_outbox_job_completed", summary);
   return summary;
 }

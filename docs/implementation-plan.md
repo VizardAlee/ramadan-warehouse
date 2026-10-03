@@ -1,5 +1,9 @@
 # Warehouse application implementation plan
 
+## Administrator start-fresh reset — October 2026
+
+The system-administrator reset now uses a new active organization ID rather than deleting operational or audit documents. It preserves the previous organization as a read-only operational archive, disables and deactivates all other app users (with original assignments recorded for later review), and keeps the initiating administrator active. New setup starts with empty organization-scoped catalogue, inventory, sales and financial records. The operation uses a recent-login requirement, typed confirmation, audit reason and idempotent retry. See `organization-reset.md` for recovery and offline-POS precautions. It does not execute automatically on deployment.
+
 ## Consolidated client roadmap — 20 September 2026
 
 This roadmap extends the deployed application. It does not replace the current
