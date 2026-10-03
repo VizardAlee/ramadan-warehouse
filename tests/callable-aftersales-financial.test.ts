@@ -3,7 +3,7 @@ import { connectAuthEmulator, getAuth, signInWithEmailAndPassword } from "fireba
 import { connectFunctionsEmulator, getFunctions, httpsCallable } from "firebase/functions";
 import { getApps as getAdminApps, initializeApp as initializeAdminApp } from "firebase-admin/app";
 import { getAuth as getAdminAuth } from "firebase-admin/auth";
-import { FieldValue, getFirestore } from "firebase-admin/firestore";
+import { FieldValue, Timestamp, getFirestore } from "firebase-admin/firestore";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 const projectId = "demo-ramadan-warehouse";
@@ -84,7 +84,14 @@ describe.sequential("aftersales and ledger-derived reports", () => {
   });
 
   it("provides four ledger-derived statements and tax evidence without a fabricated statutory rule", async () => {
-    const period = { fromDate: "2026-09-01", toDate: "2026-09-30" };
+    const posted = await adminDb.collection("journalEntries").where("organizationId", "==", organizationId).limit(1).get();
+    const effectiveAt = (posted.docs[0]!.get("effectiveAt") as Timestamp).toDate();
+    const year = effectiveAt.getUTCFullYear();
+    const month = effectiveAt.getUTCMonth();
+    const period = {
+      fromDate: new Date(Date.UTC(year, month, 1)).toISOString().slice(0, 10),
+      toDate: new Date(Date.UTC(year, month + 1, 0)).toISOString().slice(0, 10),
+    };
     const trial = await call<{ totalDebitMinor: number; totalCreditMinor: number }>("generateFinancialStatement", { ...period, reportType: "trial_balance" });
     expect(trial.totalDebitMinor).toBe(trial.totalCreditMinor);
     const income = await call<{ profitMinor: number }>("generateFinancialStatement", { ...period, reportType: "income_statement" });
