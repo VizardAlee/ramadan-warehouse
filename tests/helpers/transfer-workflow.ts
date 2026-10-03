@@ -118,6 +118,7 @@ export async function setupTransferHarness(options: {
 
   await Promise.all([
     db.doc(`organizations/${organizationId}`).set({ name: options.suffix, status: "active" }),
+    db.doc(`organizations/${organizationId}-foreign`).set({ name: `Foreign ${options.suffix}`, status: "active" }),
     db.doc(`warehouses/${warehouseId}`).set({ organizationId, name: "Central", code: "CEN", status: "active" }),
     db.doc(`branches/${branchId}`).set({ organizationId, name: "Kaduna", code: "KAD", status: "active" }),
     db.doc(`inventoryLocations/${originLocationId}`).set({ organizationId, warehouseId, name: "Available", code: "AVL", type: "warehouse", status: "active" }),

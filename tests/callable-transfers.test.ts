@@ -101,6 +101,7 @@ beforeAll(async () => {
     `http://127.0.0.1:8180/emulator/v1/projects/${projectId}/databases/(default)/documents`,
     { method: "DELETE" },
   );
+  await adminDb.doc(`organizations/${organizationId}`).set({ name: "Transfers test organization", status: "active" });
   const now = FieldValue.serverTimestamp();
   await Promise.all([
     adminDb.doc("warehouses/warehouse-a").set({

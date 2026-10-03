@@ -103,6 +103,7 @@ beforeAll(async () => {
     `http://127.0.0.1:8180/emulator/v1/projects/${projectId}/databases/(default)/documents`,
     { method: "DELETE" },
   );
+  await adminDb.doc(`organizations/${organizationId}`).set({ name: "Requests test organization", status: "active" });
   await Promise.all([
     adminDb
       .doc("branches/branch-a")
@@ -264,6 +265,7 @@ describe.sequential("branch request callables", () => {
     await expect(
       call(otherBranch, "getBranchRequest", { requestId, limit: 20 }),
     ).rejects.toMatchObject({ code: "functions/permission-denied" });
+    await adminDb.doc("organizations/foreign-org").set({ name: "Foreign test organization", status: "active" });
     const foreign = await actor(
       "foreign-reviewer@example.test",
       "operations_administrator",

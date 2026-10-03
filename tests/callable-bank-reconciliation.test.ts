@@ -30,6 +30,7 @@ async function createActor(email: string, roleId: string) {
 beforeAll(async () => {
   await fetch(`http://127.0.0.1:9099/emulator/v1/projects/${projectId}/accounts`, { method: "DELETE" });
   await fetch(`http://127.0.0.1:8180/emulator/v1/projects/${projectId}/databases/(default)/documents`, { method: "DELETE" });
+  await adminDb.doc(`organizations/${organizationId}`).set({ name: "Banking test organization", status: "active" });
   administrator = await createActor("bank-admin@example.test", "system_administrator");
   financeOfficer = await createActor("bank-finance@example.test", "finance_officer");
   const effectiveAt = Timestamp.fromDate(new Date("2026-08-02T00:00:00.000Z"));

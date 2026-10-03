@@ -93,6 +93,7 @@ beforeAll(async () => {
     `http://127.0.0.1:8180/emulator/v1/projects/${projectId}/databases/(default)/documents`,
     { method: "DELETE" },
   );
+  await adminDb.doc(`organizations/${organizationId}`).set({ name: "Procurement test organization", status: "active" });
   administrator = await createActor(
     "procurement-admin@example.test",
     "system_administrator",

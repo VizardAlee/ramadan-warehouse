@@ -34,6 +34,7 @@ async function call<T = Record<string, unknown>>(name: string, data: Record<stri
 beforeAll(async () => {
   await fetch(`http://127.0.0.1:9099/emulator/v1/projects/${projectId}/accounts`, { method: "DELETE" });
   await fetch(`http://127.0.0.1:8180/emulator/v1/projects/${projectId}/databases/(default)/documents`, { method: "DELETE" });
+  await adminDb.doc(`organizations/${organizationId}`).set({ name: "Aftersales test organization", status: "active" });
   const record = await adminAuth.createUser({ email: "aftersales-admin@example.test", password: "Password!234567" });
   await adminDb.doc(`users/${record.uid}`).set({ uid: record.uid, organizationId, roleId: "system_administrator", branchIds: [], warehouseIds: [], status: "active", authDisabled: false, authorizationVersion: 1 });
   administrator = client("administrator");

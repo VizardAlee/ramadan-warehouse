@@ -106,6 +106,7 @@ beforeAll(async () => {
     `http://127.0.0.1:8180/emulator/v1/projects/${projectId}/databases/(default)/documents`,
     { method: "DELETE" },
   );
+  await adminDb.doc(`organizations/${organizationId}`).set({ name: "Inventory test organization", status: "active" });
   administrator = await createActor(
     "inventory-admin@example.test",
     "system_administrator",
@@ -160,6 +161,7 @@ describe.sequential("inventory callables", () => {
       call(branchActor, "saveProduct", product({ sku: "UNAUTH-1" })),
     ).rejects.toMatchObject({ code: "functions/permission-denied" });
 
+    await adminDb.doc("organizations/foreign-org").set({ name: "Foreign test organization", status: "active" });
     const foreign = await createActor(
       "inventory-foreign@example.test",
       "system_administrator",
@@ -255,9 +257,13 @@ describe.sequential("inventory callables", () => {
   });
 
   it("imports opening quantities with products through the audited stock ledger", async () => {
+    const importOrganizationId = `${organizationId}-opening-import`;
+    await adminDb.doc(`organizations/${importOrganizationId}`).set({ name: "Opening import test organization", status: "active" });
+    await adminDb.doc("branches/catalogue-migration-branch").set({ organizationId: importOrganizationId, name: "Migration store", code: "MIG", status: "active" });
+    const importer = await createActor("inventory-import@example.test", "system_administrator", importOrganizationId);
     await adminDb.doc("inventoryLocations/catalogue-migration-store").set({
-      organizationId,
-      branchId: "branch-a",
+      organizationId: importOrganizationId,
+      branchId: "catalogue-migration-branch",
       name: "Catalogue migration store",
       type: "branch",
       status: "active",
@@ -266,14 +272,14 @@ describe.sequential("inventory callables", () => {
       "name,sku,unitOfMeasure,trackingType,defaultUnitCostNaira,openingQuantity,openingLocationId",
       "Imported Stock Panel,IMPORTED-STOCK-PANEL,unit,quantity,125000.50,6,catalogue-migration-store",
     ].join("\n");
-    await expect(call(administrator, "previewCsvImport", { kind: "products", csv }))
+    await expect(call(importer, "previewCsvImport", { kind: "products", csv }))
       .resolves.toMatchObject({ valid: true, totalRows: 1 });
     const idempotencyKey = crypto.randomUUID();
-    const first = await call<{ importId: string; summary: { imported: number; stockedRows: number } }>(administrator, "confirmCsvImport", {
+    const first = await call<{ importId: string; summary: { imported: number; stockedRows: number } }>(importer, "confirmCsvImport", {
       kind: "products", csv, idempotencyKey,
     });
     expect(first.summary).toMatchObject({ imported: 1, stockedRows: 1 });
-    await expect(call(administrator, "confirmCsvImport", { kind: "products", csv, idempotencyKey }))
+    await expect(call(importer, "confirmCsvImport", { kind: "products", csv, idempotencyKey }))
       .resolves.toMatchObject({ imported: false, summary: { stockedRows: 1 } });
     const products = await adminDb.collection("products").where("normalizedSku", "==", "IMPORTED-STOCK-PANEL").get();
     expect(products.size).toBe(1);
