@@ -15,10 +15,21 @@ import { correlationId, parseInput } from "../utils/callable.js";
 const previewInput = z.object({ kind: z.enum(["products", "opening_stock", "serial_numbers"]), csv: z.string().min(1).max(1_000_000) });
 const confirmInput = previewInput.extend({ idempotencyKey: z.string().uuid() });
 
-async function contextFor(actor: AccessProfile, kind: CsvImportKind): Promise<CsvValidationContext> {
+async function contextFor(actor: AccessProfile, kind: CsvImportKind, retryImportId?: string): Promise<CsvValidationContext> {
   if (kind === "products") {
-    const skus = await db.collection("organizationSkus").where("organizationId", "==", actor.organizationId).limit(1000).get();
-    return { existingSkus: new Set(skus.docs.map((item) => String(item.get("normalizedSku")))) };
+    const [skus, locations, serials, retriedProducts] = await Promise.all([
+      db.collection("organizationSkus").where("organizationId", "==", actor.organizationId).limit(1000).get(),
+      db.collection("inventoryLocations").where("organizationId", "==", actor.organizationId).limit(1000).get(),
+      db.collection("serializedItems").where("organizationId", "==", actor.organizationId).limit(1000).get(),
+      retryImportId ? db.collection("products").where("importOperationId", "==", retryImportId).get() : Promise.resolve(undefined),
+    ]);
+    const ownSkus = new Set(retriedProducts?.docs.map((item) => String(item.get("normalizedSku"))) ?? []);
+    const ownProductIds = new Set(retriedProducts?.docs.map((item) => item.id) ?? []);
+    return {
+      existingSkus: new Set(skus.docs.map((item) => String(item.get("normalizedSku"))).filter((sku) => !ownSkus.has(sku))),
+      locationIds: new Set(locations.docs.filter((item) => item.get("status") === "active" && item.get("type") === "branch" && item.get("branchId")).map((item) => item.id)),
+      existingSerials: new Set(serials.docs.filter((item) => !ownProductIds.has(String(item.get("productId")))).map((item) => normalizeInventoryIdentifier(String(item.get("serialNumber"))))),
+    };
   }
   const [products, locations, serials] = await Promise.all([
     db.collection("products").where("organizationId", "==", actor.organizationId).limit(1000).get(),
@@ -56,6 +67,18 @@ function hasImportedBasePrice(rows: readonly Record<string, string>[]) {
   return rows.some((row) => Boolean(optionalText(row, "baseSellingPriceNaira")));
 }
 
+function hasOpeningQuantity(rows: readonly Record<string, string>[]) {
+  return rows.some((row) => Number(optionalText(row, "openingQuantity") ?? 0) > 0);
+}
+
+async function requireOpeningStockImport(actor: AccessProfile, rows: readonly Record<string, string>[]) {
+  if (!hasOpeningQuantity(rows)) return;
+  requirePermission(actor, "inventory.opening_stock");
+  const organization = await db.doc(`organizations/${actor.organizationId}`).get();
+  if (organization.get("openingStockEnabled") === false)
+    throw new HttpsError("failed-precondition", "Opening-stock imports are disabled for this organization.");
+}
+
 export const previewCsvImport = onCall({ enforceAppCheck }, async (request) => {
   const actor = await requireAccess(request);
   const input = parseInput(previewInput, request.data);
@@ -64,6 +87,7 @@ export const previewCsvImport = onCall({ enforceAppCheck }, async (request) => {
   const result = preview(input.kind, input.csv, await contextFor(actor, input.kind));
   if (input.kind === "products" && hasImportedBasePrice(result.validRows))
     requirePermission(actor, "sales.price.base.manage");
+  if (input.kind === "products") await requireOpeningStockImport(actor, result.validRows);
   return result;
 });
 
@@ -74,22 +98,38 @@ export const confirmCsvImport = onCall({ enforceAppCheck, timeoutSeconds: 120 },
   await enforceRateLimit({ organizationId: actor.organizationId, userId: actor.userId, operation: "csv-import-confirm", limit: 3, windowSeconds: 300 });
   const operation = db.doc(`importOperations/${actor.organizationId}__${input.idempotencyKey}`);
   const existing = await operation.get();
-  if (existing.exists) return { importId: operation.id, imported: false, summary: existing.get("summary") };
-  const result = preview(input.kind, input.csv, await contextFor(actor, input.kind));
+  const sourceHash = createHash("sha256").update(input.csv).digest("hex");
+  if (existing.exists && (existing.get("sourceHash") !== sourceHash || existing.get("createdBy") !== actor.userId || existing.get("kind") !== input.kind))
+    throw new HttpsError("failed-precondition", "This import key belongs to a different file or user.");
+  if (existing.exists && existing.get("status") === "completed")
+    return { importId: operation.id, imported: false, summary: existing.get("summary") };
+  if (existing.exists && existing.get("status") !== "failed")
+    throw new HttpsError("failed-precondition", "This import is already processing.");
+  const result = preview(input.kind, input.csv, await contextFor(actor, input.kind, existing.exists ? operation.id : undefined));
   if (!result.valid) throw new HttpsError("failed-precondition", "CSV import contains validation errors.", { errors: result.errors });
   if (input.kind === "products" && hasImportedBasePrice(result.validRows))
     requirePermission(actor, "sales.price.base.manage");
+  if (input.kind === "products") await requireOpeningStockImport(actor, result.validRows);
   if (input.kind !== "products") {
     const organization = await db.doc(`organizations/${actor.organizationId}`).get();
     if (organization.get("openingStockEnabled") === false) throw new HttpsError("failed-precondition", "Opening-stock imports are disabled for this organization.");
   }
-  await operation.create({ organizationId: actor.organizationId, kind: input.kind, sourceHash: createHash("sha256").update(input.csv).digest("hex"), status: "processing", createdAt: FieldValue.serverTimestamp(), createdBy: actor.userId });
+  if (existing.exists) {
+    await db.runTransaction(async (transaction) => {
+      const current = await transaction.get(operation);
+      if (current.get("status") !== "failed") throw new HttpsError("failed-precondition", "This import is already processing.");
+      transaction.update(operation, { status: "processing", retriedAt: FieldValue.serverTimestamp() });
+    });
+  } else {
+    await operation.create({ organizationId: actor.organizationId, kind: input.kind, sourceHash, status: "processing", createdAt: FieldValue.serverTimestamp(), createdBy: actor.userId });
+  }
   let imported = 0;
+  let stockedRows = 0;
   try {
     for (let index = 0; index < result.validRows.length; index++) {
       const row = result.validRows[index]!;
       if (input.kind === "products") {
-        const productId = db.collection("products").doc().id;
+        const productId = createHash("sha256").update(`${operation.id}:${index}`).digest("hex").slice(0, 32);
         const effectiveSku = optionalText(row, "sku") ?? `SKU-${productId.toUpperCase()}`;
         const normalizedSku = normalizeInventoryIdentifier(effectiveSku);
         const categoryName = optionalText(row, "categoryName");
@@ -99,6 +139,7 @@ export const confirmCsvImport = onCall({ enforceAppCheck, timeoutSeconds: 120 },
           : undefined;
         await db.runTransaction(async (transaction) => {
           const lock = db.doc(`organizationSkus/${uniquenessDocumentId(actor.organizationId, normalizedSku)}`);
+          const productReference = db.doc(`products/${productId}`);
           const categoryLock = categoryCode
             ? db.doc(
                 `organizationCodes/${uniquenessDocumentId(
@@ -108,10 +149,19 @@ export const confirmCsvImport = onCall({ enforceAppCheck, timeoutSeconds: 120 },
                 )}`,
               )
             : undefined;
-          const [owner, categoryOwner] = await transaction.getAll(
+          const snapshots = await transaction.getAll(
             lock,
             ...(categoryLock ? [categoryLock] : []),
+            productReference,
           );
+          const owner = snapshots[0];
+          const categoryOwner = categoryLock ? snapshots[1] : undefined;
+          const existingProduct = snapshots[categoryLock ? 2 : 1];
+          if (existingProduct!.exists) {
+            if (existingProduct!.get("importOperationId") !== operation.id || existingProduct!.get("importRowIndex") !== index)
+              throw new HttpsError("already-exists", "The import product ID is already in use.");
+            return;
+          }
           if (owner!.exists) throw new HttpsError("already-exists", `SKU ${effectiveSku} already exists.`);
           const effectiveCategoryId = categoryIdInput
             ? categoryIdInput
@@ -177,13 +227,15 @@ export const confirmCsvImport = onCall({ enforceAppCheck, timeoutSeconds: 120 },
             : category?.exists
               ? String(category.get("name"))
               : undefined;
-          transaction.create(db.doc(`products/${productId}`), {
+          transaction.create(productReference, {
             organizationId: actor.organizationId,
             sku: effectiveSku,
             normalizedSku,
             name: row.name,
             unitOfMeasure: row.unitOfMeasure,
             trackingType: row.trackingType,
+            importOperationId: operation.id,
+            importRowIndex: index,
             categoryId: categoryReference?.id ?? null,
             categoryName: effectiveCategoryName ?? null,
             brand: optionalText(row, "brand") ?? null,
@@ -238,7 +290,7 @@ export const confirmCsvImport = onCall({ enforceAppCheck, timeoutSeconds: 120 },
               updatedBy: actor.userId,
             });
           const auditCorrelationId = correlationId();
-          writeAuditLog(transaction, actor, { action: "product.imported", entityType: "product", entityId: productId, correlationId: auditCorrelationId, sourceFunction: "confirmCsvImport", after: { sku: effectiveSku, categoryId: categoryReference?.id } });
+          writeAuditLog(transaction, actor, { action: "product.imported", entityType: "product", entityId: productId, correlationId: auditCorrelationId, sourceFunction: "confirmCsvImport", after: { sku: effectiveSku, categoryId: categoryReference?.id ?? null } });
           if (basePriceMinor !== undefined)
             writeAuditLog(transaction, actor, {
               action: "sales_price.created",
@@ -256,6 +308,30 @@ export const confirmCsvImport = onCall({ enforceAppCheck, timeoutSeconds: 120 },
               },
             });
         });
+        if (Number(row.openingQuantity || 0) > 0) {
+          const unitCostMinor = optionalText(row, "defaultUnitCostMinor")
+            ? Number(row.defaultUnitCostMinor)
+            : nairaToMinor(optionalText(row, "defaultUnitCostNaira"));
+          await postInventoryTransaction(actor, {
+            transactionType: "opening_balance",
+            productId,
+            quantity: Number(row.openingQuantity),
+            destinationLocationId: row.openingLocationId!,
+            unitCostMinor: unitCostMinor!,
+            serialNumbers: (row.openingSerialNumbers ?? "").split("|").map((serial) => serial.trim()).filter(Boolean),
+            lot: row.openingLotNumber ? { lotNumber: row.openingLotNumber } : undefined,
+            effectiveAt: new Date().toISOString(),
+            reason: "Opening stock from product catalogue migration",
+            referenceType: "csv_import",
+            referenceId: operation.id,
+            referenceNumber: operation.id,
+            externalAccount: "migration",
+            idempotencyKey: `${input.idempotencyKey}:${index}`,
+            correlationId: correlationId(),
+            sourceFunction: "confirmCsvImport",
+          });
+          stockedRows++;
+        }
       } else {
         const serialNumbers = input.kind === "serial_numbers" ? [row.serialNumber!] : (row.serialNumbers ?? "").split("|").map((serial) => serial.trim()).filter(Boolean);
         await postInventoryTransaction(actor, {
@@ -279,7 +355,7 @@ export const confirmCsvImport = onCall({ enforceAppCheck, timeoutSeconds: 120 },
       }
       imported++;
     }
-    const summary = { totalRows: result.totalRows, imported, failed: 0 };
+    const summary = { totalRows: result.totalRows, imported, failed: 0, stockedRows };
     await operation.update({ status: "completed", summary, completedAt: FieldValue.serverTimestamp() });
     return { importId: operation.id, imported: true, summary, failedRows: [] };
   } catch (error) {

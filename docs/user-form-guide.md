@@ -50,15 +50,20 @@ Select **From**, **To**, **Product**, and **Quantity**, then choose **Create tra
 2. Review the automatic column matches. For a different heading such as
    `Item Description`, select the corresponding system field from the mapping
    control. One imported column cannot supply two system fields.
-3. Product name, unit of measure, and tracking type are required. SKU may be
-   unmapped or blank for automatic generation. Category should be mapped to a
-   category name, which is reused or created automatically.
+3. Product name is required. Map unit and tracking columns when your file has
+   them, or use the import defaults. SKU may be unmapped or blank for automatic
+   generation. Category names are reused or created automatically.
 4. Costs and central prices use naira with two decimal places for kobo. VAT is
    mapped separately as a percentage.
-5. Review the mapped sample, select **Validate rows**, and correct every
+5. To import existing stock at the same time, map **Opening quantity**, choose
+   the store where the goods are held, and include unit cost. For serialized
+   products also map serial numbers separated by `|`; for batch-tracked goods
+   map a lot number. Only users allowed to post opening stock can do this.
+   Use a separate file for each store.
+6. Review the mapped sample, select **Validate rows**, and correct every
    reported row/field error in the source file. Nothing is created during
    preview.
-6. Select **Import validated products** once validation passes. The confirmed
+7. Select **Import validated products** once validation passes. The confirmed
    import is idempotent, enforces SKU uniqueness and permissions, and records
    audit evidence.
 

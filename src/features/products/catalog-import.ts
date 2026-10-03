@@ -88,6 +88,24 @@ export const catalogImportFields = [
     required: false,
     aliases: ["active", "status", "enabled"],
   },
+  {
+    key: "openingQuantity",
+    label: "Opening quantity",
+    required: false,
+    aliases: ["opening quantity", "quantity", "qty", "stock on hand", "on hand", "current stock"],
+  },
+  {
+    key: "openingSerialNumbers",
+    label: "Serial numbers (separate with |)",
+    required: false,
+    aliases: ["serial numbers", "serials", "serial number"],
+  },
+  {
+    key: "openingLotNumber",
+    label: "Batch / lot number",
+    required: false,
+    aliases: ["batch", "batch number", "lot", "lot number"],
+  },
 ] as const;
 
 export type CatalogImportField = (typeof catalogImportFields)[number]["key"];
@@ -96,6 +114,12 @@ export type CatalogColumnMapping = Record<CatalogImportField, number | null>;
 export interface CatalogImportTable {
   headers: string[];
   rows: string[][];
+}
+
+export interface CatalogImportOptions {
+  defaultUnitOfMeasure?: string;
+  defaultTrackingType?: "quantity" | "batch" | "serial";
+  openingLocationId?: string;
 }
 
 function normalizeHeader(value: string) {
@@ -184,9 +208,12 @@ function quoteCsv(value: string) {
 export function mappedCatalogCsv(
   table: CatalogImportTable,
   mapping: CatalogColumnMapping,
+  options: CatalogImportOptions = {},
 ) {
   const missing = catalogImportFields.filter(
-    (field) => field.required && mapping[field.key] === null,
+    (field) => field.required && mapping[field.key] === null &&
+      !(field.key === "unitOfMeasure" && options.defaultUnitOfMeasure) &&
+      !(field.key === "trackingType" && options.defaultTrackingType),
   );
   if (missing.length)
     throw new Error(
@@ -198,13 +225,19 @@ export function mappedCatalogCsv(
     .filter((column, index, columns) => columns.indexOf(column) !== index);
   if (duplicateSources.length)
     throw new Error("Each imported column can map to only one system field.");
-  const headers = catalogImportFields.map((field) => field.key);
+  if (mapping.openingQuantity !== null &&
+    table.rows.some((row) => Number(row[mapping.openingQuantity!] || 0) > 0) &&
+    !options.openingLocationId)
+    throw new Error("Select the store where the opening quantities are physically held.");
+  const headers = [...catalogImportFields.map((field) => field.key), "openingLocationId"];
   const lines = table.rows.map((row) =>
-    catalogImportFields
+    [...catalogImportFields
       .map((field) => {
         const column = mapping[field.key];
-        return quoteCsv(column === null ? "" : (row[column] ?? ""));
-      })
+        const fallback = field.key === "unitOfMeasure" ? options.defaultUnitOfMeasure
+          : field.key === "trackingType" ? options.defaultTrackingType : "";
+        return quoteCsv(column === null || !row[column] ? (fallback ?? "") : row[column]!);
+      }), quoteCsv(options.openingLocationId ?? "")]
       .join(","),
   );
   return [headers.join(","), ...lines].join("\n");
@@ -228,6 +261,9 @@ export function catalogTemplateCsv() {
       "5",
       "10",
       "true",
+      "5",
+      "SN001|SN002|SN003|SN004|SN005",
+      "",
     ]
       .map(quoteCsv)
       .join(","),

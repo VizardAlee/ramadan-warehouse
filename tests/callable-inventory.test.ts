@@ -254,6 +254,38 @@ describe.sequential("inventory callables", () => {
     });
   });
 
+  it("imports opening quantities with products through the audited stock ledger", async () => {
+    await adminDb.doc("inventoryLocations/catalogue-migration-store").set({
+      organizationId,
+      branchId: "branch-a",
+      name: "Catalogue migration store",
+      type: "branch",
+      status: "active",
+    });
+    const csv = [
+      "name,sku,unitOfMeasure,trackingType,defaultUnitCostNaira,openingQuantity,openingLocationId",
+      "Imported Stock Panel,IMPORTED-STOCK-PANEL,unit,quantity,125000.50,6,catalogue-migration-store",
+    ].join("\n");
+    await expect(call(administrator, "previewCsvImport", { kind: "products", csv }))
+      .resolves.toMatchObject({ valid: true, totalRows: 1 });
+    const idempotencyKey = crypto.randomUUID();
+    const first = await call<{ importId: string; summary: { imported: number; stockedRows: number } }>(administrator, "confirmCsvImport", {
+      kind: "products", csv, idempotencyKey,
+    });
+    expect(first.summary).toMatchObject({ imported: 1, stockedRows: 1 });
+    await expect(call(administrator, "confirmCsvImport", { kind: "products", csv, idempotencyKey }))
+      .resolves.toMatchObject({ imported: false, summary: { stockedRows: 1 } });
+    const products = await adminDb.collection("products").where("normalizedSku", "==", "IMPORTED-STOCK-PANEL").get();
+    expect(products.size).toBe(1);
+    const entries = await adminDb.collection("inventoryEntries")
+      .where("productId", "==", products.docs[0]!.id).get();
+    expect(entries.size).toBe(2);
+    expect(entries.docs.reduce((sum, entry) => sum + Number(entry.get("quantityDelta")), 0)).toBe(0);
+    const balances = await adminDb.collection("inventoryBalances")
+      .where("productId", "==", products.docs[0]!.id).get();
+    expect(balances.docs.some((balance) => balance.get("onHandQuantity") === 6)).toBe(true);
+  });
+
   it("creates and concurrently reuses categories entered in the product form", async () => {
     const standalone = await call<{ categoryId: string }>(
       administrator,

@@ -248,9 +248,9 @@ export default function ProductsPage() {
         {canCreate && (
           <div className="flex flex-wrap gap-2">
             <CatalogImportDialog
-              onImported={(count) =>
+              onImported={(count, stockedRows) =>
                 setMessage(
-                  `${count} product${count === 1 ? " was" : "s were"} imported securely.`,
+                  `${count} product${count === 1 ? " was" : "s were"} imported securely.${stockedRows ? ` Opening stock posted for ${stockedRows} product${stockedRows === 1 ? "" : "s"}.` : ""}`,
                 )
               }
             />

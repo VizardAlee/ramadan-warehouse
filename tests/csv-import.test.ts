@@ -49,4 +49,27 @@ describe("CSV import preview", () => {
       ),
     ).toBe(true);
   });
+
+  it("requires cost, location and serial or lot details for opening quantities", () => {
+    const csv = "name,unitOfMeasure,trackingType,openingQuantity,openingLocationId\nPanel,unit,serial,2,store-1";
+    const result = previewCsvImport("products", csv, { locationIds: new Set(["store-1"]) });
+    expect(result.valid).toBe(false);
+    expect(result.errors.map((error) => error.field)).toEqual(expect.arrayContaining([
+      "defaultUnitCostNaira", "openingSerialNumbers",
+    ]));
+    const wrongStore = previewCsvImport("products", [
+      "name,unitOfMeasure,trackingType,defaultUnitCostNaira,openingQuantity,openingLocationId",
+      "Panel,unit,quantity,100.00,2,foreign",
+    ].join("\n"), { locationIds: new Set(["store-1"]) });
+    expect(wrongStore.errors.some((error) => error.code === "INVALID_LOCATION")).toBe(true);
+  });
+
+  it("rejects repeated serial numbers in a product-and-stock migration", () => {
+    const csv = [
+      "name,unitOfMeasure,trackingType,defaultUnitCostNaira,openingQuantity,openingLocationId,openingSerialNumbers",
+      "Panel,unit,serial,100.00,2,store-1,SN-1|sn-1",
+    ].join("\n");
+    const result = previewCsvImport("products", csv, { locationIds: new Set(["store-1"]) });
+    expect(result.errors.some((error) => error.code === "DUPLICATE_SERIAL")).toBe(true);
+  });
 });

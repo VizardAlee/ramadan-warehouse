@@ -14,6 +14,10 @@ import { Button } from "@/components/ui/button";
 import { AppDialog } from "@/components/ui/app-dialog";
 import { useDialogFocus } from "@/components/ui/use-dialog-focus";
 import { callAdministration } from "@/features/administration/api";
+import { useOrganizationCollection } from "@/features/administration/use-organization-collection";
+import { useAuth } from "@/features/auth/auth-context";
+import { hasPermission } from "@/lib/permissions/roles";
+import type { InventoryLocation } from "@/types/domain";
 import {
   autoMapCatalogColumns,
   catalogImportFields,
@@ -23,6 +27,7 @@ import {
   tableFromRows,
   type CatalogColumnMapping,
   type CatalogImportTable,
+  type CatalogImportOptions,
 } from "./catalog-import";
 
 interface ImportError {
@@ -42,7 +47,7 @@ interface ImportPreview {
 interface ImportResult {
   importId: string;
   imported: boolean;
-  summary: { totalRows: number; imported: number; failed: number };
+  summary: { totalRows: number; imported: number; failed: number; stockedRows?: number };
 }
 
 function downloadText(filename: string, value: string) {
@@ -59,15 +64,25 @@ function downloadText(filename: string, value: string) {
 export function CatalogImportDialog({
   onImported,
 }: {
-  onImported(count: number): void;
+  onImported(count: number, stockedRows: number): void;
 }) {
   const [open, setOpen] = useState(false);
   const [fileName, setFileName] = useState("");
   const [table, setTable] = useState<CatalogImportTable | null>(null);
   const [mapping, setMapping] = useState<CatalogColumnMapping | null>(null);
   const [preview, setPreview] = useState<ImportPreview | null>(null);
+  const [options, setOptions] = useState<CatalogImportOptions>({
+    defaultUnitOfMeasure: "unit",
+    defaultTrackingType: "quantity",
+  });
+  const [importKey, setImportKey] = useState("");
   const [message, setMessage] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const { profile } = useAuth();
+  const locations = useOrganizationCollection<InventoryLocation>("inventoryLocations");
+  const canImportStock = profile ? hasPermission(profile, "inventory.opening_stock") : false;
+  const storeLocations = locations.data.filter((location) =>
+    location.status === "active" && location.type === "branch" && Boolean(location.branchId));
   const inputRef = useRef<HTMLInputElement>(null);
   const dialogRef = useDialogFocus<HTMLDivElement>(open, close);
 
@@ -76,6 +91,8 @@ export function CatalogImportDialog({
     setTable(null);
     setMapping(null);
     setPreview(null);
+    setImportKey("");
+    setOptions({ defaultUnitOfMeasure: "unit", defaultTrackingType: "quantity" });
     setMessage(null);
     if (inputRef.current) inputRef.current.value = "";
   }
@@ -105,6 +122,7 @@ export function CatalogImportDialog({
       setFileName(file.name);
       setTable(nextTable);
       setMapping(autoMapCatalogColumns(nextTable.headers));
+      setImportKey(crypto.randomUUID());
     } catch (cause) {
       resetFile();
       setMessage(
@@ -121,7 +139,7 @@ export function CatalogImportDialog({
     setMessage(null);
     setPreview(null);
     try {
-      const csv = mappedCatalogCsv(table, mapping);
+      const csv = mappedCatalogCsv(table, mapping, options);
       if (new TextEncoder().encode(csv).length > 1_000_000)
         throw new Error("The mapped catalogue exceeds the 1 MB import limit.");
       const result = await callAdministration<
@@ -146,7 +164,7 @@ export function CatalogImportDialog({
   }
 
   async function confirmImport() {
-    if (!table || !mapping || !preview?.valid) return;
+    if (!table || !mapping || !preview?.valid || !importKey) return;
     setLoading(true);
     setMessage(null);
     try {
@@ -159,10 +177,10 @@ export function CatalogImportDialog({
         ImportResult
       >("confirmCsvImport", {
         kind: "products",
-        csv: mappedCatalogCsv(table, mapping),
-        idempotencyKey: crypto.randomUUID(),
+        csv: mappedCatalogCsv(table, mapping, options),
+        idempotencyKey: importKey,
       });
-      onImported(result.summary.imported);
+      onImported(result.summary.imported, result.summary.stockedRows ?? 0);
       close();
     } catch (cause) {
       setMessage(
@@ -204,7 +222,8 @@ export function CatalogImportDialog({
                 </h2>
                 <p className="mt-1 max-w-3xl text-sm leading-6 text-[var(--muted)]">
                   Upload CSV or Excel (.xlsx), match your headings to the system
-                  fields, validate every row, then confirm the import.
+                  fields, optionally include opening stock, validate every row,
+                  then confirm the import.
                 </p>
               </div>
               <Button
@@ -278,7 +297,7 @@ export function CatalogImportDialog({
                       <label key={field.key} className="text-sm font-medium">
                         {field.label}
                         {field.required && (
-                          <span className="ml-1 text-red-700">Required</span>
+                          <span className="ml-1 text-[var(--muted)]">(or use default)</span>
                         )}
                         <select
                           value={mapping[field.key] ?? ""}
@@ -294,6 +313,7 @@ export function CatalogImportDialog({
                                 : current,
                             );
                             setPreview(null);
+                            setImportKey(crypto.randomUUID());
                           }}
                           className="mt-1 w-full rounded-lg border bg-white p-2.5"
                         >
@@ -307,6 +327,42 @@ export function CatalogImportDialog({
                       </label>
                     ))}
                   </div>
+                </section>
+
+                <section className="mt-5 rounded-xl border bg-white p-4 sm:p-5">
+                  <h3 className="font-semibold">Defaults and opening stock</h3>
+                  <p className="mt-1 text-sm text-[var(--muted)]">
+                    If your file has no unit or tracking column, use these defaults.
+                    Map Opening quantity only when you want existing stock posted to the ledger.
+                  </p>
+                  <div className="mt-3 grid gap-3 sm:grid-cols-3">
+                    <label className="text-sm font-medium">Default unit
+                      <input className="mt-1 w-full rounded-lg border p-2.5" value={options.defaultUnitOfMeasure ?? ""}
+                        onChange={(event) => { setOptions((current) => ({ ...current, defaultUnitOfMeasure: event.target.value })); setPreview(null); setImportKey(crypto.randomUUID()); }} />
+                    </label>
+                    <label className="text-sm font-medium">Default tracking
+                      <select className="mt-1 w-full rounded-lg border p-2.5" value={options.defaultTrackingType ?? "quantity"}
+                        onChange={(event) => { setOptions((current) => ({ ...current, defaultTrackingType: event.target.value as "quantity" | "batch" | "serial" })); setPreview(null); setImportKey(crypto.randomUUID()); }}>
+                        <option value="quantity">Quantity</option><option value="batch">Batch</option><option value="serial">Serial</option>
+                      </select>
+                    </label>
+                    {mapping.openingQuantity !== null && (
+                      <label className="text-sm font-medium">Store holding this stock
+                        <select className="mt-1 w-full rounded-lg border p-2.5" value={options.openingLocationId ?? ""}
+                          onChange={(event) => { setOptions((current) => ({ ...current, openingLocationId: event.target.value })); setPreview(null); setImportKey(crypto.randomUUID()); }}>
+                          <option value="">Select a store</option>
+                          {storeLocations.map((location) => <option key={location.id} value={location.id}>{location.name}</option>)}
+                        </select>
+                      </label>
+                    )}
+                  </div>
+                  {mapping.openingQuantity !== null && (
+                    <p className="mt-3 text-xs text-[var(--muted)]">
+                      {canImportStock
+                        ? "Opening quantities require a unit cost. Serial-tracked rows need one serial per unit; batch-tracked rows need a lot number. Stock is posted as an auditable opening balance."
+                        : "Your role cannot post opening stock. Ask an administrator to grant opening-stock access, or leave Opening quantity unmapped."}
+                    </p>
+                  )}
                 </section>
 
                 <section className="mt-5">
@@ -403,7 +459,7 @@ export function CatalogImportDialog({
                 ) : (
                   <ArrowRight className="mr-2 size-4" />
                 )}
-                Import validated products
+                {mapping && mapping.openingQuantity !== null ? "Import products and opening stock" : "Import validated products"}
               </Button>
             </div>
           </div>

@@ -107,6 +107,10 @@ const productRow = z.object({
       ])
       .optional(),
   ),
+  openingQuantity: optionalInteger.refine((value) => !value || Number.isSafeInteger(Number(value)), "Enter a safe whole-number quantity."),
+  openingLocationId: optionalValue(160),
+  openingSerialNumbers: optionalValue(2000),
+  openingLotNumber: optionalValue(160),
 }).superRefine((value, context) => {
   if (value.vatPercent && !value.baseSellingPriceNaira)
     context.addIssue({
@@ -120,6 +124,17 @@ const productRow = z.object({
       path: ["categoryName"],
       message: "Map either category name or category ID, not both.",
     });
+  if (Number(value.openingQuantity || 0) > 0) {
+    if (!value.openingLocationId)
+      context.addIssue({ code: "custom", path: ["openingLocationId"], message: "Select the store holding this opening stock." });
+    if (!value.defaultUnitCostNaira && !value.defaultUnitCostMinor)
+      context.addIssue({ code: "custom", path: ["defaultUnitCostNaira"], message: "Opening stock needs a unit cost in naira." });
+    if (value.trackingType === "serial" &&
+      (value.openingSerialNumbers || "").split("|").map((serial) => serial.trim()).filter(Boolean).length !== Number(value.openingQuantity))
+      context.addIssue({ code: "custom", path: ["openingSerialNumbers"], message: "Provide one serial number per unit." });
+    if (value.trackingType === "batch" && !value.openingLotNumber)
+      context.addIssue({ code: "custom", path: ["openingLotNumber"], message: "Batch-tracked stock needs a lot number." });
+  }
 });
 const openingRow = z.object({
   productId: z.string().trim().min(1),
@@ -168,6 +183,16 @@ export function previewCsvImport(kind: CsvImportKind, csv: string, context: CsvV
       if (sku) {
         if (seenSkus.has(sku) || context.existingSkus?.has(sku)) errors.push({ row: index + 1, field: "sku", code: "DUPLICATE_SKU", message: "SKU already exists in this file or organization." });
         else seenSkus.add(sku);
+      }
+      if (Number(value.openingQuantity || 0) > 0 &&
+        context.locationIds && !context.locationIds.has(value.openingLocationId!))
+        errors.push({ row: index + 1, field: "openingLocationId", code: "INVALID_LOCATION", message: "Opening stock must use an active store location in this organization." });
+      if (Number(value.openingQuantity || 0) > 0 && value.trackingType === "serial") {
+        for (const serial of (value.openingSerialNumbers ?? "").split("|").map((item) => item.trim().toUpperCase()).filter(Boolean)) {
+          if (seenSerials.has(serial) || context.existingSerials?.has(serial))
+            errors.push({ row: index + 1, field: "openingSerialNumbers", code: "DUPLICATE_SERIAL", message: `Serial ${serial} is repeated or already exists.` });
+          seenSerials.add(serial);
+        }
       }
     } else {
       if (context.locationIds && !context.locationIds.has(value.locationId!)) errors.push({ row: index + 1, field: "locationId", code: "INVALID_LOCATION", message: "Location does not belong to the organization." });

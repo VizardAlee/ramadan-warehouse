@@ -29,6 +29,7 @@ export default function GuidePage() {
   const { profile } = useAuth();
   const canTransfer = Boolean(profile && hasAnyPermission(profile, ["transfers.read.all", "transfers.read.assigned_warehouse", "transfers.read.own_branch"]));
   const canSell = Boolean(profile && hasPermission(profile, "sales.create"));
+  const canImportProducts = Boolean(profile && hasPermission(profile, "products.create"));
   const canPurchase = Boolean(profile && hasAnyPermission(profile, ["procurement.read", "payables.read"]));
   const canReconcile = Boolean(profile && hasAnyPermission(profile, ["inventory.count", "inventory.reconcile", "sales.shift.manage", "banking.read"]));
   const canAftersales = Boolean(profile && hasPermission(profile, "sales.returns.read"));
@@ -52,6 +53,13 @@ export default function GuidePage() {
         aria-label="Choose a help topic"
         className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3"
       >
+        {canImportProducts && (
+          <Link href="/products" className="rounded-2xl border bg-white p-5">
+            <Boxes className="mb-3 size-7 text-emerald-800" />
+            <strong>Move products from another system</strong>
+            <p className="mt-2 text-sm">Choose Import catalogue, upload CSV or Excel, match columns, and optionally bring in opening quantities for one store.</p>
+          </Link>
+        )}
         {canTransfer && (
           <>
             <Link

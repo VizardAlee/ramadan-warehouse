@@ -48,4 +48,22 @@ describe("product catalogue column mapping", () => {
       "only one system field",
     );
   });
+
+  it("maps a simple product and quantity sheet using defaults and one selected store", () => {
+    const table = parseCatalogCsv("Product,Cost,Qty\nPanel,125000.50,6");
+    const mapping = autoMapCatalogColumns(table.headers);
+    expect(mapping.openingQuantity).toBe(2);
+    expect(() => mappedCatalogCsv(table, mapping, {
+      defaultUnitOfMeasure: "unit", defaultTrackingType: "quantity",
+    })).toThrow("Select the store");
+    const csv = mappedCatalogCsv(table, mapping, {
+      defaultUnitOfMeasure: "unit", defaultTrackingType: "quantity", openingLocationId: "store-1",
+    });
+    const result = previewCsvImport("products", csv, { locationIds: new Set(["store-1"]) });
+    expect(result.valid).toBe(true);
+    expect(result.validRows[0]).toMatchObject({
+      name: "Panel", unitOfMeasure: "unit", trackingType: "quantity",
+      defaultUnitCostNaira: "125000.50", openingQuantity: "6", openingLocationId: "store-1",
+    });
+  });
 });
