@@ -46,7 +46,7 @@ beforeAll(async () => {
   await fetch(`http://127.0.0.1:9099/emulator/v1/projects/${projectId}/accounts`, { method: "DELETE" });
   await fetch(`http://127.0.0.1:8180/emulator/v1/projects/${projectId}/databases/(default)/documents`, { method: "DELETE" });
   await Promise.all([
-    adminDb.doc(`organizations/${organizationId}`).set({ name: "Serial Test", openingStockEnabled: true, createdAt: FieldValue.serverTimestamp() }),
+    adminDb.doc(`organizations/${organizationId}`).set({ name: "Serial Test", status: "active", openingStockEnabled: true, createdAt: FieldValue.serverTimestamp() }),
     adminDb.doc("warehouses/serial-wh").set({ organizationId, name: "Central", code: "CEN", status: "active" }),
     adminDb.doc("branches/serial-branch").set({ organizationId, name: "Kaduna", code: "KAD", status: "active" }),
     adminDb.doc("inventoryLocations/serial-origin").set({ organizationId, warehouseId: "serial-wh", name: "Available", code: "AVL", type: "warehouse", status: "active", systemManaged: false }),

@@ -18,7 +18,7 @@ const lotA = uniquenessDocumentId(organizationId, "lot-product", "CABLE-A"), lot
 beforeAll(async () => {
   await fetch(`http://127.0.0.1:9099/emulator/v1/projects/${projectId}/accounts`, { method: "DELETE" }); await fetch(`http://127.0.0.1:8180/emulator/v1/projects/${projectId}/databases/(default)/documents`, { method: "DELETE" });
   await Promise.all([
-    adminDb.doc(`organizations/${organizationId}`).set({ name: "Lot Test", openingStockEnabled: true, createdAt: FieldValue.serverTimestamp() }),
+    adminDb.doc(`organizations/${organizationId}`).set({ name: "Lot Test", status: "active", openingStockEnabled: true, createdAt: FieldValue.serverTimestamp() }),
     adminDb.doc("warehouses/lot-wh").set({ organizationId, name: "Central", code: "CEN", status: "active" }), adminDb.doc("branches/lot-branch").set({ organizationId, name: "Abuja", code: "ABJ", status: "active" }),
     adminDb.doc("inventoryLocations/lot-origin").set({ organizationId, warehouseId: "lot-wh", name: "Available", code: "AVL", type: "warehouse", status: "active" }), adminDb.doc("inventoryLocations/lot-destination").set({ organizationId, branchId: "lot-branch", name: "Branch", code: "BRA", type: "branch", status: "active" }),
     adminDb.doc("products/lot-product").set({ organizationId, name: "6mm² DC Solar Cable", sku: "CAB-6MM", unitOfMeasure: "roll", trackingType: "batch", active: true, hasLedgerActivity: false }), adminDb.doc("productCosts/lot-product").set({ organizationId, productId: "lot-product", defaultUnitCostMinor: 10_000, currency: "NGN" }),
