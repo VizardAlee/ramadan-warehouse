@@ -83,6 +83,9 @@ beforeAll(async () => {
   const now = FieldValue.serverTimestamp();
   await Promise.all([
     db
+      .doc(`organizations/${organizationId}`)
+      .set({ name: "Transfer concurrency test", status: "active", createdAt: now }),
+    db
       .doc("products/product-a")
       .set({
         organizationId,
