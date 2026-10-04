@@ -385,10 +385,10 @@ export default function ExpensesPage() {
                     <p className="mt-1 text-sm">
                       Net {formatNaira(expense.netAmountMinor)} + VAT{" "}
                       {formatNaira(expense.vatAmountMinor)} ={" "}
-                      {formatNaira(expense.grossAmountMinor)}
+                      <strong className="finance-outflow">{formatNaira(expense.grossAmountMinor)}</strong>
                     </p>
                     <p className="text-sm">
-                      Outstanding {formatNaira(expense.outstandingAmountMinor)}
+                      Outstanding <strong className={expense.outstandingAmountMinor > 0 ? "finance-attention" : "finance-neutral"}>{formatNaira(expense.outstandingAmountMinor)}</strong>
                     </p>
                     <p className="mt-1 text-sm">{expense.description}</p>
                   </div>

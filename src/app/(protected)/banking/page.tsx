@@ -676,7 +676,7 @@ export default function BankingPage() {
                   <p className="text-sm text-[var(--muted)]">
                     {reconciliation.periodStart} to {reconciliation.periodEnd} ·{" "}
                     {reconciliation.statementTransactionCount} statement rows ·
-                    difference {formatNaira(reconciliation.differenceMinor)}
+                    difference <strong className={reconciliation.differenceMinor === 0 ? "finance-income" : "finance-outflow"}>{formatNaira(reconciliation.differenceMinor)}</strong>
                   </p>
                   <span className="text-sm capitalize">
                     {reconciliation.status}

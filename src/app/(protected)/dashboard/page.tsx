@@ -248,16 +248,17 @@ export default function DashboardPage() {
       )}
       {canReadSales && (
         <>
+          <p className="flex flex-wrap gap-x-4 gap-y-1 text-xs" aria-label="Financial colour key"><span className="finance-income">● Received or earned</span><span className="finance-attention">● Due or needs attention</span><span className="finance-outflow">● Outflow or shortfall</span><span className="finance-balance">● Balance or information</span></p>
           <section aria-label="Sales summary" className="card-grid">
             {[
-              { label: "Sales (30 days)", value: String(salesSummary.saleCount), icon: ReceiptText, href: "/reports" },
-              { label: "Sales value", value: formatNaira(salesSummary.grossAmountMinor), icon: ShoppingBag, href: "/reports" },
-              { label: "Amount received", value: formatNaira(salesSummary.amountPaidMinor), icon: HandCoins, href: "/reports" },
-              { label: "Customer credit", value: formatNaira(salesSummary.creditAmountMinor), icon: ClipboardClock, href: "/customers" },
-            ].map(({ label, value, icon: Icon, href }) => (
+              { label: "Sales (30 days)", value: String(salesSummary.saleCount), icon: ReceiptText, href: "/reports", tone: "finance-balance" },
+              { label: "Sales value", value: formatNaira(salesSummary.grossAmountMinor), icon: ShoppingBag, href: "/reports", tone: "finance-income" },
+              { label: "Amount received", value: formatNaira(salesSummary.amountPaidMinor), icon: HandCoins, href: "/reports", tone: "finance-income" },
+              { label: "Customer credit", value: formatNaira(salesSummary.creditAmountMinor), icon: ClipboardClock, href: "/customers", tone: "finance-attention" },
+            ].map(({ label, value, icon: Icon, href, tone }) => (
               <Link key={label} href={href} className="surface interactive-card p-5">
                 <div className="flex items-start justify-between gap-4">
-                  <div className="min-w-0"><p className="text-sm text-[var(--muted)]">{label}</p>{salesLoading ? <Skeleton className="mt-3 h-9 w-24" /> : <p className="mt-2 truncate text-2xl font-semibold tabular-nums">{salesError ? "—" : value}</p>}</div>
+                  <div className="min-w-0"><p className="text-sm text-[var(--muted)]">{label}</p>{salesLoading ? <Skeleton className="mt-3 h-9 w-24" /> : <p className={`mt-2 truncate text-2xl font-semibold tabular-nums ${tone}`}>{salesError ? "—" : value}</p>}</div>
                   <span className="grid size-10 shrink-0 place-items-center rounded-lg bg-indigo-50 text-[var(--brand)]"><Icon className="size-5" /></span>
                 </div>
                 <span className="mt-4 inline-flex items-center gap-1 text-xs font-semibold text-[var(--brand)]">Open details <ArrowRight className="size-3.5" /></span>

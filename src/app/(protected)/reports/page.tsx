@@ -548,7 +548,7 @@ export default function ReportsPage() {
               ["Invoice total", formatNaira(salesSummary.grossAmountMinor)],
               ["Paid", formatNaira(salesSummary.amountPaidMinor)],
               ["Outstanding", formatNaira(salesSummary.creditAmountMinor)],
-            ].map(([label, value]) => <div key={label} className="rounded-xl border bg-white p-3 text-sm"><span className="text-[var(--muted)]">{label}</span><strong className="mt-1 block text-lg">{value}</strong></div>)}
+            ].map(([label, value]) => <div key={label} className="rounded-xl border bg-white p-3 text-sm"><span className="text-[var(--muted)]">{label}</span><strong className={`mt-1 block text-lg tabular-nums ${label === "Paid" || label === "Net sales" || label === "Invoice total" ? "finance-income" : label === "Outstanding" ? "finance-attention" : label === "Discounts" ? "finance-outflow" : "finance-balance"}`}>{value}</strong></div>)}
           </section>}
           <div className="responsive-table-wrap">
             <table className="responsive-table text-xs">
@@ -603,7 +603,7 @@ export default function ReportsPage() {
                       data-label="Outstanding"
                       className="px-3 py-2 text-right"
                     >
-                      {formatNaira(row.creditAmountMinor)}
+                      <span className={row.creditAmountMinor > 0 ? "finance-attention font-semibold" : "finance-neutral"}>{formatNaira(row.creditAmountMinor)}</span>
                     </td>
                     <td data-label="Document" className="px-3 py-2">
                       <Button

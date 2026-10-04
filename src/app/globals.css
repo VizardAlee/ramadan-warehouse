@@ -381,3 +381,9 @@ textarea { min-height: 96px; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; }
 }
+/* Financial colours describe meaning, not merely whether a number is positive. */
+.finance-income { color: #047857; }
+.finance-outflow { color: #b42318; }
+.finance-attention { color: #a45105; }
+.finance-balance { color: #2447a4; }
+.finance-neutral { color: #334155; }

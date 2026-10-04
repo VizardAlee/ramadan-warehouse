@@ -240,13 +240,13 @@ export default function AccountingClosePage() {
             </div>
             <div className="rounded-xl border bg-white p-4">
               <span className="text-sm text-[var(--muted)]">Total debits</span>
-              <strong className="mt-2 block text-2xl">
+              <strong className="mt-2 block text-2xl finance-balance">
                 {formatNaira(workspace.evidence.totalDebitMinor)}
               </strong>
             </div>
             <div className="rounded-xl border bg-white p-4">
               <span className="text-sm text-[var(--muted)]">Total credits</span>
-              <strong className="mt-2 block text-2xl">
+              <strong className="mt-2 block text-2xl finance-balance">
                 {formatNaira(workspace.evidence.totalCreditMinor)}
               </strong>
             </div>

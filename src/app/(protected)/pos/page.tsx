@@ -1850,8 +1850,8 @@ export default function PosPage() {
                 ))}
                 <Button type="button" variant="outline" disabled={splitPayments.length >= 5} onClick={() => setSplitPayments((items) => [...items, emptySplitPayment("cash")])}>Add payment method</Button>
                 {canCreateCredit && online && <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={splitAllowCredit} onChange={(event) => setSplitAllowCredit(event.target.checked)} /> Leave unpaid balance on named customer credit</label>}
-                <div className="flex justify-between border-t pt-2 text-sm"><span>Entered payments</span><strong>{formatNaira(splitPaidMinor)}</strong></div>
-                <div className="flex justify-between text-sm"><span>{splitAllowCredit ? "Customer balance due" : "Still to allocate"}</span><strong>{formatNaira(Math.max(0, totals.grossAmountMinor - splitPaidMinor))}</strong></div>
+                <div className="flex justify-between border-t pt-2 text-sm"><span>Entered payments</span><strong className="finance-income">{formatNaira(splitPaidMinor)}</strong></div>
+                <div className="flex justify-between text-sm"><span>{splitAllowCredit ? "Customer balance due" : "Still to allocate"}</span><strong className="finance-attention">{formatNaira(Math.max(0, totals.grossAmountMinor - splitPaidMinor))}</strong></div>
                 {!splitValid && <p className="text-xs font-medium text-red-800">Enter at least two positive payments. Their total must equal the sale, unless the remainder is approved customer credit.</p>}
               </div>
             ) : paymentMethod === "customer_credit" ? (
@@ -1945,7 +1945,7 @@ export default function PosPage() {
                 )}
                 <div className="flex justify-between border-t border-amber-200 pt-2 text-sm font-semibold">
                   <span>Balance due later</span>
-                  <span>{formatNaira(Math.max(0, creditAmountMinor))}</span>
+                  <span className="finance-attention">{formatNaira(Math.max(0, creditAmountMinor))}</span>
                 </div>
                 <p className="text-xs text-amber-900">The balance is recorded on the customer account. Further payments can be recorded in Customers; payment acceptance and confirmation remain separate audited steps.</p>
                 {selectedCustomer && (

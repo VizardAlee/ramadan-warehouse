@@ -617,7 +617,7 @@ export default function ProcurementPage() {
                     {order.supplierName} → {order.operationalLocationName ?? order.branchName ?? order.warehouseName}
                   </p>
                   <p className="mt-1 text-sm">
-                    {formatNaira(order.grossAmountMinor)} ·{" "}
+                    <strong className="finance-attention">{formatNaira(order.grossAmountMinor)}</strong> ·{" "}
                     <span className="capitalize">
                       {order.status.replaceAll("_", " ")}
                     </span>
@@ -877,7 +877,7 @@ export default function ProcurementPage() {
                     {invoice.supplierName} · {invoice.purchaseOrderNumber}
                   </p>
                   <p className="mt-1 text-sm">
-                    Outstanding {formatNaira(invoice.outstandingAmountMinor)} ·{" "}
+                    Outstanding <strong className={invoice.outstandingAmountMinor > 0 ? "finance-attention" : "finance-neutral"}>{formatNaira(invoice.outstandingAmountMinor)}</strong> ·{" "}
                     <span className="capitalize">
                       {invoice.status.replaceAll("_", " ")}
                     </span>

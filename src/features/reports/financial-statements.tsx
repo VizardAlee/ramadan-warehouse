@@ -71,22 +71,22 @@ function statementDate(value: string) {
   return new Intl.DateTimeFormat("en-NG", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" }).format(new Date(`${value}T00:00:00Z`));
 }
 
-function StatementLine({ label, value, kind = "item" }: { label: string; value?: number; kind?: "item" | "subtotal" | "total" }) {
+function StatementLine({ label, value, kind = "item", tone = "balance" }: { label: string; value?: number; kind?: "item" | "subtotal" | "total"; tone?: "income" | "outflow" | "attention" | "balance" }) {
   return (
     <div className={`financial-statement-line financial-statement-line--${kind}`}>
-      <span>{label}</span><span className="financial-statement-amount">{statementMoney(value)}</span>
+      <span>{label}</span><span className={`financial-statement-amount finance-${tone}`}>{statementMoney(value)}</span>
     </div>
   );
 }
 
-function StatementSection({ title, rows, totalLabel, total }: { title: string; rows: StatementRow[]; totalLabel?: string; total?: number }) {
+function StatementSection({ title, rows, totalLabel, total, tone = "balance" }: { title: string; rows: StatementRow[]; totalLabel?: string; total?: number; tone?: "income" | "outflow" | "attention" | "balance" }) {
   return (
     <section className="financial-statement-section" aria-label={title}>
       <h3>{title}</h3>
       {rows.length === 0 ? <p className="financial-statement-empty">No posted activity in this section</p> : rows.map((row, index) => (
-        <StatementLine key={`${row.accountCode ?? row.section}-${index}`} label={row.accountName ?? row.section ?? "Other"} value={row.amountMinor} />
+        <StatementLine key={`${row.accountCode ?? row.section}-${index}`} label={row.accountName ?? row.section ?? "Other"} value={row.amountMinor} tone={tone} />
       ))}
-      {totalLabel && <StatementLine label={totalLabel} value={total} kind="subtotal" />}
+      {totalLabel && <StatementLine label={totalLabel} value={total} kind="subtotal" tone={tone} />}
     </section>
   );
 }
@@ -107,20 +107,20 @@ function StatementDocument({ statement, scope }: { statement: StatementResult; s
       </header>
       <div className="financial-statement-body">
         {statement.reportType === "income_statement" && <>
-          <StatementSection title="Income" rows={sectionRows("Income")} totalLabel="Total income" total={statement.incomeMinor} />
-          <StatementSection title="Expenses" rows={sectionRows("Expenses")} totalLabel="Total expenses" total={statement.expenseMinor} />
-          <StatementLine label="Net profit / (loss)" value={statement.profitMinor} kind="total" />
+          <StatementSection title="Income" rows={sectionRows("Income")} totalLabel="Total income" total={statement.incomeMinor} tone="income" />
+          <StatementSection title="Expenses" rows={sectionRows("Expenses")} totalLabel="Total expenses" total={statement.expenseMinor} tone="outflow" />
+          <StatementLine label="Net profit / (loss)" value={statement.profitMinor} kind="total" tone={(statement.profitMinor ?? 0) < 0 ? "outflow" : "income"} />
         </>}
         {statement.reportType === "balance_sheet" && <>
           <StatementSection title="Assets" rows={sectionRows("Assets")} totalLabel="Total assets" total={statement.assetsMinor} />
-          <StatementSection title="Liabilities" rows={sectionRows("Liabilities")} totalLabel="Total liabilities" total={statement.liabilitiesMinor} />
+          <StatementSection title="Liabilities" rows={sectionRows("Liabilities")} totalLabel="Total liabilities" total={statement.liabilitiesMinor} tone="attention" />
           <StatementSection title="Equity" rows={sectionRows("Equity")} totalLabel="Total equity" total={statement.equityMinor} />
           <StatementLine label="Total liabilities and equity" value={(statement.liabilitiesMinor ?? 0) + (statement.equityMinor ?? 0)} kind="total" />
           {statement.balanced === false && <p className="financial-statement-warning">This statement does not balance. Investigate the ledger before relying on it.</p>}
         </>}
         {statement.reportType === "cash_flow" && <>
-          {statement.rows.map((row, index) => <section className="financial-statement-section" key={`${row.section}-${index}`} aria-label={row.section ?? "Other activities"}><h3>{row.section ?? "Other activities"}</h3><StatementLine label={`Net cash from ${row.section?.toLowerCase() ?? "other activities"}`} value={row.amountMinor} kind="subtotal" /></section>)}
-          <StatementLine label="Net increase / (decrease) in cash" value={statement.netCashMovementMinor} kind="total" />
+          {statement.rows.map((row, index) => <section className="financial-statement-section" key={`${row.section}-${index}`} aria-label={row.section ?? "Other activities"}><h3>{row.section ?? "Other activities"}</h3><StatementLine label={`Net cash from ${row.section?.toLowerCase() ?? "other activities"}`} value={row.amountMinor} kind="subtotal" tone={(row.amountMinor ?? 0) < 0 ? "outflow" : "income"} /></section>)}
+          <StatementLine label="Net increase / (decrease) in cash" value={statement.netCashMovementMinor} kind="total" tone={(statement.netCashMovementMinor ?? 0) < 0 ? "outflow" : "income"} />
         </>}
         {statement.reportType === "trial_balance" && <div className="financial-statement-trial-wrap"><table className="financial-statement-trial"><thead><tr><th scope="col">Account</th><th scope="col">Debit</th><th scope="col">Credit</th></tr></thead><tbody>{statement.rows.map((row, index) => <tr key={`${row.accountCode}-${index}`}><td>{row.accountName}{row.accountCode && <small>{row.accountCode}</small>}</td><td>{statementMoney(row.debitMinor)}</td><td>{statementMoney(row.creditMinor)}</td></tr>)}</tbody><tfoot><tr><th scope="row">Total</th><td>{statementMoney(statement.totalDebitMinor)}</td><td>{statementMoney(statement.totalCreditMinor)}</td></tr></tfoot></table></div>}
       </div>
