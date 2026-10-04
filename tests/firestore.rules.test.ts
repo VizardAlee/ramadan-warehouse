@@ -90,6 +90,17 @@ async function seed() {
       branchIds: [],
       warehouseIds: [],
     });
+    await db.doc("users/custom-branch-reader").set({
+      organizationId: "org-1",
+      status: "active",
+      roleId: "branch_manager",
+      roleIds: ["branch_manager"],
+      directRoleIds: [],
+      customRoleIds: ["custom-role-1"],
+      effectivePermissions: ["products.read"],
+      branchIds: ["branch-1"],
+      warehouseIds: [],
+    });
     await db.doc("users/foreign-user").set({
       organizationId: "org-2",
       status: "active",
@@ -793,6 +804,15 @@ describe("Firestore baseline rules", () => {
     await assertFails(adminDb.doc("bankAccounts/new").set({ organizationId: "org-1", ledgerAccountCode: "1031" }));
     await assertFails(financeDb.doc("bankStatementTransactions/bank-transaction-1").update({ status: "reconciled" }));
     await assertFails(adminDb.doc("bankReconciliations/bank-reconciliation-1").update({ status: "closed" }));
+  });
+  it("enforces a custom role's effective permissions despite its branch-manager scope", async () => {
+    await seed();
+    const custom = environment.authenticatedContext("custom-branch-reader").firestore();
+    await assertSucceeds(custom.doc("products/product-1").get());
+    await assertFails(custom.doc("sales/sale-1").get());
+    await assertFails(custom.doc("customers/customer-1").get());
+    await assertFails(custom.doc("expenses/branch-expense-1").get());
+    await assertFails(custom.doc("products/product-1").update({ sku: "UNAUTHORIZED" }));
   });
   it("keeps inbox entries private and allows only the recipient to mark one read", async () => {
     await seed();

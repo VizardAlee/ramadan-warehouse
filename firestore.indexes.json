@@ -396,6 +396,170 @@
       ]
     },
     {
+      "collectionGroup": "inventoryBalances",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "organizationId", "order": "ASCENDING" },
+        { "fieldPath": "availableQuantity", "order": "ASCENDING" },
+        { "fieldPath": "onHandQuantity", "order": "ASCENDING" },
+        { "fieldPath": "reservedQuantity", "order": "ASCENDING" },
+        { "fieldPath": "totalValueMinor", "order": "ASCENDING" },
+        { "fieldPath": "__name__", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "inventoryBalances",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "organizationId", "order": "ASCENDING" },
+        { "fieldPath": "productId", "order": "ASCENDING" },
+        { "fieldPath": "availableQuantity", "order": "ASCENDING" },
+        { "fieldPath": "onHandQuantity", "order": "ASCENDING" },
+        { "fieldPath": "reservedQuantity", "order": "ASCENDING" },
+        { "fieldPath": "totalValueMinor", "order": "ASCENDING" },
+        { "fieldPath": "__name__", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "inventoryBalances",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "organizationId", "order": "ASCENDING" },
+        { "fieldPath": "locationId", "order": "ASCENDING" },
+        { "fieldPath": "availableQuantity", "order": "ASCENDING" },
+        { "fieldPath": "onHandQuantity", "order": "ASCENDING" },
+        { "fieldPath": "reservedQuantity", "order": "ASCENDING" },
+        { "fieldPath": "totalValueMinor", "order": "ASCENDING" },
+        { "fieldPath": "__name__", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "inventoryBalances",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "organizationId", "order": "ASCENDING" },
+        { "fieldPath": "productId", "order": "ASCENDING" },
+        { "fieldPath": "locationId", "order": "ASCENDING" },
+        { "fieldPath": "availableQuantity", "order": "ASCENDING" },
+        { "fieldPath": "onHandQuantity", "order": "ASCENDING" },
+        { "fieldPath": "reservedQuantity", "order": "ASCENDING" },
+        { "fieldPath": "totalValueMinor", "order": "ASCENDING" },
+        { "fieldPath": "__name__", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "inventoryBalances",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "organizationId", "order": "ASCENDING" },
+        { "fieldPath": "branchId", "order": "ASCENDING" },
+        { "fieldPath": "availableQuantity", "order": "ASCENDING" },
+        { "fieldPath": "onHandQuantity", "order": "ASCENDING" },
+        { "fieldPath": "reservedQuantity", "order": "ASCENDING" },
+        { "fieldPath": "totalValueMinor", "order": "ASCENDING" },
+        { "fieldPath": "__name__", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "inventoryBalances",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "organizationId", "order": "ASCENDING" },
+        { "fieldPath": "branchId", "order": "ASCENDING" },
+        { "fieldPath": "productId", "order": "ASCENDING" },
+        { "fieldPath": "availableQuantity", "order": "ASCENDING" },
+        { "fieldPath": "onHandQuantity", "order": "ASCENDING" },
+        { "fieldPath": "reservedQuantity", "order": "ASCENDING" },
+        { "fieldPath": "totalValueMinor", "order": "ASCENDING" },
+        { "fieldPath": "__name__", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "inventoryBalances",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "organizationId", "order": "ASCENDING" },
+        { "fieldPath": "branchId", "order": "ASCENDING" },
+        { "fieldPath": "locationId", "order": "ASCENDING" },
+        { "fieldPath": "availableQuantity", "order": "ASCENDING" },
+        { "fieldPath": "onHandQuantity", "order": "ASCENDING" },
+        { "fieldPath": "reservedQuantity", "order": "ASCENDING" },
+        { "fieldPath": "totalValueMinor", "order": "ASCENDING" },
+        { "fieldPath": "__name__", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "inventoryBalances",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "organizationId", "order": "ASCENDING" },
+        { "fieldPath": "branchId", "order": "ASCENDING" },
+        { "fieldPath": "productId", "order": "ASCENDING" },
+        { "fieldPath": "locationId", "order": "ASCENDING" },
+        { "fieldPath": "availableQuantity", "order": "ASCENDING" },
+        { "fieldPath": "onHandQuantity", "order": "ASCENDING" },
+        { "fieldPath": "reservedQuantity", "order": "ASCENDING" },
+        { "fieldPath": "totalValueMinor", "order": "ASCENDING" },
+        { "fieldPath": "__name__", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "inventoryBalances",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "organizationId", "order": "ASCENDING" },
+        { "fieldPath": "warehouseId", "order": "ASCENDING" },
+        { "fieldPath": "availableQuantity", "order": "ASCENDING" },
+        { "fieldPath": "onHandQuantity", "order": "ASCENDING" },
+        { "fieldPath": "reservedQuantity", "order": "ASCENDING" },
+        { "fieldPath": "totalValueMinor", "order": "ASCENDING" },
+        { "fieldPath": "__name__", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "inventoryBalances",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "organizationId", "order": "ASCENDING" },
+        { "fieldPath": "warehouseId", "order": "ASCENDING" },
+        { "fieldPath": "productId", "order": "ASCENDING" },
+        { "fieldPath": "availableQuantity", "order": "ASCENDING" },
+        { "fieldPath": "onHandQuantity", "order": "ASCENDING" },
+        { "fieldPath": "reservedQuantity", "order": "ASCENDING" },
+        { "fieldPath": "totalValueMinor", "order": "ASCENDING" },
+        { "fieldPath": "__name__", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "inventoryBalances",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "organizationId", "order": "ASCENDING" },
+        { "fieldPath": "warehouseId", "order": "ASCENDING" },
+        { "fieldPath": "locationId", "order": "ASCENDING" },
+        { "fieldPath": "availableQuantity", "order": "ASCENDING" },
+        { "fieldPath": "onHandQuantity", "order": "ASCENDING" },
+        { "fieldPath": "reservedQuantity", "order": "ASCENDING" },
+        { "fieldPath": "totalValueMinor", "order": "ASCENDING" },
+        { "fieldPath": "__name__", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "inventoryBalances",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "organizationId", "order": "ASCENDING" },
+        { "fieldPath": "warehouseId", "order": "ASCENDING" },
+        { "fieldPath": "productId", "order": "ASCENDING" },
+        { "fieldPath": "locationId", "order": "ASCENDING" },
+        { "fieldPath": "availableQuantity", "order": "ASCENDING" },
+        { "fieldPath": "onHandQuantity", "order": "ASCENDING" },
+        { "fieldPath": "reservedQuantity", "order": "ASCENDING" },
+        { "fieldPath": "totalValueMinor", "order": "ASCENDING" },
+        { "fieldPath": "__name__", "order": "ASCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "inventoryEntries",
       "queryScope": "COLLECTION",
       "fields": [

@@ -335,7 +335,7 @@ async function report(
     onHandQuantity: AggregateField.sum("onHandQuantity"),
     reservedQuantity: AggregateField.sum("reservedQuantity"),
     availableQuantity: AggregateField.sum("availableQuantity"),
-    ...(includeCosts ? { valueMinor: AggregateField.sum("totalValueMinor") } : {}),
+    valueMinor: AggregateField.sum("totalValueMinor"),
   }) : null;
   if (kind !== "movement") query = query.orderBy(FieldPath.documentId());
   if (input.cursor) {
@@ -347,7 +347,9 @@ async function report(
   const [snapshot, summarySnapshot] = await Promise.all([query.get(), summaryQuery?.get()]);
   return {
     reportType: kind,
-    summary: summarySnapshot ? Object.fromEntries(Object.entries(summarySnapshot.data()).map(([key, value]) => [key, Number(value ?? 0)])) : null,
+    summary: summarySnapshot ? Object.fromEntries(Object.entries(summarySnapshot.data())
+      .filter(([key]) => includeCosts || key !== "valueMinor")
+      .map(([key, value]) => [key, Number(value ?? 0)])) : null,
     rows: snapshot.docs.map((document) => serialize(document, includeCosts)),
     nextCursor:
       snapshot.size === input.limit ? (snapshot.docs.at(-1)?.id ?? null) : null,

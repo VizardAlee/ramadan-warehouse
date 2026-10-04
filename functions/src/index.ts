@@ -1,6 +1,7 @@
 import "./config.js";
 export { stockTransfers } from "./callable/stock-transfers.js";
 export { getMyAccessContext } from "./callable/get-my-access-context.js";
+export { saveOrganizationRole, getAssignableRolePermissions } from "./callable/manage-roles.js";
 export { previewOrganizationReset, resetOrganizationData } from "./callable/reset-organization.js";
 export { bootstrapOrganization } from "./callable/bootstrap-organization.js";
 export {

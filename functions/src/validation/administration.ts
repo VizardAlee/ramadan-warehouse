@@ -28,15 +28,18 @@ export const organizationInput = z.object({ legalName: z.string().trim().min(2).
 export const bootstrapInput = z.object({ organization: organizationInput, bootstrapSecret: z.string().min(16).max(512).optional() });
 const roleSelection = {
   roleId: z.enum(roles).optional(),
-  roleIds: z.array(z.enum(roles)).min(1).max(roles.length).optional(),
+  roleIds: z.array(z.enum(roles)).max(roles.length).optional(),
+  customRoleIds: z.array(id).max(10).optional(),
 };
 const userFields = z.object({ email: z.string().trim().toLowerCase().email().max(254), displayName: z.string().trim().min(2).max(120), phoneNumber: userPhone, employeeReference: text(80), ...roleSelection, branchIds: z.array(id).max(100).default([]), warehouseIds: z.array(id).max(100).default([]), status: z.enum(["active", "inactive", "suspended"]).default("active"), idempotencyKey: z.string().uuid() });
 export const userInput = userFields.superRefine((value, context) => {
-  if (!value.roleId && !value.roleIds?.length) context.addIssue({ code: "custom", path: ["roleIds"], message: "Select at least one role" });
+  if (!value.roleId && !value.roleIds?.length && !value.customRoleIds?.length) context.addIssue({ code: "custom", path: ["roleIds"], message: "Select at least one role" });
   if (value.roleIds && new Set(value.roleIds).size !== value.roleIds.length) context.addIssue({ code: "custom", path: ["roleIds"], message: "Roles must be unique" });
+  if (value.customRoleIds && new Set(value.customRoleIds).size !== value.customRoleIds.length) context.addIssue({ code: "custom", path: ["customRoleIds"], message: "Custom roles must be unique" });
 });
 export const updateUserInput = userFields.omit({ email: true, idempotencyKey: true }).partial().extend({ userId: id, reason: z.string().trim().min(3).max(500), idempotencyKey: z.string().uuid() }).superRefine((value, context) => {
   if (value.roleIds && new Set(value.roleIds).size !== value.roleIds.length) context.addIssue({ code: "custom", path: ["roleIds"], message: "Roles must be unique" });
+  if (value.customRoleIds && new Set(value.customRoleIds).size !== value.customRoleIds.length) context.addIssue({ code: "custom", path: ["customRoleIds"], message: "Custom roles must be unique" });
 });
 export const revokeSessionsInput = z.object({ userId: id, reason: z.string().trim().min(3).max(500) });
 export const reissueInvitationInput = z.object({ userId: id, idempotencyKey: z.string().uuid() });

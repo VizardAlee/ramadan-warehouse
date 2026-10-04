@@ -137,6 +137,17 @@ export const permissionIds = [
 ] as const;
 export type PermissionId = (typeof permissionIds)[number];
 
+export interface CustomRole {
+  id: string;
+  organizationId: string;
+  name: string;
+  baseRoleId: RoleId;
+  permissionIds: PermissionId[];
+  status: "active" | "inactive";
+  createdAt: DateTimeValue;
+  updatedAt: DateTimeValue;
+}
+
 export interface BankAccount {
   id: string;
   organizationId: string;
@@ -344,6 +355,9 @@ export interface UserProfile {
   status: UserStatus;
   roleId: RoleId;
   roleIds?: RoleId[];
+  directRoleIds?: RoleId[];
+  customRoleIds?: string[];
+  effectivePermissions?: PermissionId[];
   branchIds: string[];
   warehouseIds: string[];
   authDisabled: boolean;

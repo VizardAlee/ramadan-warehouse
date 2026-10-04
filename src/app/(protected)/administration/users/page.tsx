@@ -22,6 +22,7 @@ import {
   roleIds,
   type Branch,
   type UserProfile,
+  type CustomRole,
 } from "@/types/domain";
 
 function dateValue(value: DateTimeValue | undefined) {
@@ -55,18 +56,20 @@ const formSchema = z.object({
     ])
     .optional(),
   employeeReference: z.string().optional(),
-  roleIds: z.array(z.enum(roleIds)).min(1),
+  roleIds: z.array(z.enum(roleIds)),
+  customRoleIds: z.array(z.string()),
   branchIds: z.array(z.string()),
   warehouseIds: z.array(z.string()),
   status: z.enum(["active", "inactive", "suspended"]),
-});
+}).refine((value) => value.roleIds.length + value.customRoleIds.length > 0, { path: ["roleIds"], message: "Select at least one role" });
 type Values = z.infer<typeof formSchema>;
 const defaults: Values = {
   email: "",
   displayName: "",
   phoneNumber: "",
   employeeReference: "",
-  roleIds: ["branch_requester"],
+  roleIds: [],
+  customRoleIds: [],
   branchIds: [],
   warehouseIds: [],
   status: "active",
@@ -76,6 +79,7 @@ export default function UsersPage() {
   const { profile, user: authenticatedUser } = useAuth();
   const users = useOrganizationCollection<UserProfile>("users");
   const branches = useOrganizationCollection<Branch>("branches");
+  const customRoles = useOrganizationCollection<CustomRole>("roles");
   const [search, setSearch] = useState("");
   const [role, setRole] = useState("");
   const [status, setStatus] = useState("");
@@ -107,10 +111,9 @@ export default function UsersPage() {
             `${user.displayName} ${user.email}`
               .toLowerCase()
               .includes(search.toLowerCase())) &&
-          (!role ||
-            roleIdsForProfile(user).includes(
-              role as (typeof roleIds)[number],
-            )) &&
+          (!role || (role.startsWith("custom:")
+            ? user.customRoleIds?.includes(role.slice(7))
+            : roleIdsForProfile(user).includes(role as (typeof roleIds)[number]))) &&
           (!status || user.status === status) &&
           (!branchId || user.branchIds.includes(branchId)),
       ),
@@ -127,7 +130,8 @@ export default function UsersPage() {
             displayName: user.displayName,
             phoneNumber: user.phoneNumber ?? "",
             employeeReference: user.employeeReference ?? "",
-            roleIds: [...roleIdsForProfile(user)],
+            roleIds: user.directRoleIds ?? [...roleIdsForProfile(user)],
+            customRoleIds: user.customRoleIds ?? [],
             branchIds: user.branchIds,
             warehouseIds: user.warehouseIds,
             status: user.status,
@@ -271,6 +275,7 @@ export default function UsersPage() {
                 {id.replaceAll("_", " ")}
               </option>
             ))}
+            {customRoles.data.filter((item) => item.status === "active").map((item) => <option key={item.id} value={`custom:${item.id}`}>{item.name}</option>)}
           </select>
         </label>
         <label>
@@ -373,9 +378,10 @@ export default function UsersPage() {
                     </span>
                   </td>
                   <td data-label="Roles" className="capitalize">
-                    {roleIdsForProfile(user)
-                      .map((roleId) => roleId.replaceAll("_", " "))
-                      .join(", ")}
+                    {[
+                      ...(user.directRoleIds ?? roleIdsForProfile(user)).map((roleId) => roleId.replaceAll("_", " ")),
+                      ...(user.customRoleIds ?? []).map((id) => customRoles.data.find((item) => item.id === id)?.name ?? "Custom role"),
+                    ].join(", ")}
                   </td>
                   <td data-label="Stores">{user.branchIds.length}</td>
                   <td data-label="Status">
@@ -500,7 +506,7 @@ export default function UsersPage() {
               <fieldset className="rounded-lg border p-3 text-sm">
                 <legend className="px-1">Roles</legend>
                 <p className="mb-2 text-xs text-[var(--muted)]">
-                  Select every role this user should hold.
+                  Select built-in and/or organization roles. Their permissions are combined.
                 </p>
                 <div className="grid gap-2 sm:grid-cols-2">
                   {roleIds.map((id) => (
@@ -517,6 +523,7 @@ export default function UsersPage() {
                     </label>
                   ))}
                 </div>
+                {customRoles.data.some((item) => item.status === "active") && <div className="mt-3 border-t pt-3"><p className="mb-2 font-medium">Organization roles</p><div className="grid gap-2 sm:grid-cols-2">{customRoles.data.filter((item) => item.status === "active").map((item) => <label key={item.id} className="flex items-center gap-2"><input type="checkbox" value={item.id} {...register("customRoleIds")} />{item.name}</label>)}</div></div>}
                 {errors.roleIds && (
                   <span className="mt-2 block text-xs text-red-700">
                     Select at least one role

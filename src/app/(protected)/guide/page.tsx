@@ -275,7 +275,7 @@ export default function GuidePage() {
             description="Record existing stock where it is physically held, including stock already at branches. Do not invent a transfer for opening stock."
             steps={setupWorkflowSteps}
           />
-          <p className="mt-4 rounded-xl border bg-white p-4 text-sm leading-6">In <Link className="font-semibold underline" href="/administration/users">Users</Link>, assign multiple roles and permitted stores, resend an expired invitation, or disable a user without erasing past actions. Employees without app access belong in HR instead.</p>
+          <p className="mt-4 rounded-xl border bg-white p-4 text-sm leading-6">In <Link className="font-semibold underline" href="/administration/roles">Roles &amp; permissions</Link>, create a named role, choose its location scope and permissions, and edit it later with a reason. Then assign one or more built-in or custom roles and permitted stores in <Link className="font-semibold underline" href="/administration/users">Users</Link>. Role changes are audited and update assigned users. You can also resend an expired invitation or deactivate a user without erasing past actions. Employees without app access belong in HR instead.</p>
         </section>
       )}
       {canTransfer && <details

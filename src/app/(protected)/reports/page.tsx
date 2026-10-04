@@ -1,7 +1,7 @@
 "use client";
 
 import { ChevronDown, Download, FileText, Loader2 } from "lucide-react";
-import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
   PaginatedTableControls,
@@ -171,7 +171,7 @@ export default function ReportsPage() {
   const [salesSummary, setSalesSummary] = useState<SalesReportResult["summary"]>(undefined);
   const [saleDocument, setSaleDocument] = useState<SaleDocument | null>(null);
   const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
+  const [familyMessages, setFamilyMessages] = useState<Partial<Record<ReportFamily, string>>>({});
   const [inventoryLoadedKey, setInventoryLoadedKey] = useState<string | null>(null);
   const [expandedInventoryRow, setExpandedInventoryRow] = useState<string | null>(null);
   const [salesLoadedKey, setSalesLoadedKey] = useState<string | null>(null);
@@ -189,6 +189,10 @@ export default function ReportsPage() {
             : canReadFinancial
               ? "financial"
               : "inventory";
+  const message = familyMessages[activeFamily] ?? null;
+  const setMessage = useCallback((value: string | null) => {
+    setFamilyMessages((current) => ({ ...current, [activeFamily]: value ?? undefined }));
+  }, [activeFamily]);
   const inventoryQueryKey = JSON.stringify([kind, productId, locationId, includeCosts]);
   const salesQueryKey = JSON.stringify([branchId, fromDate, toDate]);
   const inventoryReady = inventoryLoadedKey === inventoryQueryKey;
@@ -269,7 +273,7 @@ export default function ReportsPage() {
       window.clearTimeout(timer);
       inventoryRequestVersion.current += 1;
     };
-  }, [activeFamily, canReadInventory, includeCosts, inventoryQueryKey, kind, locationId, productId, setInventoryPage]);
+  }, [activeFamily, canReadInventory, includeCosts, inventoryQueryKey, kind, locationId, productId, setInventoryPage, setMessage]);
 
   useEffect(() => {
     if (activeFamily !== "sales" || !canReadSales) return;
@@ -310,7 +314,7 @@ export default function ReportsPage() {
       window.clearTimeout(timer);
       salesRequestVersion.current += 1;
     };
-  }, [activeFamily, branchId, canReadSales, fromDate, salesQueryKey, setSalesPage, toDate]);
+  }, [activeFamily, branchId, canReadSales, fromDate, salesQueryKey, setSalesPage, setMessage, toDate]);
 
   async function loadInventoryNext() {
     if (!inventoryCursor || !inventoryReady || loading) return;

@@ -140,6 +140,29 @@ describe("administration callables", () => {
     expect((await adminDb.doc(`users/${manager.uid}`).get()).data()).toMatchObject({ branchIds: [], warehouseIds: [] });
   });
 
+  it("creates and edits a custom role, updates assigned users, and rejects role escalation", async () => {
+    const state = await adminDb.doc("system/bootstrap").get();
+    const administratorUid = state.get("administratorUid") as string;
+    const administratorEmail = (await adminAuth.getUser(administratorUid)).email!;
+    const administrator = client("custom-role-administrator");
+    await signInWithEmailAndPassword(administrator.auth, administratorEmail, "Password!234567");
+    const roleCatalogue = await httpsCallable(administrator.functions, "getAssignableRolePermissions")({});
+    expect((roleCatalogue.data as { roles: { roleId: string }[] }).roles.some((role) => role.roleId === "branch_manager")).toBe(true);
+    const save = httpsCallable(administrator.functions, "saveOrganizationRole");
+    const first = await save({ name: "Sales order clerk", baseRoleId: "branch_manager", permissionIds: ["products.read", "sales.order.create"], status: "active", idempotencyKey: crypto.randomUUID() });
+    const roleId = (first.data as { roleId: string }).roleId;
+    expect((await adminDb.doc(`roles/${roleId}`).get()).data()).toMatchObject({ name: "Sales order clerk", permissionIds: ["products.read", "sales.order.create"] });
+    const create = httpsCallable(administrator.functions, "createOrganizationUser");
+    const created = await create({ email: "custom-role-user@example.test", displayName: "Sales Order Clerk", roleIds: [], customRoleIds: [roleId], branchIds: [], warehouseIds: [], status: "active", idempotencyKey: crypto.randomUUID() });
+    const userId = (created.data as { userId: string }).userId;
+    expect((await adminDb.doc(`users/${userId}`).get()).data()).toMatchObject({ directRoleIds: [], customRoleIds: [roleId], roleIds: ["branch_manager"], effectivePermissions: ["products.read", "sales.order.create"] });
+    await expect(save({ id: roleId, name: "Sales order clerk", baseRoleId: "finance_officer", permissionIds: ["banking.read"], status: "active", reason: "Invalid scope expansion", idempotencyKey: crypto.randomUUID() })).rejects.toMatchObject({ code: "functions/failed-precondition" });
+    await expect(save({ id: roleId, name: "Sales order clerk", baseRoleId: "branch_manager", permissionIds: ["organization.manage"], status: "active", reason: "Invalid privilege", idempotencyKey: crypto.randomUUID() })).rejects.toMatchObject({ code: "functions/invalid-argument" });
+    await save({ id: roleId, name: "Sales order clerk", baseRoleId: "branch_manager", permissionIds: ["products.read"], status: "active", reason: "Narrow order access", idempotencyKey: crypto.randomUUID() });
+    expect((await adminDb.doc(`users/${userId}`).get()).data()).toMatchObject({ effectivePermissions: ["products.read"], authorizationVersion: 2 });
+    expect((await adminAuth.getUser(userId)).customClaims).toMatchObject({ authorizationVersion: 2 });
+  });
+
   it("protects organization scope and the final active administrator", async () => {
     const state = await adminDb.doc("system/bootstrap").get(); const organizationId = state.get("organizationId") as string; const originalUid = state.get("administratorUid") as string;
     const secondAdmin = await adminAuth.createUser({ email: "second-admin@example.test", password: "Password!234567", displayName: "Second Admin" });

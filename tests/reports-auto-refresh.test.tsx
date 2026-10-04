@@ -54,7 +54,7 @@ describe("automatic reports", () => {
     expect(screen.queryByRole("link", { name: /Full product history/ })).toBeNull();
     fireEvent.click(product);
     expect(product.getAttribute("aria-expanded")).toBe("true");
-    await waitFor(() => expect(api.call).toHaveBeenCalledWith("generateSkuMovementReport", expect.objectContaining({ productId: "product-1" })));
+    await waitFor(() => expect(api.call).toHaveBeenCalledWith("getSkuMovementHistory", expect.objectContaining({ productId: "product-1" })));
     const link = screen.getByRole("link", { name: /Full product history/ });
     expect(link.getAttribute("href")).toBe("/products/product-1#movement-history");
     expect(screen.queryByRole("columnheader", { name: "Product Id" })).toBeNull();
@@ -116,6 +116,19 @@ describe("automatic reports", () => {
     fireEvent.change(screen.getByLabelText("Statement"), { target: { value: "cash_flow" } });
     expect(await screen.findByText("Net increase / (decrease) in cash")).toBeTruthy();
     expect(screen.getByText("(₦1,000.00)")).toBeTruthy();
+  });
+
+  it("does not carry an inventory error into another report tab", async () => {
+    api.call.mockImplementation(async (name: string, filters: Record<string, string>) => {
+      if (name === "generateStockPositionReport") throw new Error("Inventory index unavailable");
+      if (name === "generateFinancialStatement") return { ...filters, rows: [] };
+      return { rows: [], nextCursor: null };
+    });
+    render(<ReportsPage />);
+    fireEvent.click(screen.getByRole("button", { name: "Inventory reports" }));
+    expect(await screen.findByText("Inventory index unavailable")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Financial statements" }));
+    expect(screen.queryByText("Inventory index unavailable")).toBeNull();
   });
 
   it("does not show an older sales response after filters have changed", async () => {

@@ -21,7 +21,7 @@ export function ProductHistoryPreview({ productId, productName, locations, repor
   const [error, setError] = useState(false);
   useEffect(() => {
     let active = true;
-    callAdministration<object, { rows: InventoryEntry[] }>("generateSkuMovementReport", {
+    callAdministration<object, { rows: InventoryEntry[] }>("getSkuMovementHistory", {
       productId,
       limit: 30,
       includeCosts: false,

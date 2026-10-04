@@ -4,6 +4,7 @@ import { logger } from "firebase-functions";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
 import { adminAuth, db } from "../admin.js";
 import { assertAssignableRoles, normalizeRoleIds, requireAccess, requireOrganizationAccess, requirePermission } from "../auth/authorize.js";
+import { buildRoleAssignment, customRoleIds, loadCustomRoles } from "../auth/custom-roles.js";
 import { writeAuditLog } from "../audit/write-audit-log.js";
 import { enforceAppCheck } from "../config.js";
 import { validateAssignments } from "../services/assignments.js";
@@ -25,7 +26,12 @@ function hasUsedInvitation(authUser: Awaited<ReturnType<typeof adminAuth.getUser
 export const createOrganizationUser = onCall({ enforceAppCheck }, async (request) => {
   const actor = await requireAccess(request); requirePermission(actor, "user.manage");
   const input = parseInput(userInput, request.data);
-  const roleIds = normalizeRoleIds(input.roleIds, input.roleId);
+  const selectedCustomRoles = await loadCustomRoles(actor.organizationId, input.customRoleIds ?? []);
+  const assignment = buildRoleAssignment(
+    normalizeRoleIds(input.roleIds, input.roleId),
+    selectedCustomRoles,
+  );
+  const roleIds = assignment.roleIds;
   assertAssignableRoles(actor, undefined, roleIds);
   await validateAssignments(actor, input.branchIds, input.warehouseIds);
   const operation = operationRef(actor.organizationId, "createUser", input.idempotencyKey);
@@ -47,10 +53,15 @@ export const createOrganizationUser = onCall({ enforceAppCheck }, async (request
   }
   try {
     await db.runTransaction(async (transaction) => {
-      const [existingOperation, existingEmail] = await Promise.all([transaction.get(operation), transaction.get(emailRef(input.email))]);
+      const [existingOperation, existingEmail, ...freshCustomRoles] = await Promise.all([
+        transaction.get(operation), transaction.get(emailRef(input.email)),
+        ...selectedCustomRoles.map((role) => transaction.get(db.collection("roles").doc(role.id))),
+      ]);
       if (existingOperation.exists || existingEmail.exists) throw new HttpsError("already-exists", "This user provisioning request has already been processed.");
+      if (freshCustomRoles.some((role, index) => !role.exists || role.get("organizationId") !== actor.organizationId || role.get("status") !== "active" || JSON.stringify(role.get("permissionIds")) !== JSON.stringify(selectedCustomRoles[index]?.permissionIds) || role.get("baseRoleId") !== selectedCustomRoles[index]?.baseRoleId))
+        throw new HttpsError("aborted", "A role changed while creating this user. Refresh and try again.");
       const now = FieldValue.serverTimestamp();
-      transaction.create(db.collection("users").doc(authUser.uid), { uid: authUser.uid, organizationId: actor.organizationId, email: input.email, displayName: input.displayName, phoneNumber: input.phoneNumber ?? null, employeeReference: input.employeeReference ?? null, roleId: roleIds[0], roleIds, branchIds: input.branchIds, warehouseIds: input.warehouseIds, status: input.status, authDisabled: input.status !== "active", authorizationVersion: 1, invitationStatus: "pending", invitationIssuedAt: now, invitationExpiresAt, invitationAttemptCount: 1, createdAt: now, createdBy: actor.userId, updatedAt: now, updatedBy: actor.userId, lastRoleChangeAt: now, lastRoleChangedBy: actor.userId });
+      transaction.create(db.collection("users").doc(authUser.uid), { uid: authUser.uid, organizationId: actor.organizationId, email: input.email, displayName: input.displayName, phoneNumber: input.phoneNumber ?? null, employeeReference: input.employeeReference ?? null, ...assignment, branchIds: input.branchIds, warehouseIds: input.warehouseIds, status: input.status, authDisabled: input.status !== "active", authorizationVersion: 1, invitationStatus: "pending", invitationIssuedAt: now, invitationExpiresAt, invitationAttemptCount: 1, createdAt: now, createdBy: actor.userId, updatedAt: now, updatedBy: actor.userId, lastRoleChangeAt: now, lastRoleChangedBy: actor.userId });
       transaction.create(emailRef(input.email), { uid: authUser.uid, organizationId: actor.organizationId, createdAt: now });
       transaction.create(operation, { organizationId: actor.organizationId, action: "createUser", userId: authUser.uid, status: "completed", createdAt: now, createdBy: actor.userId });
       writeAuditLog(transaction, actor, { action: "user.created", entityType: "user", entityId: authUser.uid, correlationId: requestId, sourceFunction: "createOrganizationUser", after: { email: input.email, roleId: roleIds[0], roleIds, branchIds: input.branchIds, warehouseIds: input.warehouseIds, status: input.status } });
@@ -107,19 +118,27 @@ export const updateOrganizationUser = onCall({ enforceAppCheck }, async (request
   const targetRef = db.collection("users").doc(input.userId); const targetSnapshot = await targetRef.get();
   if (!targetSnapshot.exists) throw new HttpsError("not-found", "User profile not found.");
   const before = targetSnapshot.data() as Record<string, unknown>; requireOrganizationAccess(actor, String(before.organizationId));
-  if (input.userId === actor.userId && (input.roleId || input.roleIds || input.status || input.branchIds || input.warehouseIds)) throw new HttpsError("permission-denied", "You cannot change your own access assignments or status.");
-  const beforeRoleIds = normalizeRoleIds(before.roleIds, before.roleId);
-  const rolesWereSubmitted = Boolean(input.roleId || input.roleIds);
-  const nextRoleIds = rolesWereSubmitted
+  if (input.userId === actor.userId && (input.roleId || input.roleIds !== undefined || input.customRoleIds !== undefined || input.status || input.branchIds || input.warehouseIds)) throw new HttpsError("permission-denied", "You cannot change your own access assignments or status.");
+  const rolesWereSubmitted = input.roleId !== undefined || input.roleIds !== undefined || input.customRoleIds !== undefined;
+  const nextDirectRoleIds = rolesWereSubmitted && (input.roleId !== undefined || input.roleIds !== undefined)
     ? normalizeRoleIds(input.roleIds, input.roleId)
-    : beforeRoleIds;
-  if (rolesWereSubmitted && JSON.stringify(nextRoleIds) !== JSON.stringify(beforeRoleIds)) assertAssignableRoles(actor, input.userId, nextRoleIds);
+    : normalizeRoleIds(before.directRoleIds ?? before.roleIds, before.roleId);
+  const nextCustomRoleIds = input.customRoleIds ?? customRoleIds(before.customRoleIds);
+  const selectedCustomRoles = await loadCustomRoles(actor.organizationId, nextCustomRoleIds);
+  const assignment = buildRoleAssignment(nextDirectRoleIds, selectedCustomRoles);
+  const nextRoleIds = assignment.roleIds;
+  if (rolesWereSubmitted) assertAssignableRoles(actor, input.userId, nextRoleIds);
   const branchIds = input.branchIds ?? (before.branchIds as string[]); const warehouseIds = input.warehouseIds ?? (before.warehouseIds as string[]);
   await validateAssignments(actor, branchIds, warehouseIds);
   const operation = operationRef(actor.organizationId, "updateUser", input.idempotencyKey); const requestId = correlationId();
   await db.runTransaction(async (transaction) => {
-    const [fresh, previousOperation] = await Promise.all([transaction.get(targetRef), transaction.get(operation)]);
+    const [fresh, previousOperation, ...freshCustomRoles] = await Promise.all([
+      transaction.get(targetRef), transaction.get(operation),
+      ...nextCustomRoleIds.map((id) => transaction.get(db.collection("roles").doc(id))),
+    ]);
     if (previousOperation.exists) return;
+    if (freshCustomRoles.some((role, index) => !role.exists || role.get("organizationId") !== actor.organizationId || role.get("status") !== "active" || JSON.stringify(role.get("permissionIds")) !== JSON.stringify(selectedCustomRoles[index]?.permissionIds) || role.get("baseRoleId") !== selectedCustomRoles[index]?.baseRoleId))
+      throw new HttpsError("aborted", "A role changed while updating this user. Refresh and try again.");
     const current = fresh.data() as Record<string, unknown>;
     const currentRoleIds = normalizeRoleIds(current.roleIds, current.roleId);
     const removesFinalAdmin = currentRoleIds.includes("system_administrator") && (!nextRoleIds.includes("system_administrator") || (input.status && input.status !== "active"));
@@ -129,12 +148,12 @@ export const updateOrganizationUser = onCall({ enforceAppCheck }, async (request
       if (administratorCount <= 1) throw new HttpsError("failed-precondition", "The final active system administrator cannot be removed or deactivated.");
     }
     const version = Number(current.authorizationVersion ?? 1) + 1; const now = FieldValue.serverTimestamp();
-    const changes: Record<string, unknown> = { ...input, roleId: nextRoleIds[0], roleIds: nextRoleIds, branchIds, warehouseIds, authDisabled: input.status ? input.status !== "active" : current.authDisabled, authorizationVersion: version, updatedAt: now, updatedBy: actor.userId };
+    const changes: Record<string, unknown> = { ...input, ...assignment, branchIds, warehouseIds, authDisabled: input.status ? input.status !== "active" : current.authDisabled, authorizationVersion: version, updatedAt: now, updatedBy: actor.userId };
     delete changes.userId; delete changes.reason; delete changes.idempotencyKey;
-    const rolesChanged = JSON.stringify(nextRoleIds) !== JSON.stringify(currentRoleIds);
+    const rolesChanged = JSON.stringify(nextRoleIds) !== JSON.stringify(currentRoleIds) || JSON.stringify(assignment.customRoleIds) !== JSON.stringify(customRoleIds(current.customRoleIds)) || JSON.stringify(assignment.effectivePermissions) !== JSON.stringify(current.effectivePermissions ?? []);
     if (rolesChanged) { changes.lastRoleChangeAt = now; changes.lastRoleChangedBy = actor.userId; }
     transaction.update(targetRef, changes); transaction.create(operation, { organizationId: actor.organizationId, action: "updateUser", userId: input.userId, status: "completed", createdAt: now, createdBy: actor.userId });
-    writeAuditLog(transaction, actor, { action: input.status && input.status !== current.status ? `user.${input.status === "active" ? "activated" : "deactivated"}` : rolesChanged ? "user.roles_changed" : "user.updated", entityType: "user", entityId: input.userId, correlationId: requestId, sourceFunction: "updateOrganizationUser", reason: input.reason, before: { roleId: currentRoleIds[0], roleIds: currentRoleIds, branchIds: current.branchIds, warehouseIds: current.warehouseIds, status: current.status }, after: { roleId: nextRoleIds[0], roleIds: nextRoleIds, branchIds, warehouseIds, status: input.status ?? current.status } });
+    writeAuditLog(transaction, actor, { action: input.status && input.status !== current.status ? `user.${input.status === "active" ? "activated" : "deactivated"}` : rolesChanged ? "user.roles_changed" : "user.updated", entityType: "user", entityId: input.userId, correlationId: requestId, sourceFunction: "updateOrganizationUser", reason: input.reason, before: { roleId: currentRoleIds[0], roleIds: currentRoleIds, customRoleIds: customRoleIds(current.customRoleIds), branchIds: current.branchIds, warehouseIds: current.warehouseIds, status: current.status }, after: { roleId: nextRoleIds[0], roleIds: nextRoleIds, customRoleIds: assignment.customRoleIds, branchIds, warehouseIds, status: input.status ?? current.status } });
     if (JSON.stringify(branchIds) !== JSON.stringify(current.branchIds)) writeAuditLog(transaction, actor, { action: "user.branch_assignments_changed", entityType: "user", entityId: input.userId, correlationId: requestId, sourceFunction: "updateOrganizationUser", reason: input.reason, before: { branchIds: current.branchIds }, after: { branchIds } });
     if (JSON.stringify(warehouseIds) !== JSON.stringify(current.warehouseIds)) writeAuditLog(transaction, actor, { action: "user.warehouse_assignments_changed", entityType: "user", entityId: input.userId, correlationId: requestId, sourceFunction: "updateOrganizationUser", reason: input.reason, before: { warehouseIds: current.warehouseIds }, after: { warehouseIds } });
   });

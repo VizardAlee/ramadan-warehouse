@@ -328,17 +328,18 @@ export function permissionsForRoles(
 }
 
 export function hasPermission(
-  profile: Pick<UserProfile, "status" | "roleId" | "roleIds">,
+  profile: Pick<UserProfile, "status" | "roleId" | "roleIds" | "effectivePermissions">,
   permission: PermissionId,
 ): boolean {
   if (profile.status !== "active") return false;
   const assignedRoles = roleIdsForProfile(profile);
   if (assignedRoles.includes("system_administrator")) return true;
+  if (profile.effectivePermissions) return profile.effectivePermissions.includes(permission);
   return permissionsForRoles(assignedRoles).has(permission);
 }
 
 export function hasAnyPermission(
-  profile: Pick<UserProfile, "status" | "roleId" | "roleIds">,
+  profile: Pick<UserProfile, "status" | "roleId" | "roleIds" | "effectivePermissions">,
   permissions: readonly PermissionId[],
 ): boolean {
   return permissions.some((permission) => hasPermission(profile, permission));

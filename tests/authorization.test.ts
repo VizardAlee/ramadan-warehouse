@@ -1,9 +1,17 @@
 import { describe, expect, it } from "vitest";
 import { applyOperatingContext, assertAssignableRole, assertAssignableRoles, assertAssignmentScope, canAssignRole, hasServerPermission, type AccessProfile } from "../functions/src/auth/authorize";
+import { buildRoleAssignment } from "../functions/src/auth/custom-roles";
 
 const actor = (roleId: AccessProfile["roleId"]): AccessProfile => ({ userId: "actor", organizationId: "org", roleId, branchIds: ["b1"], warehouseIds: ["w1"], authorizationVersion: 1 });
 describe("server authorization controls", () => {
   it("allows a system administrator to assign an allowed role", () => expect(canAssignRole("system_administrator", "finance_officer")).toBe(true));
+  it("limits a custom role to its selected permissions while retaining branch scope", () => {
+    const assignment = buildRoleAssignment([], [{ id: "sales-helper", organizationId: "org", name: "Sales helper", baseRoleId: "branch_manager", permissionIds: ["sales.order.create"], status: "active" }]);
+    const user = { ...actor("branch_manager"), roleIds: assignment.roleIds, effectivePermissions: assignment.effectivePermissions } satisfies AccessProfile;
+    expect(hasServerPermission(user, "sales.order.create")).toBe(true);
+    expect(hasServerPermission(user, "sales.credit.create")).toBe(false);
+    expect(hasServerPermission(user, "inventory.adjust")).toBe(false);
+  });
   it("gives a system administrator every server action regardless of location scope", () => {
     const administrator = actor("system_administrator");
     expect(hasServerPermission(administrator, "inventory.reconcile")).toBe(true);

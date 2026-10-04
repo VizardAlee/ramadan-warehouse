@@ -1,8 +1,8 @@
 "use client";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Plus, Search } from "lucide-react";
+import { ChevronDown, Plus, Search } from "lucide-react";
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { Button } from "@/components/ui/button";
@@ -23,10 +23,12 @@ import {
 } from "@/features/inventory/format";
 import { hasPermission } from "@/lib/permissions/roles";
 import { CatalogImportDialog } from "@/features/products/catalog-import-dialog";
+import { ProductHistoryPreview } from "@/features/reports/product-history-preview";
 import {
   productTrackingTypes,
   type Product,
   type ProductCategory,
+  type InventoryLocation,
 } from "@/types/domain";
 
 const schema = z.object({
@@ -108,7 +110,10 @@ export default function ProductsPage() {
     vatRateBasisPoints: number;
     active: boolean;
   }>("productSalesPrices");
+  const canReadInventory = Boolean(profile && hasPermission(profile, "inventory.read"));
+  const locations = useOrganizationCollection<InventoryLocation>("inventoryLocations", canReadInventory);
   const [search, setSearch] = useState("");
+  const [expandedProductId, setExpandedProductId] = useState<string | null>(null);
   const [tracking, setTracking] = useState("");
   const [editing, setEditing] = useState<Product | null>(null);
   const [open, setOpen] = useState(false);
@@ -327,18 +332,20 @@ export default function ProductsPage() {
               </tr>
             ) : (
               pagination.rows.map((product) => (
-                <tr key={product.id} className="border-t">
+                <Fragment key={product.id}>
+                <tr className="border-t">
                   <td
                     data-label="Product"
                     data-primary="true"
                     className="px-4 py-3"
                   >
-                    <Link
-                      href={`/products/${product.id}`}
-                      className="font-semibold text-[var(--brand)]"
-                    >
-                      {product.name}
-                    </Link>
+                    {canReadInventory ? <button
+                      type="button"
+                      aria-expanded={expandedProductId === product.id}
+                      aria-controls={`product-history-preview-${product.id}`}
+                      onClick={() => setExpandedProductId((current) => current === product.id ? null : product.id)}
+                      className="inline-flex items-center gap-1.5 text-left font-semibold text-[var(--brand)] underline underline-offset-2"
+                    >{product.name}<ChevronDown className={`size-4 shrink-0 transition-transform ${expandedProductId === product.id ? "rotate-180" : ""}`} aria-hidden="true" /></button> : <Link href={`/products/${product.id}`} className="font-semibold text-[var(--brand)]">{product.name}</Link>}
                     <span className="block text-xs text-[var(--muted)]">
                       {product.brand} {product.model}
                     </span>
@@ -393,6 +400,8 @@ export default function ProductsPage() {
                     )}
                   </td>
                 </tr>
+                {expandedProductId === product.id && canReadInventory && <tr id={`product-history-preview-${product.id}`}><td colSpan={9} className="p-2 sm:p-3"><ProductHistoryPreview productId={product.id} productName={product.name} locations={Object.fromEntries(locations.data.map((location) => [location.id, location.name]))} reportRow={{}} /></td></tr>}
+                </Fragment>
               ))
             )}
           </tbody>

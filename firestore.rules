@@ -6,6 +6,10 @@ service cloud.firestore {
     function hasProfile() { return signedIn() && exists(userPath()); }
     function profile() { return get(userPath()).data; }
     function active() { return hasProfile() && profile().status == "active"; }
+    function permitted(permission) {
+      return active() && (!profile().keys().hasAny(["effectivePermissions"]) ||
+        (profile().effectivePermissions is list && permission in profile().effectivePermissions));
+    }
     function sameOrganization(data) { return active() && data.organizationId == profile().organizationId; }
     function hasRole(role) {
       return active() && (
@@ -14,20 +18,20 @@ service cloud.firestore {
       );
     }
     function canManageFoundation() { return hasRole("system_administrator"); }
-    function canManageUsers() { return canManageFoundation() || hasRole("operations_administrator"); }
-    function canViewOperations() { return canManageUsers() || hasRole("auditor"); }
-    function canAudit() { return hasRole("auditor") || hasRole("system_administrator"); }
+    function canManageUsers() { return (canManageFoundation() || hasRole("operations_administrator")) && permitted("user.manage"); }
+    function canViewOperations() { return canManageUsers() || (hasRole("auditor") && permitted("audit.read")); }
+    function canAudit() { return (hasRole("auditor") || hasRole("system_administrator")) && permitted("audit.read"); }
     function hasAnyRole(roles) {
       return active() && (
         (profile().keys().hasAny(["roleIds"]) && profile().roleIds is list && profile().roleIds.hasAny(roles)) ||
         (!profile().keys().hasAny(["roleIds"]) && profile().roleId in roles)
       );
     }
-    function canReadProducts() { return hasAnyRole(["system_administrator", "operations_administrator", "warehouse_manager", "warehouse_officer", "branch_requester", "branch_manager", "sales_cashier", "finance_officer", "auditor"]); }
-    function canReadOrganizationInventory() { return hasAnyRole(["system_administrator", "operations_administrator", "finance_officer", "auditor"]); }
-    function hasInventoryCostAccess() { return hasAnyRole(["system_administrator", "warehouse_manager", "finance_officer", "auditor"]); }
+    function canReadProducts() { return hasAnyRole(["system_administrator", "operations_administrator", "warehouse_manager", "warehouse_officer", "branch_requester", "branch_manager", "sales_cashier", "finance_officer", "auditor"]) && permitted("products.read"); }
+    function canReadOrganizationInventory() { return hasAnyRole(["system_administrator", "operations_administrator", "finance_officer", "auditor"]) && permitted("inventory.read"); }
+    function hasInventoryCostAccess() { return hasAnyRole(["system_administrator", "warehouse_manager", "finance_officer", "auditor"]) && permitted("inventory.cost.read"); }
     function inventoryScope(data) {
-      return canReadOrganizationInventory() ||
+      return permitted("inventory.read") && (canReadOrganizationInventory() ||
         (hasAnyRole(["warehouse_manager", "warehouse_officer"]) && (
           (data.warehouseId != null && data.warehouseId in profile().warehouseIds) ||
           (data.sourceWarehouseId != null && data.sourceWarehouseId in profile().warehouseIds) ||
@@ -37,37 +41,37 @@ service cloud.firestore {
           (data.branchId != null && data.branchId in profile().branchIds) ||
           (data.sourceBranchId != null && data.sourceBranchId in profile().branchIds) ||
           (data.destinationBranchId != null && data.destinationBranchId in profile().branchIds)
-        ));
+        )));
     }
-    function canReadAllRequests() { return hasAnyRole(["system_administrator", "operations_administrator", "warehouse_manager", "warehouse_officer", "finance_officer", "auditor"]); }
+    function canReadAllRequests() { return hasAnyRole(["system_administrator", "operations_administrator", "warehouse_manager", "warehouse_officer", "finance_officer", "auditor"]) && permitted("requests.read.all"); }
     function requestScope(data) {
       return canReadAllRequests() ||
-        (hasAnyRole(["branch_requester", "branch_manager"]) && data.branchId in profile().branchIds);
+        (hasAnyRole(["branch_requester", "branch_manager"]) && permitted("requests.read.own_branch") && data.branchId in profile().branchIds);
     }
-    function canReadAllTransfers() { return hasAnyRole(["system_administrator", "operations_administrator", "finance_officer", "auditor"]); }
-    function hasTransferCostAccess() { return hasAnyRole(["system_administrator", "warehouse_manager", "finance_officer", "auditor"]); }
+    function canReadAllTransfers() { return hasAnyRole(["system_administrator", "operations_administrator", "finance_officer", "auditor"]) && permitted("transfers.read.all"); }
+    function hasTransferCostAccess() { return hasAnyRole(["system_administrator", "warehouse_manager", "finance_officer", "auditor"]) && permitted("transfers.cost.read"); }
     function transferScope(data) {
       return canReadAllTransfers() ||
-        (hasAnyRole(["warehouse_manager", "warehouse_officer"]) && data.originWarehouseId in profile().warehouseIds) ||
-        (hasAnyRole(["branch_requester", "branch_manager"]) && data.destinationBranchId in profile().branchIds);
+        (hasAnyRole(["warehouse_manager", "warehouse_officer"]) && permitted("transfers.read.assigned_warehouse") && data.originWarehouseId in profile().warehouseIds) ||
+        (hasAnyRole(["branch_requester", "branch_manager"]) && permitted("transfers.read.own_branch") && data.destinationBranchId in profile().branchIds);
     }
     function relatedTransfer(data) { return get(/databases/$(database)/documents/transfers/$(data.transferId)).data; }
     function relatedTransferScope(data) { return sameOrganization(data) && transferScope(relatedTransfer(data)); }
-    function canReadAllSales() { return hasAnyRole(["system_administrator", "operations_administrator", "finance_officer", "auditor"]); }
+    function canReadAllSales() { return hasAnyRole(["system_administrator", "operations_administrator", "finance_officer", "auditor"]) && permitted("sales.read.all"); }
     function salesScope(data) {
       return canReadAllSales() ||
-        (hasAnyRole(["branch_manager", "sales_cashier"]) && data.branchId in profile().branchIds);
+        (hasAnyRole(["branch_manager", "sales_cashier"]) && permitted("sales.read.own_branch") && data.branchId in profile().branchIds);
     }
-    function canReadAllProcurement() { return hasAnyRole(["system_administrator", "operations_administrator", "finance_officer", "auditor"]); }
+    function canReadAllProcurement() { return hasAnyRole(["system_administrator", "operations_administrator", "finance_officer", "auditor"]) && permitted("procurement.read"); }
     function procurementScope(data) {
       return canReadAllProcurement() ||
-        (hasAnyRole(["warehouse_manager", "warehouse_officer"]) && data.warehouseId in profile().warehouseIds);
+        (hasAnyRole(["warehouse_manager", "warehouse_officer"]) && permitted("procurement.read") && data.warehouseId in profile().warehouseIds);
     }
-    function canReadAllExpenses() { return hasAnyRole(["system_administrator", "operations_administrator", "finance_officer", "auditor"]); }
+    function canReadAllExpenses() { return hasAnyRole(["system_administrator", "operations_administrator", "finance_officer", "auditor"]) && permitted("expenses.read"); }
     function expenseScope(data) {
       return canReadAllExpenses() ||
-        (hasRole("branch_manager") && data.branchId != null && data.branchId in profile().branchIds) ||
-        (hasRole("warehouse_manager") && data.warehouseId != null && data.warehouseId in profile().warehouseIds);
+        (hasRole("branch_manager") && permitted("expenses.read") && data.branchId != null && data.branchId in profile().branchIds) ||
+        (hasRole("warehouse_manager") && permitted("expenses.read") && data.warehouseId != null && data.warehouseId in profile().warehouseIds);
     }
 
     match /users/{userId} {
@@ -186,20 +190,20 @@ service cloud.firestore {
       allow create, update, delete: if false;
     }
     match /inventoryLots/{documentId} {
-      allow read: if sameOrganization(resource.data) && hasAnyRole(["system_administrator", "finance_officer", "auditor"]);
+      allow read: if sameOrganization(resource.data) && hasAnyRole(["system_administrator", "finance_officer", "auditor"]) && permitted("inventory.cost.read");
       allow create, update, delete: if false;
     }
 
     match /stockCounts/{documentId} {
-      allow read: if sameOrganization(resource.data) && (canReadOrganizationInventory() || request.auth.uid in resource.data.assignedUserIds || inventoryScope(resource.data));
+      allow read: if sameOrganization(resource.data) && (permitted("inventory.count") || permitted("inventory.read")) && (canReadOrganizationInventory() || request.auth.uid in resource.data.assignedUserIds || inventoryScope(resource.data));
       allow create, update, delete: if false;
     }
     match /stockCountItems/{documentId} {
-      allow read: if sameOrganization(resource.data) && exists(/databases/$(database)/documents/stockCounts/$(resource.data.stockCountId)) && (canReadOrganizationInventory() || (request.auth.uid in get(/databases/$(database)/documents/stockCounts/$(resource.data.stockCountId)).data.assignedUserIds && (get(/databases/$(database)/documents/stockCounts/$(resource.data.stockCountId)).data.blindCount != true || get(/databases/$(database)/documents/stockCounts/$(resource.data.stockCountId)).data.status != "in_progress")));
+      allow read: if sameOrganization(resource.data) && (permitted("inventory.count") || permitted("inventory.read")) && exists(/databases/$(database)/documents/stockCounts/$(resource.data.stockCountId)) && (canReadOrganizationInventory() || (request.auth.uid in get(/databases/$(database)/documents/stockCounts/$(resource.data.stockCountId)).data.assignedUserIds && (get(/databases/$(database)/documents/stockCounts/$(resource.data.stockCountId)).data.blindCount != true || get(/databases/$(database)/documents/stockCounts/$(resource.data.stockCountId)).data.status != "in_progress")));
       allow create, update, delete: if false;
     }
     match /inventoryReconciliations/{documentId} {
-      allow read: if sameOrganization(resource.data) && hasAnyRole(["system_administrator", "operations_administrator", "auditor"]);
+      allow read: if sameOrganization(resource.data) && hasAnyRole(["system_administrator", "operations_administrator", "auditor"]) && permitted("inventory.reconcile");
       allow create, update, delete: if false;
     }
 
@@ -300,15 +304,15 @@ service cloud.firestore {
       allow create, update, delete: if false;
     }
     match /vehicles/{documentId} {
-      allow read: if sameOrganization(resource.data) && hasAnyRole(["system_administrator", "operations_administrator", "warehouse_manager", "logistics_officer", "auditor"]);
+      allow read: if sameOrganization(resource.data) && hasAnyRole(["system_administrator", "operations_administrator", "warehouse_manager", "logistics_officer", "auditor"]) && (permitted("transfers.read.all") || permitted("transfers.read.assigned_warehouse"));
       allow create, update, delete: if false;
     }
     match /drivers/{documentId} {
-      allow read: if sameOrganization(resource.data) && hasAnyRole(["system_administrator", "operations_administrator", "warehouse_manager", "logistics_officer", "auditor"]);
+      allow read: if sameOrganization(resource.data) && hasAnyRole(["system_administrator", "operations_administrator", "warehouse_manager", "logistics_officer", "auditor"]) && (permitted("transfers.read.all") || permitted("transfers.read.assigned_warehouse"));
       allow create, update, delete: if false;
     }
     match /logisticsVendors/{documentId} {
-      allow read: if sameOrganization(resource.data) && hasAnyRole(["system_administrator", "operations_administrator", "warehouse_manager", "logistics_officer", "finance_officer", "auditor"]);
+      allow read: if sameOrganization(resource.data) && hasAnyRole(["system_administrator", "operations_administrator", "warehouse_manager", "logistics_officer", "finance_officer", "auditor"]) && (permitted("transfers.read.all") || permitted("transfers.read.assigned_warehouse"));
       allow create, update, delete: if false;
     }
 
@@ -353,7 +357,7 @@ service cloud.firestore {
       allow create, update, delete: if false;
     }
     match /customers/{documentId} {
-      allow read: if sameOrganization(resource.data) && hasAnyRole(["system_administrator", "operations_administrator", "branch_manager", "finance_officer", "auditor"]);
+      allow read: if sameOrganization(resource.data) && hasAnyRole(["system_administrator", "operations_administrator", "branch_manager", "finance_officer", "auditor"]) && permitted("customers.read");
       allow create, update, delete: if false;
     }
     match /customerPayments/{documentId} {
@@ -369,19 +373,19 @@ service cloud.firestore {
       allow create, update, delete: if false;
     }
     match /chartOfAccounts/{documentId} {
-      allow read: if sameOrganization(resource.data) && hasAnyRole(["system_administrator", "finance_officer", "auditor"]);
+      allow read: if sameOrganization(resource.data) && hasAnyRole(["system_administrator", "finance_officer", "auditor"]) && permitted("finance.journal.read");
       allow create, update, delete: if false;
     }
     match /journalEntries/{documentId} {
-      allow read: if sameOrganization(resource.data) && hasAnyRole(["system_administrator", "finance_officer", "auditor"]);
+      allow read: if sameOrganization(resource.data) && hasAnyRole(["system_administrator", "finance_officer", "auditor"]) && permitted("finance.journal.read");
       allow create, update, delete: if false;
     }
     match /journalLines/{documentId} {
-      allow read: if sameOrganization(resource.data) && hasAnyRole(["system_administrator", "finance_officer", "auditor"]);
+      allow read: if sameOrganization(resource.data) && hasAnyRole(["system_administrator", "finance_officer", "auditor"]) && permitted("finance.journal.read");
       allow create, update, delete: if false;
     }
     match /suppliers/{documentId} {
-      allow read: if sameOrganization(resource.data) && hasAnyRole(["system_administrator", "operations_administrator", "warehouse_manager", "warehouse_officer", "finance_officer", "auditor"]);
+      allow read: if sameOrganization(resource.data) && hasAnyRole(["system_administrator", "operations_administrator", "warehouse_manager", "warehouse_officer", "finance_officer", "auditor"]) && permitted("suppliers.read");
       allow create, update, delete: if false;
     }
     match /purchaseOrders/{documentId} {
@@ -397,27 +401,27 @@ service cloud.firestore {
       allow create, update, delete: if false;
     }
     match /supplierInvoices/{documentId} {
-      allow read: if sameOrganization(resource.data) && hasAnyRole(["system_administrator", "finance_officer", "auditor"]);
+      allow read: if sameOrganization(resource.data) && hasAnyRole(["system_administrator", "finance_officer", "auditor"]) && permitted("payables.read");
       allow create, update, delete: if false;
     }
     match /supplierInvoiceItems/{documentId} {
-      allow read: if sameOrganization(resource.data) && hasAnyRole(["system_administrator", "finance_officer", "auditor"]);
+      allow read: if sameOrganization(resource.data) && hasAnyRole(["system_administrator", "finance_officer", "auditor"]) && permitted("payables.read");
       allow create, update, delete: if false;
     }
     match /supplierPayments/{documentId} {
-      allow read: if sameOrganization(resource.data) && hasAnyRole(["system_administrator", "finance_officer", "auditor"]);
+      allow read: if sameOrganization(resource.data) && hasAnyRole(["system_administrator", "finance_officer", "auditor"]) && permitted("payables.read");
       allow create, update, delete: if false;
     }
     match /supplierPaymentAllocations/{documentId} {
-      allow read: if sameOrganization(resource.data) && hasAnyRole(["system_administrator", "finance_officer", "auditor"]);
+      allow read: if sameOrganization(resource.data) && hasAnyRole(["system_administrator", "finance_officer", "auditor"]) && permitted("payables.read");
       allow create, update, delete: if false;
     }
     match /supplierAccountEntries/{documentId} {
-      allow read: if sameOrganization(resource.data) && hasAnyRole(["system_administrator", "finance_officer", "auditor"]);
+      allow read: if sameOrganization(resource.data) && hasAnyRole(["system_administrator", "finance_officer", "auditor"]) && permitted("payables.read");
       allow create, update, delete: if false;
     }
     match /expenseCategories/{documentId} {
-      allow read: if sameOrganization(resource.data) && hasAnyRole(["system_administrator", "operations_administrator", "warehouse_manager", "branch_manager", "finance_officer", "auditor"]);
+      allow read: if sameOrganization(resource.data) && hasAnyRole(["system_administrator", "operations_administrator", "warehouse_manager", "branch_manager", "finance_officer", "auditor"]) && permitted("expenses.read");
       allow create, update, delete: if false;
     }
     match /expenses/{documentId} {
@@ -425,23 +429,23 @@ service cloud.firestore {
       allow create, update, delete: if false;
     }
     match /expensePayments/{documentId} {
-      allow read: if sameOrganization(resource.data) && hasAnyRole(["system_administrator", "finance_officer", "auditor"]);
+      allow read: if sameOrganization(resource.data) && hasAnyRole(["system_administrator", "finance_officer", "auditor"]) && permitted("expenses.read");
       allow create, update, delete: if false;
     }
     match /bankAccounts/{documentId} {
-      allow read: if sameOrganization(resource.data) && hasAnyRole(["system_administrator", "finance_officer", "auditor"]);
+      allow read: if sameOrganization(resource.data) && hasAnyRole(["system_administrator", "finance_officer", "auditor"]) && permitted("banking.read");
       allow create, update, delete: if false;
     }
     match /bankStatementTransactions/{documentId} {
-      allow read: if sameOrganization(resource.data) && hasAnyRole(["system_administrator", "finance_officer", "auditor"]);
+      allow read: if sameOrganization(resource.data) && hasAnyRole(["system_administrator", "finance_officer", "auditor"]) && permitted("banking.read");
       allow create, update, delete: if false;
     }
     match /bankReconciliations/{documentId} {
-      allow read: if sameOrganization(resource.data) && hasAnyRole(["system_administrator", "finance_officer", "auditor"]);
+      allow read: if sameOrganization(resource.data) && hasAnyRole(["system_administrator", "finance_officer", "auditor"]) && permitted("banking.read");
       allow create, update, delete: if false;
     }
     match /accountingPeriods/{documentId} {
-      allow read: if sameOrganization(resource.data) && hasAnyRole(["system_administrator", "finance_officer", "auditor"]);
+      allow read: if sameOrganization(resource.data) && hasAnyRole(["system_administrator", "finance_officer", "auditor"]) && permitted("accounting.close.read");
       allow create, update, delete: if false;
     }
 

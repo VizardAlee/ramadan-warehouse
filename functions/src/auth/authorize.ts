@@ -525,6 +525,9 @@ const rolePermissions: Readonly<Record<RoleId, readonly Permission[]>> = {
     "accounting.close.read",
   ],
 };
+export function permissionsForServerRole(roleId: RoleId): readonly Permission[] {
+  return rolePermissions[roleId];
+}
 const assignableRoles: Readonly<Partial<Record<RoleId, readonly RoleId[]>>> = {
   system_administrator: roles,
   operations_administrator: [
@@ -545,6 +548,7 @@ export interface AccessProfile {
   readonly organizationId: string;
   readonly roleId: RoleId;
   readonly roleIds?: readonly RoleId[];
+  readonly effectivePermissions?: readonly Permission[];
   readonly branchIds: readonly string[];
   readonly warehouseIds: readonly string[];
   readonly authorizationVersion: number;
@@ -814,6 +818,10 @@ export async function requireAccess(
       organizationId: record.organizationId,
       roleId: roleIds[0]!,
       roleIds,
+      effectivePermissions: Array.isArray(record.effectivePermissions)
+        ? record.effectivePermissions.filter((value: unknown): value is Permission =>
+            typeof value === "string" && Object.values(rolePermissions).some((permissions) => permissions.includes(value as Permission)))
+        : undefined,
       branchIds: stringArray(record.branchIds),
       warehouseIds: stringArray(record.warehouseIds),
       authorizationVersion:
@@ -839,6 +847,7 @@ export function hasServerPermission(
   permission: Permission,
 ): boolean {
   if (hasRole(actor, "system_administrator")) return true;
+  if (actor.effectivePermissions) return actor.effectivePermissions.includes(permission);
   return accessRoleIds(actor).some((roleId) =>
     rolePermissions[roleId].includes(permission),
   );
