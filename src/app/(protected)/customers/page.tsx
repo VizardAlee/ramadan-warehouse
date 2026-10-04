@@ -50,6 +50,7 @@ export default function CustomersPage() {
     "cash" | "card" | "bank_transfer"
   >("cash");
   const [paymentReference, setPaymentReference] = useState("");
+  const [paymentBankAccountId, setPaymentBankAccountId] = useState("");
   const [manualBranchId, setManualBranchId] = useState("");
   const [search, setSearch] = useState("");
   const [searchField, setSearchField] = useState<CustomerSearchField>("name");
@@ -101,6 +102,8 @@ export default function CustomersPage() {
   }, [search, searchField]);
 
   function closeAction() {
+    historyRequest.current += 1;
+    setHistoryLoading(false);
     setAction(null);
     setSelected(null);
     setForm(emptyForm);
@@ -108,6 +111,7 @@ export default function CustomersPage() {
     setCreditLimit("");
     setPaymentAmount("");
     setPaymentReference("");
+    setPaymentBankAccountId("");
     setHistory(null);
   }
 
@@ -187,6 +191,10 @@ export default function CustomersPage() {
 
   async function recordPayment() {
     if (!selected || !branchId) return;
+    if (paymentMethod !== "cash" && !paymentBankAccountId) {
+      setError("Select the receiving company account.");
+      return;
+    }
     setBusy(true);
     setError(null);
     setMessage(null);
@@ -198,6 +206,7 @@ export default function CustomersPage() {
         customerId: selected.id,
         branchId,
         method: paymentMethod,
+        bankAccountId: paymentMethod !== "cash" ? paymentBankAccountId : undefined,
         amountMinor: nairaToKobo(Number(paymentAmount)),
         reference: paymentReference || undefined,
         idempotencyKey: crypto.randomUUID(),
@@ -265,6 +274,8 @@ export default function CustomersPage() {
         setSelected(customer);
         setPaymentAmount(String(customer.outstandingBalanceMinor / 100));
         setAction("payment");
+        setPaymentBankAccountId("");
+        void loadHistory(customer, 1, branchId);
       }}><CreditCard className="mr-1 size-4" /> Payment</Button>}
     </div>;
   }
@@ -615,6 +626,15 @@ export default function CustomersPage() {
                   </select>
                 </label>
                 {paymentMethod !== "cash" && (
+                  <label className="block text-sm font-medium">Receiving company account
+                    <select value={paymentBankAccountId} onChange={(event) => setPaymentBankAccountId(event.target.value)} className="mt-1 w-full rounded-lg border p-3">
+                      <option value="">Select account</option>
+                      {history?.bankAccounts?.map((account) => <option key={account.id} value={account.id}>{account.bankName} · {account.accountName} · ••••{account.accountNumberLast4}</option>)}
+                    </select>
+                    <span className="mt-1 block text-xs text-[var(--muted)]">{historyLoading ? "Loading accounts…" : "This account receives the money and is used in the accounting journal."}</span>
+                  </label>
+                )}
+                {paymentMethod !== "cash" && (
                   <label className="block text-sm font-medium">
                     Reference (optional)
                     <input
@@ -636,7 +656,7 @@ export default function CustomersPage() {
                 disabled={
                   busy ||
                   (action === "credit" && reason.trim().length < 3) ||
-                  (action === "payment" && (!paymentAmount || !branchId))
+                  (action === "payment" && (!paymentAmount || !branchId || (paymentMethod !== "cash" && !paymentBankAccountId)))
                 }
                 onClick={() =>
                   void (action === "create" || action === "edit"

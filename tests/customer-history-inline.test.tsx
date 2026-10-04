@@ -25,6 +25,18 @@ vi.mock("@/features/administration/use-organization-collection", () => ({
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
 
 describe("customer account history", () => {
+  it("requires and submits the receiving account for bank repayments", async () => {
+    api.call.mockResolvedValueOnce({ customer: {}, rows: [], bankAccounts: [{ id: "bank1", bankName: "Test Bank", accountName: "Collections", accountNumberLast4: "1234" }] });
+    api.call.mockResolvedValueOnce({ paymentNumber: "PAY-2" });
+    render(<CustomersPage />);
+    fireEvent.click(screen.getAllByRole("button", { name: "Payment" })[0]!);
+    fireEvent.change(screen.getByLabelText("Method"), { target: { value: "bank_transfer" } });
+    expect(screen.getByRole("button", { name: "Record payment" }).hasAttribute("disabled")).toBe(true);
+    await waitFor(() => expect(screen.getByRole("option", { name: /Test Bank/ })).toBeTruthy());
+    fireEvent.change(screen.getByLabelText(/Receiving company account/), { target: { value: "bank1" } });
+    fireEvent.click(screen.getByRole("button", { name: "Record payment" }));
+    await waitFor(() => expect(api.call).toHaveBeenCalledWith("recordCustomerPayment", expect.objectContaining({ bankAccountId: "bank1", method: "bank_transfer", amountMinor: 25000 })));
+  });
   it("expands activity in place with readable financial meaning", async () => {
     api.call.mockResolvedValue({ customer: { creditLimitMinor: 100000, outstandingBalanceMinor: 25000, availableCreditMinor: 75000 }, rows: [{ id: "account:1", kind: "account", detail: "payment", reference: "PAY-1", amountMinor: 5000, at: "2026-10-04T10:00:00.000Z" }], moreAvailable: false });
     render(<CustomersPage />);

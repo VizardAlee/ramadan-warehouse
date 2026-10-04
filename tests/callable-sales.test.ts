@@ -820,6 +820,10 @@ describe.sequential("sales callables", () => {
       (await stockBeforeRejectedSale.ref.get()).get("onHandQuantity"),
     ).toBe(stockBeforeRejectedSale.get("onHandQuantity"));
 
+    await expect(call(branchManager, "recordCustomerPayment", {
+      customerId: saved.customerId, branchId, method: "bank_transfer", amountMinor: 5_000,
+      idempotencyKey: crypto.randomUUID(), operatingContext: { type: "branch", id: branchId },
+    })).rejects.toMatchObject({ code: "functions/failed-precondition" });
     await expect(
       call(branchManager, "recordCustomerPayment", {
         customerId: saved.customerId,
@@ -827,10 +831,15 @@ describe.sequential("sales callables", () => {
         method: "bank_transfer",
         amountMinor: 5_000,
         reference: "BANK-CR-001",
+        bankAccountId,
         idempotencyKey: crypto.randomUUID(),
         operatingContext: { type: "branch", id: branchId },
       }),
     ).resolves.toMatchObject({ recorded: true });
+    const received = (await adminDb.collection("customerPayments").where("customerId", "==", saved.customerId).get()).docs[0]!;
+    expect(received.data()).toMatchObject({ bankAccountId, ledgerAccountCode: "1040", accountNumberLast4: "1234" });
+    const receiptJournal = await adminDb.collection("journalLines").where("journalEntryId", "==", received.get("journalEntryId")).get();
+    expect(receiptJournal.docs.map((row) => row.data())).toContainEqual(expect.objectContaining({ accountCode: "1040", debitMinor: 5_000 }));
     expect(
       (await adminDb.doc(`customers/${saved.customerId}`).get()).data(),
     ).toMatchObject({
@@ -1306,14 +1315,28 @@ describe.sequential("sales callables", () => {
     for (let index = 0; index < 2; index += 1) {
       const created = await call<{ returnId: string }>(branchManager, "createSaleReturn", {
         branchId, saleId: posted.saleId, lines: [{ saleItemId: item.id, quantity: 1, condition: "non_restockable" }],
-        resolution: "exchange_credit", reason: "Customer returned a discounted item",
+        resolution: index === 0 ? "exchange_credit" : "bank_transfer", ...(index === 1 ? { bankAccountId } : {}), reason: "Customer returned a discounted item",
         idempotencyKey: crypto.randomUUID(), operatingContext: { type: "branch", id: branchId },
       });
       const record = await adminDb.doc(`saleReturns/${created.returnId}`).get();
       credited += Number(record.get("grossAmountMinor"));
+      if (index === 1) {
+        // Earlier submitted returns have no account; require one at approval rather than rewriting old posted journals.
+        await record.ref.update({ bankAccountId: FieldValue.delete() });
+        await expect(call(branchManager, "approveSaleReturn", {
+          returnId: created.returnId, idempotencyKey: crypto.randomUUID(), operatingContext: { type: "branch", id: branchId },
+        })).rejects.toMatchObject({ code: "functions/failed-precondition" });
+      }
       await call(branchManager, "approveSaleReturn", {
-        returnId: created.returnId, idempotencyKey: crypto.randomUUID(), operatingContext: { type: "branch", id: branchId },
+        returnId: created.returnId, ...(index === 1 ? { bankAccountId } : {}), idempotencyKey: crypto.randomUUID(), operatingContext: { type: "branch", id: branchId },
       });
+      if (index === 1) {
+        const refunds = await adminDb.collection("saleRefunds").where("returnId", "==", created.returnId).get();
+        expect(refunds.docs).toHaveLength(1);
+        expect(refunds.docs[0]!.data()).toMatchObject({ bankAccountId, ledgerAccountCode: "1040", amountMinor: Number(record.get("grossAmountMinor")) });
+        const journal = await adminDb.collection("journalLines").where("journalEntryId", "==", refunds.docs[0]!.get("journalEntryId")).get();
+        expect(journal.docs.map((row) => row.data())).toContainEqual(expect.objectContaining({ accountCode: "1040", creditMinor: Number(record.get("grossAmountMinor")) }));
+      }
     }
     expect(credited).toBe(gross);
     const history = await call<{ rows: Array<{ kind: string; reference: string }> }>(branchManager, "getCustomerHistory", {

@@ -11,6 +11,7 @@ import { canSelfAuthorize, hasPermission } from "@/lib/permissions/roles";
 import type { Branch, SaleReturn } from "@/types/domain";
 
 interface ReturnWorkspace {
+  bankAccounts: Array<{ id: string; bankName: string; accountName: string; accountNumberLast4: string }>;
   sale: {
     id: string;
     saleNumber: string;
@@ -61,6 +62,9 @@ export default function ReturnsPage() {
   >({});
   const [resolution, setResolution] = useState<Resolution>("exchange_credit");
   const [refundShiftId, setRefundShiftId] = useState("");
+  const [refundBankAccountId, setRefundBankAccountId] = useState("");
+  const [bankAccounts, setBankAccounts] = useState<ReturnWorkspace["bankAccounts"]>([]);
+  const [legacyRefundAccounts, setLegacyRefundAccounts] = useState<Record<string, string>>({});
   const [reason, setReason] = useState("");
   const [pending, setPending] = useState<SaleReturn[]>([]);
   const [busy, setBusy] = useState(false);
@@ -92,9 +96,10 @@ export default function ReturnsPage() {
     try {
       const result = await callAdministration<
         { branchId: string; status: "submitted" },
-        { returns: SaleReturn[] }
+        { returns: SaleReturn[]; bankAccounts: ReturnWorkspace["bankAccounts"] }
       >("listSaleReturns", { branchId, status: "submitted" });
       setPending(result.returns);
+      setBankAccounts(result.bankAccounts ?? []);
     } catch {
       setPending([]);
     }
@@ -104,9 +109,9 @@ export default function ReturnsPage() {
       if (!branchId || !profile) return;
       void callAdministration<
         { branchId: string; status: "submitted" },
-        { returns: SaleReturn[] }
+        { returns: SaleReturn[]; bankAccounts: ReturnWorkspace["bankAccounts"] }
       >("listSaleReturns", { branchId, status: "submitted" })
-        .then((result) => setPending(result.returns))
+        .then((result) => { setPending(result.returns); setBankAccounts(result.bankAccounts ?? []); })
         .catch(() => setPending([]));
     }, 0);
     return () => window.clearTimeout(timeout);
@@ -136,6 +141,7 @@ export default function ReturnsPage() {
       );
       setResolution("exchange_credit");
       setRefundShiftId(result.openShifts[0]?.id ?? "");
+      setRefundBankAccountId("");
     } catch (cause) {
       setError(
         cause instanceof Error
@@ -178,6 +184,7 @@ export default function ReturnsPage() {
         })),
         resolution,
         refundShiftId: resolution === "cash" ? refundShiftId : undefined,
+        bankAccountId: ["card", "bank_transfer"].includes(resolution) ? refundBankAccountId : undefined,
         reason,
         idempotencyKey: crypto.randomUUID(),
       });
@@ -204,10 +211,11 @@ export default function ReturnsPage() {
     setMessage(null);
     try {
       const result = await callAdministration<
-        { returnId: string; idempotencyKey: string },
+        { returnId: string; idempotencyKey: string; bankAccountId?: string },
         { approved: boolean; creditId: string | null }
       >("approveSaleReturn", {
         returnId: record.id,
+        bankAccountId: record.bankAccountId || legacyRefundAccounts[record.id] || undefined,
         idempotencyKey: crypto.randomUUID(),
       });
       setMessage(
@@ -411,6 +419,13 @@ export default function ReturnsPage() {
                 placeholder="Why is the customer returning these goods?"
               />
             </label>
+            {["card", "bank_transfer"].includes(resolution) && <label className="text-sm font-medium">Refund from company account
+              <select value={refundBankAccountId} onChange={(event) => setRefundBankAccountId(event.target.value)} className="mt-1 w-full rounded-lg border p-3">
+                <option value="">Select funding account</option>
+                {workspace.bankAccounts?.map((account) => <option key={account.id} value={account.id}>{account.bankName} · {account.accountName} · ••••{account.accountNumberLast4}</option>)}
+              </select>
+              <span className="mt-1 block text-xs text-[var(--muted)]">The refund is posted against this account, not the generic bank-clearing balance.</span>
+            </label>}
             {resolution === "cash" && (
               <label className="text-sm font-medium">
                 Refund from open till
@@ -444,7 +459,8 @@ export default function ReturnsPage() {
                 selectedLines.length === 0 ||
                 reason.trim().length < 5 ||
                 (resolution === "customer_account" && estimatedGross > workspace.sale.customerOutstandingMinor) ||
-                (resolution === "cash" && !refundShiftId)
+                (resolution === "cash" && !refundShiftId) ||
+                (["card", "bank_transfer"].includes(resolution) && !refundBankAccountId)
               }
               onClick={() => void submitReturn()}
             >
@@ -483,10 +499,16 @@ export default function ReturnsPage() {
                   {formatNaira(record.grossAmountMinor)} ·{" "}
                   {record.resolution.replaceAll("_", " ")}
                 </p>
+                {["card", "bank_transfer"].includes(record.resolution) && <label className="mt-2 block text-sm">Refund from company account
+                  <select disabled={Boolean(record.bankAccountId)} value={record.bankAccountId || legacyRefundAccounts[record.id] || ""} onChange={(event) => setLegacyRefundAccounts((current) => ({ ...current, [record.id]: event.target.value }))} className="mt-1 w-full rounded-lg border p-3">
+                    <option value="">Select funding account for this earlier return</option>
+                    {bankAccounts.map((account) => <option key={account.id} value={account.id}>{account.bankName} · {account.accountName} · ••••{account.accountNumberLast4}</option>)}
+                  </select>
+                </label>}
               </div>
               {canApprove &&
               (record.createdBy !== user?.uid || canApproveOwnWork) ? (
-                <Button disabled={busy} onClick={() => void approve(record)}>
+                <Button disabled={busy || (["card", "bank_transfer"].includes(record.resolution) && !record.bankAccountId && !legacyRefundAccounts[record.id])} onClick={() => void approve(record)}>
                   <CheckCircle2 className="mr-2 size-4" /> Approve and post
                 </Button>
               ) : (

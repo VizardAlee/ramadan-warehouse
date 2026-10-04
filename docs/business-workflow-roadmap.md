@@ -33,3 +33,9 @@ The customer register uses bounded, organization-scoped Firestore cursor queries
 cards. Inline history shows five recent activities and links to the full history
 page. The existing history callable now pages sales, returns and account entries
 together without downloading the complete account history or rewriting records.
+
+Customer repayments and bank/card sale refunds now use the existing active
+company bank-account resolver, preserve account snapshots and journal links,
+and audit the selected ledger account. Earlier unapproved refunds require an
+account at approval; historical posted clearing-account journals are not moved.
+Cash remains on cash-on-hand, with cash refunds tied to an open POS till.

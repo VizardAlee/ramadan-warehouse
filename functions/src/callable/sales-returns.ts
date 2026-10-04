@@ -1,6 +1,7 @@
 import { FieldValue, Timestamp } from "firebase-admin/firestore";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
 import { db } from "../admin.js";
+import { bankAccountSummary, resolveSettlementAccount } from "../accounting/settlement-account.js";
 import {
   accountingPeriodReference,
   assertAccountingPeriodOpen,
@@ -120,6 +121,7 @@ export const getSaleReturnWorkspace = onCall(
       ),
     );
     return {
+      bankAccounts: (await db.collection("bankAccounts").where("organizationId", "==", actor.organizationId).where("active", "==", true).limit(100).get()).docs.map(bankAccountSummary),
       sale: {
         id: sale.id,
         saleNumber: sale.get("saleNumber"),
@@ -170,6 +172,7 @@ export const listSaleReturns = onCall({ enforceAppCheck }, async (request) => {
     .limit(input.limit)
     .get();
   return {
+    bankAccounts: (await db.collection("bankAccounts").where("organizationId", "==", actor.organizationId).where("active", "==", true).limit(100).get()).docs.map(bankAccountSummary),
     returns: result.docs.map((document) => ({
       id: document.id,
       ...document.data(),
@@ -225,6 +228,7 @@ export const createSaleReturn = onCall({ enforceAppCheck }, async (request) => {
   );
   let result = { returnId: returnRecord.id, returnNumber: "", created: true };
   await db.runTransaction(async (transaction) => {
+    const bankAccountSnapshot = await transaction.get(db.doc(`bankAccounts/${input.bankAccountId ?? "no-bank-account"}`));
     const snapshots = await transaction.getAll(
       operation,
       ...itemRefs,
@@ -239,6 +243,8 @@ export const createSaleReturn = onCall({ enforceAppCheck }, async (request) => {
       };
       return;
     }
+    if (input.resolution === "card" || input.resolution === "bank_transfer")
+      resolveSettlementAccount(actor.organizationId, input.resolution, input.bankAccountId, bankAccountSnapshot);
     const items = snapshots.slice(1, 1 + input.lines.length);
     const counters = snapshots.slice(1 + input.lines.length);
     const calculated = input.lines.map((line, index) => {
@@ -292,6 +298,7 @@ export const createSaleReturn = onCall({ enforceAppCheck }, async (request) => {
       status: "submitted",
       resolution: input.resolution,
       refundShiftId: input.refundShiftId ?? null,
+      bankAccountId: input.bankAccountId ?? null,
       reason: input.reason,
       netAmountMinor: total("net"),
       vatAmountMinor: total("vat"),
@@ -398,6 +405,8 @@ export const approveSaleReturn = onCall(
     const refundShift = db.doc(
       `posShifts/${initial.get("refundShiftId") ?? "no-cash-refund-shift-placeholder"}`,
     );
+    const refundBankAccountId = initial.get("bankAccountId") || input.bankAccountId;
+    const refundBankAccount = db.doc(`bankAccounts/${refundBankAccountId || "no-bank-account"}`);
     const operation = db.doc(
       `idempotencyKeys/${actor.organizationId}_approveSaleReturn_${input.idempotencyKey}`,
     );
@@ -422,6 +431,7 @@ export const approveSaleReturn = onCall(
       creditId: null as string | null,
     };
     await db.runTransaction(async (transaction) => {
+      const bankAccountSnapshot = await transaction.get(refundBankAccount);
       const snapshots = await transaction.getAll(
         operation,
         returnRef,
@@ -528,7 +538,12 @@ export const approveSaleReturn = onCall(
           (sum, line) => sum + Number(line.line.get("costAmountMinor")),
           0,
         );
-      const refundAccount = refundAccounts[resolution]!;
+      if (current.get("bankAccountId") && input.bankAccountId && current.get("bankAccountId") !== input.bankAccountId)
+        throw new HttpsError("invalid-argument", "The refund account must match the submitted return.");
+      const settlement = resolution === "card" || resolution === "bank_transfer"
+        ? resolveSettlementAccount(actor.organizationId, resolution, refundBankAccountId || undefined, bankAccountSnapshot)
+        : null;
+      const refundAccount = settlement ? { code: settlement.accountCode, name: settlement.accountName } : refundAccounts[resolution]!;
       const journalLines = [
         { accountCode: "4010", debitMinor: net, creditMinor: 0 },
         { accountCode: "2100", debitMinor: vat, creditMinor: 0 },
@@ -567,6 +582,8 @@ export const approveSaleReturn = onCall(
           { merge: true },
         );
       transaction.update(returnRef, {
+        bankAccountId: settlement?.bankAccountId ?? null,
+        ledgerAccountCode: refundAccount.code,
         status: "approved",
         approvedAt: now,
         approvedBy: actor.userId,
@@ -722,6 +739,12 @@ export const approveSaleReturn = onCall(
           saleId: current.get("saleId"),
           refundNumber: `RFD-${String(current.get("returnNumber")).replace(/^RTN-/, "")}`,
           method: resolution,
+          bankAccountId: settlement?.bankAccountId ?? null,
+          bankName: settlement?.bankName ?? null,
+          bankAccountName: settlement?.bankAccountName ?? null,
+          accountNumberLast4: settlement?.accountNumberLast4 ?? null,
+          ledgerAccountCode: refundAccount.code,
+          journalEntryId: journal.id,
           shiftId: resolution === "cash" ? refundShift.id : null,
           amountMinor: gross,
           status: "recorded",
@@ -764,7 +787,7 @@ export const approveSaleReturn = onCall(
           {
             organizationId: actor.organizationId,
             code: line.accountCode,
-            name: accountNames[line.accountCode],
+            name: accountNames[line.accountCode] ?? refundAccount.name,
             currency: "NGN",
             active: true,
             systemManaged: true,
@@ -779,7 +802,7 @@ export const approveSaleReturn = onCall(
           journalNumber,
           accountId: account.id,
           accountCode: line.accountCode,
-          accountName: accountNames[line.accountCode],
+          accountName: accountNames[line.accountCode] ?? refundAccount.name,
           debitMinor: line.debitMinor,
           creditMinor: line.creditMinor,
           currency: "NGN",
@@ -809,6 +832,8 @@ export const approveSaleReturn = onCall(
           resolution,
           grossAmountMinor: gross,
           restockCostMinor: restockCost,
+          bankAccountId: settlement?.bankAccountId ?? null,
+          ledgerAccountCode: refundAccount.code,
         },
       });
     });

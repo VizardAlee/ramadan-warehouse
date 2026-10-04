@@ -2,6 +2,7 @@ import { FieldValue, Timestamp } from "firebase-admin/firestore";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
 import { db } from "../admin.js";
 import { accountingPeriodReference, assertAccountingPeriodOpen } from "../accounting/period-lock.js";
+import { bankAccountSummary, resolveSettlementAccount } from "../accounting/settlement-account.js";
 import { writeAuditLog } from "../audit/write-audit-log.js";
 import {
   hasRole,
@@ -91,6 +92,9 @@ export const getCustomerHistory = onCall({ enforceAppCheck }, async (request) =>
     if (source === "sale" || source === "return" || source === "account") nextCursor[source] = documentId;
   }
   return {
+    bankAccounts: hasServerPermission(actor, "customers.payment.record")
+      ? (await db.collection("bankAccounts").where("organizationId", "==", actor.organizationId).where("active", "==", true).limit(100).get()).docs.map(bankAccountSummary)
+      : [],
     customer: { id: customer.id, name: customer.get("name"), customerNumber: customer.get("customerNumber"),
       creditStatus: customer.get("creditStatus"), creditLimitMinor: Number(customer.get("creditLimitMinor") ?? 0),
       outstandingBalanceMinor: Number(customer.get("outstandingBalanceMinor") ?? 0),
@@ -100,12 +104,6 @@ export const getCustomerHistory = onCall({ enforceAppCheck }, async (request) =>
     nextCursor: moreAvailable ? nextCursor : null,
   };
 });
-
-const paymentAccount: Readonly<Record<string, { code: string; name: string }>> = {
-  cash: { code: "1010", name: "Cash on hand" },
-  card: { code: "1020", name: "Card clearing" },
-  bank_transfer: { code: "1030", name: "Bank transfer clearing" },
-};
 
 function clean(values: Record<string, unknown>) {
   return Object.fromEntries(
@@ -299,6 +297,7 @@ export const recordCustomerPayment = onCall(
       `journalCounters/${uniquenessDocumentId(actor.organizationId, "general")}`,
     );
     const payment = db.collection("customerPayments").doc();
+    const bankAccount = db.doc(`bankAccounts/${input.bankAccountId ?? "no-bank-account"}`);
     const journal = db.collection("journalEntries").doc();
     const operation = db.doc(
       `idempotencyKeys/${actor.organizationId}_recordCustomerPayment_${input.idempotencyKey}`,
@@ -308,8 +307,8 @@ export const recordCustomerPayment = onCall(
     const cid = correlationId();
     let result = { paymentId: payment.id, paymentNumber: "", recorded: true };
     await db.runTransaction(async (transaction) => {
-      const [current, branchSnapshot, counterSnapshot, journalCounterSnapshot, accountingPeriodSnapshot, previousOperation] =
-        await transaction.getAll(customer, branch, counter, journalCounter, accountingPeriod, operation);
+      const [current, branchSnapshot, counterSnapshot, journalCounterSnapshot, accountingPeriodSnapshot, previousOperation, bankAccountSnapshot] =
+        await transaction.getAll(customer, branch, counter, journalCounter, accountingPeriod, operation, bankAccount);
       if (previousOperation!.exists) {
         result = {
           paymentId: String(previousOperation!.get("entityId")),
@@ -340,9 +339,9 @@ export const recordCustomerPayment = onCall(
       const journalNumber = `JRN-${year}-${String(journalSequence).padStart(6, "0")}`;
       const nextOutstanding = outstanding - input.amountMinor;
       const creditLimit = Number(current!.get("creditLimitMinor") ?? 0);
-      const account = paymentAccount[input.method]!;
+      const account = resolveSettlementAccount(actor.organizationId, input.method, input.bankAccountId, bankAccountSnapshot);
       const journalLines = [
-        { accountCode: account.code, accountName: account.name, debitMinor: input.amountMinor, creditMinor: 0 },
+        { accountCode: account.accountCode, accountName: account.accountName, debitMinor: input.amountMinor, creditMinor: 0 },
         { accountCode: "1100", accountName: "Accounts receivable", debitMinor: 0, creditMinor: input.amountMinor },
       ];
       assertBalancedJournal(journalLines);
@@ -376,6 +375,12 @@ export const recordCustomerPayment = onCall(
         customerName: current!.get("name"),
         paymentNumber,
         method: input.method,
+        bankAccountId: account.bankAccountId,
+        bankName: account.bankName,
+        bankAccountName: account.bankAccountName,
+        accountNumberLast4: account.accountNumberLast4,
+        ledgerAccountCode: account.accountCode,
+        journalEntryId: journal.id,
         amountMinor: input.amountMinor,
         reference: input.reference,
         notes: input.notes,
@@ -467,6 +472,8 @@ export const recordCustomerPayment = onCall(
           paymentNumber,
           amountMinor: input.amountMinor,
           balanceAfterMinor: nextOutstanding,
+          bankAccountId: account.bankAccountId ?? null,
+          ledgerAccountCode: account.accountCode,
         },
       });
       result = { paymentId: payment.id, paymentNumber, recorded: true };

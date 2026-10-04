@@ -229,6 +229,7 @@ export interface Customer {
 }
 
 export interface SaleReturn {
+  bankAccountId?: string | null;
   id: string;
   organizationId: string;
   branchId: string;
