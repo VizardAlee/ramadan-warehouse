@@ -1,3 +1,16 @@
+export interface CustomerHistoryCursor {
+  sale?: string;
+  return?: string;
+  account?: string;
+}
+
+export interface CustomerHistory {
+  customer: { id: string; name: string; customerNumber: string; creditStatus: string; creditLimitMinor: number; outstandingBalanceMinor: number; availableCreditMinor: number };
+  rows: Array<{ id: string; kind: string; reference: string; branchId: string; amountMinor: number; detail: string; at: string | null }>;
+  moreAvailable: boolean;
+  nextCursor: CustomerHistoryCursor | null;
+}
+
 export function customerHistoryLabel(kind: string, detail: string) {
   if (kind === "sale") return `Sale · ${detail}`;
   if (kind === "return") return `Return · ${detail}`;
@@ -8,12 +21,13 @@ export function customerHistoryLabel(kind: string, detail: string) {
     advance: "Advance received",
     refund: "Refund",
   };
-  return labels[detail] ?? detail.replaceAll("_", " ");
+  return labels[detail.replaceAll(" ", "_")] ?? detail.replaceAll("_", " ");
 }
 
 export function customerHistoryTone(kind: string, detail: string) {
-  if (detail === "credit_sale") return "attention" as const;
+  if (detail.replaceAll(" ", "_") === "credit_sale") return "attention" as const;
   if (kind === "sale") return "balance" as const;
   if (kind === "return" || detail.includes("refund")) return "outflow" as const;
-  return "income" as const;
+  if (["payment", "sale_return_credit", "advance"].includes(detail.replaceAll(" ", "_"))) return "income" as const;
+  return "balance" as const;
 }

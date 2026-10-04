@@ -91,6 +91,11 @@ export const customerHistoryInput = z.object({
   customerId: id,
   branchId: id.optional(),
   limit: z.number().int().min(1).max(100).default(50),
+  cursor: z.object({
+    sale: z.string().regex(/^[A-Za-z0-9_-]{1,128}$/).optional(),
+    return: z.string().regex(/^[A-Za-z0-9_-]{1,128}$/).optional(),
+    account: z.string().regex(/^[A-Za-z0-9_-]{1,128}$/).optional(),
+  }).optional(),
 });
 
 export const openPosShiftInput = z.object({

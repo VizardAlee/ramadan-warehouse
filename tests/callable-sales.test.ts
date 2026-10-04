@@ -14,7 +14,7 @@ import {
   initializeApp as initializeAdminApp,
 } from "firebase-admin/app";
 import { getAuth as getAdminAuth } from "firebase-admin/auth";
-import { FieldValue, getFirestore } from "firebase-admin/firestore";
+import { FieldValue, Timestamp, getFirestore } from "firebase-admin/firestore";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { balanceDocumentId } from "../functions/src/inventory/calculations";
 import { deliverInAppNotification, type InboxEvent } from "../functions/src/notifications/in-app";
@@ -1321,6 +1321,17 @@ describe.sequential("sales callables", () => {
     });
     expect(history.rows).toContainEqual(expect.objectContaining({ kind: "sale", reference: posted.saleNumber }));
     expect(history.rows.filter((row) => row.kind === "return")).toHaveLength(2);
+    const firstHistoryPage = await call<{ rows: Array<{ id: string }>; nextCursor: Record<string, string> | null }>(branchManager, "getCustomerHistory", {
+      customerId: customer.customerId, branchId, limit: 1, operatingContext: { type: "branch", id: branchId },
+    });
+    expect(firstHistoryPage.rows).toHaveLength(1);
+    expect(firstHistoryPage.nextCursor).not.toBeNull();
+    const secondHistoryPage = await call<{ rows: Array<{ id: string }> }>(branchManager, "getCustomerHistory", {
+      customerId: customer.customerId, branchId, limit: 1, cursor: firstHistoryPage.nextCursor,
+      operatingContext: { type: "branch", id: branchId },
+    });
+    expect(secondHistoryPage.rows).toHaveLength(1);
+    expect(secondHistoryPage.rows[0]!.id).not.toBe(firstHistoryPage.rows[0]!.id);
     const statement = await call<{ branchId: string; netAssetsMinor: number }>(branchManager, "generateFinancialStatement", {
       reportType: "balance_sheet", fromDate: "2026-01-01", toDate: "2026-12-31", branchId,
       operatingContext: { type: "branch", id: branchId },
@@ -1330,5 +1341,50 @@ describe.sequential("sales callables", () => {
     await expect(call(branchManager, "generateFinancialStatement", {
       reportType: "balance_sheet", fromDate: "2026-01-01", toDate: "2026-12-31", branchId: "another-branch",
     })).rejects.toMatchObject({ code: "functions/permission-denied" });
+  });
+
+  it("pages the combined customer history without losing equal-time or sub-millisecond entries", async () => {
+    const customer = await call<{ customerId: string }>(administrator, "saveCustomer", {
+      name: "History pagination customer", phone: "07012345671", active: true, idempotencyKey: crypto.randomUUID(),
+    });
+    const expected: string[] = [];
+    const batch = adminDb.batch();
+    const definitions = [
+      { collection: "sales", source: "sale", dateField: "recordedAt", ids: ["history-sale-Z", "history-sale-a", "history-sale-z"] },
+      { collection: "saleReturns", source: "return", dateField: "createdAt", ids: ["history-return-a", "history-return-z"] },
+      { collection: "customerAccountEntries", source: "account", dateField: "effectiveAt", ids: ["history-account-a", "history-account-z", "history-account-Z"] },
+    ];
+    for (const definition of definitions) {
+      for (const [index, id] of definition.ids.entries()) {
+        expected.push(`${definition.source}:${id}`);
+        batch.set(adminDb.doc(`${definition.collection}/${id}`), {
+          organizationId, customerId: customer.customerId, branchId,
+          [definition.dateField]: new Timestamp(1_900_000_000, definition.source === "account" ? index * 100 : 0),
+          saleNumber: id, returnNumber: id, referenceNumber: id,
+          grossAmountMinor: 1000, amountMinor: 1000, entryType: "payment", paymentStatus: "paid", status: "posted",
+        });
+      }
+    }
+    await batch.commit();
+    const seen: string[] = [];
+    let cursor: Record<string, string> | undefined;
+    for (let page = 0; page < 10; page += 1) {
+      const result = await call<{ rows: Array<{ id: string }>; nextCursor: Record<string, string> | null }>(branchManager, "getCustomerHistory", {
+        customerId: customer.customerId, branchId, limit: 2, ...(cursor ? { cursor } : {}),
+        operatingContext: { type: "branch", id: branchId },
+      });
+      expect(result.rows.length).toBeLessThanOrEqual(2);
+      seen.push(...result.rows.map((row) => row.id));
+      if (!result.nextCursor) break;
+      cursor = result.nextCursor;
+    }
+    expect(seen).toHaveLength(expected.length);
+    expect(new Set(seen).size).toBe(expected.length);
+    expect([...seen].sort()).toEqual(expected.sort());
+    await adminDb.doc("customers/other-customer").set({ organizationId, name: "Other customer" });
+    await expect(call(branchManager, "getCustomerHistory", {
+      customerId: "other-customer", branchId, limit: 2, cursor: { sale: "history-sale-a" },
+      operatingContext: { type: "branch", id: branchId },
+    })).rejects.toMatchObject({ code: "functions/invalid-argument" });
   });
 });

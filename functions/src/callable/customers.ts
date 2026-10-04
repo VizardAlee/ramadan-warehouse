@@ -33,46 +33,71 @@ export const getCustomerHistory = onCall({ enforceAppCheck }, async (request) =>
   if (!allBranches && !branchId)
     throw new HttpsError("invalid-argument", "Select an assigned branch for this customer history.");
   if (branchId) requireBranchScope(actor, branchId);
-  const scoped = (collection: string, dateField: string) => {
+  type HistorySource = "sale" | "return" | "account";
+  const scoped = async (collection: string, dateField: string, source: HistorySource) => {
     let query: FirebaseFirestore.Query = db.collection(collection)
       .where("organizationId", "==", actor.organizationId)
       .where("customerId", "==", input.customerId);
     if (branchId) query = query.where("branchId", "==", branchId);
-    return query.orderBy(dateField, "desc").limit(input.limit + 1);
+    query = query.orderBy(dateField, "desc");
+    const cursorId = input.cursor?.[source];
+    if (cursorId) {
+      const cursor = await db.doc(`${collection}/${cursorId}`).get();
+      if (!cursor.exists || cursor.get("organizationId") !== actor.organizationId || cursor.get("customerId") !== input.customerId || (branchId && cursor.get("branchId") !== branchId))
+        throw new HttpsError("invalid-argument", "Customer history page is no longer available. Start from the first page.");
+      query = query.startAfter(cursor);
+    }
+    return query.limit(input.limit + 1).get();
   };
   const [sales, returns, entries] = await Promise.all([
-    scoped("sales", "recordedAt").get(),
-    scoped("saleReturns", "createdAt").get(),
-    scoped("customerAccountEntries", "effectiveAt").get(),
+    scoped("sales", "recordedAt", "sale"),
+    scoped("saleReturns", "createdAt", "return"),
+    scoped("customerAccountEntries", "effectiveAt", "account"),
   ]);
   const date = (value: unknown) => value instanceof Timestamp ? value.toDate().toISOString() : null;
+  const sortTime = (value: unknown) => value instanceof Timestamp ? value : null;
   const rows = [
     ...sales.docs.map((record) => ({
       id: `sale:${record.id}`, kind: "sale", reference: record.get("saleNumber"),
       branchId: record.get("branchId"), amountMinor: Number(record.get("grossAmountMinor") ?? 0),
       detail: String(record.get("paymentStatus") ?? "completed").replaceAll("_", " "),
       at: date(record.get("recordedAt")),
+      sortAt: sortTime(record.get("recordedAt")),
     })),
     ...returns.docs.map((record) => ({
       id: `return:${record.id}`, kind: "return", reference: record.get("returnNumber"),
       branchId: record.get("branchId"), amountMinor: -Number(record.get("grossAmountMinor") ?? 0),
       detail: `${record.get("resolution") ?? "return"} · ${record.get("status") ?? "submitted"}`.replaceAll("_", " "),
       at: date(record.get("createdAt")),
+      sortAt: sortTime(record.get("createdAt")),
     })),
     ...entries.docs.map((record) => ({
       id: `account:${record.id}`, kind: "account", reference: record.get("referenceNumber"),
       branchId: record.get("branchId"), amountMinor: Number(record.get("amountMinor") ?? 0),
-      detail: String(record.get("entryType") ?? "account activity").replaceAll("_", " "),
+      detail: String(record.get("entryType") ?? "account activity"),
       at: date(record.get("effectiveAt")),
+      sortAt: sortTime(record.get("effectiveAt")),
     })),
-  ].sort((left, right) => String(right.at ?? "").localeCompare(String(left.at ?? "")));
+  ].sort((left, right) =>
+    (right.sortAt?.seconds ?? 0) - (left.sortAt?.seconds ?? 0) ||
+    (right.sortAt?.nanoseconds ?? 0) - (left.sortAt?.nanoseconds ?? 0) ||
+    (left.id === right.id ? 0 : left.id < right.id ? 1 : -1),
+  );
+  const page = rows.slice(0, input.limit);
+  const moreAvailable = rows.length > input.limit || [sales, returns, entries].some((result) => result.docs.length > input.limit);
+  const nextCursor = { ...input.cursor };
+  for (const row of page) {
+    const [source, documentId] = row.id.split(":");
+    if (source === "sale" || source === "return" || source === "account") nextCursor[source] = documentId;
+  }
   return {
     customer: { id: customer.id, name: customer.get("name"), customerNumber: customer.get("customerNumber"),
       creditStatus: customer.get("creditStatus"), creditLimitMinor: Number(customer.get("creditLimitMinor") ?? 0),
       outstandingBalanceMinor: Number(customer.get("outstandingBalanceMinor") ?? 0),
       availableCreditMinor: Number(customer.get("availableCreditMinor") ?? 0) },
-    rows: rows.slice(0, input.limit),
-    moreAvailable: rows.length > input.limit || [sales, returns, entries].some((result) => result.docs.length > input.limit),
+    rows: page.map(({ id, kind, reference, branchId: rowBranchId, amountMinor, detail, at }) => ({ id, kind, reference, branchId: rowBranchId, amountMinor, detail, at })),
+    moreAvailable,
+    nextCursor: moreAvailable ? nextCursor : null,
   };
 });
 

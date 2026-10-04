@@ -7,25 +7,22 @@ import {
   RefreshCw,
   UserRound,
 } from "lucide-react";
-import { useMemo, useRef, useState } from "react";
+import Link from "next/link";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { AppDialog } from "@/components/ui/app-dialog";
+import { CursorTablePagination } from "@/components/ui/table-pagination";
 import { callAdministration } from "@/features/administration/api";
 import { useOrganizationCollection } from "@/features/administration/use-organization-collection";
 import { useAuth } from "@/features/auth/auth-context";
 import { formatNaira, nairaToKobo } from "@/features/inventory/format";
 import { FinancialAmount } from "@/components/ui/financial-amount";
-import { customerHistoryLabel, customerHistoryTone } from "@/features/customers/history-presentation";
+import { customerHistoryLabel, customerHistoryTone, type CustomerHistory } from "@/features/customers/history-presentation";
+import { useCustomerRegister, type CustomerSearchField } from "@/features/customers/use-customer-register";
 import { hasPermission } from "@/lib/permissions/roles";
 import type { Branch, Customer } from "@/types/domain";
 
 type CustomerAction = "create" | "edit" | "credit" | "payment";
-
-interface CustomerHistory {
-  customer: { name: string; customerNumber: string; creditStatus: string; creditLimitMinor: number; outstandingBalanceMinor: number; availableCreditMinor: number };
-  rows: Array<{ id: string; kind: string; reference: string; branchId: string; amountMinor: number; detail: string; at: string | null }>;
-  moreAvailable: boolean;
-}
 
 const emptyForm = {
   name: "",
@@ -38,7 +35,7 @@ const emptyForm = {
 
 export default function CustomersPage() {
   const { profile, accessProfile, operatingContext } = useAuth();
-  const customers = useOrganizationCollection<Customer>("customers");
+  const customers = useCustomerRegister();
   const branches = useOrganizationCollection<Branch>("branches");
   const [action, setAction] = useState<CustomerAction | null>(null);
   const [selected, setSelected] = useState<Customer | null>(null);
@@ -55,12 +52,15 @@ export default function CustomersPage() {
   const [paymentReference, setPaymentReference] = useState("");
   const [manualBranchId, setManualBranchId] = useState("");
   const [search, setSearch] = useState("");
+  const [searchField, setSearchField] = useState<CustomerSearchField>("name");
+  const appliedSearch = useRef("name:");
   const [history, setHistory] = useState<CustomerHistory | null>(null);
   const historyRequest = useRef(0);
   const [expandedCustomerId, setExpandedCustomerId] = useState<string | null>(null);
-  const [historyLimit, setHistoryLimit] = useState(50);
+  const historyLimit = 5;
   const [historyBranchId, setHistoryBranchId] = useState("");
   const [busy, setBusy] = useState(false);
+  const [historyLoading, setHistoryLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const canManage = Boolean(
@@ -87,16 +87,18 @@ export default function CustomersPage() {
     "";
   const initialHistoryBranchId = contextBranchId || assignedBranchId ||
     (profile && hasPermission(profile, "sales.read.all") ? "" : accessProfile?.branchIds[0] ?? "");
-  const visible = useMemo(() => {
-    const term = search.trim().toLowerCase();
-    return customers.data.filter(
-      (customer) =>
-        !term ||
-        `${customer.name} ${customer.customerNumber} ${customer.phone ?? ""} ${customer.email ?? ""}`
-          .toLowerCase()
-          .includes(term),
-    );
-  }, [customers.data, search]);
+  const visible = customers.data;
+  useEffect(() => {
+    const key = `${searchField}:${search.trim()}`;
+    if (key === appliedSearch.current) return;
+    const timer = window.setTimeout(() => {
+      appliedSearch.current = key;
+      customers.updateSearch(search, searchField);
+    }, 300);
+    return () => window.clearTimeout(timer);
+    // The register owns its query state; only a changed search term starts a new page.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [search, searchField]);
 
   function closeAction() {
     setAction(null);
@@ -217,7 +219,7 @@ export default function CustomersPage() {
 
   async function loadHistory(customer: Customer, limit = historyLimit, selectedBranchId = historyBranchId) {
     const requestId = ++historyRequest.current;
-    setBusy(true);
+    setHistoryLoading(true);
     setError(null);
     setHistory(null);
     try {
@@ -232,8 +234,69 @@ export default function CustomersPage() {
     } catch (cause) {
       if (requestId === historyRequest.current) setError(cause instanceof Error ? cause.message : "Customer history could not be loaded.");
     } finally {
-      if (requestId === historyRequest.current) setBusy(false);
+      if (requestId === historyRequest.current) setHistoryLoading(false);
     }
+  }
+
+  function toggleHistory(customer: Customer) {
+    if (expandedCustomerId === customer.id) {
+      historyRequest.current += 1;
+      setHistoryLoading(false);
+      setExpandedCustomerId(null);
+      return;
+    }
+    setExpandedCustomerId(customer.id);
+    setHistory(null);
+    setHistoryBranchId(initialHistoryBranchId);
+    void loadHistory(customer, 5, initialHistoryBranchId);
+  }
+
+  function customerActions(customer: Customer, view: "desktop" | "compact") {
+    return <div className="flex flex-wrap gap-2">
+      <Button size="sm" variant="outline" aria-expanded={expandedCustomerId === customer.id} aria-controls={`customer-history-${view}-${customer.id}`} onClick={() => toggleHistory(customer)}>{expandedCustomerId === customer.id ? "Hide history" : "View history"}</Button>
+      {canManage && <Button size="sm" variant="outline" onClick={() => edit(customer)}>Edit</Button>}
+      {canApprove && <Button size="sm" variant="outline" onClick={() => {
+        setSelected(customer);
+        setCreditDecision(customer.creditStatus === "approved" ? "suspend" : "approve");
+        setCreditLimit(String(customer.creditLimitMinor / 100 || ""));
+        setAction("credit");
+      }}><BadgeCheck className="mr-1 size-4" /> Credit</Button>}
+      {canRecordPayment && customer.outstandingBalanceMinor > 0 && <Button size="sm" onClick={() => {
+        setSelected(customer);
+        setPaymentAmount(String(customer.outstandingBalanceMinor / 100));
+        setAction("payment");
+      }}><CreditCard className="mr-1 size-4" /> Payment</Button>}
+    </div>;
+  }
+
+  function customerPreview(customer: Customer, view: "desktop" | "compact") {
+    if (expandedCustomerId !== customer.id) return null;
+    return <section id={`customer-history-${view}-${customer.id}`} aria-label={`${customer.name} account history`} className="space-y-4 p-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div><h3 className="font-semibold">Recent account activity</h3><p className="text-xs text-[var(--muted)]">A quick preview of recorded sales, returns and account entries.</p></div>
+        <Link href={`/customers/${customer.id}`} className="inline-flex min-h-9 items-center rounded-lg border px-3 text-sm font-semibold text-[var(--brand)]">View full history →</Link>
+      </div>
+      <dl className="grid gap-2 rounded-lg bg-slate-50 p-3 text-xs sm:grid-cols-2">
+        <div><dt className="text-[var(--muted)]">Phone</dt><dd className="font-medium">{customer.phone || "Not provided"}</dd></div>
+        <div><dt className="text-[var(--muted)]">Email</dt><dd className="break-all font-medium">{customer.email || "Not provided"}</dd></div>
+        <div><dt className="text-[var(--muted)]">Address</dt><dd className="font-medium">{customer.address || "Not provided"}</dd></div>
+        <div><dt className="text-[var(--muted)]">Tax ID</dt><dd className="font-medium">{customer.taxId || "Not provided"}</dd></div>
+      </dl>
+      <div className="grid gap-2 sm:grid-cols-3">
+        <div className="rounded-lg bg-blue-50 p-3 text-xs">Credit limit<strong className="mt-1 block text-base finance-balance">{formatNaira(history?.customer.creditLimitMinor ?? customer.creditLimitMinor)}</strong></div>
+        <div className="rounded-lg bg-amber-50 p-3 text-xs">Outstanding<strong className="mt-1 block text-base finance-attention">{formatNaira(history?.customer.outstandingBalanceMinor ?? customer.outstandingBalanceMinor)}</strong></div>
+        <div className="rounded-lg bg-blue-50 p-3 text-xs">Available credit<strong className="mt-1 block text-base finance-balance">{formatNaira(history?.customer.availableCreditMinor ?? customer.availableCreditMinor)}</strong></div>
+      </div>
+      {historyLoading && <p role="status" className="text-sm text-[var(--muted)]">Loading customer activity…</p>}
+      {error && !history && <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-800">{error}</p>}
+      <div className="space-y-2">
+        {history?.rows.map((row) => <div key={row.id} className="flex flex-wrap items-start justify-between gap-2 rounded-lg border p-3 text-sm">
+          <div><strong className="capitalize">{customerHistoryLabel(row.kind, row.detail)}</strong><p className="text-xs text-[var(--muted)]">{row.reference} · {row.at ? new Date(row.at).toLocaleString("en-NG") : "Date pending"}</p></div>
+          <FinancialAmount tone={customerHistoryTone(row.kind, row.detail)} className="font-semibold">{formatNaira(Math.abs(row.amountMinor))}</FinancialAmount>
+        </div>)}
+        {history && history.rows.length === 0 && <p className="rounded-lg bg-slate-50 p-3 text-sm text-[var(--muted)]">No recorded activity in this store.</p>}
+      </div>
+    </section>;
   }
 
   if (!profile || !hasPermission(profile, "customers.read"))
@@ -283,18 +346,19 @@ export default function CustomersPage() {
           {message}
         </div>
       )}
-      <section className="rounded-xl border bg-white p-4">
-        <label className="text-sm font-medium">
-          Find customer
-          <input
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            className="mt-1 w-full rounded-lg border p-3"
-            placeholder="Name, number, phone or email"
-          />
+      <section className="grid gap-3 rounded-xl border bg-white p-4 sm:grid-cols-[12rem_minmax(0,1fr)]">
+        <label className="text-sm font-medium">Search by
+          <select value={searchField} onChange={(event) => setSearchField(event.target.value as CustomerSearchField)} className="mt-1 w-full rounded-lg border p-3">
+            <option value="name">Name</option><option value="number">Customer number</option><option value="phone">Phone</option><option value="email">Email</option>
+          </select>
         </label>
+        <label className="text-sm font-medium">Find customer
+          <input value={search} onChange={(event) => setSearch(event.target.value)} className="mt-1 w-full rounded-lg border p-3" placeholder={`Start typing a ${searchField === "number" ? "customer number" : searchField}`} />
+        </label>
+        <p className="text-xs text-[var(--muted)] sm:col-span-2">Search matches the beginning of the selected field; results load one page at a time.</p>
       </section>
-      <section className="grid gap-4 lg:grid-cols-2">
+      {customers.error && <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-800">{customers.error}</p>}
+      <section className="grid gap-4 md:grid-cols-2 lg:hidden">
         {visible.map((customer) => (
           <article key={customer.id} className="rounded-xl border bg-white p-5">
             <div className="flex items-start justify-between gap-3">
@@ -327,92 +391,8 @@ export default function CustomersPage() {
                 <dd className="font-semibold"><FinancialAmount tone="balance">{formatNaira(customer.availableCreditMinor)}</FinancialAmount></dd>
               </div>
             </dl>
-            <div className="mt-4 flex flex-wrap gap-2">
-              <Button variant="outline" aria-expanded={expandedCustomerId === customer.id} aria-controls={`customer-history-${customer.id}`} onClick={() => {
-                if (expandedCustomerId === customer.id) { historyRequest.current += 1; setExpandedCustomerId(null); return; }
-                setExpandedCustomerId(customer.id);
-                setHistory(null);
-                setHistoryBranchId(initialHistoryBranchId);
-                void loadHistory(customer, historyLimit, initialHistoryBranchId);
-              }}>{expandedCustomerId === customer.id ? "Hide history" : "View history"}</Button>
-              {canManage && (
-                <Button variant="outline" onClick={() => edit(customer)}>
-                  Edit details
-                </Button>
-              )}
-              {canApprove && (
-                <Button
-                  variant="outline"
-                  onClick={() => {
-                    setSelected(customer);
-                    setCreditDecision(
-                      customer.creditStatus === "approved"
-                        ? "suspend"
-                        : "approve",
-                    );
-                    setCreditLimit(
-                      String(customer.creditLimitMinor / 100 || ""),
-                    );
-                    setAction("credit");
-                  }}
-                >
-                  <BadgeCheck className="mr-2 size-4" /> Credit decision
-                </Button>
-              )}
-              {canRecordPayment && customer.outstandingBalanceMinor > 0 && (
-                <Button
-                  onClick={() => {
-                    setSelected(customer);
-                    setPaymentAmount(
-                      String(customer.outstandingBalanceMinor / 100),
-                    );
-                    setAction("payment");
-                  }}
-                >
-                  <CreditCard className="mr-2 size-4" /> Record payment
-                </Button>
-              )}
-            </div>
-            {expandedCustomerId === customer.id && <section id={`customer-history-${customer.id}`} aria-label={`${customer.name} account history`} className="mt-5 space-y-4 border-t pt-4">
-              <div>
-                <h3 className="font-semibold">Account activity</h3>
-                <p className="text-xs text-[var(--muted)]">Sales, returns and account entries. Amounts and credit balances come from recorded transactions.</p>
-              </div>
-              <dl className="grid gap-2 rounded-lg bg-slate-50 p-3 text-xs sm:grid-cols-2">
-                <div><dt className="text-[var(--muted)]">Phone</dt><dd className="font-medium">{customer.phone || "Not provided"}</dd></div>
-                <div><dt className="text-[var(--muted)]">Email</dt><dd className="break-all font-medium">{customer.email || "Not provided"}</dd></div>
-                <div><dt className="text-[var(--muted)]">Address</dt><dd className="font-medium">{customer.address || "Not provided"}</dd></div>
-                <div><dt className="text-[var(--muted)]">Tax ID</dt><dd className="font-medium">{customer.taxId || "Not provided"}</dd></div>
-              </dl>
-              <div className="grid gap-2 sm:grid-cols-3">
-                <div className="rounded-lg bg-blue-50 p-3 text-xs">Credit limit<strong className="mt-1 block text-base finance-balance">{formatNaira(history?.customer.creditLimitMinor ?? customer.creditLimitMinor)}</strong></div>
-                <div className="rounded-lg bg-amber-50 p-3 text-xs">Outstanding<strong className="mt-1 block text-base finance-attention">{formatNaira(history?.customer.outstandingBalanceMinor ?? customer.outstandingBalanceMinor)}</strong></div>
-                <div className="rounded-lg bg-blue-50 p-3 text-xs">Available credit<strong className="mt-1 block text-base finance-balance">{formatNaira(history?.customer.availableCreditMinor ?? customer.availableCreditMinor)}</strong></div>
-              </div>
-              <div className="grid gap-2 sm:grid-cols-2">
-                <label className="text-xs">Store
-                  <select value={historyBranchId} onChange={(event) => { setHistoryBranchId(event.target.value); void loadHistory(customer, historyLimit, event.target.value); }} className="mt-1 w-full rounded-lg border p-2">
-                    {profile && hasPermission(profile, "sales.read.all") && <option value="">All stores</option>}
-                    {activeBranches.filter((branch) => !accessProfile?.branchIds.length || accessProfile.branchIds.includes(branch.id)).map((branch) => <option key={branch.id} value={branch.id}>{branch.name}</option>)}
-                  </select>
-                </label>
-                <label className="text-xs">Show recent activity
-                  <select value={historyLimit} onChange={(event) => { const limit = Number(event.target.value); setHistoryLimit(limit); void loadHistory(customer, limit, historyBranchId); }} className="mt-1 w-full rounded-lg border p-2">
-                    {[25, 50, 100].map((limit) => <option key={limit} value={limit}>Latest {limit}</option>)}
-                  </select>
-                </label>
-              </div>
-              {busy && <p role="status" className="text-sm text-[var(--muted)]">Loading customer activity…</p>}
-              {error && !history && <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-800">{error}</p>}
-              <div className="max-h-80 space-y-2 overflow-y-auto">
-                {history?.rows.map((row) => <div key={row.id} className="flex flex-wrap items-start justify-between gap-2 rounded-lg border p-3 text-sm">
-                  <div><strong className="capitalize">{customerHistoryLabel(row.kind, row.detail)}</strong><p className="text-xs text-[var(--muted)]">{row.reference} · {row.at ? new Date(row.at).toLocaleString("en-NG") : "Date pending"}</p></div>
-                  <FinancialAmount tone={customerHistoryTone(row.kind, row.detail)} className="font-semibold">{formatNaira(Math.abs(row.amountMinor))}</FinancialAmount>
-                </div>)}
-                {history && history.rows.length === 0 && <p className="rounded-lg bg-slate-50 p-3 text-sm text-[var(--muted)]">No recorded activity for this store.</p>}
-              </div>
-              {history?.moreAvailable && <p className="text-xs finance-attention">More activity exists. Choose a store to narrow the view.</p>}
-            </section>}
+            <div className="mt-4">{customerActions(customer, "compact")}</div>
+            {customerPreview(customer, "compact")}
           </article>
         ))}
         {!customers.loading && visible.length === 0 && (
@@ -422,6 +402,33 @@ export default function CustomersPage() {
           </div>
         )}
       </section>
+      <section className="hidden rounded-xl border bg-white lg:block" aria-label="Customer register">
+        <div className="responsive-table-wrap">
+          <table className="responsive-table min-w-[68rem] text-sm">
+            <thead className="bg-slate-50"><tr>
+              <th className="px-4 py-3">Customer</th><th className="px-4 py-3">Contact</th><th className="px-4 py-3">Credit status</th>
+              <th className="px-4 py-3 text-right">Credit limit</th><th className="px-4 py-3 text-right">Outstanding</th><th className="px-4 py-3 text-right">Available credit</th><th className="px-4 py-3">Actions</th>
+            </tr></thead>
+            <tbody>
+              {visible.map((customer) => <Fragment key={customer.id}>
+                <tr className="border-t align-top">
+                  <td className="px-4 py-3"><strong>{customer.name}</strong><span className="block font-mono text-xs text-[var(--muted)]">{customer.customerNumber}</span></td>
+                  <td className="max-w-48 break-words px-4 py-3">{customer.phone || customer.email || "No contact"}</td>
+                  <td className="px-4 py-3"><span className={`rounded-full px-2.5 py-1 text-xs font-semibold capitalize ${customer.creditStatus === "approved" ? "bg-emerald-100 text-emerald-800" : customer.creditStatus === "suspended" ? "bg-amber-100 text-amber-900" : "bg-slate-100 text-slate-700"}`}>{customer.creditStatus}</span></td>
+                  <td className="px-4 py-3 text-right font-semibold"><FinancialAmount tone="balance">{formatNaira(customer.creditLimitMinor)}</FinancialAmount></td>
+                  <td className="px-4 py-3 text-right font-semibold"><FinancialAmount tone={customer.outstandingBalanceMinor > 0 ? "attention" : "neutral"}>{formatNaira(customer.outstandingBalanceMinor)}</FinancialAmount></td>
+                  <td className="px-4 py-3 text-right font-semibold"><FinancialAmount tone="balance">{formatNaira(customer.availableCreditMinor)}</FinancialAmount></td>
+                  <td className="px-4 py-3">{customerActions(customer, "desktop")}</td>
+                </tr>
+                {expandedCustomerId === customer.id && <tr className="border-t bg-slate-50/40"><td colSpan={7}>{customerPreview(customer, "desktop")}</td></tr>}
+              </Fragment>)}
+              {!customers.loading && visible.length === 0 && <tr><td colSpan={7} className="p-8 text-center text-[var(--muted)]">No customers match this search.</td></tr>}
+            </tbody>
+          </table>
+        </div>
+      </section>
+      {customers.loading && <p role="status" className="text-sm text-[var(--muted)]">Loading customers…</p>}
+      <CursorTablePagination page={customers.page} pageSize={customers.pageSize} rowCount={visible.length} hasNextPage={customers.hasNextPage} loading={customers.loading} onPrevious={customers.previousPage} onNext={customers.nextPage} onPageSizeChange={customers.updatePageSize} itemLabel="customers" />
 
       {action && (
         <AppDialog

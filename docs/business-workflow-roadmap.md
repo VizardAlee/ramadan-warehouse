@@ -25,3 +25,11 @@ This roadmap extends the existing Firebase application and preserves historical 
 5. Versioned quotations/proformas, physical-release waybills, and final statement/report sign-off.
 
 Each vertical slice needs rules/index review, idempotent trusted mutations, audit events, emulator tests, typecheck, lint, production build and a verified staging rollout. No historical ledger or issued document is edited in place.
+
+## Customer register and history — October 2026
+
+The customer register uses bounded, organization-scoped Firestore cursor queries,
+25/50/100 rows, field-specific prefix search, desktop tables and compact-screen
+cards. Inline history shows five recent activities and links to the full history
+page. The existing history callable now pages sales, returns and account entries
+together without downloading the complete account history or rewriting records.
