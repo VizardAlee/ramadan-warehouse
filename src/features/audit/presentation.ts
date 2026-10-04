@@ -1,0 +1,119 @@
+import type { AuditLog } from "@/types/domain";
+
+function words(value: string) {
+  return value
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/[._-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+function sentence(value: string) {
+  const normalized = words(value);
+  return normalized ? normalized[0]!.toUpperCase() + normalized.slice(1) : "Record";
+}
+
+const specialActions: Readonly<Record<string, string>> = {
+  "organization.bootstrap": "Set up the organization",
+  "custom_claim.updated": "Updated a user's access",
+  "branch_request.changes_requested": "Requested changes to a branch request",
+  "branch_request.review_started": "Started reviewing a branch request",
+  "branch_request.transfer_fulfilment": "Fulfilled a branch request through a transfer",
+  "branch_request.comment_created": "Commented on a branch request",
+  "sales_order.payment_accepted": "Recorded a sales-order payment",
+  "sales_order.payment_confirmed_inventory_released": "Confirmed payment and released sale stock",
+  "sales_order.received": "Received a customer order",
+  "sales_order.rejected": "Rejected a customer order",
+  "customer.payment_recorded": "Recorded a customer payment",
+  "expense.payment_recorded": "Recorded an expense payment",
+  "supplier_payment.recorded": "Recorded a supplier payment",
+  "aftersales_case.payment_recorded": "Recorded an aftersales payment",
+  "transfer.reservation_released": "Released reserved transfer stock",
+  "transfer.discrepancy_created": "Reported a transfer discrepancy",
+  "transfer.discrepancy_resolved": "Resolved a transfer discrepancy",
+  "transfer.pick_verified": "Verified picked transfer stock",
+  "inventory.reconciliation_executed": "Reconciled inventory",
+  "inventory.transaction_reversed": "Reversed an inventory movement",
+  "user.invitation_reissued": "Sent a new user invitation",
+  "user.sessions_revoked": "Signed a user out of active sessions",
+  "user.branch_assignments_changed": "Changed a user's store assignments",
+  "user.warehouse_assignments_changed": "Changed a user's legacy warehouse assignments",
+  "employee.compensation_changed": "Changed employee compensation",
+  "attendance.imported": "Imported an attendance record",
+  "attendance.recorded": "Recorded attendance",
+  "bank_transaction.matched": "Matched a bank transaction",
+  "bank_transaction.unmatched": "Removed a bank-transaction match",
+  "bank_reconciliation.closed": "Completed bank reconciliation",
+  "accounting_period.closed": "Closed an accounting period",
+  "organization.reset_started": "Started an organization data reset",
+  "organization.reset_completed": "Completed an organization data reset",
+  "sale.completed": "Completed a sale",
+  "pos_shift.opened": "Opened a POS shift",
+  "pos_shift.closed": "Closed a POS shift",
+};
+
+const actionVerbs: Readonly<Record<string, string>> = {
+  created: "Created",
+  updated: "Updated",
+  submitted: "Submitted",
+  approved: "Approved",
+  rejected: "Rejected",
+  cancelled: "Cancelled",
+  closed: "Closed",
+  received: "Received",
+  dispatched: "Dispatched",
+  reserved: "Reserved",
+  picked: "Picked",
+  posted: "Posted",
+  reviewed: "Reviewed",
+  started: "Started",
+  prepared: "Prepared",
+  imported: "Imported",
+  completed: "Completed",
+  recorded: "Recorded",
+  reversed: "Reversed",
+};
+
+export function auditEntityLabel(entityType: string) {
+  return sentence(entityType || "record");
+}
+
+export function auditActionTitle(action: string) {
+  if (specialActions[action]) return specialActions[action];
+  const split = action.lastIndexOf(".");
+  if (split > 0) {
+    const entity = words(action.slice(0, split));
+    const verb = actionVerbs[action.slice(split + 1)];
+    if (verb) {
+      const article = entity.startsWith("user") ? "a" : /^[aeiou]/.test(entity) ? "an" : "a";
+      return `${verb} ${article} ${entity}`;
+    }
+  }
+  return `Recorded ${words(action) || "an audit event"}`;
+}
+
+export function auditRoleLabel(roleId: string) {
+  if (roleId === "attendance_connector") return "Attendance device";
+  return sentence(roleId || "staff account");
+}
+
+export function auditRecordReference(log: AuditLog) {
+  const after = log.after ?? {};
+  for (const key of [
+    "saleNumber", "receiptNumber", "transferNumber", "requestNumber",
+    "purchaseOrderNumber", "invoiceNumber", "returnNumber", "expenseNumber",
+    "supplierNumber", "customerNumber", "sku", "staffId", "code",
+  ]) {
+    const value = after[key];
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return null;
+}
+
+export function auditTimestamp(value: AuditLog["createdAt"]) {
+  if (typeof value === "string") return Date.parse(value) || 0;
+  return value && typeof value === "object" && "seconds" in value
+    ? value.seconds * 1000
+    : 0;
+}

@@ -435,6 +435,8 @@ export interface AuditLog {
   reason?: string;
   correlationId: string;
   sourceFunction: string;
+  before?: Record<string, unknown>;
+  after?: Record<string, unknown>;
   createdAt: DateTimeValue;
 }
 
