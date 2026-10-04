@@ -1,8 +1,7 @@
 "use client";
 
-import Link from "next/link";
-import { Download, FileText, Loader2 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { ChevronDown, Download, FileText, Loader2 } from "lucide-react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
   PaginatedTableControls,
@@ -21,6 +20,7 @@ import {
   readableInventoryCsvRows,
 } from "@/features/reports/inventory-report-presentation";
 import { FinancialStatements } from "@/features/reports/financial-statements";
+import { ProductHistoryPreview } from "@/features/reports/product-history-preview";
 import { hasPermission } from "@/lib/permissions/roles";
 import type {
   Branch,
@@ -173,6 +173,7 @@ export default function ReportsPage() {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [inventoryLoadedKey, setInventoryLoadedKey] = useState<string | null>(null);
+  const [expandedInventoryRow, setExpandedInventoryRow] = useState<string | null>(null);
   const [salesLoadedKey, setSalesLoadedKey] = useState<string | null>(null);
   const inventoryRequestVersion = useRef(0);
   const salesRequestVersion = useRef(0);
@@ -223,6 +224,7 @@ export default function ReportsPage() {
   const inventoryTableRows = useMemo(
     () => inventoryDisplayRows.map((display, index) => ({
       display,
+      rowId: String(inventoryRows[index]?.id ?? index),
       productId: typeof inventoryRows[index]?.productId === "string"
         ? inventoryRows[index].productId as string
         : null,
@@ -694,31 +696,38 @@ export default function ReportsPage() {
                 </tr>
               </thead>
               <tbody>
-                {inventoryPagination.rows.map(({ display, productId: rowProductId }, index) => (
-                  <tr
-                    key={`${inventoryPagination.page}-${index}`}
-                    className="border-t"
-                  >
+                {inventoryPagination.rows.map(({ display, productId: rowProductId, rowId }, index) => {
+                  const rowKey = `${inventoryQueryKey}-${rowId}`;
+                  const expanded = expandedInventoryRow === rowKey;
+                  return <Fragment key={rowKey}>
+                  <tr className="border-t">
                     {inventoryColumns.map((column) => (
                       <td
                         key={column}
                         data-label={inventoryReportColumnLabel(column)}
+                        data-primary={column === "product" ? "true" : undefined}
                         className="max-w-72 px-3 py-2"
                       >
                         {column === "product" && rowProductId ? (
-                          <Link
-                            href={`/products/${encodeURIComponent(rowProductId)}#movement-history`}
-                            prefetch={false}
-                            aria-label={`View inventory history for ${display.product}`}
-                            className="font-medium text-[var(--brand)] underline underline-offset-2 hover:text-[var(--brand-dark)]"
+                          <button
+                            type="button"
+                            aria-expanded={expanded}
+                            aria-controls={`product-preview-${rowId}`}
+                            onClick={() => setExpandedInventoryRow(expanded ? null : rowKey)}
+                            className="inline-flex items-center gap-1.5 text-left font-medium text-[var(--brand)] underline underline-offset-2 hover:text-[var(--brand-dark)]"
                           >
                             {formatInventoryReportValue(column, display[column])}
-                          </Link>
+                            <ChevronDown className={`size-4 shrink-0 transition-transform ${expanded ? "rotate-180" : ""}`} aria-hidden="true" />
+                          </button>
                         ) : formatInventoryReportValue(column, display[column])}
                       </td>
                     ))}
                   </tr>
-                ))}
+                  {expanded && rowProductId && <tr id={`product-preview-${rowId}`}><td colSpan={inventoryColumns.length} className="p-2 sm:p-3">
+                    <ProductHistoryPreview productId={rowProductId} productName={String(display.product ?? "Product")} locations={inventoryLookups.locations} reportRow={inventoryRows[(inventoryPagination.page - 1) * inventoryPagination.pageSize + index] ?? {}} />
+                  </td></tr>}
+                  </Fragment>;
+                })}
               </tbody>
             </table>
           </div>

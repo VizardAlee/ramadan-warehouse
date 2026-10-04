@@ -4,17 +4,20 @@ import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { CursorTablePagination } from "@/components/ui/table-pagination";
 import { callAdministration } from "@/features/administration/api";
+import { useOrganizationCollection } from "@/features/administration/use-organization-collection";
 import { useAuth } from "@/features/auth/auth-context";
 import {
   formatDateTime,
   formatNaira,
   formatQuantity,
 } from "@/features/inventory/format";
+import { inventoryLocationLabel, summarizeInventoryMovements } from "@/features/inventory/movement-presentation";
 import { hasPermission } from "@/lib/permissions/roles";
 import type {
   InventoryBalance,
   InventoryEntry,
   InventoryLot,
+  InventoryLocation,
   Product,
   SerializedItem,
 } from "@/types/domain";
@@ -33,6 +36,7 @@ interface Summary {
 }
 export default function ProductDetailPage() {
   const { profile } = useAuth();
+  const locations = useOrganizationCollection<InventoryLocation>("inventoryLocations");
   const { product_id: productId } = useParams<{ product_id: string }>();
   const [summary, setSummary] = useState<Summary | null>(null);
   const [history, setHistory] = useState<InventoryEntry[]>([]);
@@ -40,6 +44,8 @@ export default function ProductDetailPage() {
   const [pageStarts, setPageStarts] = useState<(string | null)[]>([null]);
   const [pageSize, setPageSize] = useState(25);
   const [error, setError] = useState<string | null>(null);
+  const locationNames = Object.fromEntries(locations.data.map((location) => [location.id, location.name]));
+  const events = summarizeInventoryMovements(history, locationNames);
   async function loadHistory(startCursor: string | null = null, size = pageSize) {
     const result = await callAdministration<
       object,
@@ -134,6 +140,7 @@ export default function ProductDetailPage() {
       </section>
       <section className="rounded-xl border bg-white p-5">
         <h2 className="text-lg font-semibold">Stock by location</h2>
+        <p className="mt-1 text-sm text-[var(--muted)]">On hand is physically in the store. Reserved is set aside for a customer; available can still be sold.</p>
         <div className="responsive-table-wrap mt-4">
           <table className="responsive-table">
             <thead>
@@ -155,8 +162,8 @@ export default function ProductDetailPage() {
             <tbody>
               {summary.balances.map((balance) => (
                 <tr key={balance.id} className="border-t">
-                  <td data-label="Location" data-primary="true" className="py-2 font-mono text-xs">
-                    {balance.locationId}
+                  <td data-label="Location" data-primary="true" className="py-2 font-medium">
+                    {locationNames[balance.locationId] ?? "Stock location"}
                   </td>
                   <td data-label="On hand">{balance.onHandQuantity}</td>
                   <td data-label="Reserved">{balance.reservedQuantity}</td>
@@ -170,7 +177,20 @@ export default function ProductDetailPage() {
         </div>
       </section>
       <section id="movement-history" className="scroll-mt-24 rounded-xl border bg-white p-5">
-        <h2 className="text-lg font-semibold">Movement history</h2>
+        <h2 className="text-lg font-semibold">What happened to this product</h2>
+        <p className="mt-1 text-sm text-[var(--muted)]">Each sale, receipt or transfer appears once here. The audit ledger below retains its balancing entries.</p>
+        {events.length ? <ol className="mt-4 space-y-3">
+          {events.map((event) => <li key={event.id} className="rounded-xl border p-4">
+            <div className="flex flex-wrap items-start justify-between gap-2">
+              <div><h3 className="font-semibold">{event.title}</h3><p className="mt-1 text-sm">{event.description}</p></div>
+              <span className="text-xs text-[var(--muted)]">{formatDateTime(event.date)}</span>
+            </div>
+            <p className="mt-2 text-xs text-[var(--muted)]">Reference {event.reference}{event.balanceAfter !== undefined ? ` · ${event.location} balance afterward: ${formatQuantity(event.balanceAfter)}` : ""}</p>
+          </li>)}
+        </ol> : <p className="mt-4 text-sm text-[var(--muted)]">No stock movements recorded yet.</p>}
+        <details className="mt-5 rounded-xl border p-3">
+          <summary className="cursor-pointer font-medium">Show detailed audit ledger ({history.length} entries on this page)</summary>
+          <p className="mt-2 text-xs text-[var(--muted)]">A transaction may have a store entry and an opposite external entry. Only the store entry changes physical stock. Unit cost is inventory cost, not the customer selling price.</p>
         <div className="responsive-table-wrap mt-4">
           <table className="responsive-table text-xs">
             <thead>
@@ -178,13 +198,11 @@ export default function ProductDetailPage() {
                 {[
                   "Date",
                   "Transaction",
-                  "Type",
-                  "Location",
-                  "Quantity",
+                  "Entry",
+                  "Change",
                   "Unit cost",
                   "Value",
-                  "Balance after",
-                  "Reason",
+                  "Store balance after",
                 ].map((item) => (
                   <th key={item} className="py-2 pr-4">
                     {item}
@@ -199,20 +217,17 @@ export default function ProductDetailPage() {
                     {formatDateTime(entry.effectiveAt)}
                   </td>
                   <td data-label="Transaction" className="pr-4 font-mono">{entry.transactionNumber}</td>
-                  <td data-label="Type" className="pr-4">{entry.transactionType}</td>
-                  <td data-label="Location" className="pr-4">
-                    {entry.locationId ?? entry.externalAccount}
-                  </td>
-                  <td data-label="Quantity" className="pr-4">{entry.quantityDelta}</td>
+                  <td data-label="Entry" className="pr-4">{inventoryLocationLabel(entry, locationNames)}{!entry.locationId ? " (balancing entry)" : ""}</td>
+                  <td data-label="Change" className="pr-4">{entry.quantityDelta > 0 ? "+" : ""}{formatQuantity(entry.quantityDelta)}</td>
                   <td data-label="Unit cost" className="pr-4">{formatNaira(entry.unitCostMinor)}</td>
                   <td data-label="Value" className="pr-4">{formatNaira(entry.valueDeltaMinor)}</td>
-                  <td data-label="Balance after" className="pr-4">{entry.balanceAfter}</td>
-                  <td data-label="Reason">{entry.reason}</td>
+                  <td data-label="Store balance after" className="pr-4">{entry.locationId ? formatQuantity(entry.balanceAfter) : "—"}</td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
+        </details>
         <CursorTablePagination
           page={pageStarts.length}
           pageSize={pageSize}
@@ -224,7 +239,7 @@ export default function ProductDetailPage() {
             setPageSize(size);
             setPageStarts([null]);
           }}
-          itemLabel="inventory movements"
+          itemLabel="ledger entries"
         />
       </section>
       {summary.product.trackingType === "serial" && (

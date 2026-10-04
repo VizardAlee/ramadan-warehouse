@@ -33,7 +33,7 @@ afterEach(() => {
 });
 
 describe("automatic reports", () => {
-  it("links an inventory report product to its movement history without exposing its ID as a column", async () => {
+  it("expands an inventory report product before linking to its full history", async () => {
     api.call.mockImplementation(async (name: string) => name === "generateStockPositionReport"
       ? {
           rows: [{
@@ -49,9 +49,13 @@ describe("automatic reports", () => {
     render(<ReportsPage />);
     fireEvent.click(screen.getByRole("button", { name: "Inventory reports" }));
 
-    const link = await screen.findByRole("link", {
-      name: "View inventory history for PANEL-620 — 620W Solar Panel",
-    });
+    const product = await screen.findByRole("button", { name: /PANEL-620 — 620W Solar Panel/ });
+    expect(product.getAttribute("aria-expanded")).toBe("false");
+    expect(screen.queryByRole("link", { name: /Full product history/ })).toBeNull();
+    fireEvent.click(product);
+    expect(product.getAttribute("aria-expanded")).toBe("true");
+    await waitFor(() => expect(api.call).toHaveBeenCalledWith("generateSkuMovementReport", expect.objectContaining({ productId: "product-1" })));
+    const link = screen.getByRole("link", { name: /Full product history/ });
     expect(link.getAttribute("href")).toBe("/products/product-1#movement-history");
     expect(screen.queryByRole("columnheader", { name: "Product Id" })).toBeNull();
   });
