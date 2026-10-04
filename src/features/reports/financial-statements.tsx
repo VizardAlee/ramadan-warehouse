@@ -1,6 +1,7 @@
 "use client";
 
-import { Download, Loader2 } from "lucide-react";
+import { Download, Loader2, Printer } from "lucide-react";
+import Image from "next/image";
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { callAdministration } from "@/features/administration/api";
@@ -61,6 +62,71 @@ function csvCell(value: unknown) {
   const raw = String(value ?? "");
   const safe = /^[=+\-@]/.test(raw) ? `'${raw}` : raw;
   return `"${safe.replaceAll('"', '""')}"`;
+}
+function statementMoney(value: number | undefined) {
+  if (value === undefined || value === 0) return "—";
+  return value < 0 ? `(${formatNaira(Math.abs(value))})` : formatNaira(value);
+}
+function statementDate(value: string) {
+  return new Intl.DateTimeFormat("en-NG", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" }).format(new Date(`${value}T00:00:00Z`));
+}
+
+function StatementLine({ label, value, kind = "item" }: { label: string; value?: number; kind?: "item" | "subtotal" | "total" }) {
+  return (
+    <div className={`financial-statement-line financial-statement-line--${kind}`}>
+      <span>{label}</span><span className="financial-statement-amount">{statementMoney(value)}</span>
+    </div>
+  );
+}
+
+function StatementSection({ title, rows, totalLabel, total }: { title: string; rows: StatementRow[]; totalLabel?: string; total?: number }) {
+  return (
+    <section className="financial-statement-section" aria-label={title}>
+      <h3>{title}</h3>
+      {rows.length === 0 ? <p className="financial-statement-empty">No posted activity in this section</p> : rows.map((row, index) => (
+        <StatementLine key={`${row.accountCode ?? row.section}-${index}`} label={row.accountName ?? row.section ?? "Other"} value={row.amountMinor} />
+      ))}
+      {totalLabel && <StatementLine label={totalLabel} value={total} kind="subtotal" />}
+    </section>
+  );
+}
+
+function StatementDocument({ statement, scope }: { statement: StatementResult; scope: string }) {
+  const period = statement.reportType === "balance_sheet" || statement.reportType === "trial_balance"
+    ? `As at ${statementDate(statement.toDate)}`
+    : `For the period ${statementDate(statement.fromDate)} to ${statementDate(statement.toDate)}`;
+  const sectionRows = (section: string) => statement.rows.filter((row) => row.section === section);
+  return (
+    <article className="financial-statement-document" data-financial-statement aria-label={`${labels[statement.reportType]} for ${scope}`}>
+      <header className="financial-statement-header">
+        <div className="financial-statement-brand"><Image src="/abr-logo.jpg" alt="AB Ramadan logo" width={36} height={36} /><span>AB Ramadan</span></div>
+        <div className="financial-statement-eyebrow">Financial report · Draft</div>
+        <h2>{labels[statement.reportType]}</h2>
+        <p>{period}</p>
+        <div className="financial-statement-meta"><span>{scope}</span><span>Amounts in Nigerian naira (NGN)</span></div>
+      </header>
+      <div className="financial-statement-body">
+        {statement.reportType === "income_statement" && <>
+          <StatementSection title="Income" rows={sectionRows("Income")} totalLabel="Total income" total={statement.incomeMinor} />
+          <StatementSection title="Expenses" rows={sectionRows("Expenses")} totalLabel="Total expenses" total={statement.expenseMinor} />
+          <StatementLine label="Net profit / (loss)" value={statement.profitMinor} kind="total" />
+        </>}
+        {statement.reportType === "balance_sheet" && <>
+          <StatementSection title="Assets" rows={sectionRows("Assets")} totalLabel="Total assets" total={statement.assetsMinor} />
+          <StatementSection title="Liabilities" rows={sectionRows("Liabilities")} totalLabel="Total liabilities" total={statement.liabilitiesMinor} />
+          <StatementSection title="Equity" rows={sectionRows("Equity")} totalLabel="Total equity" total={statement.equityMinor} />
+          <StatementLine label="Total liabilities and equity" value={(statement.liabilitiesMinor ?? 0) + (statement.equityMinor ?? 0)} kind="total" />
+          {statement.balanced === false && <p className="financial-statement-warning">This statement does not balance. Investigate the ledger before relying on it.</p>}
+        </>}
+        {statement.reportType === "cash_flow" && <>
+          {statement.rows.map((row, index) => <section className="financial-statement-section" key={`${row.section}-${index}`} aria-label={row.section ?? "Other activities"}><h3>{row.section ?? "Other activities"}</h3><StatementLine label={`Net cash from ${row.section?.toLowerCase() ?? "other activities"}`} value={row.amountMinor} kind="subtotal" /></section>)}
+          <StatementLine label="Net increase / (decrease) in cash" value={statement.netCashMovementMinor} kind="total" />
+        </>}
+        {statement.reportType === "trial_balance" && <div className="financial-statement-trial-wrap"><table className="financial-statement-trial"><thead><tr><th scope="col">Account</th><th scope="col">Debit</th><th scope="col">Credit</th></tr></thead><tbody>{statement.rows.map((row, index) => <tr key={`${row.accountCode}-${index}`}><td>{row.accountName}{row.accountCode && <small>{row.accountCode}</small>}</td><td>{statementMoney(row.debitMinor)}</td><td>{statementMoney(row.creditMinor)}</td></tr>)}</tbody><tfoot><tr><th scope="row">Total</th><td>{statementMoney(statement.totalDebitMinor)}</td><td>{statementMoney(statement.totalCreditMinor)}</td></tr></tfoot></table></div>}
+      </div>
+      <footer className="financial-statement-footer">Ledger-derived draft · Review before external use</footer>
+    </article>
+  );
 }
 
 export function FinancialStatements() {
@@ -175,52 +241,21 @@ export function FinancialStatements() {
       {error && errorKey === reportKey && <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-800">{error}</p>}
       {currentResult && (
         <>
-          <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center justify-between gap-3" data-no-print>
             <div>
               <h2 className="text-xl font-semibold">{labels[currentResult.reportType]}</h2>
               <p className="text-sm text-[var(--muted)]">{currentResult.fromDate} to {currentResult.toDate} · {branches.data.find((branch) => branch.id === branchId)?.name ?? "Entire organization"} · NGN</p>
             </div>
-            <Button variant="secondary" disabled={busy} onClick={download}><Download className="mr-2 size-4" /> Download CSV</Button>
+            <div className="flex flex-wrap gap-2"><Button variant="secondary" disabled={busy} onClick={() => window.print()}><Printer className="mr-2 size-4" /> Print / Save PDF</Button><Button variant="secondary" disabled={busy} onClick={download}><Download className="mr-2 size-4" /> Download CSV</Button></div>
           </div>
-          <p className="rounded-lg bg-amber-50 p-3 text-sm text-amber-900">
+          <StatementDocument statement={currentResult} scope={branches.data.find((branch) => branch.id === branchId)?.name ?? "Entire organization"} />
+          <p className="rounded-lg bg-amber-50 p-3 text-sm text-amber-900" data-no-print>
             These are ledger-derived draft statements. The balance sheet includes cumulative unclosed earnings; the cash-flow grouping follows posted journal types. Review classifications, opening balances, adjustments, and any unmatched entries before external use.
             {currentResult.reportType === "balance_sheet" && currentResult.balanced === false && " The balance sheet does not balance; investigate the ledger before relying on it."}
           </p>
-          <div className="responsive-table-wrap">
-            <table className="responsive-table text-sm">
-              <thead className="bg-slate-50"><tr><th className="px-3 py-2">Section</th><th className="px-3 py-2">Account</th><th className="px-3 py-2 text-right">Debit</th><th className="px-3 py-2 text-right">Credit</th><th className="px-3 py-2 text-right">Amount</th></tr></thead>
-              <tbody>
-                {currentResult.rows.map((row, index) => (
-                  <tr key={`${row.section}-${row.accountCode}-${index}`} className="border-t">
-                    <td data-label="Section" className="px-3 py-2">{row.section ?? "Trial balance"}</td>
-                    <td data-label="Account" className="px-3 py-2"><strong>{row.accountName ?? row.section}</strong>{row.accountCode && <span className="ml-2 font-mono text-xs text-[var(--muted)]">{row.accountCode}</span>}</td>
-                    <td data-label="Debit" className="px-3 py-2 text-right">{row.debitMinor === undefined ? "—" : formatNaira(row.debitMinor)}</td>
-                    <td data-label="Credit" className="px-3 py-2 text-right">{row.creditMinor === undefined ? "—" : formatNaira(row.creditMinor)}</td>
-                    <td data-label="Amount" className="px-3 py-2 text-right font-semibold">{formatNaira(row.amountMinor ?? row.balanceMinor ?? 0)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            {currentResult.totalDebitMinor !== undefined && <Summary label="Total debits" value={currentResult.totalDebitMinor} />}
-            {currentResult.totalCreditMinor !== undefined && <Summary label="Total credits" value={currentResult.totalCreditMinor} />}
-            {currentResult.incomeMinor !== undefined && <Summary label="Income" value={currentResult.incomeMinor} />}
-            {currentResult.expenseMinor !== undefined && <Summary label="Expenses" value={currentResult.expenseMinor} />}
-            {currentResult.profitMinor !== undefined && <Summary label="Profit / (loss)" value={currentResult.profitMinor} />}
-            {currentResult.assetsMinor !== undefined && <Summary label="Assets" value={currentResult.assetsMinor} />}
-            {currentResult.liabilitiesMinor !== undefined && <Summary label="Liabilities" value={currentResult.liabilitiesMinor} />}
-            {currentResult.equityMinor !== undefined && <Summary label="Equity" value={currentResult.equityMinor} />}
-            {currentResult.netAssetsMinor !== undefined && <Summary label="Net assets (assets − liabilities)" value={currentResult.netAssetsMinor} />}
-            {currentResult.netCashMovementMinor !== undefined && <Summary label="Net cash movement" value={currentResult.netCashMovementMinor} />}
-          </section>
-          {currentResult.reportType === "balance_sheet" && branchId && <p className="text-xs text-[var(--muted)]">Store net assets include branch-tagged ledger entries only; centrally held assets and liabilities remain in the organization view.</p>}
+          {currentResult.reportType === "balance_sheet" && branchId && <p className="text-xs text-[var(--muted)]" data-no-print>Store net assets include branch-tagged ledger entries only; centrally held assets and liabilities remain in the organization view.</p>}
         </>
       )}
     </div>
   );
-}
-
-function Summary({ label, value }: { label: string; value: number }) {
-  return <div className="rounded-xl border bg-white p-4"><span className="text-sm text-[var(--muted)]">{label}</span><strong className="mt-2 block text-xl">{formatNaira(value)}</strong></div>;
 }

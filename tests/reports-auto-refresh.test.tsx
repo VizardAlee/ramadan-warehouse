@@ -80,6 +80,44 @@ describe("automatic reports", () => {
     expect(screen.queryByRole("button", { name: /generate/i })).toBeNull();
   });
 
+  it("presents financial results as period-specific statements with visible totals", async () => {
+    api.call.mockImplementation(async (name: string, filters: Record<string, string>) => {
+      if (name !== "generateFinancialStatement") return { rows: [], nextCursor: null };
+      if (filters.reportType === "income_statement") return {
+        ...filters, rows: [
+          { section: "Income", accountName: "Product sales", amountMinor: 500000 },
+          { section: "Expenses", accountName: "Operating expenses", amountMinor: 100000 },
+        ], incomeMinor: 500000, expenseMinor: 100000, profitMinor: 400000,
+      };
+      if (filters.reportType === "balance_sheet") return {
+        ...filters, rows: [
+          { section: "Assets", accountName: "Cash", amountMinor: 500000 },
+          { section: "Liabilities", accountName: "Payables", amountMinor: 100000 },
+          { section: "Equity", accountName: "Capital", amountMinor: 400000 },
+        ], assetsMinor: 500000, liabilitiesMinor: 100000, equityMinor: 400000, balanced: true,
+      };
+      return { ...filters, rows: [
+        { section: "Operating activities", amountMinor: 400000 },
+        { section: "Investing activities", amountMinor: -100000 },
+        { section: "Financing activities", amountMinor: 0 },
+      ], netCashMovementMinor: 300000 };
+    });
+    render(<ReportsPage />);
+    fireEvent.click(screen.getByRole("button", { name: "Financial statements" }));
+    expect(await screen.findByText("Product sales")).toBeTruthy();
+    expect(screen.getByText("Net profit / (loss)")).toBeTruthy();
+    expect(screen.getByText(/For the period/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Print / Save PDF" })).toBeTruthy();
+
+    fireEvent.change(screen.getByLabelText("Statement"), { target: { value: "balance_sheet" } });
+    expect(await screen.findByText("Total liabilities and equity")).toBeTruthy();
+    expect(screen.getByText(/As at/)).toBeTruthy();
+
+    fireEvent.change(screen.getByLabelText("Statement"), { target: { value: "cash_flow" } });
+    expect(await screen.findByText("Net increase / (decrease) in cash")).toBeTruthy();
+    expect(screen.getByText("(₦1,000.00)")).toBeTruthy();
+  });
+
   it("does not show an older sales response after filters have changed", async () => {
     const pending: Array<(value: unknown) => void> = [];
     api.call.mockImplementation((name: string) => name === "generateSalesReport"
