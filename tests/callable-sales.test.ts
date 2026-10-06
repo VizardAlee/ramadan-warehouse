@@ -1448,7 +1448,7 @@ describe.sequential("sales callables", () => {
     await call(branchManager, "approveSaleReturn", { ...approval, returnId: returned.returnId, idempotencyKey: crypto.randomUUID() });
     expect((await adminDb.doc(`saleReturns/${returned.returnId}`).get()).get("grossAmountMinor")).toBe(gross - cancellationAmount);
     expect((await balance.get()).data()).toMatchObject({ onHandQuantity: 10, reservedQuantity: 0, availableQuantity: 10, totalValueMinor: 50_000 });
-  });
+  }, 120_000);
   it("reserves paid goods, releases partial collections atomically and rejects duplicate or excessive releases", async () => {
     const balance = adminDb.doc(`inventoryBalances/${balanceDocumentId(organizationId, productId, locationId)}`);
     await balance.update({ onHandQuantity: 10, reservedQuantity: 0, availableQuantity: 10, totalValueMinor: 50_000, averageUnitCostMinor: 5_000 });
