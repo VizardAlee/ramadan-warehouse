@@ -213,6 +213,7 @@ export interface SaleDocument {
     unitOfMeasure: string;
     quantity: number;
     collectedQuantity?: number;
+    cancelledQuantity?: number;
     unitPriceMinor: number;
     subtotalAmountMinor: number;
     discountAmountMinor: number;

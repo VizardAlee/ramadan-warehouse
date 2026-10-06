@@ -28,6 +28,7 @@ const movementTitles: Record<string, string> = {
   discrepancy_resolution: "Stock discrepancy resolved",
   branch_sale: "Sold to customer",
   sale_reservation: "Reserved for customer",
+  sale_reservation_release: "Customer reservation cancelled",
   customer_collection: "Collected by customer",
   write_off: "Stock written off",
   reversal: "Previous movement reversed",
@@ -67,6 +68,8 @@ export function summarizeInventoryMovements(
     const place = destination ?? source ?? (physical[0] ? inventoryLocationLabel(physical[0], locations) : "Stock location");
     const movement = first.transactionType === "sale_reservation"
       ? `${quantity} reserved at ${place}. Still physically here, but unavailable for another sale.`
+      : first.transactionType === "sale_reservation_release"
+        ? `${quantity} released for sale again at ${place}. Physical stock did not change because these goods were never collected.`
       : first.transactionType === "customer_collection"
         ? `Customer collected ${quantity} from ${place}. The reservation and physical stock were reduced together.`
       : incoming.length && outgoing.length

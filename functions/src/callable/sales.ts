@@ -511,7 +511,7 @@ export const getSaleDocument = onCall(
       const result = await query.limit(input.limit + 1).get();
       const rows = result.docs.slice(0, input.limit);
       return {
-        rows: rows.map((sale) => ({ id: sale.id, saleNumber: sale.get("saleNumber"), customerName: sale.get("customerName") ?? "Walk-in customer", collectionStatus: sale.get("collectionStatus"), totalQuantity: Number(sale.get("totalQuantity")), collectedQuantity: Number(sale.get("collectedQuantity") ?? 0), reservedAt: iso(sale.get("reservedAt")) })),
+        rows: rows.map((sale) => ({ id: sale.id, saleNumber: sale.get("saleNumber"), customerName: sale.get("customerName") ?? "Walk-in customer", collectionStatus: sale.get("collectionStatus"), totalQuantity: Number(sale.get("totalQuantity")), collectedQuantity: Number(sale.get("collectedQuantity") ?? 0), cancelledQuantity: Number(sale.get("cancelledQuantity") ?? 0), reservedAt: iso(sale.get("reservedAt")) })),
         nextCursor: result.size > input.limit ? rows.at(-1)!.id : null,
       };
     }
@@ -567,6 +567,7 @@ export const getSaleDocument = onCall(
         receiptNumber: officialReceipt.get("receiptNumber"),
         paymentStatus: sale.get("paymentStatus"),
         collectionStatus: sale.get("collectionStatus") ?? "collected",
+        cancelledQuantity: Number(sale.get("cancelledQuantity") ?? 0),
         customerNumber: sale.get("customerNumber") ?? null,
         customerName: sale.get("customerName") ?? null,
         customerPhone: sale.get("customerPhone") ?? null,
@@ -594,6 +595,7 @@ export const getSaleDocument = onCall(
         unitOfMeasure: item.get("unitOfMeasure"),
         quantity: Number(item.get("quantity") ?? 0),
         collectedQuantity: Number(item.get("collectedQuantity") ?? item.get("quantity") ?? 0),
+        cancelledQuantity: Number(item.get("cancelledQuantity") ?? 0),
         unitPriceMinor: Number(item.get("unitPriceMinor") ?? 0),
         subtotalAmountMinor: Number(
           item.get("subtotalAmountMinor") ?? item.get("netAmountMinor") ?? 0,

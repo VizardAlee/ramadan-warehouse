@@ -28,6 +28,24 @@ Current priority: complete paid-but-uncollected stock and partial physical colle
 
 Each vertical slice needs rules/index review, idempotent trusted mutations, audit events, emulator tests, typecheck, lint, production build and a verified staging rollout. No historical ledger or issued document is edited in place.
 
+## Financial history scalability — 6 October 2026
+
+Financial statements and Tax Centre now aggregate stable 500-line server-side
+pages, with account totals retained rather than whole ledgers. Cash-flow journal
+metadata is fetched in batches of at most 100; all configured company accounts
+are included. The previous 10,000-line, 1,000-journal and 100-account cutoffs are
+removed. Missing or out-of-scope cash journals block issuance rather than silently
+inventing a classification. Existing organization/store scope and accounting
+classifications remain unchanged. Reports are still ledger-derived drafts;
+accountant review, statutory tax-rule approval and cash-flow classification
+hardening remain outstanding. Server paging fixes truncation, but materialized
+dashboard aggregates and very-large-ledger report jobs remain later work.
+
+Validation for this group: 225 unit/UI tests, 43 sales/aftersales/financial/security
+emulator tests, plus focused reruns for cancellation rounding and large-ledger
+aggregation. Typecheck, lint, production build and secret scanning passed. No
+historical warehouse data, posted journals or statutory tax rates were rewritten.
+
 ## Customer register and history — October 2026
 
 The customer register uses bounded, organization-scoped Firestore cursor queries,
@@ -59,6 +77,17 @@ ledger records are rewritten. Built-in managers/admins receive stock-release
 permission; administrators explicitly assign it to custom roles as needed.
 Existing immediate/offline checkout remains immediate issue. Deferred collection
 requires online confirmation and supports the current quantity-based POS items.
-Reservation cancellation/refund before collection, serial-evidence POS collection,
+Reservation cancellation/refund before collection is available through Returns:
+choose **Cancel goods not collected**, select uncollected quantities, a refund
+or account resolution and a reason. Approval requires return approval and stock
+release permissions. It releases reserved quantities without adding physical
+stock or reversing costs that were never posted. Cancellation and goods-return
+quantities are tracked separately; cumulative monetary reversals are checked
+inside the approval transaction, with stale requests rejected for reissue.
+Historical sales default to already collected, so cannot acquire invented
+reservations. Fully cancelled invoices leave the collection queue; partial
+cancellations leave only the remaining quantities available for collection.
+
+Serial-evidence POS collection,
 long-uncollected reminders and release-linked waybills remain next steps. Do not
-automatically expire reservations or use a goods return for uncollected stock.
+automatically expire reservations or use the collected-goods return option for uncollected stock.

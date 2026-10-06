@@ -46,6 +46,7 @@ beforeAll(async () => {
     adminDb.doc(`products/${productId}`).set({ organizationId, name: "Test Product", sku: "TEST-001", active: true, createdAt: now }),
     adminDb.doc(`bankAccounts/${bankAccountId}`).set({ organizationId, bankName: "Test Bank", accountName: "Services", accountNumberLast4: "4567", ledgerAccountCode: "1043", active: true, createdAt: now }),
   ]);
+
 });
 afterAll(async () => Promise.all(apps.map((app) => deleteApp(app))));
 
@@ -103,4 +104,35 @@ describe.sequential("aftersales and ledger-derived reports", () => {
     const tax = await call<{ statutoryRuleReviewRequired: boolean; vat: { calculatedLiabilityMinor: number } }>("getTaxWorkspace", period);
     expect(tax).toMatchObject({ statutoryRuleReviewRequired: true, vat: { calculatedLiabilityMinor: 0 } });
   });
+  it("includes more than 10,000 ledger lines, 1,000 journals and 100 company accounts", async () => {
+    const effectiveAt = Timestamp.now();
+    const date = effectiveAt.toDate().toISOString().slice(0, 10);
+    const period = { fromDate: date, toDate: date, branchId };
+    const beforeCash = await call<{ netCashMovementMinor: number }>("generateFinancialStatement", { ...period, reportType: "cash_flow" });
+    const beforeTax = await call<{ vat: { calculatedLiabilityMinor: number } }>("getTaxWorkspace", period);
+    const count = 3340;
+    const documents: Array<{ path: string; data: Record<string, unknown> }> = [];
+    for (let index = 0; index < 100; index++) documents.push({ path: `bankAccounts/paging-${String(index).padStart(3, "0")}`, data: { organizationId, ledgerAccountCode: `B${index}`, active: true } });
+    documents.push({ path: "bankAccounts/zz-paging-bank", data: { organizationId, ledgerAccountCode: "1998", active: true } });
+    for (let index = 0; index < count; index++) {
+      const entryId = `paging-${String(index).padStart(5, "0")}`;
+      documents.push({ path: `journalEntries/${entryId}`, data: { organizationId, branchId, journalType: "branch_sale", effectiveAt, status: "posted" } });
+      for (const [code, debit, credit] of [["1998", 2, 0], ["4010", 0, 1], ["2100", 0, 1]] as const)
+        documents.push({ path: `journalLines/${entryId}-${code}`, data: { organizationId, branchId, journalEntryId: entryId, effectiveAt, accountCode: code, accountName: code, debitMinor: debit, creditMinor: credit } });
+    }
+    for (let offset = 0; offset < documents.length; offset += 400) {
+      const batch = adminDb.batch();
+      for (const document of documents.slice(offset, offset + 400)) batch.set(adminDb.doc(document.path), document.data);
+      await batch.commit();
+    }
+    const trial = await call<{ totalDebitMinor: number; totalCreditMinor: number }>("generateFinancialStatement", { ...period, reportType: "trial_balance" });
+    expect(trial.totalDebitMinor).toBe(trial.totalCreditMinor);
+    expect(trial.totalDebitMinor).toBeGreaterThanOrEqual(count * 2);
+    const cash = await call<{ netCashMovementMinor: number }>("generateFinancialStatement", { ...period, reportType: "cash_flow" });
+    expect(cash.netCashMovementMinor).toBe(beforeCash.netCashMovementMinor + count * 2);
+    const tax = await call<{ vat: { calculatedLiabilityMinor: number } }>("getTaxWorkspace", period);
+    expect(tax.vat.calculatedLiabilityMinor).toBe(beforeTax.vat.calculatedLiabilityMinor + count);
+    const balance = await call<{ balanced: boolean }>("generateFinancialStatement", { ...period, reportType: "balance_sheet" });
+    expect(balance.balanced).toBe(true);
+  }, 120_000);
 });

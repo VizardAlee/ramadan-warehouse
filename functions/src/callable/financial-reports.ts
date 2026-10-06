@@ -4,6 +4,7 @@ import { db } from "../admin.js";
 import { hasServerPermission, requireAccess, requireBranchScope, requirePermission } from "../auth/authorize.js";
 import { enforceAppCheck } from "../config.js";
 import { parseInput } from "../utils/callable.js";
+import { visitQueryPages } from "../utils/query-pages.js";
 import {
   financialReportInput,
   taxWorkspaceInput,
@@ -22,8 +23,7 @@ function startTimestamp(date: string) {
 function endTimestamp(date: string) {
   return Timestamp.fromDate(new Date(`${date}T23:59:59.999Z`));
 }
-function aggregateLines(lines: FirebaseFirestore.QueryDocumentSnapshot[]) {
-  const totals = new Map<string, LedgerTotal>();
+function aggregateLines(lines: FirebaseFirestore.QueryDocumentSnapshot[], totals: Map<string, LedgerTotal>) {
   for (const line of lines) {
     const accountCode = String(line.get("accountCode") ?? "UNKNOWN");
     const current = totals.get(accountCode) ?? {
@@ -34,11 +34,10 @@ function aggregateLines(lines: FirebaseFirestore.QueryDocumentSnapshot[]) {
     };
     current.debitMinor += Number(line.get("debitMinor") ?? 0);
     current.creditMinor += Number(line.get("creditMinor") ?? 0);
+    if (!Number.isSafeInteger(current.debitMinor) || !Number.isSafeInteger(current.creditMinor))
+      throw new HttpsError("failed-precondition", "The ledger contains amounts outside safe minor-unit arithmetic. Reconcile the affected account before issuing this statement.");
     totals.set(accountCode, current);
   }
-  return [...totals.values()].sort((left, right) =>
-    left.accountCode.localeCompare(right.accountCode),
-  );
 }
 function sectionForBalanceSheet(code: string) {
   if (code.startsWith("1")) return "Assets";
@@ -53,7 +52,7 @@ function sectionForIncome(code: string) {
 }
 
 export const generateFinancialStatement = onCall(
-  { enforceAppCheck },
+  { enforceAppCheck, timeoutSeconds: 300 },
   async (request) => {
     const actor = await requireAccess(request);
     requirePermission(actor, "finance.journal.read");
@@ -70,13 +69,36 @@ export const generateFinancialStatement = onCall(
     if (branchId) query = query.where("branchId", "==", branchId);
     if (input.reportType !== "balance_sheet" && input.reportType !== "trial_balance")
       query = query.where("effectiveAt", ">=", startTimestamp(input.fromDate));
-    const lines = await query.limit(10_001).get();
-    if (lines.size > 10_000)
-      throw new HttpsError(
-        "resource-exhausted",
-        "This statement exceeds 10,000 ledger lines. Select a shorter period.",
-      );
-    const totals = aggregateLines(lines.docs);
+    const ledgerTotals = new Map<string, LedgerTotal>();
+    const bankCodes = new Set(["1010", "1020", "1030"]);
+    const grouped = new Map<string, number>([["Operating activities", 0], ["Investing activities", 0], ["Financing activities", 0]]);
+    const investingTypes = new Set(["asset_purchase", "asset_disposal"]);
+    const financingTypes = new Set(["capital_contribution", "loan_receipt", "loan_repayment", "dividend"]);
+    if (input.reportType === "cash_flow")
+      await visitQueryPages(db.collection("bankAccounts").where("organizationId", "==", actor.organizationId), (accounts) => {
+        for (const account of accounts) if (account.get("ledgerAccountCode")) bankCodes.add(String(account.get("ledgerAccountCode")));
+      });
+    await visitQueryPages(query, async (lines) => {
+      aggregateLines(lines, ledgerTotals);
+      if (input.reportType !== "cash_flow") return;
+      const cashLines = lines.filter((line) => bankCodes.has(String(line.get("accountCode"))));
+      const entryIds = [...new Set(cashLines.map((line) => String(line.get("journalEntryId"))))];
+      const typeByEntry = new Map<string, string>();
+      for (let offset = 0; offset < entryIds.length; offset += 100) {
+        const snapshots = await db.getAll(...entryIds.slice(offset, offset + 100).map((id) => db.doc(`journalEntries/${id}`)));
+        for (const entry of snapshots) {
+          if (!entry.exists || entry.get("organizationId") !== actor.organizationId || (branchId && entry.get("branchId") !== branchId))
+            throw new HttpsError("failed-precondition", "A cash ledger entry has no matching journal in this reporting scope. Reconcile the journal before issuing this statement.");
+          typeByEntry.set(entry.id, String(entry.get("journalType") ?? "other"));
+        }
+      }
+      for (const line of cashLines) {
+        const journalType = typeByEntry.get(String(line.get("journalEntryId")))!;
+        const section = investingTypes.has(journalType) ? "Investing activities" : financingTypes.has(journalType) ? "Financing activities" : "Operating activities";
+        grouped.set(section, grouped.get(section)! + Number(line.get("debitMinor") ?? 0) - Number(line.get("creditMinor") ?? 0));
+      }
+    }, { orderField: "effectiveAt" });
+    const totals = [...ledgerTotals.values()].sort((left, right) => left.accountCode.localeCompare(right.accountCode));
 
     if (input.reportType === "trial_balance") {
       const rows = totals.map((line) => ({
@@ -156,49 +178,6 @@ export const generateFinancialStatement = onCall(
       };
     }
 
-    const entryIds = [...new Set(lines.docs.map((line) => String(line.get("journalEntryId"))))];
-    const entrySnapshots = await Promise.all(
-      entryIds.slice(0, 1_000).map((id) => db.doc(`journalEntries/${id}`).get()),
-    );
-    if (entryIds.length > 1_000)
-      throw new HttpsError(
-        "resource-exhausted",
-        "This cash-flow statement exceeds 1,000 journals. Select a shorter period.",
-      );
-    const typeByEntry = new Map(
-      entrySnapshots.map((entry) => [entry.id, String(entry.get("journalType") ?? "other")]),
-    );
-    const bankCodes = new Set(
-      (await db.collection("bankAccounts")
-        .where("organizationId", "==", actor.organizationId)
-        .limit(100)
-        .get()).docs.map((account) => String(account.get("ledgerAccountCode"))),
-    );
-    bankCodes.add("1010");
-    bankCodes.add("1020");
-    bankCodes.add("1030");
-    const investingTypes = new Set(["asset_purchase", "asset_disposal"]);
-    const financingTypes = new Set(["capital_contribution", "loan_receipt", "loan_repayment", "dividend"]);
-    const grouped = new Map<string, number>([
-      ["Operating activities", 0],
-      ["Investing activities", 0],
-      ["Financing activities", 0],
-    ]);
-    for (const line of lines.docs) {
-      if (!bankCodes.has(String(line.get("accountCode")))) continue;
-      const journalType = typeByEntry.get(String(line.get("journalEntryId"))) ?? "other";
-      const section = investingTypes.has(journalType)
-        ? "Investing activities"
-        : financingTypes.has(journalType)
-          ? "Financing activities"
-          : "Operating activities";
-      grouped.set(
-        section,
-        (grouped.get(section) ?? 0) +
-          Number(line.get("debitMinor") ?? 0) -
-          Number(line.get("creditMinor") ?? 0),
-      );
-    }
     const rows = [...grouped].map(([section, amountMinor]) => ({ section, amountMinor }));
     return {
       ...input, branchId: branchId ?? null,
@@ -209,33 +188,28 @@ export const generateFinancialStatement = onCall(
 );
 
 export const getTaxWorkspace = onCall(
-  { enforceAppCheck },
+  { enforceAppCheck, timeoutSeconds: 300 },
   async (request) => {
     const actor = await requireAccess(request);
     requirePermission(actor, "finance.journal.read");
     if (!hasServerPermission(actor, "sales.read.all"))
       throw new HttpsError("permission-denied", "The organization Tax Centre requires organization-wide finance access.");
     const input = parseInput(taxWorkspaceInput, request.data);
-    const [lines, rules] = await Promise.all([
-      db.collection("journalLines")
+    const totals = new Map<string, LedgerTotal>();
+    const ruleDocuments: FirebaseFirestore.QueryDocumentSnapshot[] = [];
+    await Promise.all([
+      visitQueryPages(db.collection("journalLines")
         .where("organizationId", "==", actor.organizationId)
         .where("effectiveAt", ">=", startTimestamp(input.fromDate))
-        .where("effectiveAt", "<=", endTimestamp(input.toDate))
-        .limit(10_001)
-        .get(),
-      db.collection("taxRules")
-        .where("organizationId", "==", actor.organizationId)
-        .limit(100)
-        .get(),
+        .where("effectiveAt", "<=", endTimestamp(input.toDate)),
+        (lines) => aggregateLines(lines, totals), { orderField: "effectiveAt" }),
+      visitQueryPages(db.collection("taxRules")
+        .where("organizationId", "==", actor.organizationId), (rules) => { ruleDocuments.push(...rules); }),
     ]);
-    if (lines.size > 10_000)
-      throw new HttpsError("resource-exhausted", "Select a shorter tax period.");
-    const outputVatMinor = lines.docs
-      .filter((line) => line.get("accountCode") === "2100")
-      .reduce((sum, line) => sum + Number(line.get("creditMinor") ?? 0) - Number(line.get("debitMinor") ?? 0), 0);
-    const inputVatMinor = lines.docs
-      .filter((line) => line.get("accountCode") === "1300")
-      .reduce((sum, line) => sum + Number(line.get("debitMinor") ?? 0) - Number(line.get("creditMinor") ?? 0), 0);
+    const outputVat = totals.get("2100");
+    const inputVat = totals.get("1300");
+    const outputVatMinor = (outputVat?.creditMinor ?? 0) - (outputVat?.debitMinor ?? 0);
+    const inputVatMinor = (inputVat?.debitMinor ?? 0) - (inputVat?.creditMinor ?? 0);
     return {
       ...input,
       vat: {
@@ -245,8 +219,8 @@ export const getTaxWorkspace = onCall(
         calculatedLiabilityMinor: outputVatMinor - inputVatMinor,
         status: "calculated",
       },
-      rules: rules.docs.map((rule) => ({ id: rule.id, ...rule.data() })),
-      statutoryRuleReviewRequired: !rules.docs.some((rule) =>
+      rules: ruleDocuments.map((rule) => ({ id: rule.id, ...rule.data() })),
+      statutoryRuleReviewRequired: !ruleDocuments.some((rule) =>
         String(rule.get("taxType") ?? "").toUpperCase() === "VAT" &&
         ["approved", "active"].includes(String(rule.get("status"))) &&
         Boolean(rule.get("effectiveFrom")) &&

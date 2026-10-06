@@ -141,6 +141,10 @@ export const getSaleReturnWorkspace = onCall(
         unitOfMeasure: item.get("unitOfMeasure"),
         soldQuantity: Number(item.get("quantity")),
         returnedQuantity: Number(counters[index]!.get("returnedQuantity") ?? 0),
+        cancelledQuantity: Number(item.get("cancelledQuantity") ?? 0),
+        reversedNetAmountMinor: counters[index]!.get("reversedNetAmountMinor") ?? null,
+        reversedVatAmountMinor: counters[index]!.get("reversedVatAmountMinor") ?? null,
+        cancellableQuantity: Math.max(0, Number(item.get("quantity")) - Number(item.get("collectedQuantity") ?? item.get("quantity")) - Number(item.get("cancelledQuantity") ?? 0)),
         returnableQuantity:
           Number(item.get("collectedQuantity") ?? item.get("quantity")) -
           Number(counters[index]!.get("returnedQuantity") ?? 0),
@@ -258,9 +262,10 @@ export const createSaleReturn = onCall({ enforceAppCheck }, async (request) => {
           "invalid-argument",
           "A return line does not belong to this sale.",
         );
-      const remaining =
-        Number(item.get("collectedQuantity") ?? item.get("quantity")) -
-        Number(counters[index]!.get("returnedQuantity") ?? 0);
+      const cancellation = input.kind === "reservation_cancellation";
+      const remaining = cancellation
+        ? Number(item.get("quantity")) - Number(item.get("collectedQuantity") ?? item.get("quantity")) - Number(item.get("cancelledQuantity") ?? 0)
+        : Number(item.get("collectedQuantity") ?? item.get("quantity")) - Number(counters[index]!.get("returnedQuantity") ?? 0);
       if (line.quantity > remaining)
         throw new HttpsError(
           "failed-precondition",
@@ -271,18 +276,19 @@ export const createSaleReturn = onCall({ enforceAppCheck }, async (request) => {
       const collectedQuantity = Number(item.get("collectedQuantity") ?? soldQuantity);
       const collectedCost = Number(item.get("costAmountMinor") ?? 0);
       const returnedCost = Number(counters[index]!.get("returnedCostAmountMinor") ?? Math.round(collectedCost * returnedQuantity / collectedQuantity));
-      const allocated = (total: number) => Math.round(total * (returnedQuantity + line.quantity) / soldQuantity) - Math.round(total * returnedQuantity / soldQuantity);
+      const reversedQuantity = returnedQuantity + Number(item.get("cancelledQuantity") ?? 0);
+      const allocated = (total: number, field?: string) => Math.round(total * (reversedQuantity + line.quantity) / soldQuantity) - Number((field && counters[index]!.get(field)) ?? Math.round(total * reversedQuantity / soldQuantity));
       const originalNet = Number(item.get("netAmountMinor") ?? soldQuantity * Number(item.get("unitPriceMinor")));
       const originalVat = Number(item.get("vatAmountMinor") ?? Math.round(originalNet * Number(item.get("vatRateBasisPoints")) / 10_000));
-      const net = allocated(originalNet);
-      const vat = allocated(originalVat);
+      const net = allocated(originalNet, "reversedNetAmountMinor");
+      const vat = allocated(originalVat, "reversedVatAmountMinor");
       return {
         input: line,
         item,
         net,
         vat,
         gross: net + vat,
-        cost: item.get("collectionTracked") === true
+        cost: cancellation ? 0 : item.get("collectionTracked") === true
           ? Math.round(Math.max(0, collectedCost - returnedCost) * line.quantity / (collectedQuantity - returnedQuantity))
           : allocated(Number(item.get("costAmountMinor") ?? soldQuantity * Number(item.get("unitCostMinor") ?? 0))),
       };
@@ -301,6 +307,7 @@ export const createSaleReturn = onCall({ enforceAppCheck }, async (request) => {
       customerId: sale.get("customerId") ?? null,
       customerName: sale.get("customerName") ?? null,
       status: "submitted",
+      kind: input.kind,
       resolution: input.resolution,
       refundShiftId: input.refundShiftId ?? null,
       bankAccountId: input.bankAccountId ?? null,
@@ -327,7 +334,7 @@ export const createSaleReturn = onCall({ enforceAppCheck }, async (request) => {
         sku: line.item.get("sku"),
         productName: line.item.get("productName"),
         quantity: line.input.quantity,
-        condition: line.input.condition,
+        condition: input.kind === "reservation_cancellation" ? "non_restockable" : line.input.condition,
         unitPriceMinor: line.item.get("unitPriceMinor"),
         vatRateBasisPoints: line.item.get("vatRateBasisPoints"),
         unitCostMinor: line.item.get("unitCostMinor"),
@@ -386,10 +393,18 @@ export const approveSaleReturn = onCall(
       .get();
     if (returnItemsQuery.empty)
       throw new HttpsError("failed-precondition", "The return has no items.");
-    const location = await branchLocation(
+    const cancellation = initial.get("kind") === "reservation_cancellation";
+    if (cancellation) requirePermission(actor, "sales.stock.release");
+    const saleRef = db.doc(`sales/${initial.get("saleId")}`);
+    const saleBeforeApproval = await saleRef.get();
+    if (!saleBeforeApproval.exists || saleBeforeApproval.get("organizationId") !== actor.organizationId || saleBeforeApproval.get("branchId") !== initial.get("branchId"))
+      throw new HttpsError("failed-precondition", "The original sale is unavailable.");
+    const location = cancellation ? await db.doc(`inventoryLocations/${saleBeforeApproval.get("locationId")}`).get() : await branchLocation(
       actor.organizationId,
       String(initial.get("branchId")),
     );
+    if (!location.exists || location.get("organizationId") !== actor.organizationId || location.get("branchId") !== initial.get("branchId"))
+      throw new HttpsError("failed-precondition", "The original stock location is unavailable.");
     const itemRefs = returnItemsQuery.docs.map((line) =>
       db.doc(`saleItems/${line.get("saleItemId")}`),
     );
@@ -403,6 +418,8 @@ export const approveSaleReturn = onCall(
         `inventoryBalances/${balanceDocumentId(actor.organizationId, String(line.get("productId")), location.id)}`,
       ),
     );
+    if (new Set(balanceRefs.map((reference) => reference.path)).size !== balanceRefs.length)
+      throw new HttpsError("failed-precondition", "Select each product once per return or cancellation.");
     const customerId = initial.get("customerId")
       ? String(initial.get("customerId"))
       : "no-return-customer-placeholder";
@@ -445,6 +462,7 @@ export const approveSaleReturn = onCall(
         inventoryCounter,
         journalCounter,
         accountingPeriod,
+        saleRef,
         ...itemRefs,
         ...counterRefs,
         ...balanceRefs,
@@ -457,6 +475,7 @@ export const approveSaleReturn = onCall(
       const inventoryCounterSnapshot = snapshots[cursor++]!,
         journalCounterSnapshot = snapshots[cursor++]!;
       const accountingPeriodSnapshot = snapshots[cursor++]!;
+      const originalSale = snapshots[cursor++]!;
       const originalItems = snapshots.slice(
         cursor,
         (cursor += itemRefs.length),
@@ -472,6 +491,8 @@ export const approveSaleReturn = onCall(
         return;
       }
       assertAccountingPeriodOpen(accountingPeriodSnapshot);
+      if (!originalSale.exists || originalSale.get("organizationId") !== actor.organizationId || originalSale.get("branchId") !== initial.get("branchId"))
+        throw new HttpsError("failed-precondition", "The original sale is unavailable.");
       if (!current.exists || current.get("status") !== "submitted")
         throw new HttpsError(
           "failed-precondition",
@@ -488,9 +509,9 @@ export const approveSaleReturn = onCall(
           counter = counters[index]!,
           balance = balances[index]!;
         const quantity = Number(line.get("quantity"));
-        const remaining =
-          Number(original.get("collectedQuantity") ?? original.get("quantity")) -
-          Number(counter.get("returnedQuantity") ?? 0);
+        const remaining = cancellation
+          ? Number(original.get("quantity")) - Number(original.get("collectedQuantity") ?? original.get("quantity")) - Number(original.get("cancelledQuantity") ?? 0)
+          : Number(original.get("collectedQuantity") ?? original.get("quantity")) - Number(counter.get("returnedQuantity") ?? 0);
         if (
           !original.exists ||
           original.get("saleId") !== current.get("saleId") ||
@@ -500,7 +521,17 @@ export const approveSaleReturn = onCall(
             "failed-precondition",
             "A return item is no longer fully returnable.",
           );
-        if (original.get("collectionTracked") === true) {
+        if (cancellation && (!balance.exists || balance.get("organizationId") !== actor.organizationId || Number(balance.get("reservedQuantity") ?? 0) < quantity || Number(line.get("costAmountMinor")) !== 0))
+          throw new HttpsError("failed-precondition", "The goods are no longer reserved at the original sale location.");
+        const reversedQuantity = Number(counter.get("returnedQuantity") ?? 0) + Number(original.get("cancelledQuantity") ?? 0);
+        const soldQuantity = Number(original.get("quantity"));
+        const originalNet = Number(original.get("netAmountMinor") ?? soldQuantity * Number(original.get("unitPriceMinor")));
+        const originalVat = Number(original.get("vatAmountMinor") ?? Math.round(originalNet * Number(original.get("vatRateBasisPoints")) / 10_000));
+        const reversedNet = Number(counter.get("reversedNetAmountMinor") ?? Math.round(originalNet * reversedQuantity / soldQuantity));
+        const reversedVat = Number(counter.get("reversedVatAmountMinor") ?? Math.round(originalVat * reversedQuantity / soldQuantity));
+        if (Number(line.get("netAmountMinor")) !== Math.round(originalNet * (reversedQuantity + quantity) / soldQuantity) - reversedNet || Number(line.get("vatAmountMinor")) !== Math.round(originalVat * (reversedQuantity + quantity) / soldQuantity) - reversedVat)
+          throw new HttpsError("failed-precondition", "Another return or cancellation changed this invoice. Review and submit a fresh request before approval.");
+        if (!cancellation && original.get("collectionTracked") === true) {
           const returnedCost = Number(counter.get("returnedCostAmountMinor") ?? Math.round(Number(original.get("costAmountMinor")) * Number(counter.get("returnedQuantity") ?? 0) / Number(original.get("collectedQuantity"))));
           if (Number(line.get("costAmountMinor")) > Number(original.get("costAmountMinor")) - returnedCost)
             throw new HttpsError("failed-precondition", "The collection cost changed after this return was requested. Review and submit a fresh return before approval.");
@@ -514,7 +545,7 @@ export const approveSaleReturn = onCall(
             "failed-precondition",
             "The branch stock balance required for restocking is unavailable.",
           );
-        return { line, original, counter, balance, quantity };
+        return { line, original, counter, balance, quantity, reversedNet, reversedVat };
       });
       const gross = Number(current.get("grossAmountMinor")),
         net = Number(current.get("netAmountMinor")),
@@ -580,7 +611,7 @@ export const approveSaleReturn = onCall(
         value: journalSequence,
         updatedAt: now,
       });
-      if (restockCost > 0)
+      if (restockCost > 0 || cancellation)
         transaction.set(
           inventoryCounter,
           {
@@ -600,10 +631,26 @@ export const approveSaleReturn = onCall(
         approvalNotes: input.notes ?? null,
         journalEntryId: journal.id,
         inventoryTransactionId:
-          restockCost > 0 ? inventoryTransaction.id : null,
+          restockCost > 0 || cancellation ? inventoryTransaction.id : null,
         updatedAt: now,
       });
       for (const [index, line] of lines.entries()) {
+        transaction.set(counterRefs[index]!, {
+          organizationId: actor.organizationId,
+          saleId: current.get("saleId"),
+          saleItemId: line.original.id,
+          reversedNetAmountMinor: line.reversedNet + Number(line.line.get("netAmountMinor")),
+          reversedVatAmountMinor: line.reversedVat + Number(line.line.get("vatAmountMinor")),
+          updatedAt: now,
+        }, { merge: true });
+        if (cancellation) {
+          const reserved = Number(line.balance.get("reservedQuantity"));
+          const physical = Number(line.balance.get("onHandQuantity"));
+          transaction.update(itemRefs[index]!, { cancelledQuantity: Number(line.original.get("cancelledQuantity") ?? 0) + line.quantity, updatedAt: now });
+          transaction.update(balanceRefs[index]!, { reservedQuantity: reserved - line.quantity, availableQuantity: physical - reserved + line.quantity, lastTransactionId: inventoryTransaction.id, lastMovementAt: effectiveAt, version: Number(line.balance.get("version") ?? 0) + 1, updatedAt: now });
+          transaction.create(db.collection("inventoryEntries").doc(), { organizationId: actor.organizationId, branchId: current.get("branchId"), locationId: location.id, productId: line.original.get("productId"), productName: line.original.get("productName"), sku: line.original.get("sku"), trackingType: "quantity", transactionId: inventoryTransaction.id, transactionNumber: inventoryNumber, transactionType: "sale_reservation_release", quantityDelta: 0, reservedQuantityDelta: -line.quantity, valueDeltaMinor: 0, unitCostMinor: 0, currency: "NGN", balanceBefore: physical, balanceAfter: physical, effectiveAt, createdAt: now, postedBy: actor.userId, referenceNumber: current.get("returnNumber"), reason: "Cancelled uncollected goods; physical stock never left" });
+          continue;
+        }
         transaction.set(
           counterRefs[index]!,
           {
@@ -671,11 +718,17 @@ export const approveSaleReturn = onCall(
           balanceAfter: 0,
         });
       }
-      if (restockCost > 0)
+      if (cancellation) {
+        const cancelledQuantity = Number(originalSale.get("cancelledQuantity") ?? 0) + lines.reduce((sum, line) => sum + line.quantity, 0);
+        const collected = Number(originalSale.get("collectedQuantity") ?? 0);
+        const remaining = Number(originalSale.get("totalQuantity")) - cancelledQuantity - collected;
+        transaction.update(saleRef, { cancelledQuantity, collectionStatus: remaining > 0 ? (collected > 0 ? "partially_collected" : "awaiting_collection") : (collected > 0 ? "collected" : "cancelled"), updatedAt: now });
+      }
+      if (restockCost > 0 || cancellation)
         transaction.create(inventoryTransaction, {
           organizationId: actor.organizationId,
           transactionNumber: inventoryNumber,
-          transactionType: "sale_return",
+          transactionType: cancellation ? "sale_reservation_release" : "sale_return",
           status: "posted",
           referenceType: "saleReturn",
           referenceId: returnRef.id,
@@ -685,7 +738,7 @@ export const approveSaleReturn = onCall(
           effectiveAt,
           postedAt: now,
           postedBy: actor.userId,
-          reason: "Approved customer return",
+          reason: cancellation ? "Approved cancellation of uncollected goods" : "Approved customer return",
           correlationId: correlationId(),
           createdAt: now,
           createdBy: actor.userId,
@@ -834,11 +887,12 @@ export const approveSaleReturn = onCall(
         }),
       );
       writeAuditLog(transaction, actor, {
-        action: "sale_return.approved",
+        action: cancellation ? "sale.reservation_cancelled" : "sale_return.approved",
         entityType: "saleReturn",
         entityId: returnRef.id,
         correlationId: correlationId(),
         sourceFunction: "approveSaleReturn",
+        reason: String(current.get("reason")),
         after: {
           resolution,
           grossAmountMinor: gross,

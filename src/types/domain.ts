@@ -230,6 +230,7 @@ export interface Customer {
 }
 
 export interface SaleReturn {
+  kind?: "goods_return" | "reservation_cancellation";
   bankAccountId?: string | null;
   id: string;
   organizationId: string;
@@ -740,6 +741,7 @@ export const inventoryTransactionTypes = [
   "discrepancy_resolution",
   "branch_sale",
   "sale_reservation",
+  "sale_reservation_release",
   "customer_collection",
   "write_off",
   "reversal",

@@ -1410,6 +1410,45 @@ describe.sequential("sales callables", () => {
       operatingContext: { type: "branch", id: branchId },
     })).rejects.toMatchObject({ code: "functions/invalid-argument" });
   });
+  it("cancels uncollected reservations without restocking and collects only the remainder", async () => {
+    const balance = adminDb.doc(`inventoryBalances/${balanceDocumentId(organizationId, productId, locationId)}`);
+    await balance.update({ onHandQuantity: 10, reservedQuantity: 0, availableQuantity: 10, totalValueMinor: 50_000, averageUnitCostMinor: 5_000 });
+    await call(administrator, "saveProductSalesPrice", { productId, basePriceMinor: 10_000, vatRateBasisPoints: 750, active: true, idempotencyKey: crypto.randomUUID() });
+    const deviceId = crypto.randomUUID();
+    const shift = await call<{ shiftId: string }>(branchManager, "openPosShift", { branchId, deviceId, deviceName: "Cancellation desk", openingCashMinor: 0, idempotencyKey: crypto.randomUUID(), operatingContext: { type: "branch", id: branchId } });
+    const workspace = await call<{ products: Array<{ id: string; unitPriceMinor: number; vatRateBasisPoints: number }> }>(branchManager, "getPosWorkspace", { branchId });
+    const product = workspace.products.find((row) => row.id === productId)!;
+    const net = product.unitPriceMinor * 4 - 1;
+    const vat = Math.round(net * product.vatRateBasisPoints / 10_000);
+    const gross = net + vat;
+    const cancellationAmount = Math.round(net / 2) + Math.round(vat / 2);
+    const order = await call<{ orderId: string }>(branchManager, "createPosSaleOrder", { branchId, shiftId: shift.shiftId, deviceId, recordedAt: new Date().toISOString(), offline: false, discountAmountMinor: 1, discountReason: "Rounding regression discount", lines: [{ productId, quantity: 4 }], payments: [{ method: "cash", amountMinor: gross }], idempotencyKey: crypto.randomUUID(), operatingContext: { type: "branch", id: branchId } });
+    await call(branchManager, "acceptPosSaleOrderPayment", { orderId: order.orderId, shiftId: shift.shiftId, deviceId, idempotencyKey: crypto.randomUUID(), operatingContext: { type: "branch", id: branchId } });
+    const sale = await call<{ saleId: string }>(branchManager, "confirmPosSaleOrder", { orderId: order.orderId, deferCollection: true, idempotencyKey: crypto.randomUUID() });
+    const item = (await adminDb.collection("saleItems").where("saleId", "==", sale.saleId).get()).docs[0]!;
+    const request = { kind: "reservation_cancellation", branchId, saleId: sale.saleId, lines: [{ saleItemId: item.id, quantity: 2, condition: "restockable" }], resolution: "exchange_credit", reason: "Customer cancelled before collecting", idempotencyKey: crypto.randomUUID(), operatingContext: { type: "branch", id: branchId } };
+    await expect(call(branchManager, "createSaleReturn", { ...request, lines: [...request.lines, ...request.lines] })).rejects.toMatchObject({ code: "functions/invalid-argument" });
+    const created = await call<{ returnId: string }>(branchManager, "createSaleReturn", request);
+    const stale = await call<{ returnId: string }>(branchManager, "createSaleReturn", { ...request, idempotencyKey: crypto.randomUUID() });
+    const approval = { returnId: created.returnId, idempotencyKey: crypto.randomUUID(), operatingContext: { type: "branch", id: branchId } };
+    expect(await call(branchManager, "approveSaleReturn", approval)).toMatchObject({ approved: true });
+    expect(await call(branchManager, "approveSaleReturn", approval)).toMatchObject({ approved: false });
+    await expect(call(branchManager, "approveSaleReturn", { ...approval, returnId: stale.returnId, idempotencyKey: crypto.randomUUID() })).rejects.toMatchObject({ code: "functions/failed-precondition" });
+    expect((await balance.get()).data()).toMatchObject({ onHandQuantity: 10, reservedQuantity: 2, availableQuantity: 8, totalValueMinor: 50_000 });
+    const record = await adminDb.doc(`saleReturns/${created.returnId}`).get();
+    const journal = await adminDb.collection("journalLines").where("journalEntryId", "==", record.get("journalEntryId")).get();
+    expect(journal.docs.some((line) => ["1200", "5000"].includes(line.get("accountCode")))).toBe(false);
+    expect(record.get("grossAmountMinor")).toBe(cancellationAmount);
+    await expect(call(branchManager, "confirmPosSaleOrder", { action: "collect", saleId: sale.saleId, lines: [{ saleItemId: item.id, quantity: 3 }], collector: "Customer", idempotencyKey: crypto.randomUUID() })).rejects.toMatchObject({ code: "functions/failed-precondition" });
+    expect(await call(branchManager, "confirmPosSaleOrder", { action: "collect", saleId: sale.saleId, lines: [{ saleItemId: item.id, quantity: 2 }], collector: "Customer", idempotencyKey: crypto.randomUUID() })).toMatchObject({ collectionStatus: "collected" });
+    expect((await balance.get()).data()).toMatchObject({ onHandQuantity: 8, reservedQuantity: 0, availableQuantity: 8, totalValueMinor: 40_000 });
+    expect(await call(branchManager, "getSaleDocument", { saleId: sale.saleId })).toMatchObject({ sale: { collectionStatus: "collected", cancelledQuantity: 2 }, items: [expect.objectContaining({ cancelledQuantity: 2, collectedQuantity: 2 })] });
+    await expect(call(branchManager, "createSaleReturn", { ...request, idempotencyKey: crypto.randomUUID() })).rejects.toMatchObject({ code: "functions/failed-precondition" });
+    const returned = await call<{ returnId: string }>(branchManager, "createSaleReturn", { ...request, kind: "goods_return", idempotencyKey: crypto.randomUUID() });
+    await call(branchManager, "approveSaleReturn", { ...approval, returnId: returned.returnId, idempotencyKey: crypto.randomUUID() });
+    expect((await adminDb.doc(`saleReturns/${returned.returnId}`).get()).get("grossAmountMinor")).toBe(gross - cancellationAmount);
+    expect((await balance.get()).data()).toMatchObject({ onHandQuantity: 10, reservedQuantity: 0, availableQuantity: 10, totalValueMinor: 50_000 });
+  });
   it("reserves paid goods, releases partial collections atomically and rejects duplicate or excessive releases", async () => {
     const balance = adminDb.doc(`inventoryBalances/${balanceDocumentId(organizationId, productId, locationId)}`);
     await balance.update({ onHandQuantity: 10, reservedQuantity: 0, availableQuantity: 10, totalValueMinor: 50_000, averageUnitCostMinor: 5_000 });

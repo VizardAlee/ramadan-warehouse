@@ -1,7 +1,7 @@
 "use client";
 
 import { CheckCircle2, RotateCcw, Search, ShieldCheck } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { callAdministration } from "@/features/administration/api";
 import { useOrganizationCollection } from "@/features/administration/use-organization-collection";
@@ -31,6 +31,10 @@ interface ReturnWorkspace {
     soldQuantity: number;
     returnedQuantity: number;
     returnableQuantity: number;
+    cancellableQuantity?: number;
+    cancelledQuantity?: number;
+    reversedNetAmountMinor?: number | null;
+    reversedVatAmountMinor?: number | null;
     unitPriceMinor: number;
     vatRateBasisPoints: number;
     netAmountMinor: number;
@@ -57,6 +61,7 @@ export default function ReturnsPage() {
   const [receiptNumber, setReceiptNumber] = useState("");
   const [workspace, setWorkspace] = useState<ReturnWorkspace | null>(null);
   const [quantities, setQuantities] = useState<Record<string, number>>({});
+  const [kind, setKind] = useState<"goods_return" | "reservation_cancellation">("goods_return");
   const [conditions, setConditions] = useState<
     Record<string, "restockable" | "non_restockable">
   >({});
@@ -70,6 +75,7 @@ export default function ReturnsPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const submissionRetry = useRef<{ fingerprint: string; key: string } | null>(null);
   const contextBranchId =
     operatingContext?.type === "branch" ? operatingContext.id : "";
   const assignedBranchId =
@@ -160,9 +166,11 @@ export default function ReturnsPage() {
   );
   const estimatedGross = selectedLines.reduce((sum, item) => {
     const quantity = quantities[item.id] ?? 0;
-    const previous = item.returnedQuantity;
-    return sum + Math.round(item.grossAmountMinor * (previous + quantity) / item.soldQuantity)
-      - Math.round(item.grossAmountMinor * previous / item.soldQuantity);
+    const previous = item.returnedQuantity + (item.cancelledQuantity ?? 0);
+    return sum + Math.round(item.netAmountMinor * (previous + quantity) / item.soldQuantity)
+      - (item.reversedNetAmountMinor ?? Math.round(item.netAmountMinor * previous / item.soldQuantity))
+      + Math.round(item.vatAmountMinor * (previous + quantity) / item.soldQuantity)
+      - (item.reversedVatAmountMinor ?? Math.round(item.vatAmountMinor * previous / item.soldQuantity));
   }, 0);
 
   async function submitReturn() {
@@ -171,23 +179,24 @@ export default function ReturnsPage() {
     setError(null);
     setMessage(null);
     try {
+      const payload = {
+        kind, branchId, saleId: workspace.sale.id,
+        lines: selectedLines.map((item) => ({ saleItemId: item.id, quantity: quantities[item.id], condition: kind === "reservation_cancellation" ? "non_restockable" : conditions[item.id] })),
+        resolution, refundShiftId: resolution === "cash" ? refundShiftId : undefined,
+        bankAccountId: ["card", "bank_transfer"].includes(resolution) ? refundBankAccountId : undefined,
+        reason,
+      };
+      const fingerprint = JSON.stringify(payload);
+      if (submissionRetry.current?.fingerprint !== fingerprint)
+        submissionRetry.current = { fingerprint, key: crypto.randomUUID() };
       const result = await callAdministration<
         Record<string, unknown>,
         { returnNumber: string }
       >("createSaleReturn", {
-        branchId,
-        saleId: workspace.sale.id,
-        lines: selectedLines.map((item) => ({
-          saleItemId: item.id,
-          quantity: quantities[item.id],
-          condition: conditions[item.id],
-        })),
-        resolution,
-        refundShiftId: resolution === "cash" ? refundShiftId : undefined,
-        bankAccountId: ["card", "bank_transfer"].includes(resolution) ? refundBankAccountId : undefined,
-        reason,
-        idempotencyKey: crypto.randomUUID(),
+        ...payload,
+        idempotencyKey: submissionRetry.current.key,
       });
+      submissionRetry.current = null;
       setWorkspace(null);
       setReceiptNumber("");
       setReason("");
@@ -329,6 +338,13 @@ export default function ReturnsPage() {
             <RotateCcw className="size-7 text-[var(--brand)]" />
           </div>
           <div className="mt-5 space-y-3">
+            <label className="block text-sm font-medium">What happened?
+              <select value={kind} onChange={(event) => { setKind(event.target.value as typeof kind); setQuantities({}); }} className="mt-1 w-full rounded-lg border p-3">
+                <option value="goods_return">Return goods already collected</option>
+                <option value="reservation_cancellation">Cancel goods not collected</option>
+              </select>
+            </label>
+            {kind === "reservation_cancellation" && <p className="rounded-lg bg-blue-50 p-3 text-sm">These goods never left the store. Approval releases their reservation for sale again, without adding physical stock. Choose how the customer is refunded or their account adjusted.</p>}
             {workspace.items.map((item) => (
               <div
                 key={item.id}
@@ -340,8 +356,7 @@ export default function ReturnsPage() {
                     {item.sku}
                   </p>
                   <p className="mt-1 text-sm">
-                    {item.returnableQuantity} of {item.soldQuantity} still
-                    returnable
+                    {kind === "reservation_cancellation" ? (item.cancellableQuantity ?? 0) : item.returnableQuantity} of {item.soldQuantity} {kind === "reservation_cancellation" ? "awaiting collection and cancellable" : "still returnable"}
                   </p>
                 </div>
                 <label className="text-sm">
@@ -349,13 +364,13 @@ export default function ReturnsPage() {
                   <input
                     type="number"
                     min="0"
-                    max={item.returnableQuantity}
+                    max={kind === "reservation_cancellation" ? (item.cancellableQuantity ?? 0) : item.returnableQuantity}
                     value={quantities[item.id] ?? 0}
                     onChange={(event) =>
                       setQuantities({
                         ...quantities,
                         [item.id]: Math.min(
-                          item.returnableQuantity,
+                          kind === "reservation_cancellation" ? (item.cancellableQuantity ?? 0) : item.returnableQuantity,
                           Math.max(0, Number(event.target.value) || 0),
                         ),
                       })
@@ -363,7 +378,7 @@ export default function ReturnsPage() {
                     className="mt-1 w-full rounded-lg border p-2.5"
                   />
                 </label>
-                <label className="text-sm">
+                {kind === "goods_return" && <label className="text-sm">
                   Condition
                   <select
                     value={conditions[item.id] ?? "restockable"}
@@ -382,7 +397,7 @@ export default function ReturnsPage() {
                       Damaged / do not restock
                     </option>
                   </select>
-                </label>
+                </label>}
               </div>
             ))}
           </div>
@@ -464,7 +479,7 @@ export default function ReturnsPage() {
               }
               onClick={() => void submitReturn()}
             >
-              Submit return for approval
+              {kind === "reservation_cancellation" ? "Submit cancellation for approval" : "Submit return for approval"}
             </Button>
           </div>
         </section>
@@ -492,6 +507,7 @@ export default function ReturnsPage() {
             >
               <div>
                 <strong>{record.returnNumber}</strong>
+                {record.kind === "reservation_cancellation" && <p className="text-sm font-medium">Cancellation of uncollected goods</p>}
                 <p className="text-sm text-[var(--muted)]">
                   {record.receiptNumber} · {record.reason}
                 </p>
@@ -508,7 +524,7 @@ export default function ReturnsPage() {
               </div>
               {canApprove &&
               (record.createdBy !== user?.uid || canApproveOwnWork) ? (
-                <Button disabled={busy || (["card", "bank_transfer"].includes(record.resolution) && !record.bankAccountId && !legacyRefundAccounts[record.id])} onClick={() => void approve(record)}>
+                <Button disabled={busy || (record.kind === "reservation_cancellation" && (!profile || !hasPermission(profile, "sales.stock.release"))) || (["card", "bank_transfer"].includes(record.resolution) && !record.bankAccountId && !legacyRefundAccounts[record.id])} onClick={() => void approve(record)}>
                   <CheckCircle2 className="mr-2 size-4" /> Approve and post
                 </Button>
               ) : (

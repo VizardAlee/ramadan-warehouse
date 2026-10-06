@@ -51,7 +51,10 @@ function isUnauthenticated(error: unknown) {
 }
 
 export async function callAdministration<TInput extends object, TResult>(name: string, input: TInput): Promise<TResult> {
-  const callable = httpsCallable<TInput & { operatingContext?: ReturnType<typeof readStoredOperatingContext> }, TResult>(getFirebaseServices().functions, name);
+  const callable = httpsCallable<TInput & { operatingContext?: ReturnType<typeof readStoredOperatingContext> }, TResult>(getFirebaseServices().functions, name, {
+    // These read-only reports page full ledger history and may take longer than normal mutations.
+    timeout: ["generateFinancialStatement", "getTaxWorkspace"].includes(name) ? 300_000 : 70_000,
+  });
   const operatingContext = readStoredOperatingContext();
   const sanitizedInput = sanitizeCallableInput({
     ...input,

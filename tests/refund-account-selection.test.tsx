@@ -15,6 +15,21 @@ vi.mock("@/features/administration/use-organization-collection", () => ({ useOrg
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
 
 describe("refund funding account", () => {
+  it("submits uncollected cancellation separately from a physical return", async () => {
+    api.call.mockImplementation(async (name: string) => name === "listSaleReturns" ? { returns: [], bankAccounts: [] } : name === "getSaleReturnWorkspace" ? {
+      bankAccounts: [], openShifts: [], sale: { id: "s1", receiptNumber: "RCT-1", grossAmountMinor: 10000, customerOutstandingMinor: 0 },
+      items: [{ id: "i1", productName: "Panel", soldQuantity: 2, returnedQuantity: 0, returnableQuantity: 0, cancellableQuantity: 2, netAmountMinor: 10000, vatAmountMinor: 0, grossAmountMinor: 10000 }],
+    } : { returnNumber: "RTN-1" });
+    render(<ReturnsPage />);
+    fireEvent.change(screen.getByPlaceholderText("RCT-IRB-2026-000001 or SAL-IRB-2026-000001"), { target: { value: "RCT-1" } });
+    fireEvent.click(screen.getByRole("button", { name: "Load receipt" }));
+    await waitFor(() => expect(screen.getByLabelText("What happened?")).toBeTruthy());
+    fireEvent.change(screen.getByLabelText("What happened?"), { target: { value: "reservation_cancellation" } });
+    fireEvent.change(screen.getByLabelText("Quantity"), { target: { value: "1" } });
+    fireEvent.change(screen.getByLabelText(/Reason/), { target: { value: "Customer changed their mind" } });
+    fireEvent.click(screen.getByRole("button", { name: "Submit cancellation for approval" }));
+    await waitFor(() => expect(api.call).toHaveBeenCalledWith("createSaleReturn", expect.objectContaining({ kind: "reservation_cancellation", lines: [{ saleItemId: "i1", quantity: 1, condition: "non_restockable" }] })));
+  });
   it("requires account selection before approving an earlier bank refund", async () => {
     api.call.mockImplementation(async (name: string) => name === "listSaleReturns" ? {
       returns: [{ id: "r1", returnNumber: "RTN-1", resolution: "bank_transfer", grossAmountMinor: 10000, createdBy: "admin" }],

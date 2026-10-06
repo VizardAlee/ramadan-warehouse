@@ -139,6 +139,7 @@ export const listSaleReturnsInput = z.object({
 });
 
 export const createSaleReturnInput = z.object({
+  kind: z.enum(["goods_return", "reservation_cancellation"]).default("goods_return"),
   branchId: id,
   saleId: id,
   lines: z.array(z.object({
@@ -152,6 +153,8 @@ export const createSaleReturnInput = z.object({
   reason: z.string().trim().min(5).max(500),
   idempotencyKey: z.string().uuid(),
 }).superRefine((value, context) => {
+  if (new Set(value.lines.map((line) => line.saleItemId)).size !== value.lines.length)
+    context.addIssue({ code: "custom", path: ["lines"], message: "Select each sale item only once." });
   if (["card", "bank_transfer"].includes(value.resolution) && !value.bankAccountId)
     context.addIssue({ code: "custom", path: ["bankAccountId"], message: "Select the company account funding this refund." });
   if (value.resolution === "cash" && !value.refundShiftId)
