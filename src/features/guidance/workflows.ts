@@ -124,9 +124,9 @@ export const salesWorkflowSteps: readonly WorkflowStep[] = [
     href: "/pos",
   },
   {
-    title: "Confirm & release",
+    title: "Confirm & choose collection",
     detail:
-      "An authorized user confirms payment. The current POS flow then posts stock, receipt, VAT and accounts together. Do not confirm before goods are ready to leave; delayed customer collection is not a separate POS step yet.",
+      "Confirm payment and choose collect now or reserve for later. Reserved goods stay physically in the store and unavailable to other sales. Record full or partial handover later in Goods awaiting collection, with collector details and stock-release permission.",
     href: "/pos",
   },
   {

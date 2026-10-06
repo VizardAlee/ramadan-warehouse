@@ -707,6 +707,14 @@ describe("Firestore baseline rules", () => {
     await assertSucceeds(cashierDb.doc("products/product-1").get());
     await assertSucceeds(cashierDb.doc("productSalesPrices/product-1").get());
     await assertSucceeds(cashierDb.doc("sales/sale-1").get());
+    await environment.withSecurityRulesDisabled(async (context) => {
+      await context.firestore().doc("saleCollections/collection-1").set({ organizationId: "org-1", branchId: "branch-1", saleId: "sale-1" });
+      await context.firestore().doc("saleCollections/collection-2").set({ organizationId: "org-1", branchId: "branch-2", saleId: "sale-2" });
+    });
+    await assertFails(cashierDb.doc("saleCollections/collection-1").get());
+    await assertSucceeds(adminDb.doc("saleCollections/collection-1").get());
+    await assertFails(cashierDb.doc("saleCollections/collection-2").get());
+    await assertFails(adminDb.doc("saleCollections/collection-1").update({ collector: "Changed history" }));
     await assertFails(cashierDb.doc("sales/sale-2").get());
     await assertSucceeds(cashierDb.doc("saleItems/sale-1-item").get());
     await assertSucceeds(cashierDb.doc("salePayments/sale-1-payment").get());

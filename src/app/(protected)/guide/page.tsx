@@ -203,6 +203,7 @@ export default function GuidePage() {
       </section>}
       {canSell && (
         <section id="sales" className="scroll-mt-24 space-y-4">
+          <details className="surface p-4"><summary className="cursor-pointer font-semibold">Paid goods awaiting collection</summary><p className="mt-3 text-sm leading-6">When confirming payment, choose “reserve for later” if the customer has not taken the goods. They remain physically in the store but cannot be sold again. Choose “collect now” only when handing them over. Later, open “Goods awaiting collection” in POS, review the invoice, enter the quantities actually collected and the collector’s name, then record physical collection. Partial collection leaves the rest reserved. A stock-release permission is required. Collection updates stock, cost accounting and audit together and requires internet access. Old sales and offline checkout retain their existing immediate-collection behaviour. Returns apply only to goods already collected; do not use Returns to cancel an uncollected reservation.</p></details>
           <WorkflowTrack
             title="Sell and account"
             description="Prices and product information are reused. VAT is separate; confirmed sales create controlled documents. You can type a quantity, hold a basket locally and create a customer without leaving POS."

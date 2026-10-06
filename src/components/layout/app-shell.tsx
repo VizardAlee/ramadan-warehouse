@@ -48,7 +48,7 @@ import type { PermissionId } from "@/types/domain";
 
 const navigation = [
   { href: "/dashboard", label: "Dashboard", icon: Gauge, permissions: [] },
-  { href: "/pos", label: "POS", icon: ShoppingCart, permissions: ["sales.create"] },
+  { href: "/pos", label: "POS", icon: ShoppingCart, permissions: ["sales.create", "sales.order.create", "sales.payment.accept", "sales.payment.confirm", "sales.stock.release"] },
   { href: "/customers", label: "Customers", icon: ContactRound, permissions: ["customers.read"] },
   { href: "/returns", label: "Returns", icon: RotateCcw, permissions: ["sales.returns.read"] },
   { href: "/aftersales", label: "Aftersales", icon: Wrench, permissions: ["sales.returns.read"] },

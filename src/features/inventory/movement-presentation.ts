@@ -27,6 +27,8 @@ const movementTitles: Record<string, string> = {
   stock_transfer_receipt: "Transfer received",
   discrepancy_resolution: "Stock discrepancy resolved",
   branch_sale: "Sold to customer",
+  sale_reservation: "Reserved for customer",
+  customer_collection: "Collected by customer",
   write_off: "Stock written off",
   reversal: "Previous movement reversed",
 };
@@ -59,11 +61,15 @@ export function summarizeInventoryMovements(
     const outgoing = physical.filter((line) => line.quantityDelta < 0);
     const incomingQuantity = incoming.reduce((sum, line) => sum + line.quantityDelta, 0);
     const outgoingQuantity = outgoing.reduce((sum, line) => sum - line.quantityDelta, 0);
-    const quantity = Math.max(incomingQuantity, outgoingQuantity, ...lines.map((line) => Math.abs(line.quantityDelta)));
+    const quantity = Math.max(incomingQuantity, outgoingQuantity, ...lines.map((line) => Math.max(Math.abs(line.quantityDelta), Math.abs(line.reservedQuantityDelta ?? 0))));
     const destination = incoming[0] && inventoryLocationLabel(incoming[0], locations);
     const source = outgoing[0] && inventoryLocationLabel(outgoing[0], locations);
-    const place = destination ?? source ?? "Stock location";
-    const movement = incoming.length && outgoing.length
+    const place = destination ?? source ?? (physical[0] ? inventoryLocationLabel(physical[0], locations) : "Stock location");
+    const movement = first.transactionType === "sale_reservation"
+      ? `${quantity} reserved at ${place}. Still physically here, but unavailable for another sale.`
+      : first.transactionType === "customer_collection"
+        ? `Customer collected ${quantity} from ${place}. The reservation and physical stock were reduced together.`
+      : incoming.length && outgoing.length
       ? `Moved ${quantity} from ${source} to ${destination}.`
       : first.transactionType === "branch_sale" && outgoing.length
         ? `Sold ${quantity} from ${place}.`

@@ -91,6 +91,11 @@ export function SaleDocumentDialog({
         )}
 
         <div className="space-y-6 p-5 sm:p-7">
+          <section className="rounded-xl border p-4 text-sm">
+            <p className="font-semibold">Collection: {label(document.sale.collectionStatus ?? "collected")}</p>
+            {document.items.map((item) => <p key={item.id}>{item.productName}: sold {item.quantity}, collected {item.collectedQuantity ?? item.quantity}, awaiting collection {item.quantity - (item.collectedQuantity ?? item.quantity)}</p>)}
+            {document.collections?.map((collection) => <p key={collection.id} className="mt-2">{collection.collectedAt ? new Date(collection.collectedAt).toLocaleString("en-NG") : "—"} · {collection.totalQuantity} collected by {collection.collector} · releasing staff {collection.releasedBy}</p>)}
+          </section>
           <section className="grid gap-4 sm:grid-cols-2">
             <div className="rounded-xl border p-4">
               <p className="text-xs font-semibold uppercase text-[var(--muted)]">

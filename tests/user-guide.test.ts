@@ -38,7 +38,7 @@ describe("visual user guide", () => {
       expect.arrayContaining([
         "Receive order",
         "Accept payment",
-        "Confirm & release",
+        "Confirm & choose collection",
         "Documents",
         "After-sale",
         "Reconcile",
@@ -56,6 +56,7 @@ describe("visual user guide", () => {
     const hrPage = readFileSync(join(process.cwd(), "src/app/(protected)/hr/page.tsx"), "utf8");
     expect(hrPage).toContain("Connector not configured");
     expect(hrPage).toContain("There is no universal “pair scanner” button yet");
-    expect(salesWorkflowSteps[4]?.detail).toContain("delayed customer collection is not a separate POS step yet");
+    expect(salesWorkflowSteps[4]?.detail).toContain("reserve for later");
+    expect(salesWorkflowSteps[4]?.detail).toContain("full or partial handover");
   });
 });

@@ -42,6 +42,7 @@ import {
   reconcileHeldCart,
 } from "@/features/pos/calculations";
 import { SaleDocumentDialog } from "@/features/pos/sale-document";
+import { CollectionQueue } from "@/features/pos/collection-queue";
 import { SalePriceDialog } from "@/features/pos/sale-price-dialog";
 import {
   listQueuedSales,
@@ -176,8 +177,9 @@ export default function PosPage() {
   const canConfirmPayment = Boolean(
     profile && hasPermission(profile, "sales.payment.confirm"),
   );
-  const canUsePos = canReceiveOrder || canAcceptPayment || canConfirmPayment;
-  const canRejectOrder = canUsePos;
+  const canReleaseStock = Boolean(profile && hasPermission(profile, "sales.stock.release"));
+  const canUsePos = canReceiveOrder || canAcceptPayment || canConfirmPayment || canReleaseStock;
+  const canRejectOrder = canReceiveOrder || canAcceptPayment || canConfirmPayment;
   const canManageBranchPrice = Boolean(
     profile && hasPermission(profile, "sales.price.branch.manage"),
   );
@@ -909,15 +911,16 @@ export default function PosPage() {
     }
   }
 
-  async function confirmOrderPayment(orderId: string) {
+  async function confirmOrderPayment(orderId: string, deferCollection = false) {
     setBusy(true);
     setError(null);
     try {
       const result = await callAdministration<
-        { orderId: string; idempotencyKey: string },
+        { orderId: string; idempotencyKey: string; deferCollection: boolean },
         SaleResult & { orderNumber: string; status: "completed" }
       >("confirmPosSaleOrder", {
         orderId,
+        deferCollection,
         idempotencyKey: crypto.randomUUID(),
       });
       const document = await callAdministration<
@@ -931,7 +934,7 @@ export default function PosPage() {
         document,
       });
       setMessage(
-        `Payment confirmed for ${result.orderNumber}. Inventory, receipt and accounts were posted together.`,
+        `Payment confirmed for ${result.orderNumber}. ${document.sale.collectionStatus === "awaiting_collection" ? "Goods are reserved for later collection and remain physically in the store." : "Goods collected; stock and accounts updated."}`,
       );
       await loadWorkspace();
     } catch (cause) {
@@ -1308,14 +1311,15 @@ export default function PosPage() {
                         </p>
                       )
                     ) : canConfirmPayment ? (
-                      <Button
+                      <div className="mt-3 space-y-2"><Button type="button" className="w-full" disabled={!online || busy} onClick={() => void confirmOrderPayment(order.id, true)}>Confirm payment &amp; reserve for later</Button><Button
                         type="button"
                         className="mt-3 w-full"
-                        disabled={!online || busy}
+                        variant="outline"
+                        disabled={!online || busy || !canReleaseStock}
                         onClick={() => void confirmOrderPayment(order.id)}
                       >
-                        Confirm payment &amp; release stock
-                      </Button>
+                        Confirm payment &amp; collect now
+                      </Button></div>
                     ) : (
                       <p className="mt-3 text-xs text-[var(--muted)]">
                         Waiting for a branch manager or administrator.
@@ -1340,6 +1344,8 @@ export default function PosPage() {
           )}
         </section>
       )}
+
+      {selectedBranchId && <CollectionQueue key={selectedBranchId} branchId={selectedBranchId} canRelease={canReleaseStock} online={online} />}
 
       {!workspace ? (
         <div className="grid min-h-64 place-items-center rounded-xl border bg-white p-6 text-center">

@@ -100,6 +100,7 @@ export const permissionIds = [
   "sales.order.create",
   "sales.payment.accept",
   "sales.payment.confirm",
+  "sales.stock.release",
   "sales.shift.manage",
   "sales.price.base.manage",
   "sales.price.branch.manage",
@@ -738,6 +739,8 @@ export const inventoryTransactionTypes = [
   "stock_transfer_receipt",
   "discrepancy_resolution",
   "branch_sale",
+  "sale_reservation",
+  "customer_collection",
   "write_off",
   "reversal",
 ] as const;
@@ -775,6 +778,7 @@ export interface InventoryEntry {
   counterpartyLocationId?: string;
   externalAccount?: string;
   quantityDelta: number;
+  reservedQuantityDelta?: number;
   unitCostMinor: number;
   valueDeltaMinor: number;
   currency: "NGN";

@@ -53,6 +53,7 @@ const permissionsByRole: Readonly<Record<RoleId, readonly PermissionId[]>> = {
     "sales.order.create",
     "sales.payment.accept",
     "sales.payment.confirm",
+    "sales.stock.release",
     "sales.shift.manage",
     "sales.price.branch.manage",
     "customers.read",
@@ -207,6 +208,7 @@ const permissionsByRole: Readonly<Record<RoleId, readonly PermissionId[]>> = {
     "sales.order.create",
     "sales.payment.accept",
     "sales.payment.confirm",
+    "sales.stock.release",
     "sales.shift.manage",
     "sales.price.branch.manage",
     "customers.read",
@@ -328,18 +330,22 @@ export function permissionsForRoles(
 }
 
 export function hasPermission(
-  profile: Pick<UserProfile, "status" | "roleId" | "roleIds" | "effectivePermissions">,
+  profile: Pick<UserProfile, "status" | "roleId" | "roleIds" | "effectivePermissions" | "directRoleIds" | "customRoleIds">,
   permission: PermissionId,
 ): boolean {
   if (profile.status !== "active") return false;
   const assignedRoles = roleIdsForProfile(profile);
   if (assignedRoles.includes("system_administrator")) return true;
+  if (permission === "sales.stock.release") {
+    const direct = profile.directRoleIds ?? (profile.customRoleIds?.length ? [] : assignedRoles);
+    if (permissionsForRoles(direct).has(permission)) return true;
+  }
   if (profile.effectivePermissions) return profile.effectivePermissions.includes(permission);
   return permissionsForRoles(assignedRoles).has(permission);
 }
 
 export function hasAnyPermission(
-  profile: Pick<UserProfile, "status" | "roleId" | "roleIds" | "effectivePermissions">,
+  profile: Pick<UserProfile, "status" | "roleId" | "roleIds" | "effectivePermissions" | "directRoleIds" | "customRoleIds">,
   permissions: readonly PermissionId[],
 ): boolean {
   return permissions.some((permission) => hasPermission(profile, permission));

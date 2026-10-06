@@ -4,6 +4,7 @@ import { HttpsError, onCall } from "firebase-functions/v2/https";
 import type { z } from "zod";
 import { db } from "../admin.js";
 import { accountingPeriodReference, assertAccountingPeriodOpen } from "../accounting/period-lock.js";
+import { collectReservedSale } from "../sales/collection.js";
 import { bankAccountSummary, resolveSettlementAccount } from "../accounting/settlement-account.js";
 import { writeAuditLog } from "../audit/write-audit-log.js";
 import {
@@ -31,6 +32,8 @@ import {
   branchSalesPriceInput,
   closePosShiftInput,
   commitSaleInput,
+  collectSaleInput,
+  listCollectionsInput,
   confirmPosSaleOrderInput,
   openPosShiftInput,
   posWorkspaceInput,
@@ -492,17 +495,38 @@ export const getSaleDocument = onCall(
       !hasServerPermission(actor, "sales.read.all")
     )
       throw new HttpsError("permission-denied", "You do not have permission to view sale documents.");
+    if (request.data?.action === "list_collections") {
+      const input = parseInput(listCollectionsInput, request.data);
+      requireBranchScope(actor, input.branchId);
+      let query = db.collection("sales").where("organizationId", "==", actor.organizationId)
+        .where("branchId", "==", input.branchId)
+        .where("collectionStatus", "in", ["awaiting_collection", "partially_collected"])
+        .orderBy("recordedAt", "desc").orderBy(FieldPath.documentId(), "desc");
+      if (input.cursor) {
+        const cursor = await db.doc(`sales/${input.cursor}`).get();
+        if (!cursor.exists || cursor.get("organizationId") !== actor.organizationId || cursor.get("branchId") !== input.branchId)
+          throw new HttpsError("invalid-argument", "Collection page cursor is unavailable.");
+        query = query.startAfter(cursor.get("recordedAt"), cursor.id);
+      }
+      const result = await query.limit(input.limit + 1).get();
+      const rows = result.docs.slice(0, input.limit);
+      return {
+        rows: rows.map((sale) => ({ id: sale.id, saleNumber: sale.get("saleNumber"), customerName: sale.get("customerName") ?? "Walk-in customer", collectionStatus: sale.get("collectionStatus"), totalQuantity: Number(sale.get("totalQuantity")), collectedQuantity: Number(sale.get("collectedQuantity") ?? 0), reservedAt: iso(sale.get("reservedAt")) })),
+        nextCursor: result.size > input.limit ? rows.at(-1)!.id : null,
+      };
+    }
     const input = parseInput(saleDocumentInput, request.data);
     const sale = await db.doc(`sales/${input.saleId}`).get();
     if (!sale.exists || sale.get("organizationId") !== actor.organizationId)
       throw new HttpsError("not-found", "Sale document not found.");
     requireBranchScope(actor, String(sale.get("branchId")));
-    const [receipt, items, payments, organization, branch] = await Promise.all([
+    const [receipt, items, payments, organization, branch, collections] = await Promise.all([
       db.collection("salesReceipts").where("saleId", "==", sale.id).limit(2).get(),
       db.collection("saleItems").where("saleId", "==", sale.id).limit(100).get(),
       db.collection("salePayments").where("saleId", "==", sale.id).limit(20).get(),
       db.doc(`organizations/${actor.organizationId}`).get(),
       db.doc(`branches/${String(sale.get("branchId"))}`).get(),
+      db.collection("saleCollections").where("saleId", "==", sale.id).orderBy("collectedAt", "desc").limit(25).get(),
     ]);
     const officialReceipt = receipt.docs[0];
     if (!officialReceipt)
@@ -519,6 +543,7 @@ export const getSaleDocument = onCall(
       throw new HttpsError("data-loss", "Sale document evidence is inconsistent.");
     return {
       official: true,
+      collections: collections.docs.filter(belongsToSale).map((record) => ({ id: record.id, collector: record.get("collector"), collectedAt: iso(record.get("collectedAt")), releasedBy: record.get("releasedBy"), totalQuantity: record.get("totalQuantity"), lines: (record.get("lines") as Array<{ productName: string; quantity: number }>).map((line) => ({ productName: line.productName, quantity: line.quantity })) })),
       organization: {
         legalName: sale.get("organizationLegalName") ?? organization.get("legalName"),
         tradingName: sale.get("organizationTradingName") ?? organization.get("tradingName") ?? null,
@@ -541,6 +566,7 @@ export const getSaleDocument = onCall(
         invoiceNumber: sale.get("saleNumber"),
         receiptNumber: officialReceipt.get("receiptNumber"),
         paymentStatus: sale.get("paymentStatus"),
+        collectionStatus: sale.get("collectionStatus") ?? "collected",
         customerNumber: sale.get("customerNumber") ?? null,
         customerName: sale.get("customerName") ?? null,
         customerPhone: sale.get("customerPhone") ?? null,
@@ -567,6 +593,7 @@ export const getSaleDocument = onCall(
         productName: item.get("productName"),
         unitOfMeasure: item.get("unitOfMeasure"),
         quantity: Number(item.get("quantity") ?? 0),
+        collectedQuantity: Number(item.get("collectedQuantity") ?? item.get("quantity") ?? 0),
         unitPriceMinor: Number(item.get("unitPriceMinor") ?? 0),
         subtotalAmountMinor: Number(
           item.get("subtotalAmountMinor") ?? item.get("netAmountMinor") ?? 0,
@@ -1188,6 +1215,7 @@ async function postPosSale(
   input: CommitSaleInput,
   allowWorkflowShift = false,
   workflowCreditAuthorization?: { authorizedBy: string; customerId: string; amountMinor: number },
+  deferCollection = false,
 ) {
   requirePermission(actor, "sales.create");
   if (
@@ -1518,10 +1546,10 @@ async function postPosSale(
         ...(input.creditAmountMinor > 0
           ? [{ accountCode: "1100", debitMinor: input.creditAmountMinor, creditMinor: 0 }]
           : []),
-        { accountCode: "5000", debitMinor: calculated.costAmountMinor, creditMinor: 0 },
+        ...(!deferCollection ? [{ accountCode: "5000", debitMinor: calculated.costAmountMinor, creditMinor: 0 }] : []),
         { accountCode: "4000", debitMinor: 0, creditMinor: calculated.netAmountMinor },
         { accountCode: "2100", debitMinor: 0, creditMinor: calculated.vatAmountMinor },
-        { accountCode: "1200", debitMinor: 0, creditMinor: calculated.costAmountMinor },
+        ...(!deferCollection ? [{ accountCode: "1200", debitMinor: 0, creditMinor: calculated.costAmountMinor }] : []),
       ].filter((line) => line.debitMinor > 0 || line.creditMinor > 0);
       try {
         assertBalancedJournal(journalLines);
@@ -1583,6 +1611,10 @@ async function postPosSale(
         receiptNumber,
         provisionalReceiptReference: input.provisionalReceiptReference,
         status: "completed",
+        collectionStatus: deferCollection ? "awaiting_collection" : "collected",
+        collectionTracked: true,
+        collectedQuantity: deferCollection ? 0 : input.lines.reduce((sum, line) => sum + line.quantity, 0),
+        reservedAt: deferCollection ? now : null,
         paymentStatus:
           input.creditAmountMinor === calculated.grossAmountMinor
             ? "credit"
@@ -1614,7 +1646,8 @@ async function postPosSale(
         netAmountMinor: calculated.netAmountMinor,
         vatAmountMinor: calculated.vatAmountMinor,
         grossAmountMinor: calculated.grossAmountMinor,
-        costAmountMinor: calculated.costAmountMinor,
+        costAmountMinor: deferCollection ? 0 : calculated.costAmountMinor,
+        estimatedCostAmountMinor: calculated.costAmountMinor,
         currency: "NGN",
         itemCount: input.lines.length,
         totalQuantity: input.lines.reduce((sum, line) => sum + line.quantity, 0),
@@ -1651,7 +1684,7 @@ async function postPosSale(
       transaction.create(inventoryTransaction, {
         organizationId: actor.organizationId,
         transactionNumber: inventoryNumber,
-        transactionType: "branch_sale",
+        transactionType: deferCollection ? "sale_reservation" : "branch_sale",
         status: "posted",
         referenceType: "sale",
         referenceId: sale.id,
@@ -1661,7 +1694,7 @@ async function postPosSale(
         effectiveAt: recordedAt,
         postedAt: now,
         postedBy: actor.userId,
-        reason: "Branch POS sale",
+        reason: deferCollection ? "Sold goods reserved for later collection" : "Branch POS sale",
         idempotencyKey: input.idempotencyKey,
         correlationId: cid,
         createdAt: now,
@@ -1680,6 +1713,8 @@ async function postPosSale(
           unitOfMeasure: line.product.get("unitOfMeasure"),
           trackingType: line.product.get("trackingType"),
           quantity: line.input.quantity,
+          collectionTracked: true,
+          collectedQuantity: deferCollection ? 0 : line.input.quantity,
           unitPriceMinor: line.unitPriceMinor,
           catalogUnitPriceMinor: line.catalogUnitPriceMinor,
           priceOverrideReason: line.priceOverrideReason ?? null,
@@ -1693,15 +1728,21 @@ async function postPosSale(
           vatAmountMinor: calculatedLine.vatAmountMinor,
           grossAmountMinor: calculatedLine.grossAmountMinor,
           unitCostMinor: line.issued.unitCostMinor,
-          costAmountMinor: calculatedLine.costAmountMinor,
+          costAmountMinor: deferCollection ? 0 : calculatedLine.costAmountMinor,
+          estimatedCostAmountMinor: calculatedLine.costAmountMinor,
           currency: "NGN",
           createdAt: now,
         });
         const beforeQuantity = Number(line.balance.get("onHandQuantity"));
-        const next = line.issued.balance;
+        const next = deferCollection ? {
+          quantity: beforeQuantity,
+          averageUnitCostMinor: Number(line.balance.get("averageUnitCostMinor")),
+          totalValueMinor: Number(line.balance.get("totalValueMinor")),
+        } : line.issued.balance;
         transaction.update(balanceReferences[index]!, {
           onHandQuantity: next.quantity,
-          availableQuantity: next.quantity - line.reservedQuantity,
+          reservedQuantity: line.reservedQuantity + (deferCollection ? line.input.quantity : 0),
+          availableQuantity: next.quantity - line.reservedQuantity - (deferCollection ? line.input.quantity : 0),
           averageUnitCostMinor: next.averageUnitCostMinor,
           totalValueMinor: next.totalValueMinor,
           lastTransactionId: inventoryTransaction.id,
@@ -1713,6 +1754,20 @@ async function postPosSale(
           hasLedgerActivity: true,
           updatedAt: now,
         });
+        if (deferCollection) {
+          transaction.create(db.collection("inventoryEntries").doc(), {
+            organizationId: actor.organizationId, transactionId: inventoryTransaction.id,
+            transactionNumber: inventoryNumber, transactionType: "sale_reservation",
+            productId: line.product.id, sku: line.product.get("sku"), productName: line.product.get("name"),
+            locationId: location.id, branchId: input.branchId, quantityDelta: 0,
+            reservedQuantityDelta: line.input.quantity, valueDeltaMinor: 0,
+            unitCostMinor: line.issued.unitCostMinor, currency: "NGN",
+            balanceBefore: beforeQuantity, balanceAfter: beforeQuantity,
+            effectiveAt: recordedAt, postedBy: actor.userId, createdAt: now,
+            reason: "Reserved for customer; goods are still physically in the store", referenceNumber: saleNumber,
+          });
+          return;
+        }
         const entryBase = clean({
           organizationId: actor.organizationId,
           transactionId: inventoryTransaction.id,
@@ -1936,8 +1991,11 @@ export const confirmPosSaleOrder = onCall(
   { enforceAppCheck, timeoutSeconds: 60 },
   async (request) => {
     const actor = await requireAccess(request);
+    if (request.data?.action === "collect")
+      return collectReservedSale(actor, parseInput(collectSaleInput, request.data));
     requirePermission(actor, "sales.payment.confirm");
     const input = parseInput(confirmPosSaleOrderInput, request.data);
+    if (!input.deferCollection) requirePermission(actor, "sales.stock.release");
     const order = db.doc(`salesOrders/${input.orderId}`);
     const current = await order.get();
     if (
@@ -1971,9 +2029,12 @@ export const confirmPosSaleOrder = onCall(
             customerId: String(current.get("creditAuthorizedCustomerId")),
             amountMinor: Number(current.get("creditAuthorizedAmountMinor")) }
         : undefined;
-    const saleResult = await postPosSale(actor, payload, true, workflowCreditAuthorization);
+    const saleResult = await postPosSale(actor, payload, true, workflowCreditAuthorization, input.deferCollection);
     await db.runTransaction(async (transaction) => {
-      const latest = await transaction.get(order);
+      const snapshots = await transaction.getAll(order, db.doc(`sales/${saleResult.saleId}`));
+      const latest = snapshots[0]!;
+      const postedSale = snapshots[1]!;
+      const reservedForLater = postedSale!.get("collectionStatus") === "awaiting_collection";
       if (!latest.exists || latest.get("organizationId") !== actor.organizationId)
         throw new HttpsError("not-found", "Sales order not found.");
       if (latest.get("status") === "completed") return;
@@ -1990,8 +2051,9 @@ export const confirmPosSaleOrder = onCall(
         receiptNumber: saleResult.receiptNumber,
         paymentConfirmedAt: now,
         paymentConfirmedBy: actor.userId,
-        inventoryReleasedAt: now,
-        inventoryReleasedBy: actor.userId,
+        collectionStatus: postedSale!.get("collectionStatus") ?? "collected",
+        inventoryReleasedAt: reservedForLater ? null : now,
+        inventoryReleasedBy: reservedForLater ? null : actor.userId,
         confirmationIdempotencyKey: input.idempotencyKey,
         completedAt: now,
         updatedAt: now,
@@ -2006,7 +2068,7 @@ export const confirmPosSaleOrder = onCall(
         actorUserId: actor.userId,
       });
       writeAuditLog(transaction, actor, {
-        action: "sales_order.payment_confirmed_inventory_released",
+        action: reservedForLater ? "sales_order.payment_confirmed_stock_reserved" : "sales_order.payment_confirmed_inventory_released",
         entityType: "salesOrder",
         entityId: order.id,
         correlationId: correlationId(),

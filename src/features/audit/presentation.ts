@@ -23,6 +23,8 @@ const specialActions: Readonly<Record<string, string>> = {
   "branch_request.comment_created": "Commented on a branch request",
   "sales_order.payment_accepted": "Recorded a sales-order payment",
   "sales_order.payment_confirmed_inventory_released": "Confirmed payment and released sale stock",
+  "sales_order.payment_confirmed_stock_reserved": "Confirmed payment and reserved goods for later collection",
+  "sale.goods_collected": "Recorded a customer's physical collection",
   "sales_order.received": "Received a customer order",
   "sales_order.rejected": "Rejected a customer order",
   "customer.payment_recorded": "Recorded a customer payment",

@@ -1,6 +1,20 @@
 {
   "indexes": [
     {
+      "collectionGroup": "sales", "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "organizationId", "order": "ASCENDING" },
+        { "fieldPath": "branchId", "order": "ASCENDING" },
+        { "fieldPath": "collectionStatus", "order": "ASCENDING" },
+        { "fieldPath": "recordedAt", "order": "DESCENDING" },
+        { "fieldPath": "__name__", "order": "DESCENDING" }
+      ]
+    },
+    { "collectionGroup": "saleCollections", "queryScope": "COLLECTION", "fields": [
+      { "fieldPath": "saleId", "order": "ASCENDING" },
+      { "fieldPath": "collectedAt", "order": "DESCENDING" }
+    ] },
+    {
       "collectionGroup": "notificationEvents",
       "queryScope": "COLLECTION",
       "fields": [

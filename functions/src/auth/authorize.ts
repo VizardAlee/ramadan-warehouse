@@ -92,6 +92,7 @@ export type Permission =
   | "sales.order.create"
   | "sales.payment.accept"
   | "sales.payment.confirm"
+  | "sales.stock.release"
   | "sales.shift.manage"
   | "sales.price.base.manage"
   | "sales.price.branch.manage"
@@ -197,6 +198,7 @@ const rolePermissions: Readonly<Record<RoleId, readonly Permission[]>> = {
     "sales.order.create",
     "sales.payment.accept",
     "sales.payment.confirm",
+    "sales.stock.release",
     "sales.shift.manage",
     "sales.price.base.manage",
     "sales.price.branch.manage",
@@ -273,6 +275,7 @@ const rolePermissions: Readonly<Record<RoleId, readonly Permission[]>> = {
     "sales.order.create",
     "sales.payment.accept",
     "sales.payment.confirm",
+    "sales.stock.release",
     "sales.shift.manage",
     "sales.price.branch.manage",
     "customers.read",
@@ -419,6 +422,7 @@ const rolePermissions: Readonly<Record<RoleId, readonly Permission[]>> = {
     "sales.order.create",
     "sales.payment.accept",
     "sales.payment.confirm",
+    "sales.stock.release",
     "sales.shift.manage",
     "sales.price.branch.manage",
     "customers.read",
@@ -548,6 +552,7 @@ export interface AccessProfile {
   readonly organizationId: string;
   readonly roleId: RoleId;
   readonly roleIds?: readonly RoleId[];
+  readonly directRoleIds?: readonly RoleId[];
   readonly effectivePermissions?: readonly Permission[];
   readonly branchIds: readonly string[];
   readonly warehouseIds: readonly string[];
@@ -818,6 +823,7 @@ export async function requireAccess(
       organizationId: record.organizationId,
       roleId: roleIds[0]!,
       roleIds,
+      directRoleIds: Array.isArray(record.directRoleIds) ? normalizeRoleIds(record.directRoleIds) : (Array.isArray(record.customRoleIds) && record.customRoleIds.length ? [] : roleIds),
       effectivePermissions: Array.isArray(record.effectivePermissions)
         ? record.effectivePermissions.filter((value: unknown): value is Permission =>
             typeof value === "string" && Object.values(rolePermissions).some((permissions) => permissions.includes(value as Permission)))
@@ -847,6 +853,9 @@ export function hasServerPermission(
   permission: Permission,
 ): boolean {
   if (hasRole(actor, "system_administrator")) return true;
+  // Additive capability for existing directly assigned built-in manager roles.
+  // Custom-role bases must not gain a permission their administrator omitted.
+  if (permission === "sales.stock.release" && actor.directRoleIds?.some((roleId) => rolePermissions[roleId].includes(permission))) return true;
   if (actor.effectivePermissions) return actor.effectivePermissions.includes(permission);
   return accessRoleIds(actor).some((roleId) =>
     rolePermissions[roleId].includes(permission),

@@ -332,6 +332,10 @@ service cloud.firestore {
       allow read: if sameOrganization(resource.data) && salesScope(resource.data);
       allow create, update, delete: if false;
     }
+    match /saleCollections/{documentId} {
+      allow read: if sameOrganization(resource.data) && hasInventoryCostAccess() && salesScope(resource.data);
+      allow create, update, delete: if false;
+    }
     match /saleReturns/{documentId} {
       allow read: if sameOrganization(resource.data) && salesScope(resource.data);
       allow create, update, delete: if false;

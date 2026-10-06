@@ -163,6 +163,7 @@ export interface QueuedPosSale {
 }
 
 export interface SaleDocument {
+  collections?: Array<{ id: string; collector: string; collectedAt: string | null; releasedBy: string; totalQuantity: number; lines: Array<{ productName: string; quantity: number }> }>;
   official: boolean;
   organization: {
     legalName: string;
@@ -186,6 +187,7 @@ export interface SaleDocument {
     invoiceNumber: string;
     receiptNumber: string;
     paymentStatus: string;
+    collectionStatus?: string;
     customerNumber: string | null;
     customerName: string | null;
     customerPhone: string | null;
@@ -210,6 +212,7 @@ export interface SaleDocument {
     productName: string;
     unitOfMeasure: string;
     quantity: number;
+    collectedQuantity?: number;
     unitPriceMinor: number;
     subtotalAmountMinor: number;
     discountAmountMinor: number;

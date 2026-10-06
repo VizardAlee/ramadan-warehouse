@@ -17,6 +17,11 @@ function line(overrides: Partial<InventoryEntry>): InventoryEntry {
 const locations = { "branch-stock": "Igbo Road Branch Stock", "hq-stock": "Head Office Stock" };
 
 describe("inventory movement presentation", () => {
+  it("explains reservations without claiming physical stock left", () => {
+    const event = summarizeInventoryMovements([line({ transactionType: "sale_reservation", locationId: "branch-stock", quantityDelta: 0, valueDeltaMinor: 0, reservedQuantityDelta: 3 })], locations)[0];
+    expect(event).toMatchObject({ title: "Reserved for customer", quantity: 3 });
+    expect(event?.description).toContain("Still physically here");
+  });
   it("shows a sale as one event instead of two balancing ledger lines", () => {
     const events = summarizeInventoryMovements([
       line({ locationId: "branch-stock" }),

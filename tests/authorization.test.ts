@@ -4,6 +4,10 @@ import { buildRoleAssignment } from "../functions/src/auth/custom-roles";
 
 const actor = (roleId: AccessProfile["roleId"]): AccessProfile => ({ userId: "actor", organizationId: "org", roleId, branchIds: ["b1"], warehouseIds: ["w1"], authorizationVersion: 1 });
 describe("server authorization controls", () => {
+  it("adds stock release to directly assigned managers without broadening a restricted custom role", () => {
+    expect(hasServerPermission({ ...actor("branch_manager"), directRoleIds: ["branch_manager"], effectivePermissions: ["sales.payment.confirm"] }, "sales.stock.release")).toBe(true);
+    expect(hasServerPermission({ ...actor("branch_manager"), directRoleIds: [], effectivePermissions: ["sales.payment.confirm"] }, "sales.stock.release")).toBe(false);
+  });
   it("allows a system administrator to assign an allowed role", () => expect(canAssignRole("system_administrator", "finance_officer")).toBe(true));
   it("limits a custom role to its selected permissions while retaining branch scope", () => {
     const assignment = buildRoleAssignment([], [{ id: "sales-helper", organizationId: "org", name: "Sales helper", baseRoleId: "branch_manager", permissionIds: ["sales.order.create"], status: "active" }]);

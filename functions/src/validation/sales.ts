@@ -30,6 +30,13 @@ export const saleDocumentInput = z.object({
   saleId: id,
 });
 
+export const listCollectionsInput = z.object({
+  action: z.literal("list_collections"),
+  branchId: id,
+  limit: z.number().int().min(1).max(100).default(25),
+  cursor: id.optional(),
+});
+
 export const salesReportInput = z.object({
   reportType: z.literal("sales_register").default("sales_register"),
   branchId: id.optional(),
@@ -268,8 +275,18 @@ export const acceptPosSaleOrderPaymentInput = z.object({
 
 export const confirmPosSaleOrderInput = z.object({
   orderId: id,
+  deferCollection: z.boolean().default(false),
   idempotencyKey: z.string().uuid(),
 });
+
+export const collectSaleInput = z.object({
+  action: z.literal("collect"),
+  saleId: id,
+  lines: z.array(z.object({ saleItemId: id, quantity: z.number().int().positive().max(1000000) })).min(1).max(50),
+  collector: z.string().trim().min(2).max(120),
+  notes: z.string().trim().max(500).optional(),
+  idempotencyKey: z.string().uuid(),
+}).refine((value) => new Set(value.lines.map((line) => line.saleItemId)).size === value.lines.length, "Select each sale item only once.");
 
 export const rejectPosSaleOrderInput = z.object({
   orderId: id,

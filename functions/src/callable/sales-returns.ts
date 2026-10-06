@@ -142,7 +142,7 @@ export const getSaleReturnWorkspace = onCall(
         soldQuantity: Number(item.get("quantity")),
         returnedQuantity: Number(counters[index]!.get("returnedQuantity") ?? 0),
         returnableQuantity:
-          Number(item.get("quantity")) -
+          Number(item.get("collectedQuantity") ?? item.get("quantity")) -
           Number(counters[index]!.get("returnedQuantity") ?? 0),
         unitPriceMinor: Number(item.get("unitPriceMinor")),
         vatRateBasisPoints: Number(item.get("vatRateBasisPoints")),
@@ -259,7 +259,7 @@ export const createSaleReturn = onCall({ enforceAppCheck }, async (request) => {
           "A return line does not belong to this sale.",
         );
       const remaining =
-        Number(item.get("quantity")) -
+        Number(item.get("collectedQuantity") ?? item.get("quantity")) -
         Number(counters[index]!.get("returnedQuantity") ?? 0);
       if (line.quantity > remaining)
         throw new HttpsError(
@@ -268,6 +268,9 @@ export const createSaleReturn = onCall({ enforceAppCheck }, async (request) => {
         );
       const soldQuantity = Number(item.get("quantity"));
       const returnedQuantity = Number(counters[index]!.get("returnedQuantity") ?? 0);
+      const collectedQuantity = Number(item.get("collectedQuantity") ?? soldQuantity);
+      const collectedCost = Number(item.get("costAmountMinor") ?? 0);
+      const returnedCost = Number(counters[index]!.get("returnedCostAmountMinor") ?? Math.round(collectedCost * returnedQuantity / collectedQuantity));
       const allocated = (total: number) => Math.round(total * (returnedQuantity + line.quantity) / soldQuantity) - Math.round(total * returnedQuantity / soldQuantity);
       const originalNet = Number(item.get("netAmountMinor") ?? soldQuantity * Number(item.get("unitPriceMinor")));
       const originalVat = Number(item.get("vatAmountMinor") ?? Math.round(originalNet * Number(item.get("vatRateBasisPoints")) / 10_000));
@@ -279,7 +282,9 @@ export const createSaleReturn = onCall({ enforceAppCheck }, async (request) => {
         net,
         vat,
         gross: net + vat,
-        cost: allocated(Number(item.get("costAmountMinor") ?? soldQuantity * Number(item.get("unitCostMinor") ?? 0))),
+        cost: item.get("collectionTracked") === true
+          ? Math.round(Math.max(0, collectedCost - returnedCost) * line.quantity / (collectedQuantity - returnedQuantity))
+          : allocated(Number(item.get("costAmountMinor") ?? soldQuantity * Number(item.get("unitCostMinor") ?? 0))),
       };
     });
     const now = FieldValue.serverTimestamp();
@@ -484,7 +489,7 @@ export const approveSaleReturn = onCall(
           balance = balances[index]!;
         const quantity = Number(line.get("quantity"));
         const remaining =
-          Number(original.get("quantity")) -
+          Number(original.get("collectedQuantity") ?? original.get("quantity")) -
           Number(counter.get("returnedQuantity") ?? 0);
         if (
           !original.exists ||
@@ -495,6 +500,11 @@ export const approveSaleReturn = onCall(
             "failed-precondition",
             "A return item is no longer fully returnable.",
           );
+        if (original.get("collectionTracked") === true) {
+          const returnedCost = Number(counter.get("returnedCostAmountMinor") ?? Math.round(Number(original.get("costAmountMinor")) * Number(counter.get("returnedQuantity") ?? 0) / Number(original.get("collectedQuantity"))));
+          if (Number(line.get("costAmountMinor")) > Number(original.get("costAmountMinor")) - returnedCost)
+            throw new HttpsError("failed-precondition", "The collection cost changed after this return was requested. Review and submit a fresh return before approval.");
+        }
         if (
           line.get("condition") === "restockable" &&
           (!balance.exists ||
@@ -602,6 +612,7 @@ export const approveSaleReturn = onCall(
             saleItemId: line.original.id,
             returnedQuantity:
               Number(line.counter.get("returnedQuantity") ?? 0) + line.quantity,
+            returnedCostAmountMinor: Number(line.counter.get("returnedCostAmountMinor") ?? Math.round(Number(line.original.get("costAmountMinor") ?? 0) * Number(line.counter.get("returnedQuantity") ?? 0) / Number(line.original.get("collectedQuantity") ?? line.original.get("quantity")))) + Number(line.line.get("costAmountMinor")),
             updatedAt: now,
           },
           { merge: true },

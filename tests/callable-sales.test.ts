@@ -1410,4 +1410,44 @@ describe.sequential("sales callables", () => {
       operatingContext: { type: "branch", id: branchId },
     })).rejects.toMatchObject({ code: "functions/invalid-argument" });
   });
+  it("reserves paid goods, releases partial collections atomically and rejects duplicate or excessive releases", async () => {
+    const balance = adminDb.doc(`inventoryBalances/${balanceDocumentId(organizationId, productId, locationId)}`);
+    await balance.update({ onHandQuantity: 10, reservedQuantity: 0, availableQuantity: 10, totalValueMinor: 50_000, averageUnitCostMinor: 5_000 });
+    await call(administrator, "saveProductSalesPrice", { productId, basePriceMinor: 10_000, vatRateBasisPoints: 750, active: true, idempotencyKey: crypto.randomUUID() });
+    const deviceId = crypto.randomUUID();
+    const shift = await call<{ shiftId: string }>(branchManager, "openPosShift", { branchId, deviceId, deviceName: "Collection desk", openingCashMinor: 0, idempotencyKey: crypto.randomUUID(), operatingContext: { type: "branch", id: branchId } });
+    const workspace = await call<{ products: Array<{ id: string; unitPriceMinor: number; vatRateBasisPoints: number }> }>(branchManager, "getPosWorkspace", { branchId });
+    const price = workspace.products.find((product) => product.id === productId)!;
+    const amount = price.unitPriceMinor * 4 + Math.round(price.unitPriceMinor * 4 * price.vatRateBasisPoints / 10_000);
+    const order = await call<{ orderId: string }>(branchManager, "createPosSaleOrder", { branchId, shiftId: shift.shiftId, deviceId, recordedAt: new Date().toISOString(), offline: false, lines: [{ productId, quantity: 4 }], payments: [{ method: "cash", amountMinor: amount }], idempotencyKey: crypto.randomUUID(), operatingContext: { type: "branch", id: branchId } });
+    await call(branchManager, "acceptPosSaleOrderPayment", { orderId: order.orderId, shiftId: shift.shiftId, deviceId, idempotencyKey: crypto.randomUUID(), operatingContext: { type: "branch", id: branchId } });
+    const completed = await call<{ saleId: string }>(branchManager, "confirmPosSaleOrder", { orderId: order.orderId, deferCollection: true, idempotencyKey: crypto.randomUUID() });
+    expect((await balance.get()).data()).toMatchObject({ onHandQuantity: 10, reservedQuantity: 4, availableQuantity: 6, totalValueMinor: 50_000 });
+    const sale = await adminDb.doc(`sales/${completed.saleId}`).get();
+    const items = await adminDb.collection("saleItems").where("saleId", "==", completed.saleId).get();
+    const saleItemId = items.docs[0]!.id;
+    expect(sale.get("costAmountMinor")).toBe(0);
+    const postedJournal = await adminDb.collection("journalEntries").where("referenceId", "==", completed.saleId).get();
+    const journal = await adminDb.collection("journalLines").where("journalEntryId", "==", postedJournal.docs[0]!.id).get();
+    expect(journal.docs.some((line) => ["5000", "1200"].includes(line.get("accountCode")))).toBe(false);
+    expect(await call(branchManager, "getSaleDocument", { action: "list_collections", branchId, limit: 25 })).toMatchObject({ rows: [expect.objectContaining({ id: completed.saleId, collectedQuantity: 0 })] });
+    await expect(call(branchManager, "createSaleReturn", { branchId, saleId: completed.saleId, resolution: "exchange_credit", reason: "Not yet collected", lines: [{ saleItemId, quantity: 1, condition: "restockable" }], idempotencyKey: crypto.randomUUID(), operatingContext: { type: "branch", id: branchId } })).rejects.toMatchObject({ code: "functions/failed-precondition" });
+    const payload = { action: "collect", saleId: completed.saleId, lines: [{ saleItemId, quantity: 1 }], collector: "Test Collector", idempotencyKey: crypto.randomUUID() };
+    await expect(call(cashier, "confirmPosSaleOrder", payload)).rejects.toMatchObject({ code: "functions/permission-denied" });
+    expect(await call(branchManager, "confirmPosSaleOrder", payload)).toMatchObject({ recorded: true, collectionStatus: "partially_collected" });
+    expect(await call(branchManager, "confirmPosSaleOrder", payload)).toMatchObject({ recorded: false });
+    expect((await balance.get()).data()).toMatchObject({ onHandQuantity: 9, reservedQuantity: 3, availableQuantity: 6, totalValueMinor: 45_000 });
+    await expect(call(branchManager, "confirmPosSaleOrder", { ...payload, lines: [{ saleItemId, quantity: 4 }], idempotencyKey: crypto.randomUUID() })).rejects.toMatchObject({ code: "functions/failed-precondition" });
+    const collections = await adminDb.collection("saleCollections").where("saleId", "==", completed.saleId).get();
+    expect(collections.size).toBe(1);
+    const costJournal = await adminDb.doc(`journalEntries/${collections.docs[0]!.get("journalEntryId")}`).get();
+    expect(costJournal.data()).toMatchObject({ totalDebitMinor: 5_000, totalCreditMinor: 5_000 });
+    const competing = await Promise.allSettled([1, 2].map(() => call(branchManager, "confirmPosSaleOrder", { ...payload, lines: [{ saleItemId, quantity: 3 }], idempotencyKey: crypto.randomUUID() })));
+    expect(competing.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+    expect(competing.filter((result) => result.status === "rejected")).toHaveLength(1);
+    expect((await balance.get()).data()).toMatchObject({ onHandQuantity: 6, reservedQuantity: 0, availableQuantity: 6, totalValueMinor: 30_000 });
+    expect(await call(branchManager, "getSaleDocument", { saleId: completed.saleId })).toMatchObject({ sale: { collectionStatus: "collected" }, items: [expect.objectContaining({ collectedQuantity: 4 })], collections: expect.any(Array) });
+    // Preserve the shared fixture expected by the older immediate-sale cases.
+    await balance.update({ onHandQuantity: 10, reservedQuantity: 0, availableQuantity: 10, totalValueMinor: 50_000 });
+  });
 });
