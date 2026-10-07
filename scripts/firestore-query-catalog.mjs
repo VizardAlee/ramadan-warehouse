@@ -4,7 +4,7 @@ import { join } from "node:path";
 import ts from "typescript";
 
 export function sourceFiles(directory) {
-  return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => entry.isDirectory()
+  return readdirSync(directory, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name)).flatMap((entry) => entry.isDirectory()
     ? sourceFiles(join(directory, entry.name)) : /\.(ts|tsx)$/.test(entry.name) ? [join(directory, entry.name)] : []);
 }
 const literal = (node) => node && (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) ? node.text : null;
@@ -22,7 +22,9 @@ export function querySourceFingerprints() {
       ts.forEachChild(node, visit);
     }
     visit(source);
-    if (calls.length) fingerprints[file] = createHash("sha256").update(calls.join("\n")).digest("hex");
+    // Hash the complete source: dynamic field maps and scope conditions can
+    // change a query without changing its orderBy(field)/where(variable) call.
+    if (calls.length) fingerprints[file] = createHash("sha256").update(source.text).digest("hex");
   }
   return fingerprints;
 }
