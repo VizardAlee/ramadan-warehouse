@@ -6,8 +6,8 @@ export interface CustomerHistoryCursor {
 
 export interface CustomerHistory {
   bankAccounts?: Array<{ id: string; bankName: string; accountName: string; accountNumberLast4: string }>;
-  customer: { id: string; name: string; customerNumber: string; creditStatus: string; creditLimitMinor: number; outstandingBalanceMinor: number; availableCreditMinor: number };
-  rows: Array<{ id: string; kind: string; reference: string; branchId: string; amountMinor: number; detail: string; at: string | null }>;
+  customer: { id: string; name: string; customerNumber: string; creditStatus: string; creditLimitMinor: number; outstandingBalanceMinor: number; availableCreditMinor: number; arrangements?: import("@/types/domain").CustomerArrangement[] };
+  rows: Array<{ id: string; kind: string; reference: string; branchId: string; amountMinor: number; detail: string; at: string | null; accountName?: string; allocations?: Array<{ accountId: string; accountName: string; amountMinor: number }> }>;
   moreAvailable: boolean;
   nextCursor: CustomerHistoryCursor | null;
 }

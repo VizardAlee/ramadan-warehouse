@@ -214,7 +214,15 @@ export interface AccountingPeriod {
   closedBy?: string;
 }
 
+export interface CustomerArrangement {
+  id: string;
+  name: string;
+  active: boolean;
+  outstandingBalanceMinor: number;
+}
+
 export interface Customer {
+  arrangements?: CustomerArrangement[];
   pricingTier?: "retail" | "wholesale";
   id: string;
   organizationId: string;

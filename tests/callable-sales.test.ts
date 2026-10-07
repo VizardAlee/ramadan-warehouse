@@ -1492,6 +1492,58 @@ describe.sequential("sales callables", () => {
     await balance.update({ onHandQuantity: 10, reservedQuantity: 0, availableQuantity: 10, totalValueMinor: 50_000 });
   });
 
+  it("isolates named customer arrangements, allocates repayments and returns, and preserves legacy debt", async () => {
+    const context = { type: "branch", id: branchId };
+    const base = { name: "Arrangement customer", phone: "08099887766", idempotencyKey: crypto.randomUUID() };
+    const created = await call<{ customerId: string }>(administrator, "saveCustomer", base);
+    const customerRef = adminDb.doc(`customers/${created.customerId}`);
+    // Pre-existing debt has no arrangement and must remain General.
+    await customerRef.update({ outstandingBalanceMinor: 5000, availableCreditMinor: 95000, creditLimitMinor: 100000, creditStatus: "approved" });
+    const accountId = crypto.randomUUID();
+    const configure = { ...base, customerId: created.customerId, arrangement: { id: accountId, name: "Installation project", active: true, reason: "Separate installation purchasing" }, idempotencyKey: crypto.randomUUID() };
+    await expect(call(cashier, "saveCustomer", configure)).rejects.toMatchObject({ code: "functions/permission-denied" });
+    await call(administrator, "saveCustomer", configure);
+    await call(administrator, "saveCustomer", configure);
+    expect((await customerRef.get()).get("arrangements")).toHaveLength(1);
+    const deviceId = crypto.randomUUID();
+    const shift = await call<{ shiftId: string }>(branchManager, "openPosShift", { branchId, deviceId, deviceName: "Account desk", openingCashMinor: 0, idempotencyKey: crypto.randomUUID(), operatingContext: context });
+    const workspace = await call<{ products: Array<{ id: string; unitPriceMinor: number; vatRateBasisPoints: number }>; customers: Array<{ id: string; arrangements: unknown[] }> }>(branchManager, "getPosWorkspace", { branchId, operatingContext: context });
+    expect(workspace.customers.find((item) => item.id === created.customerId)?.arrangements).toContainEqual(expect.objectContaining({ id: "general", outstandingBalanceMinor: 5000 }));
+    const price = workspace.products.find((item) => item.id === productId)!;
+    const gross = price.unitPriceMinor * 2 + Math.round(price.unitPriceMinor * 2 * price.vatRateBasisPoints / 10000);
+    const payload = { branchId, deviceId, shiftId: shift.shiftId, recordedAt: new Date().toISOString(), offline: false, customerId: created.customerId, customerAccountId: accountId, creditAmountMinor: gross, lines: [{ productId, quantity: 2 }], payments: [], idempotencyKey: crypto.randomUUID(), operatingContext: context };
+    await expect(call(branchManager, "createPosSaleOrder", { ...payload, customerAccountId: crypto.randomUUID() })).rejects.toMatchObject({ code: "functions/failed-precondition" });
+    const order = await call<{ orderId: string }>(branchManager, "createPosSaleOrder", payload);
+    await call(branchManager, "acceptPosSaleOrderPayment", { orderId: order.orderId, shiftId: shift.shiftId, deviceId, idempotencyKey: crypto.randomUUID(), operatingContext: context });
+    const sale = await call<{ saleId: string }>(branchManager, "confirmPosSaleOrder", { orderId: order.orderId, idempotencyKey: crypto.randomUUID(), operatingContext: context });
+    expect((await adminDb.doc(`sales/${sale.saleId}`).get()).data()).toMatchObject({ customerAccountId: accountId, customerAccountName: "Installation project" });
+    expect((await customerRef.get()).get("arrangements")[0].outstandingBalanceMinor).toBe(gross);
+    const payment = { customerId: created.customerId, branchId, method: "cash", amountMinor: 1000, idempotencyKey: crypto.randomUUID(), operatingContext: context };
+    await expect(call(administrator, "recordCustomerPayment", { ...payment, amountMinor: 5001 })).rejects.toMatchObject({ code: "functions/failed-precondition" });
+    await expect(call(administrator, "recordCustomerPayment", { ...payment, allocations: [{ accountId, amountMinor: 999 }] })).rejects.toMatchObject({ code: "functions/invalid-argument" });
+    const allocated = { ...payment, allocations: [{ accountId: "general", amountMinor: 400 }, { accountId, amountMinor: 600 }] };
+    const receipt = await call<{ paymentId: string }>(administrator, "recordCustomerPayment", allocated);
+    expect(await call(administrator, "recordCustomerPayment", allocated)).toMatchObject({ recorded: false, paymentId: receipt.paymentId });
+    expect((await customerRef.get()).data()).toMatchObject({ outstandingBalanceMinor: 5000 + gross - 1000, arrangements: [expect.objectContaining({ id: accountId, outstandingBalanceMinor: gross - 600 })] });
+    const paymentRecord = await adminDb.doc(`customerPayments/${receipt.paymentId}`).get();
+    expect(paymentRecord.get("allocations")).toHaveLength(2);
+    const journal = await adminDb.doc(`journalEntries/${paymentRecord.get("journalEntryId")}`).get();
+    expect(journal.data()).toMatchObject({ totalDebitMinor: 1000, totalCreditMinor: 1000 });
+    await expect(call(administrator, "saveCustomer", { ...configure, arrangement: { ...configure.arrangement, active: false }, idempotencyKey: crypto.randomUUID() })).rejects.toMatchObject({ code: "functions/failed-precondition" });
+    const item = (await adminDb.collection("saleItems").where("saleId", "==", sale.saleId).get()).docs[0]!;
+    const returned = await call<{ returnId: string }>(branchManager, "createSaleReturn", { branchId, saleId: sale.saleId, resolution: "customer_account", reason: "One item returned to original project", lines: [{ saleItemId: item.id, quantity: 1, condition: "restockable" }], idempotencyKey: crypto.randomUUID(), operatingContext: context });
+    await call(branchManager, "approveSaleReturn", { returnId: returned.returnId, idempotencyKey: crypto.randomUUID(), operatingContext: context });
+    const returnAmount = (await adminDb.doc(`saleReturns/${returned.returnId}`).get()).get("grossAmountMinor");
+    const remaining = gross - 600 - returnAmount;
+    expect((await customerRef.get()).get("arrangements")[0].outstandingBalanceMinor).toBe(remaining);
+    await call(administrator, "recordCustomerPayment", { ...payment, amountMinor: remaining, allocations: [{ accountId, amountMinor: remaining }], idempotencyKey: crypto.randomUUID() });
+    await call(administrator, "saveCustomer", { ...configure, arrangement: { ...configure.arrangement, active: false }, idempotencyKey: crypto.randomUUID() });
+    await expect(call(branchManager, "createPosSaleOrder", { ...payload, idempotencyKey: crypto.randomUUID() })).rejects.toMatchObject({ code: "functions/failed-precondition" });
+    const history = await call<{ customer: { arrangements: unknown[] }; rows: unknown[] }>(administrator, "getCustomerHistory", { customerId: created.customerId });
+    expect(history.customer.arrangements).toContainEqual(expect.objectContaining({ id: "general", outstandingBalanceMinor: 4600 }));
+    expect(history.rows).toContainEqual(expect.objectContaining({ kind: "account", accountName: "Multiple arrangements" }));
+  });
+
   it("posts approved wholesale through the controlled workflow and rejects stale offline price tiers", async () => {
     const priceRef = adminDb.doc(`productSalesPrices/${productId}`);
     await expect(call(cashier, "saveProductSalesPrice", { productId, basePriceMinor: 10000, wholesalePriceMinor: 8000, vatRateBasisPoints: 750, idempotencyKey: crypto.randomUUID() })).rejects.toMatchObject({ code: "functions/permission-denied" });

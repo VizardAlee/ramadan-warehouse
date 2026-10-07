@@ -19,6 +19,7 @@ import {
   uniquenessDocumentId,
 } from "../inventory/calculations.js";
 import { assertBalancedJournal } from "../sales/calculations.js";
+import { selectedArrangement, changeArrangementBalance } from "../sales/customer-arrangements.js";
 import { correlationId, parseInput } from "../utils/callable.js";
 import {
   approveSaleReturnInput,
@@ -306,6 +307,8 @@ export const createSaleReturn = onCall({ enforceAppCheck }, async (request) => {
       returnNumber,
       customerId: sale.get("customerId") ?? null,
       customerName: sale.get("customerName") ?? null,
+      customerAccountId: sale.get("customerAccountId") ?? "general",
+      customerAccountName: sale.get("customerAccountName") ?? "General account",
       status: "submitted",
       kind: input.kind,
       resolution: input.resolution,
@@ -572,6 +575,9 @@ export const approveSaleReturn = onCall(
             "failed-precondition",
             "The customer receivable is insufficient for this return credit.",
           );
+        const account = selectedArrangement(customerSnapshot.data()!, originalSale.get("customerAccountId") ?? "general", true);
+        if (account.outstandingBalanceMinor < gross)
+          throw new HttpsError("failed-precondition", "The original customer account has insufficient outstanding debt for this return credit. Choose an authorized refund or exchange instead.");
       }
       const restockCost = lines
         .filter((line) => line.line.get("condition") === "restockable")
@@ -766,6 +772,7 @@ export const approveSaleReturn = onCall(
           next = outstanding - gross,
           limit = Number(customerSnapshot.get("creditLimitMinor") ?? 0);
         transaction.update(customer, {
+          arrangements: changeArrangementBalance(customerSnapshot.data()!, [{ accountId: originalSale.get("customerAccountId") ?? "general", amountMinor: -gross }]),
           outstandingBalanceMinor: next,
           availableCreditMinor:
             customerSnapshot.get("creditStatus") === "approved"
@@ -779,6 +786,8 @@ export const approveSaleReturn = onCall(
           branchId: current.get("branchId"),
           customerId: customer.id,
           entryType: "sale_return_credit",
+          customerAccountId: originalSale.get("customerAccountId") ?? "general",
+          customerAccountName: originalSale.get("customerAccountName") ?? "General account",
           referenceType: "saleReturn",
           referenceId: returnRef.id,
           referenceNumber: current.get("returnNumber"),

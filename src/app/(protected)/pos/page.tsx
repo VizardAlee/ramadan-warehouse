@@ -116,6 +116,7 @@ export default function PosPage() {
   const [paymentReference, setPaymentReference] = useState("");
   const [paymentBankAccountId, setPaymentBankAccountId] = useState("");
   const [customerId, setCustomerId] = useState("");
+  const [customerAccountId, setCustomerAccountId] = useState("general");
   const [customerDialogOpen, setCustomerDialogOpen] = useState(false);
   const [newCustomer, setNewCustomer] = useState({
     name: "",
@@ -444,6 +445,7 @@ export default function PosPage() {
     setPaymentReference("");
     setPaymentBankAccountId("");
     setCustomerId("");
+    setCustomerAccountId("general");
     setDiscountAmount("");
     setDiscountReason("");
     setCreditPaidAmount("0.00");
@@ -474,6 +476,7 @@ export default function PosPage() {
           } : {}),
         })),
         customerId: customerId || undefined,
+        customerAccountId: customerId ? customerAccountId : undefined,
         paymentMethod,
         paymentReference: paymentReference.trim() || undefined,
         bankAccountId: paymentBankAccountId || undefined,
@@ -552,6 +555,7 @@ export default function PosPage() {
     }
     setCart(restored.lines);
     setCustomerId(customerStillAvailable ? heldSale.customerId ?? "" : "");
+    setCustomerAccountId(customerStillAvailable ? heldSale.customerAccountId ?? "general" : "general");
     setPaymentMethod(restoredPaymentMethod);
     setPaymentReference(
       restoredPaymentMethod === heldSale.paymentMethod
@@ -828,6 +832,7 @@ export default function PosPage() {
                 },
               ],
       customerId: customerId || undefined,
+      customerAccountId: customerId ? customerAccountId : undefined,
       creditAmountMinor,
       discountAmountMinor,
       discountReason:
@@ -1022,6 +1027,7 @@ export default function PosPage() {
           : current,
       );
       setCustomerId(result.customerId);
+      setCustomerAccountId("general");
       setNewCustomer({ name: "", phone: "", email: "" });
       setCustomerDialogOpen(false);
       setMessage(
@@ -1762,6 +1768,7 @@ export default function PosPage() {
                       const id = event.target.value;
                       const customer = workspace.customers.find((item) => item.id === id);
                       setCustomerId(id);
+                      setCustomerAccountId("general");
                       setCart((lines) => lines.map((line) => {
                         const original = workspace.products.find((item) => item.id === line.product.id)!;
                         const tier = customer?.pricingTier === "wholesale" && original.wholesalePriceMinor ? "wholesale" : "retail";
@@ -1795,6 +1802,11 @@ export default function PosPage() {
                 Leave as walk-in only when no customer record is needed.
                 {selectedCustomer?.pricingTier === "wholesale" && " Wholesale is selected where configured; products without a wholesale price use retail. Sale-specific price overrides stay unchanged."}
               </p>
+              {selectedCustomer && <label className="mt-3 block text-sm font-medium">Customer account arrangement
+                <select className="mt-1 w-full rounded-lg border p-3" value={customerAccountId} onChange={(event) => setCustomerAccountId(event.target.value)}>
+                  {(selectedCustomer.arrangements ?? [{ id: "general", name: "General account", active: true, outstandingBalanceMinor: selectedCustomer.outstandingBalanceMinor }]).filter((account) => account.active).map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}
+                </select><span className="mt-1 block text-xs text-[var(--muted)]">Keeps this sale and any credit in the selected arrangement. The customer’s overall credit limit still applies.</span>
+              </label>}
             </div>
             <fieldset className="mt-4">
               <legend className="text-sm font-semibold">How is the customer paying?</legend>

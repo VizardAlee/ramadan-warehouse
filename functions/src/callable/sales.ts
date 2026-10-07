@@ -6,6 +6,7 @@ import { db } from "../admin.js";
 import { accountingPeriodReference, assertAccountingPeriodOpen } from "../accounting/period-lock.js";
 import { collectReservedSale } from "../sales/collection.js";
 import { resolveCatalogPrice } from "../sales/pricing.js";
+import { customerArrangements, selectedArrangement, changeArrangementBalance } from "../sales/customer-arrangements.js";
 import { bankAccountSummary, resolveSettlementAccount } from "../accounting/settlement-account.js";
 import { writeAuditLog } from "../audit/write-audit-log.js";
 import {
@@ -492,6 +493,7 @@ export const getPosWorkspace = onCall(
         customerNumber: customer.get("customerNumber"),
         name: customer.get("name"),
         pricingTier: customer.get("pricingTier") ?? "retail",
+        arrangements: customerArrangements(customer.data()),
         phone: customer.get("phone") ?? null,
         creditStatus: customer.get("creditStatus") ?? "pending",
         creditLimitMinor: Number(customer.get("creditLimitMinor") ?? 0),
@@ -1040,6 +1042,9 @@ export const createPosSaleOrder = onCall(
           "permission-denied",
           "This shift belongs to another cashier.",
         );
+      if (input.customerId && (!customerSnapshot!.exists || customerSnapshot!.get("organizationId") !== actor.organizationId || customerSnapshot!.get("active") !== true))
+        throw new HttpsError("failed-precondition", "Select an active customer from this organization.");
+      const customerAccount = input.customerId ? selectedArrangement(customerSnapshot!.data()!, input.customerAccountId) : null;
       if (input.creditAmountMinor > 0) {
         if (!customerSnapshot!.exists ||
           customerSnapshot!.get("organizationId") !== actor.organizationId ||
@@ -1077,6 +1082,8 @@ export const createPosSaleOrder = onCall(
         orderNumber,
         status: "order_received",
         customerId: input.customerId ?? null,
+        customerAccountId: customerAccount?.id ?? null,
+        customerAccountName: customerAccount?.name ?? null,
         grossAmountMinor,
         totalQuantity: input.lines.reduce(
           (sum, line) => sum + line.quantity,
@@ -1452,6 +1459,7 @@ async function postPosSale(
           "failed-precondition",
           "Select an active customer from this organization.",
         );
+      const customerAccount = input.customerId ? selectedArrangement(customerSnapshot.data()!, input.customerAccountId) : null;
       if (input.creditAmountMinor > 0) {
         const administratorAuthorized = hasRole(actor, "system_administrator") ||
           (allowWorkflowShift && Boolean(workflowCreditAuthorization?.authorizedBy) &&
@@ -1688,6 +1696,8 @@ async function postPosSale(
           ? customerSnapshot.get("customerNumber")
           : undefined,
         customerName: input.customerId ? customerSnapshot.get("name") : undefined,
+        customerAccountId: customerAccount?.id,
+        customerAccountName: customerAccount?.name,
         customerPhone: input.customerId ? customerSnapshot.get("phone") : undefined,
         customerEmail: input.customerId ? customerSnapshot.get("email") : undefined,
         customerAddress: input.customerId ? customerSnapshot.get("address") : undefined,
@@ -1932,8 +1942,10 @@ async function postPosSale(
           customerSnapshot.get("outstandingBalanceMinor") ?? 0,
         );
         const nextOutstanding = outstanding + input.creditAmountMinor;
+        const arrangements = changeArrangementBalance(customerSnapshot.data()!, [{ accountId: customerAccount!.id, amountMinor: input.creditAmountMinor }]);
         const creditLimit = Number(customerSnapshot.get("creditLimitMinor") ?? 0);
         transaction.update(customer, {
+          arrangements,
           outstandingBalanceMinor: nextOutstanding,
           availableCreditMinor: Math.max(0, creditLimit - nextOutstanding),
           updatedAt: now,
@@ -1944,6 +1956,8 @@ async function postPosSale(
           branchId: input.branchId,
           customerId: customer.id,
           entryType: "credit_sale",
+          customerAccountId: customerAccount!.id,
+          customerAccountName: customerAccount!.name,
           referenceType: "sale",
           referenceId: sale.id,
           referenceNumber: saleNumber,

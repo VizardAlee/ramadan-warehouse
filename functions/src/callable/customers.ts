@@ -14,6 +14,7 @@ import {
 import { enforceAppCheck } from "../config.js";
 import { uniquenessDocumentId } from "../inventory/calculations.js";
 import { assertBalancedJournal } from "../sales/calculations.js";
+import { customerArrangements, changeArrangementBalance, selectedArrangement, upsertArrangement } from "../sales/customer-arrangements.js";
 import { correlationId, parseInput } from "../utils/callable.js";
 import {
   customerPaymentInput,
@@ -62,6 +63,7 @@ export const getCustomerHistory = onCall({ enforceAppCheck }, async (request) =>
       id: `sale:${record.id}`, kind: "sale", reference: record.get("saleNumber"),
       branchId: record.get("branchId"), amountMinor: Number(record.get("grossAmountMinor") ?? 0),
       detail: String(record.get("paymentStatus") ?? "completed").replaceAll("_", " "),
+      accountName: record.get("customerAccountName") ?? "General account",
       at: date(record.get("recordedAt")),
       sortAt: sortTime(record.get("recordedAt")),
     })),
@@ -69,6 +71,7 @@ export const getCustomerHistory = onCall({ enforceAppCheck }, async (request) =>
       id: `return:${record.id}`, kind: "return", reference: record.get("returnNumber"),
       branchId: record.get("branchId"), amountMinor: -Number(record.get("grossAmountMinor") ?? 0),
       detail: `${record.get("resolution") ?? "return"} · ${record.get("status") ?? "submitted"}`.replaceAll("_", " "),
+      accountName: record.get("customerAccountName") ?? "General account",
       at: date(record.get("createdAt")),
       sortAt: sortTime(record.get("createdAt")),
     })),
@@ -76,6 +79,8 @@ export const getCustomerHistory = onCall({ enforceAppCheck }, async (request) =>
       id: `account:${record.id}`, kind: "account", reference: record.get("referenceNumber"),
       branchId: record.get("branchId"), amountMinor: Number(record.get("amountMinor") ?? 0),
       detail: String(record.get("entryType") ?? "account activity"),
+      accountName: record.get("customerAccountName") ?? "General account",
+      allocations: record.get("allocations") ?? [],
       at: date(record.get("effectiveAt")),
       sortAt: sortTime(record.get("effectiveAt")),
     })),
@@ -98,8 +103,8 @@ export const getCustomerHistory = onCall({ enforceAppCheck }, async (request) =>
     customer: { id: customer.id, name: customer.get("name"), customerNumber: customer.get("customerNumber"),
       creditStatus: customer.get("creditStatus"), creditLimitMinor: Number(customer.get("creditLimitMinor") ?? 0),
       outstandingBalanceMinor: Number(customer.get("outstandingBalanceMinor") ?? 0),
-      availableCreditMinor: Number(customer.get("availableCreditMinor") ?? 0) },
-    rows: page.map(({ id, kind, reference, branchId: rowBranchId, amountMinor, detail, at }) => ({ id, kind, reference, branchId: rowBranchId, amountMinor, detail, at })),
+      availableCreditMinor: Number(customer.get("availableCreditMinor") ?? 0), arrangements: customerArrangements(customer.data()!) },
+    rows: page.map((row) => ({ id: row.id, kind: row.kind, reference: row.reference, branchId: row.branchId, amountMinor: row.amountMinor, detail: row.detail, at: row.at, accountName: row.accountName, allocations: "allocations" in row ? row.allocations : [] })),
     moreAvailable,
     nextCursor: moreAvailable ? nextCursor : null,
   };
@@ -176,6 +181,13 @@ export const saveCustomer = onCall({ enforceAppCheck }, async (request) => {
       updatedAt: now,
       updatedBy: actor.userId,
     });
+    if (input.arrangement) {
+      if (!current!.exists) throw new HttpsError("failed-precondition", "Save the customer before adding an arrangement.");
+      mutable.arrangements = upsertArrangement(current!.data()!, { id: input.arrangement.id, name: input.arrangement.name, active: input.arrangement.active });
+      writeAuditLog(transaction, actor, { action: "customer.arrangement_saved", entityType: "customer", entityId: customer.id,
+        correlationId: cid, sourceFunction: "saveCustomer", reason: input.arrangement.reason,
+        before: { arrangements: current!.get("arrangements") ?? [] }, after: { arrangements: mutable.arrangements } });
+    }
     if (current!.exists) transaction.update(customer, mutable);
     else
       transaction.create(customer, {
@@ -339,6 +351,10 @@ export const recordCustomerPayment = onCall(
       const paymentNumber = `CRP-${year}-${String(paymentSequence).padStart(6, "0")}`;
       const journalNumber = `JRN-${year}-${String(journalSequence).padStart(6, "0")}`;
       const nextOutstanding = outstanding - input.amountMinor;
+      const allocations = (input.allocations ?? [{ accountId: "general", amountMinor: input.amountMinor }]).map((item) => ({
+        ...item, accountName: selectedArrangement(current!.data()!, item.accountId, true).name,
+      }));
+      const arrangements = changeArrangementBalance(current!.data()!, allocations.map((item) => ({ accountId: item.accountId, amountMinor: -item.amountMinor })));
       const creditLimit = Number(current!.get("creditLimitMinor") ?? 0);
       const account = resolveSettlementAccount(actor.organizationId, input.method, input.bankAccountId, bankAccountSnapshot);
       const journalLines = [
@@ -348,6 +364,7 @@ export const recordCustomerPayment = onCall(
       assertBalancedJournal(journalLines);
       const now = FieldValue.serverTimestamp();
       transaction.update(customer, {
+        arrangements,
         outstandingBalanceMinor: nextOutstanding,
         availableCreditMinor:
           current!.get("creditStatus") === "approved"
@@ -383,6 +400,7 @@ export const recordCustomerPayment = onCall(
         ledgerAccountCode: account.accountCode,
         journalEntryId: journal.id,
         amountMinor: input.amountMinor,
+        allocations,
         reference: input.reference,
         notes: input.notes,
         currency: "NGN",
@@ -400,6 +418,8 @@ export const recordCustomerPayment = onCall(
         referenceId: payment.id,
         referenceNumber: paymentNumber,
         amountMinor: -input.amountMinor,
+        allocations,
+        customerAccountName: allocations.length === 1 ? allocations[0]!.accountName : "Multiple arrangements",
         balanceAfterMinor: nextOutstanding,
         currency: "NGN",
         effectiveAt,
@@ -475,6 +495,7 @@ export const recordCustomerPayment = onCall(
           balanceAfterMinor: nextOutstanding,
           bankAccountId: account.bankAccountId ?? null,
           ledgerAccountCode: account.accountCode,
+          allocations,
         },
       });
       result = { paymentId: payment.id, paymentNumber, recorded: true };

@@ -10,6 +10,7 @@ export interface SplitPaymentDraft {
 }
 
 export interface PosCustomer {
+  arrangements?: import("@/types/domain").CustomerArrangement[];
   id: string;
   customerNumber: string;
   name: string;
@@ -97,6 +98,7 @@ export interface PosCartLine {
 }
 
 export interface HeldPosSale {
+  customerAccountId?: string;
   id: string;
   userId: string;
   branchId: string;
@@ -126,6 +128,7 @@ export interface HeldPosSale {
 }
 
 export interface PosSalePayload {
+  customerAccountId?: string;
   branchId: string;
   shiftId: string;
   deviceId: string;

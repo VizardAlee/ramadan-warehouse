@@ -47,6 +47,10 @@ export default function CustomersPage() {
   >("approve");
   const [reason, setReason] = useState("");
   const [paymentAmount, setPaymentAmount] = useState("");
+  const [arrangementDraft, setArrangementDraft] = useState<{ id: string; name: string; active: boolean; reason: string } | null>(null);
+  const [paymentAllocations, setPaymentAllocations] = useState([{ accountId: "general", amount: "" }]);
+  const paymentRetryKey = useRef<string | null>(null);
+  const [paymentUncertain, setPaymentUncertain] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<
     "cash" | "card" | "bank_transfer"
   >("cash");
@@ -111,12 +115,17 @@ export default function CustomersPage() {
     setReason("");
     setCreditLimit("");
     setPaymentAmount("");
+    setArrangementDraft(null);
+    setPaymentAllocations([{ accountId: "general", amount: "" }]);
+    paymentRetryKey.current = null;
+    setPaymentUncertain(false);
     setPaymentReference("");
     setPaymentBankAccountId("");
     setHistory(null);
   }
 
   function edit(customer: Customer) {
+    setArrangementDraft(null);
     setSelected(customer);
     setForm({
       name: customer.name,
@@ -145,6 +154,7 @@ export default function CustomersPage() {
         email: form.email || undefined,
         address: form.address || undefined,
         taxId: form.taxId || undefined,
+        arrangement: arrangementDraft ?? undefined,
         idempotencyKey: crypto.randomUUID(),
       });
       closeAction();
@@ -201,6 +211,9 @@ export default function CustomersPage() {
     setError(null);
     setMessage(null);
     try {
+      const amountMinor = nairaToKobo(Number(paymentAmount));
+      const allocations = paymentAllocations.map((item) => ({ accountId: item.accountId, amountMinor: nairaToKobo(Number(paymentAllocations.length === 1 ? paymentAmount : item.amount)) }));
+      setPaymentUncertain(true);
       const result = await callAdministration<
         Record<string, unknown>,
         { paymentNumber: string }
@@ -209,15 +222,21 @@ export default function CustomersPage() {
         branchId,
         method: paymentMethod,
         bankAccountId: paymentMethod !== "cash" ? paymentBankAccountId : undefined,
-        amountMinor: nairaToKobo(Number(paymentAmount)),
+        amountMinor,
+        allocations,
         reference: paymentReference || undefined,
-        idempotencyKey: crypto.randomUUID(),
+        idempotencyKey: paymentRetryKey.current ??= crypto.randomUUID(),
       });
       closeAction();
       setMessage(
         `Payment ${result.paymentNumber} recorded and posted to Accounts Receivable.`,
       );
     } catch (cause) {
+      const code = typeof cause === "object" && cause !== null && "diagnosticCode" in cause ? String(cause.diagnosticCode) : "";
+      if (["functions/invalid-argument", "functions/failed-precondition", "functions/permission-denied", "functions/not-found", "functions/unauthenticated", "functions/aborted"].includes(code)) {
+        paymentRetryKey.current = null;
+        setPaymentUncertain(false);
+      }
       setError(
         cause instanceof Error
           ? cause.message
@@ -275,6 +294,9 @@ export default function CustomersPage() {
       {canRecordPayment && customer.outstandingBalanceMinor > 0 && <Button size="sm" onClick={() => {
         setSelected(customer);
         setPaymentAmount(String(customer.outstandingBalanceMinor / 100));
+        setPaymentAllocations([{ accountId: "general", amount: "" }]);
+        paymentRetryKey.current = null;
+        setPaymentUncertain(false);
         setAction("payment");
         setPaymentBankAccountId("");
         void loadHistory(customer, 1, branchId);
@@ -304,7 +326,7 @@ export default function CustomersPage() {
       {error && !history && <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-800">{error}</p>}
       <div className="space-y-2">
         {history?.rows.map((row) => <div key={row.id} className="flex flex-wrap items-start justify-between gap-2 rounded-lg border p-3 text-sm">
-          <div><strong className="capitalize">{customerHistoryLabel(row.kind, row.detail)}</strong><p className="text-xs text-[var(--muted)]">{row.reference} · {row.at ? new Date(row.at).toLocaleString("en-NG") : "Date pending"}</p></div>
+          <div><strong className="capitalize">{`${customerHistoryLabel(row.kind, row.detail)} · ${row.accountName ?? "General account"}${row.allocations?.length ? " — " + row.allocations.map((allocation) => `${allocation.accountName}: ${formatNaira(allocation.amountMinor)}`).join("; ") : ""}`}</strong><p className="text-xs text-[var(--muted)]">{row.reference} · {row.at ? new Date(row.at).toLocaleString("en-NG") : "Date pending"}</p></div>
           <FinancialAmount tone={customerHistoryTone(row.kind, row.detail)} className="font-semibold">{formatNaira(Math.abs(row.amountMinor))}</FinancialAmount>
         </div>)}
         {history && history.rows.length === 0 && <p className="rounded-lg bg-slate-50 p-3 text-sm text-[var(--muted)]">No recorded activity in this store.</p>}
@@ -535,6 +557,18 @@ export default function CustomersPage() {
                   />{" "}
                   Active customer
                 </label>
+                {action === "edit" && selected && <fieldset className="space-y-3 rounded-lg border p-3 sm:col-span-2">
+                  <legend className="px-1 font-semibold">Account arrangements</legend>
+                  <p className="text-xs text-[var(--muted)]">One customer, separate arrangements such as personal purchases or an installation project. Historical debt stays in General; all accounts share the customer’s credit limit.</p>
+                  {(selected.arrangements ?? []).map((account) => <div key={account.id} className="flex flex-wrap items-center justify-between gap-2 text-sm"><span>{account.name} · {account.active ? "Active" : "Inactive"} · {formatNaira(account.outstandingBalanceMinor)}</span><Button size="sm" variant="outline" onClick={() => setArrangementDraft({ ...account, reason: "" })}>Edit arrangement</Button></div>)}
+                  <Button size="sm" variant="outline" onClick={() => setArrangementDraft({ id: crypto.randomUUID(), name: "", active: true, reason: "" })}>Add arrangement</Button>
+                  {arrangementDraft && <div className="space-y-3">
+                    <label className="block text-sm">Arrangement name<input className="mt-1 w-full rounded-lg border p-3" value={arrangementDraft.name} onChange={(event) => setArrangementDraft({ ...arrangementDraft, name: event.target.value })} /></label>
+                    <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={arrangementDraft.active} onChange={(event) => setArrangementDraft({ ...arrangementDraft, active: event.target.checked })} />Active arrangement</label>
+                    <label className="block text-sm">Reason for account change<textarea className="mt-1 w-full rounded-lg border p-3" value={arrangementDraft.reason} onChange={(event) => setArrangementDraft({ ...arrangementDraft, reason: event.target.value })} /></label>
+                    <Button size="sm" variant="outline" onClick={() => setArrangementDraft(null)}>Discard account change</Button>
+                  </div>}
+                </fieldset>}
               </div>
             )}
             {action === "credit" && selected && (
@@ -584,7 +618,8 @@ export default function CustomersPage() {
               </div>
             )}
             {action === "payment" && selected && (
-              <div className="mt-5 space-y-4">
+              <fieldset disabled={busy || paymentUncertain} className="mt-5 space-y-4">
+                {paymentUncertain && <p className="rounded-lg bg-amber-50 p-3 text-sm">Payment details are locked while the outcome is uncertain. Retry Record payment to confirm the same receipt. Do not start another payment for the same money.</p>}
                 <p className="rounded-lg bg-slate-50 p-3 text-sm">
                   <strong>{selected.name}</strong>
                   <br />
@@ -636,6 +671,16 @@ export default function CustomersPage() {
                     <option value="bank_transfer">Bank transfer</option>
                   </select>
                 </label>
+                <fieldset className="space-y-3 rounded-lg border p-3"><legend className="px-1 font-semibold">Apply payment to customer accounts</legend>
+                  <p className="text-xs text-[var(--muted)]">This allocates debt repayment between arrangements, not between cash/card/bank methods. Allocations must equal the amount received.</p>
+                  {paymentAllocations.map((allocation, index) => <div key={index} className="space-y-2 rounded-lg bg-slate-50 p-2">
+                    <label className="block text-sm">Customer account {index + 1}<select className="mt-1 w-full rounded-lg border p-3" value={allocation.accountId} onChange={(event) => setPaymentAllocations((items) => items.map((item, position) => position === index ? { ...item, accountId: event.target.value } : item))}>
+                      {(history?.customer.arrangements ?? [{ id: "general", name: "General account", outstandingBalanceMinor: selected.outstandingBalanceMinor }]).map((account) => <option key={account.id} value={account.id}>{account.name} · {formatNaira(account.outstandingBalanceMinor)} due</option>)}
+                    </select></label>
+                    {paymentAllocations.length > 1 && <><label className="block text-sm">Allocated amount (₦)<input className="mt-1 w-full rounded-lg border p-3" type="number" min="0.01" step="0.01" value={allocation.amount} onChange={(event) => setPaymentAllocations((items) => items.map((item, position) => position === index ? { ...item, amount: event.target.value } : item))} /></label><Button size="sm" variant="outline" onClick={() => setPaymentAllocations((items) => items.filter((_, position) => position !== index))}>Remove allocation</Button></>}
+                  </div>)}
+                  <Button size="sm" variant="outline" disabled={paymentAllocations.length >= (history?.customer.arrangements?.length ?? 1)} onClick={() => setPaymentAllocations((items) => [...items.map((item) => ({ ...item, amount: items.length === 1 ? paymentAmount : item.amount })), { accountId: history?.customer.arrangements?.find((account) => !items.some((item) => item.accountId === account.id))?.id ?? "general", amount: "" }])}>Split across arrangements</Button>
+                </fieldset>
                 {paymentMethod !== "cash" && (
                   <label className="block text-sm font-medium">Receiving company account
                     <select value={paymentBankAccountId} onChange={(event) => setPaymentBankAccountId(event.target.value)} className="mt-1 w-full rounded-lg border p-3">
@@ -657,7 +702,7 @@ export default function CustomersPage() {
                     />
                   </label>
                 )}
-              </div>
+              </fieldset>
             )}
             <div className="sticky bottom-0 mt-6 flex justify-end gap-3 border-t bg-white pt-4">
               <Button variant="secondary" onClick={closeAction}>
@@ -666,6 +711,7 @@ export default function CustomersPage() {
               <Button
                 disabled={
                   busy ||
+                  Boolean(arrangementDraft && (arrangementDraft.name.trim().length < 2 || arrangementDraft.reason.trim().length < 5)) ||
                   (action === "credit" && reason.trim().length < 3) ||
                   (action === "payment" && (!paymentAmount || !branchId || (paymentMethod !== "cash" && !paymentBankAccountId)))
                 }

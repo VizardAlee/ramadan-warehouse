@@ -22,7 +22,7 @@ describe("customer full history", () => {
     api.call.mockResolvedValueOnce({ customer, rows: [{ id: "account:1", kind: "account", detail: "payment", reference: "PAY-1", amountMinor: 5000, at: "2026-10-04T10:00:00.000Z" }], moreAvailable: true, nextCursor: { account: "1" } });
     api.call.mockResolvedValueOnce({ customer, rows: [{ id: "sale:2", kind: "sale", detail: "paid", reference: "SALE-2", amountMinor: 10000, at: "2026-10-03T10:00:00.000Z" }], moreAvailable: false, nextCursor: null });
     render(<CustomerHistoryPage />);
-    await waitFor(() => expect(screen.getAllByText("Payment received").length).toBeGreaterThan(0));
+    await waitFor(() => expect(screen.getAllByText(/Payment received · General account/).length).toBeGreaterThan(0));
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
     await waitFor(() => expect(api.call).toHaveBeenLastCalledWith("getCustomerHistory", expect.objectContaining({ customerId: "c1", limit: 25, cursor: { account: "1" } })));
     await waitFor(() => expect(screen.getAllByText("SALE-2").length).toBeGreaterThan(0));

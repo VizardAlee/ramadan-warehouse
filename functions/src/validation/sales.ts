@@ -66,6 +66,7 @@ export const saveCustomerInput = z
     address: z.string().trim().max(500).optional(),
     taxId: z.string().trim().max(80).optional(),
     pricingTier: z.enum(["retail", "wholesale"]).optional(),
+    arrangement: z.object({ id: z.string().uuid(), name: z.string().trim().min(2).max(80), active: z.boolean(), reason: z.string().trim().min(5).max(500) }).optional(),
     active: z.boolean().default(true),
     idempotencyKey: z.string().uuid(),
   })
@@ -92,9 +93,13 @@ export const customerPaymentInput = z.object({
   method: z.enum(["cash", "card", "bank_transfer"]),
   bankAccountId: id.optional(),
   amountMinor: positiveMoney,
+  allocations: z.array(z.object({ accountId: z.union([z.literal("general"), z.string().uuid()]), amountMinor: positiveMoney })).min(1).max(21).optional(),
   reference: z.string().trim().max(120).optional(),
   notes: z.string().trim().max(500).optional(),
   idempotencyKey: z.string().uuid(),
+}).superRefine((value, context) => {
+  if (value.allocations && (new Set(value.allocations.map((item) => item.accountId)).size !== value.allocations.length || value.allocations.reduce((sum, item) => sum + item.amountMinor, 0) !== value.amountMinor))
+    context.addIssue({ code: "custom", path: ["allocations"], message: "Use each account once and allocate the exact payment total." });
 });
 
 export const customerHistoryInput = z.object({
@@ -225,11 +230,14 @@ export const commitSaleInput = z.object({
     .max(5),
   customerId: id.optional(),
   creditAmountMinor: money.default(0),
+  customerAccountId: z.union([z.literal("general"), z.string().uuid()]).optional(),
   discountAmountMinor: money.default(0),
   discountReason: z.string().trim().min(3).max(300).optional(),
   notes: z.string().trim().max(500).optional(),
   idempotencyKey: z.string().uuid(),
 }).superRefine((value, context) => {
+  if (value.customerAccountId && !value.customerId)
+    context.addIssue({ code: "custom", path: ["customerAccountId"], message: "Select a named customer before choosing an account arrangement." });
   if (value.discountAmountMinor > 0 && !value.discountReason)
     context.addIssue({
       code: "custom",
