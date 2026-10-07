@@ -78,6 +78,18 @@ Validation: 233 unit/UI tests (including five index regressions), typecheck, lin
 production build, index/config guards, secret scan and diff check passed. No
 business records, Auth/App Check enforcement, rules or service IAM were changed.
 
+## Cross-section index audit — 7 October 2026
+
+Reviewed current client/server queries and dynamic filters across all existing
+modules. The maintained catalog covers 371 query shapes and tracks 70 source
+files/consumers. The first 367-shape live pass identified 50 unsupported shapes:
+37 inventory movement combinations, nine stock-count variance combinations and
+four no-date sales sum combinations. Added exactly Firebase's 50 suggested
+indexes, preserving all 144 existing definitions. Added seven release-guard
+regressions plus a baseline check in CI/production safeguards. See
+`docs/firestore-index-audit.md` for coverage, safe rerun and maintenance steps.
+Final deployment/readiness and full 371-shape results are recorded after release.
+
 ## Financial history scalability — 6 October 2026
 
 Financial statements and Tax Centre now aggregate stable 500-line server-side
