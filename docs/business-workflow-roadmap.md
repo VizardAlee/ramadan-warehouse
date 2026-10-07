@@ -9,11 +9,11 @@ This roadmap extends the existing Firebase application and preserves historical 
 | User disable/delete | Administrators can make accounts inactive or suspended; Auth is disabled and sessions are revoked; Users now has a direct Disable action | Do not hard-delete users with historical activity. Add archival/anonymization only with an explicit retention policy |
 | Purchase order to payment | Draft/submitted/approved PO, goods receiving, supplier invoice approval, and supplier payment with audit and journals | Supplier advances, credit balances, remittance allocation, richer GRN printout and statement |
 | Logistics and outsourced services | Transfer costs and aftersales charges/payments exist | External provider payables, service-item costing, payment accounts, balanced journals and provider statements |
-| Retail and wholesale prices | Retail/store and optional wholesale price, customer default and POS line selection; server validation, retained version/effective-from snapshots, held/offline price level and manual override audit implemented in the current slice | Validate/release current slice; scheduled future price lists and additional configurable levels remain extensions |
+| Retail and wholesale prices | Retail/store and optional wholesale price, customer default and POS line selection; server validation, retained version/effective-from snapshots, held/offline price level and manual override audit implemented and deployed | Signed-in live acceptance; scheduled future price lists and additional configurable levels remain extensions |
 | Product stock ledger/history | Immutable inventory entries and paginated product movement history exist | Human-readable running balance across reservations, collection and all future transaction types |
 | Customer account arrangements | Customer identity, credit decisions, payments and account entries exist | Multiple named arrangements/subaccounts per customer with allocation and consolidated statements |
 | Financial statements | Ledger-derived balance sheet, income statement, cash-flow statement and trial balance with CSV export exist | Opening-balance/COA review, complete transaction classifications and accountant sign-off before external use |
-| Waybill, quotation and proforma | Official sale invoice/receipt printing, transfer reference and collection-linked A4 waybill implemented; each partial handover retains its stock-movement reference on reprint | Validate/release waybill slice; issued/versioned quotation and proforma conversion; older collection-history paging |
+| Waybill, quotation and proforma | Official sale invoice/receipt printing, transfer reference and collection-linked A4 waybill deployed; each partial handover retains its stock-movement reference on reprint | Signed-in live acceptance; issued/versioned quotation and proforma conversion; older collection-history paging |
 | Returns/exchanges | Partial returns, refunds, customer-account and exchange credit exist | Linked replacement sale with automatic difference settlement either direction, inventory disposition and balanced posting |
 
 ## Dependency sequence
@@ -35,12 +35,12 @@ The client authorized all eight groups. Continue the existing modules in this de
 | Group | Implementation checkpoint | Next acceptance criteria |
 | --- | --- | --- |
 | 1. Daily reconciliation | Implemented, validated and deployed | Nigerian business date, all store-allocated cash journals, counted cash/variance, stock/shift exceptions, retained revisions, separate prepare/sign permissions, same authorized manager allowed, stale evidence rejected, historical sign-off preserved; signed-in live acceptance remains separate |
-| 2. Sales and customers | Retail/wholesale pricing slice implemented and regression-tested; release pending | Named customer arrangements/payment allocation; correction request and reversal workflow; debt aging/reminders. Scheduled future price lists are not implemented |
+| 2. Sales and customers | Retail/wholesale pricing slice implemented, regression-tested and deployed | Named customer arrangements/payment allocation; correction request and reversal workflow; debt aging/reminders. Scheduled future price lists are not implemented |
 | 3. Inventory and returns | Partial: reservation/partial collection/cancellation already implemented | Serial evidence at collection; uncollected reminders; inspected return disposition; linked replacement sale and difference settlement in either direction |
 | 4. Suppliers | Existing PO/GRN/invoice/payment workflow retained | Supplier advances, credit balances, allocation/statements and supplier returns with stock/journal linkage |
 | 5. Accounting and tax | Draft statements/full-history paging implemented | Authorized manual/reversal journals, internal funds transfer, statement classifications/opening balances and accountant sign-off; reviewed versioned Nigerian tax rules, liabilities and payments. Do not activate invented statutory rates |
 | 6. Services and logistics | Existing aftersales charges/payments retained | Non-stock service costing, technician/parts integration, outsourced provider payables and correct delivery fee/provider liability/retained income split |
-| 7. Documents and dashboard | Server dashboard sums/counts deployed; collection-linked A4 waybill slice implemented and regression-tested; release pending | Issued/versioned quotation → proforma → invoice conversion; older collection-history paging; further profit/aging/product metrics and large-report jobs |
+| 7. Documents and dashboard | Server dashboard sums/counts and collection-linked A4 waybill slice deployed | Issued/versioned quotation → proforma → invoice conversion; older collection-history paging; further profit/aging/product metrics and large-report jobs |
 | 8. Budgeting and hardening | HR employee/compensation/attendance connector foundations exist; client has not purchased a scanner yet | Budget-versus-actual, HR workflow/payroll expansion, future model-specific connector and real-device acceptance after procurement, cross-role/offline/security regression and release verification |
 
 ### Pricing and collection documents validation — 7 October 2026
@@ -56,6 +56,21 @@ indexes. Release completion and signed-in live acceptance remain separate.
 Hardware attendance acceptance is deferred because no scanner has been bought;
 the HR guide now includes pre-purchase integration requirements. The rest of
 the eight-workstream programme remains partial/pending as listed above.
+
+Release completed from source `dc4e388`: the seven affected existing callables
+(`saveProductSalesPrice`, `getPosWorkspace`, `createPosSaleOrder`, `commitPosSale`,
+`confirmPosSaleOrder`, `saveCustomer`, `getSaleDocument`) report ACTIVE on new
+revisions with production mode and App Check enabled. The Functions CLI printed
+successful updates and Deploy complete before a trailing timeout; direct API
+inspection confirmed all seven updates. Each unauthenticated endpoint returns
+Firebase JSON HTTP 401 UNAUTHENTICATED. No service IAM, rules, index definitions
+or historical business records were changed. App Hosting build/rollout
+`build-2026-10-07-002` is READY/SUCCEEDED, reconciliation complete, with 100%
+traffic. Login, manifest, POS and guide entry URLs return HTTP 200. An initial
+Node HTTP probe failed to connect; independent HTTP retries succeeded.
+Signed-in live sale/collection mutations, installed-device print layouts and
+physical scanner acceptance were not exercised. Emulator tests remain the
+workflow proof; release checks do not mark the other workstreams complete.
 
 ### First dependency group: store close and bounded dashboard
 
