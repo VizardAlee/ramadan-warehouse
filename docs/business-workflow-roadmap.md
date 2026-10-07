@@ -67,6 +67,17 @@ regressions rejecting missing or descending count indexes. This remediation is
 index-only: no permission changes, ledger edits, data migration or web rollout.
 Deployment/readiness and live aggregate verification are recorded separately below.
 
+Index-only release `73d1610` completed successfully against the production alias;
+all 144 deployed indexes are READY. All 47 read-only live dashboard aggregate
+probes passed using authorized Firebase CLI credentials and the real Igbo Road
+store/organization scopes: period/daily sales counts and sums, payment mix,
+requests, transfer counts/status groups and active products. These exercised the
+same query shapes as the deployed callable, not a signed-in browser session or
+financial mutation. The previously failing sales count queries now succeed.
+Validation: 233 unit/UI tests (including five index regressions), typecheck, lint,
+production build, index/config guards, secret scan and diff check passed. No
+business records, Auth/App Check enforcement, rules or service IAM were changed.
+
 ## Financial history scalability — 6 October 2026
 
 Financial statements and Tax Centre now aggregate stable 500-line server-side
