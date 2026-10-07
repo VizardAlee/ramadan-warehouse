@@ -34,13 +34,13 @@ The client authorized all eight groups. Continue the existing modules in this de
 
 | Group | Implementation checkpoint | Next acceptance criteria |
 | --- | --- | --- |
-| 1. Daily reconciliation | Store daily close implemented; validation/release in progress | Nigerian business date, all store-allocated cash journals, counted cash/variance, stock/shift exceptions, retained revisions, separate prepare/sign permissions, same authorized manager allowed, stale evidence rejected, historical sign-off preserved |
+| 1. Daily reconciliation | Implemented and validated; backend transport approval required, web release held | Nigerian business date, all store-allocated cash journals, counted cash/variance, stock/shift exceptions, retained revisions, separate prepare/sign permissions, same authorized manager allowed, stale evidence rejected, historical sign-off preserved |
 | 2. Sales and customers | Pending next slice | Effective-dated retail/wholesale tiers and offline snapshots; named customer arrangements/payment allocation; correction request and reversal workflow; debt aging/reminders |
 | 3. Inventory and returns | Partial: reservation/partial collection/cancellation already implemented | Serial evidence at collection; uncollected reminders; inspected return disposition; linked replacement sale and difference settlement in either direction |
 | 4. Suppliers | Existing PO/GRN/invoice/payment workflow retained | Supplier advances, credit balances, allocation/statements and supplier returns with stock/journal linkage |
 | 5. Accounting and tax | Draft statements/full-history paging implemented | Authorized manual/reversal journals, internal funds transfer, statement classifications/opening balances and accountant sign-off; reviewed versioned Nigerian tax rules, liabilities and payments. Do not activate invented statutory rates |
 | 6. Services and logistics | Existing aftersales charges/payments retained | Non-stock service costing, technician/parts integration, outsourced provider payables and correct delivery fee/provider liability/retained income split |
-| 7. Documents and dashboard | Index-backed server dashboard sums/counts implemented; validation/release in progress | Issued/versioned quotation → proforma → invoice conversion, collection-linked A4 waybills; further profit/aging/product metrics and large-report jobs |
+| 7. Documents and dashboard | Server dashboard sums/counts validated; backend transport approval required, web release held | Issued/versioned quotation → proforma → invoice conversion, collection-linked A4 waybills; further profit/aging/product metrics and large-report jobs |
 | 8. Budgeting and hardening | HR employee/compensation/attendance connector foundations exist | Budget-versus-actual, HR workflow/payroll expansion, real-device attendance acceptance, cross-role/offline/security regression and release verification |
 
 ### First dependency group: store close and bounded dashboard
@@ -54,6 +54,8 @@ Cash differences and outstanding stock/till checks require explanations; they do
 No migration rewrites existing documents. New daily-close collections are callable-only and deny direct client reads/writes; new indexes support the scoped aggregate/evidence queries. Newly introduced callable transport access must be verified at release; prior approvals for other services do not authorize new Cloud Run IAM changes.
 
 Validation checkpoint: 228 unit/UI tests, 25 sales/administration/accounting callable emulator tests and 25 Firestore security tests passed. Typecheck, lint, Functions compilation, production build, index validation, secret scanning and diff checks passed. Production release and authenticated live acceptance remain separate checkpoints; the other workstreams above are not marked complete by this first group.
+
+Release checkpoint (7 October 2026, source `5c40b37`): Firestore rules released and 19 new indexes accepted (last checked: 123 READY, 19 CREATING). Existing `createOrganizationUser`, `updateOrganizationUser`, `saveOrganizationRole` and `getAssignableRolePermissions` updates succeeded. Firebase could not set Cloud Run invoker IAM policy for new `getDailyCloseWorkspace`, `prepareDailyClose`, `signDailyClose` and `getDashboardWorkspace`; deployment exited with errors for those four services. No IAM checks were disabled. App Hosting deployment is deliberately held until transport access is separately approved and verified, and indexes are READY. Existing live screens remain unchanged. This is a partial backend release, not a completed application deployment.
 
 ## Financial history scalability — 6 October 2026
 
