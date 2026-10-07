@@ -11,7 +11,7 @@ This roadmap extends the existing Firebase application and preserves historical 
 | Logistics and outsourced services | Transfer costs and aftersales charges/payments exist | External provider payables, service-item costing, payment accounts, balanced journals and provider statements |
 | Retail and wholesale prices | Retail/store and optional wholesale price, customer default and POS line selection; server validation, retained version/effective-from snapshots, held/offline price level and manual override audit implemented and deployed | Signed-in live acceptance; scheduled future price lists and additional configurable levels remain extensions |
 | Product stock ledger/history | Immutable inventory entries and paginated product movement history exist | Human-readable running balance across reservations, collection and all future transaction types |
-| Customer account arrangements | Named arrangements, POS selection, repayment allocation and original-arrangement return credits implemented; validation/release pending | Invoice-level allocation, advances, arrangement-filtered statements and aging |
+| Customer account arrangements | Named arrangements, POS selection, repayment allocation and original-arrangement return credits implemented, validated and deployed | Invoice-level allocation, advances, arrangement-filtered statements and aging |
 | Financial statements | Ledger-derived balance sheet, income statement, cash-flow statement and trial balance with CSV export exist | Opening-balance/COA review, complete transaction classifications and accountant sign-off before external use |
 | Waybill, quotation and proforma | Official sale invoice/receipt printing, transfer reference and collection-linked A4 waybill deployed; each partial handover retains its stock-movement reference on reprint | Signed-in live acceptance; issued/versioned quotation and proforma conversion; older collection-history paging |
 | Returns/exchanges | Partial returns, refunds, customer-account and exchange credit exist | Linked replacement sale with automatic difference settlement either direction, inventory disposition and balanced posting |
@@ -25,10 +25,23 @@ arrangement. General preserves historical debt without a backfill. No new
 callables, permissions, Firestore rules or index definitions are introduced.
 See [customer-arrangements.md](customer-arrangements.md) for usage and limits.
 
-256 unit/interface tests and 41 sales/security emulator tests passed. The
-production build passed, and all 371 live query shapes passed with no missing
-indexes. Deployment remains pending; this slice does not implement invoice
-settlement, advances, arrangement-filtered statements or debt aging.
+256 unit/interface tests and 41 sales/security emulator tests passed. Final
+payment-retry UI tests, typecheck, lint, Functions compilation, production build,
+secret scan and diff checks passed. All 371 live query shapes passed with no
+missing indexes. This slice does not implement invoice settlement, advances,
+arrangement-filtered statements or debt aging.
+
+Source `27ba05c` is deployed. All nine affected existing callables reported
+successful updates with production mode and App Check enabled. A temporary
+503 on `getPosWorkspace` recovered; a scoped retry also completed, and its
+final revision is ACTIVE. All nine service URLs returned Firebase JSON HTTP
+401 UNAUTHENTICATED after initial local DNS timeouts. App Hosting
+`build-2026-10-07-003` is READY, rollout SUCCEEDED, reconciliation complete,
+with 100% traffic. GitHub push initially failed with server errors but
+subsequently succeeded. No IAM, rules, index definitions or historical
+business records were changed. Login, POS, Customers, Guide and manifest entry
+URLs returned HTTP 200 after rollout. Signed-in live financial mutations and
+physical-device UX were not exercised; emulator tests are the workflow proof.
 
 ## Dependency sequence
 
@@ -49,7 +62,7 @@ The client authorized all eight groups. Continue the existing modules in this de
 | Group | Implementation checkpoint | Next acceptance criteria |
 | --- | --- | --- |
 | 1. Daily reconciliation | Implemented, validated and deployed | Nigerian business date, all store-allocated cash journals, counted cash/variance, stock/shift exceptions, retained revisions, separate prepare/sign permissions, same authorized manager allowed, stale evidence rejected, historical sign-off preserved; signed-in live acceptance remains separate |
-| 2. Sales and customers | Retail/wholesale pricing deployed; named arrangements/payment allocation implemented, validation/release pending | Invoice-level allocation, advances, arrangement-filtered statements; correction request and reversal workflow; debt aging/reminders. Scheduled future price lists are not implemented |
+| 2. Sales and customers | Retail/wholesale pricing and named arrangements/payment allocation implemented, validated and deployed | Invoice-level allocation, advances, arrangement-filtered statements; correction request and reversal workflow; debt aging/reminders. Scheduled future price lists are not implemented |
 | 3. Inventory and returns | Partial: reservation/partial collection/cancellation already implemented | Serial evidence at collection; uncollected reminders; inspected return disposition; linked replacement sale and difference settlement in either direction |
 | 4. Suppliers | Existing PO/GRN/invoice/payment workflow retained | Supplier advances, credit balances, allocation/statements and supplier returns with stock/journal linkage |
 | 5. Accounting and tax | Draft statements/full-history paging implemented | Authorized manual/reversal journals, internal funds transfer, statement classifications/opening balances and accountant sign-off; reviewed versioned Nigerian tax rules, liabilities and payments. Do not activate invented statutory rates |
