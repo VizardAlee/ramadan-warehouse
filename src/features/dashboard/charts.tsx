@@ -119,8 +119,8 @@ export function SalesPaymentMixChart({ data }: { data: readonly ChartDatum[] }) 
   return (
     <figure className="rounded-xl border bg-white p-5 sm:p-6">
       <figcaption>
-        <h2 className="section-title">How customers paid</h2>
-        <p className="mt-1 text-sm text-[var(--muted)]">Paid, part-paid, and customer-credit invoices in the loaded period.</p>
+        <h2 className="section-title">Payment position at checkout</h2>
+        <p className="mt-1 text-sm text-[var(--muted)]">Original full-payment, part-payment and credit invoices in the last 30 Nigerian business days. Later repayments and returns are shown in customer accounts and reports.</p>
       </figcaption>
       <div className="mt-5 grid items-center gap-6 sm:grid-cols-[minmax(9rem,12rem)_1fr]">
         <div className="relative mx-auto aspect-square w-full max-w-44 rounded-full" style={{ background: donutGradient(data) }} role="img" aria-label={data.map((item) => `${item.label}: ${item.value}`).join(", ")}>

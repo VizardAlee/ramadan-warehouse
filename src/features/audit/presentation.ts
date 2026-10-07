@@ -54,6 +54,8 @@ const specialActions: Readonly<Record<string, string>> = {
   "sale.completed": "Completed a sale",
   "pos_shift.opened": "Opened a POS shift",
   "pos_shift.closed": "Closed a POS shift",
+  "daily_close.prepared": "Prepared the store's daily close",
+  "daily_close.signed": "Signed off the store's daily close",
 };
 
 const actionVerbs: Readonly<Record<string, string>> = {

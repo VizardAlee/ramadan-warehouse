@@ -4,6 +4,12 @@ import { buildRoleAssignment } from "../functions/src/auth/custom-roles";
 
 const actor = (roleId: AccessProfile["roleId"]): AccessProfile => ({ userId: "actor", organizationId: "org", roleId, branchIds: ["b1"], warehouseIds: ["w1"], authorizationVersion: 1 });
 describe("server authorization controls", () => {
+  it("adds daily close to direct manager roles but not restricted custom-role bases", () => {
+    expect(hasServerPermission({ ...actor("branch_manager"), directRoleIds: ["branch_manager"], effectivePermissions: [] }, "daily.close.approve")).toBe(true);
+    expect(hasServerPermission({ ...actor("branch_manager"), directRoleIds: [], effectivePermissions: [] }, "daily.close.approve")).toBe(false);
+    expect(hasServerPermission({ ...actor("branch_manager"), directRoleIds: [], effectivePermissions: ["daily.close.read"] }, "daily.close.read")).toBe(true);
+    expect(hasServerPermission(actor("sales_cashier"), "daily.close.prepare")).toBe(false);
+  });
   it("adds stock release to directly assigned managers without broadening a restricted custom role", () => {
     expect(hasServerPermission({ ...actor("branch_manager"), directRoleIds: ["branch_manager"], effectivePermissions: ["sales.payment.confirm"] }, "sales.stock.release")).toBe(true);
     expect(hasServerPermission({ ...actor("branch_manager"), directRoleIds: [], effectivePermissions: ["sales.payment.confirm"] }, "sales.stock.release")).toBe(false);

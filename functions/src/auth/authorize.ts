@@ -126,10 +126,14 @@ export type Permission =
   | "banking.approve"
   | "accounting.close.read"
   | "accounting.close.prepare"
-  | "accounting.close.approve";
+  | "accounting.close.approve"
+  | "daily.close.read"
+  | "daily.close.prepare"
+  | "daily.close.approve";
 
 const rolePermissions: Readonly<Record<RoleId, readonly Permission[]>> = {
   system_administrator: [
+    "daily.close.read", "daily.close.prepare", "daily.close.approve",
     "organization.manage",
     "branch.manage",
     "warehouse.manage",
@@ -235,6 +239,7 @@ const rolePermissions: Readonly<Record<RoleId, readonly Permission[]>> = {
     "accounting.close.approve",
   ],
   operations_administrator: [
+    "daily.close.read", "daily.close.prepare", "daily.close.approve",
     "user.manage",
     "hr.read",
     "hr.manage",
@@ -387,6 +392,7 @@ const rolePermissions: Readonly<Record<RoleId, readonly Permission[]>> = {
     "transfers.report_discrepancy",
   ],
   branch_manager: [
+    "daily.close.read", "daily.close.prepare", "daily.close.approve",
     "products.read",
     "inventory.read",
     "inventory.receive",
@@ -460,6 +466,7 @@ const rolePermissions: Readonly<Record<RoleId, readonly Permission[]>> = {
     "reports.transfers.read",
   ],
   finance_officer: [
+    "daily.close.read", "daily.close.prepare", "daily.close.approve",
     "products.read",
     "inventory.read",
     "inventory.cost.read",
@@ -502,6 +509,7 @@ const rolePermissions: Readonly<Record<RoleId, readonly Permission[]>> = {
     "accounting.close.approve",
   ],
   auditor: [
+    "daily.close.read",
     "audit.read",
     "products.read",
     "inventory.read",
@@ -855,7 +863,7 @@ export function hasServerPermission(
   if (hasRole(actor, "system_administrator")) return true;
   // Additive capability for existing directly assigned built-in manager roles.
   // Custom-role bases must not gain a permission their administrator omitted.
-  if (permission === "sales.stock.release" && actor.directRoleIds?.some((roleId) => rolePermissions[roleId].includes(permission))) return true;
+  if ((permission === "sales.stock.release" || permission.startsWith("daily.close.")) && actor.directRoleIds?.some((roleId) => rolePermissions[roleId].includes(permission))) return true;
   if (actor.effectivePermissions) return actor.effectivePermissions.includes(permission);
   return accessRoleIds(actor).some((roleId) =>
     rolePermissions[roleId].includes(permission),

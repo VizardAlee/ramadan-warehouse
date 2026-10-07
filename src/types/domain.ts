@@ -135,6 +135,9 @@ export const permissionIds = [
   "accounting.close.read",
   "accounting.close.prepare",
   "accounting.close.approve",
+  "daily.close.read",
+  "daily.close.prepare",
+  "daily.close.approve",
 ] as const;
 export type PermissionId = (typeof permissionIds)[number];
 

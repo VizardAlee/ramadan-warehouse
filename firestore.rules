@@ -452,6 +452,10 @@ service cloud.firestore {
       allow read: if sameOrganization(resource.data) && hasAnyRole(["system_administrator", "finance_officer", "auditor"]) && permitted("accounting.close.read");
       allow create, update, delete: if false;
     }
+    // Daily-close evidence and revisions are accessed only through scoped callables.
+    match /dailyCloses/{document=**} {
+      allow read, write: if false;
+    }
 
     match /system/{documentId} {
       allow read, write: if false;

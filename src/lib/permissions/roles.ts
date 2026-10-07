@@ -9,6 +9,7 @@ import {
 const permissionsByRole: Readonly<Record<RoleId, readonly PermissionId[]>> = {
   system_administrator: permissionIds,
   operations_administrator: [
+    "daily.close.read", "daily.close.prepare", "daily.close.approve",
     "user.manage",
     "hr.read",
     "hr.manage",
@@ -171,6 +172,7 @@ const permissionsByRole: Readonly<Record<RoleId, readonly PermissionId[]>> = {
     "transfers.report_discrepancy",
   ],
   branch_manager: [
+    "daily.close.read", "daily.close.prepare", "daily.close.approve",
     "request.create",
     "receipt.confirm",
     "products.read",
@@ -248,6 +250,7 @@ const permissionsByRole: Readonly<Record<RoleId, readonly PermissionId[]>> = {
     "reports.transfers.read",
   ],
   finance_officer: [
+    "daily.close.read", "daily.close.prepare", "daily.close.approve",
     "report.read",
     "cost.create",
     "cost.approve",
@@ -293,6 +296,7 @@ const permissionsByRole: Readonly<Record<RoleId, readonly PermissionId[]>> = {
     "accounting.close.approve",
   ],
   auditor: [
+    "daily.close.read",
     "audit.read",
     "report.read",
     "report.export",
@@ -336,7 +340,7 @@ export function hasPermission(
   if (profile.status !== "active") return false;
   const assignedRoles = roleIdsForProfile(profile);
   if (assignedRoles.includes("system_administrator")) return true;
-  if (permission === "sales.stock.release") {
+  if (permission === "sales.stock.release" || permission.startsWith("daily.close.")) {
     const direct = profile.directRoleIds ?? (profile.customRoleIds?.length ? [] : assignedRoles);
     if (permissionsForRoles(direct).has(permission)) return true;
   }

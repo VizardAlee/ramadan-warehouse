@@ -18,7 +18,6 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { PageHeader } from "@/components/ui/page-header";
 import { Skeleton } from "@/components/ui/skeleton";
 import { callAdministration } from "@/features/administration/api";
-import { useOrganizationCollection } from "@/features/administration/use-organization-collection";
 import { useAuth } from "@/features/auth/auth-context";
 import {
   OperationalMixChart,
@@ -27,27 +26,11 @@ import {
   TransferPipelineChart,
 } from "@/features/dashboard/charts";
 import { DashboardLocationSwitcher } from "@/features/dashboard/location-switcher";
-import {
-  scopeDashboardRecords,
-  summarizeDashboard,
-  summarizeSales,
-  summarizeSalesByDay,
-  summarizeSalesPaymentMix,
-  summarizeTransferPipeline,
-  type DashboardSale,
-  type DashboardTransfer,
-} from "@/features/dashboard/summary";
-import type { BranchRequest, Product, WarehouseTransfer } from "@/types/domain";
-import type { StockTransfer } from "../../../../functions/src/transfers/simple-model";
+import type { DashboardWorkspace } from "../../../../functions/src/dashboard/model";
 import { formatNaira } from "@/features/inventory/format";
 import { hasPermission } from "@/lib/permissions/roles";
 import { NotificationCard } from "@/features/notifications/notification-card";
 import { useNotifications } from "@/features/notifications/use-notifications";
-
-interface PageResult<T> {
-  rows: T[];
-  nextCursor: string | null;
-}
 
 function ChartPlaceholder({ label }: { label: string }) {
   return (
@@ -59,128 +42,33 @@ function ChartPlaceholder({ label }: { label: string }) {
   );
 }
 
-async function loadScopedRegister<T>(callable: string, extra: object = {}): Promise<T[]> {
-  const rows: T[] = [];
-  let cursor: string | undefined;
-  for (let page = 0; page < 100; page += 1) {
-    const result = await callAdministration<object, PageResult<T>>(callable, {
-      cursor,
-      limit: 100,
-      ...extra,
-    });
-    rows.push(...result.rows);
-    if (!result.nextCursor) return rows;
-    cursor = result.nextCursor;
-  }
-  throw new Error("The dashboard register exceeded the supported page limit.");
-}
-
-async function loadSalesRegister(branchId?: string): Promise<DashboardSale[]> {
-  const rows: DashboardSale[] = [];
-  let cursor: { recordedAt: string; saleId: string } | undefined;
-  const from = new Date();
-  from.setUTCDate(from.getUTCDate() - 29);
-  for (let page = 0; page < 100; page += 1) {
-    const result = await callAdministration<
-      object,
-      { rows: DashboardSale[]; nextCursor: typeof cursor | null }
-    >("generateSalesReport", {
-      reportType: "sales_register",
-      branchId,
-      fromDate: from.toISOString().slice(0, 10),
-      cursor,
-      limit: 500,
-    });
-    rows.push(...result.rows);
-    if (!result.nextCursor) return rows;
-    cursor = result.nextCursor;
-  }
-  throw new Error("The dashboard sales register exceeded the supported page limit.");
-}
-
 export default function DashboardPage() {
   const { profile, operatingContext } = useAuth();
   const { rows: notifications, error: notificationError, markRead } = useNotifications();
-  const products = useOrganizationCollection<Product>("products");
-  const [requests, setRequests] = useState<BranchRequest[]>([]);
-  const [transfers, setTransfers] = useState<DashboardTransfer[]>([]);
-  const [sales, setSales] = useState<DashboardSale[]>([]);
-  const [operationsLoading, setOperationsLoading] = useState(true);
-  const [salesLoading, setSalesLoading] = useState(true);
+  const [workspace, setWorkspace] = useState<DashboardWorkspace | null>(null);
+  const [salesWorkspace, setSalesWorkspace] = useState<DashboardWorkspace | null>(null);
+  const [loading, setLoading] = useState(true);
   const [operationsError, setOperationsError] = useState(false);
+  const [salesLoading, setSalesLoading] = useState(true);
   const [salesError, setSalesError] = useState(false);
-
   useEffect(() => {
     if (!profile) return;
     let active = true;
-    const canReadSales = hasPermission(profile, "reports.sales.read");
-    const salesBranchId =
-      operatingContext?.type === "branch"
-        ? operatingContext.id
-        : profile.branchIds.length === 1
-          ? profile.branchIds[0]
-          : undefined;
-    queueMicrotask(() => {
-      if (!active) return;
-      setOperationsLoading(true);
-      setOperationsError(false);
-      setSalesLoading(canReadSales);
-      setSalesError(false);
-      if (!canReadSales) setSales([]);
-    });
-    void Promise.all([
-      loadScopedRegister<BranchRequest>("listBranchRequests"),
-      loadScopedRegister<WarehouseTransfer>("listTransfers"),
-      (profile.roleIds?.length ? profile.roleIds : [profile.roleId]).some(r => ["system_administrator", "operations_administrator", "warehouse_manager", "branch_manager", "auditor", "finance_officer"].includes(r)) ? loadScopedRegister<StockTransfer>("stockTransfers", { action: "list" }) : Promise.resolve([] as StockTransfer[]),
-    ])
-      .then(([requestRows, transferRows, simpleRows]) => {
-        if (!active) return;
-        setRequests(requestRows);
-        setTransfers([...transferRows, ...simpleRows.map(t => ({ status: t.status, originWarehouseId: t.sourceWarehouseId, sourceBranchId: t.sourceBranchId, destinationBranchId: t.destinationBranchId }))]);
-      })
-      .catch(() => {
-        if (active) {
-          setRequests([]);
-          setTransfers([]);
-          setOperationsError(true);
-        }
-      })
-      .finally(() => {
-        if (active) setOperationsLoading(false);
-      });
-    if (canReadSales) {
-      void loadSalesRegister(salesBranchId)
-        .then((saleRows) => {
-          if (active) setSales(saleRows);
-        })
-        .catch(() => {
-          if (active) {
-            setSales([]);
-            setSalesError(true);
-          }
-        })
-        .finally(() => {
-          if (active) setSalesLoading(false);
-        });
-    }
-    return () => {
-      active = false;
-    };
+    queueMicrotask(() => { if (active) { setLoading(true); setOperationsError(false); setWorkspace(null); setSalesLoading(true); setSalesError(false); setSalesWorkspace(null); } });
+    const input = operatingContext?.type === "branch" ? { branchId: operatingContext.id }
+      : operatingContext?.type === "warehouse" ? { warehouseId: operatingContext.id } : {};
+    void callAdministration<object, DashboardWorkspace>("getDashboardWorkspace", { ...input, section: "operations" })
+      .then((result) => { if (active) setWorkspace(result); })
+      .catch(() => { if (active) setOperationsError(true); })
+      .finally(() => { if (active) setLoading(false); });
+    void callAdministration<object, DashboardWorkspace>("getDashboardWorkspace", { ...input, section: "sales" })
+      .then((result) => { if (active) setSalesWorkspace(result); })
+      .catch(() => { if (active) setSalesError(true); })
+      .finally(() => { if (active) setSalesLoading(false); });
+    return () => { active = false; };
   }, [operatingContext, profile]);
-
-  const operationsReady = !operationsLoading && !products.loading && !operationsError && !products.error;
-  const scopedRecords = scopeDashboardRecords(
-    requests,
-    transfers,
-    operatingContext,
-  );
-  const summary = operationsReady
-    ? summarizeDashboard(
-        scopedRecords.requests,
-        scopedRecords.transfers,
-        products.data,
-      )
-    : null;
+  const summary = workspace?.summary;
+  const operationsReady = !loading && !operationsError && Boolean(workspace);
   const cards = [
     { label: "Open branch requests", value: summary?.requests, icon: ClipboardClock, href: "/requests", emphasis: false },
     { label: "Transfers in progress", value: summary?.transfers, icon: Truck, href: "/transfers", emphasis: false },
@@ -188,20 +76,17 @@ export default function DashboardPage() {
     { label: "Open discrepancies", value: summary?.discrepancies, icon: AlertTriangle, href: "/transfers", emphasis: Boolean(summary?.discrepancies) },
   ];
   const mixData = summary ? [
-    { label: "Open requests", value: summary.requests, color: "#34458f" },
-    { label: "Transfers on track", value: Math.max(0, summary.transfers - summary.discrepancies), color: "#6074bd" },
-    { label: "Discrepancies", value: summary.discrepancies, color: "#c8563d" },
+    ...(summary.requests !== null ? [{ label: "Open requests", value: summary.requests, color: "#34458f" }] : []),
+    ...(summary.transfers !== null && summary.discrepancies !== null ? [{ label: "Transfers on track", value: Math.max(0, summary.transfers - summary.discrepancies), color: "#6074bd" }] : []),
+    ...(summary.discrepancies !== null ? [{ label: "Discrepancies", value: summary.discrepancies, color: "#c8563d" }] : []),
   ] : [];
   const pipelineColors = ["#34458f", "#6074bd", "#f6b333", "#c8563d"];
-  const pipelineData = summarizeTransferPipeline(scopedRecords.transfers).map((item, index) => ({
-    ...item,
-    color: pipelineColors[index]!,
-  }));
-  const salesSummary = summarizeSales(sales);
-  const salesTrend = summarizeSalesByDay(sales);
-  const salesPaymentMix = summarizeSalesPaymentMix(sales);
+  const pipelineData = (workspace?.pipeline ?? []).map((item, index) => ({ ...item, color: pipelineColors[index]! }));
+  const salesSummary = salesWorkspace?.sales ?? { saleCount: 0, grossAmountMinor: 0, amountPaidMinor: 0, creditAmountMinor: 0 };
+  const salesTrend = salesWorkspace?.trend ?? [];
+  const salesPaymentMix = salesWorkspace?.paymentMix ?? [];
   const canReadSales = Boolean(
-    profile && hasPermission(profile, "reports.sales.read"),
+    profile && hasPermission(profile, "reports.sales.read") && (!salesWorkspace || salesWorkspace.sales !== null),
   );
 
   return (
@@ -241,7 +126,7 @@ export default function DashboardPage() {
           Open user guide <ArrowRight className="size-4" />
         </Link>
       </aside>
-      {(operationsError || products.error || salesError) && (
+      {(operationsError || salesError) && (
         <p role="alert" className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950">
           Some dashboard totals could not be refreshed. Use the linked registers for current detail.
         </p>
@@ -252,9 +137,9 @@ export default function DashboardPage() {
           <section aria-label="Sales summary" className="card-grid">
             {[
               { label: "Sales (30 days)", value: String(salesSummary.saleCount), icon: ReceiptText, href: "/reports", tone: "finance-balance" },
-              { label: "Sales value", value: formatNaira(salesSummary.grossAmountMinor), icon: ShoppingBag, href: "/reports", tone: "finance-income" },
-              { label: "Amount received", value: formatNaira(salesSummary.amountPaidMinor), icon: HandCoins, href: "/reports", tone: "finance-income" },
-              { label: "Customer credit", value: formatNaira(salesSummary.creditAmountMinor), icon: ClipboardClock, href: "/customers", tone: "finance-attention" },
+              { label: "Invoiced value (30 days)", value: formatNaira(salesSummary.grossAmountMinor), icon: ShoppingBag, href: "/reports", tone: "finance-income" },
+              { label: "Received at checkout", value: formatNaira(salesSummary.amountPaidMinor), icon: HandCoins, href: "/reports", tone: "finance-income" },
+              { label: "Credit at checkout", value: formatNaira(salesSummary.creditAmountMinor), icon: ClipboardClock, href: "/customers", tone: "finance-attention" },
             ].map(({ label, value, icon: Icon, href, tone }) => (
               <Link key={label} href={href} className="surface interactive-card p-5">
                 <div className="flex items-start justify-between gap-4">
@@ -265,7 +150,7 @@ export default function DashboardPage() {
               </Link>
             ))}
           </section>
-          {!salesError && (
+          {!salesError && (salesLoading || salesWorkspace?.sales) && (
             <section aria-label="Sales charts" aria-busy={salesLoading} className="grid gap-4 lg:grid-cols-2">
               {salesLoading ? <><ChartPlaceholder label="Sales trend" /><ChartPlaceholder label="Payment mix" /></> : <><SalesTrendChart data={salesTrend} /><SalesPaymentMixChart data={salesPaymentMix} /></>}
             </section>
@@ -283,7 +168,7 @@ export default function DashboardPage() {
             <div className="flex items-start justify-between gap-4">
               <div className="min-w-0">
                 <p className="text-sm text-[var(--muted)]">{label}</p>
-                {!operationsReady && !operationsError && !products.error ? <Skeleton className="mt-3 h-9 w-16" /> : <p className="mt-2 text-3xl font-semibold tabular-nums">{value ?? "—"}</p>}
+                {loading ? <Skeleton className="mt-3 h-9 w-16" /> : <p className="mt-2 text-3xl font-semibold tabular-nums">{value ?? "—"}</p>}
               </div>
               <span className="grid size-10 shrink-0 place-items-center rounded-lg bg-indigo-50 text-[var(--brand)]"><Icon className="size-5" /></span>
             </div>
@@ -291,9 +176,9 @@ export default function DashboardPage() {
           </Link>
         ))}
       </section>
-      {!operationsError && !products.error && (
+      {!operationsError && (
         <section aria-label="Operational charts" aria-busy={!operationsReady} className="grid gap-4 lg:grid-cols-2">
-          {summary ? <><OperationalMixChart data={mixData} /><TransferPipelineChart data={pipelineData} /></> : <><ChartPlaceholder label="Open work" /><ChartPlaceholder label="Transfer pipeline" /></>}
+          {summary ? <>{mixData.length > 0 && <OperationalMixChart data={mixData} />}{pipelineData.length > 0 && <TransferPipelineChart data={pipelineData} />}</> : <><ChartPlaceholder label="Open work" /><ChartPlaceholder label="Transfer pipeline" /></>}
         </section>
       )}
       {summary && summary.products === 0 && summary.requests === 0 && summary.transfers === 0 ? (

@@ -4,7 +4,7 @@ This roadmap extends the existing Firebase application and preserves historical 
 
 | Request | Current implementation | Remaining work |
 | --- | --- | --- |
-| Daily physical stock and cash reconciliation | Stock counts, inventory-ledger reconciliation, POS opening/closing cash variance and bank reconciliation exist; `/daily-reconciliation` links the existing controls | One dated, location-scoped daily close including non-POS cash movement, reviewer/sign-off and exception reporting |
+| Daily physical stock and cash reconciliation | Stock counts, inventory-ledger reconciliation, POS opening/closing cash variance and bank reconciliation exist; a dated store daily close now records cash ledger evidence, physical counted cash, exceptions, retained revisions and audited sign-off | Bank reconciliation remains a separate control; company-wide cash must have a store allocation before inclusion in a store close |
 | Administrator-managed roles | Organization-specific role creation/editing, multiple role assignment, permission versioning and effective union authorization exist | Regression coverage for newly introduced permissions and deactivation across all modules |
 | User disable/delete | Administrators can make accounts inactive or suspended; Auth is disabled and sessions are revoked; Users now has a direct Disable action | Do not hard-delete users with historical activity. Add archival/anonymization only with an explicit retention policy |
 | Purchase order to payment | Draft/submitted/approved PO, goods receiving, supplier invoice approval, and supplier payment with audit and journals | Supplier advances, credit balances, remittance allocation, richer GRN printout and statement |
@@ -18,7 +18,7 @@ This roadmap extends the existing Firebase application and preserves historical 
 
 ## Dependency sequence
 
-Current priority: complete paid-but-uncollected stock and partial physical collection before further reporting/financial expansion. Then replace browser-wide dashboard scans with bounded server aggregates and remove financial report truncation before statement sign-off.
+Paid-but-uncollected stock, partial collection and reservation cancellation are implemented. Financial reports page full ledger history. The current expansion first adds store daily-close evidence and index-backed dashboard aggregates, then proceeds through the eight workstreams below. Completion of one group does not imply completion of all eight.
 
 1. Daily-close evidence and organization-specific role/permission model, with server-authoritative authorization and safe migration.
 2. Retail/wholesale price tiers and customer subaccounts, preserving offline POS and existing credit balances.
@@ -27,6 +27,33 @@ Current priority: complete paid-but-uncollected stock and partial physical colle
 5. Versioned quotations/proformas, physical-release waybills, and final statement/report sign-off.
 
 Each vertical slice needs rules/index review, idempotent trusted mutations, audit events, emulator tests, typecheck, lint, production build and a verified staging rollout. No historical ledger or issued document is edited in place.
+
+## Eight-workstream completion programme — 7 October 2026
+
+The client authorized all eight groups. Continue the existing modules in this dependency order; do not create parallel customer, supplier, role, ledger or notification systems.
+
+| Group | Implementation checkpoint | Next acceptance criteria |
+| --- | --- | --- |
+| 1. Daily reconciliation | Store daily close implemented; validation/release in progress | Nigerian business date, all store-allocated cash journals, counted cash/variance, stock/shift exceptions, retained revisions, separate prepare/sign permissions, same authorized manager allowed, stale evidence rejected, historical sign-off preserved |
+| 2. Sales and customers | Pending next slice | Effective-dated retail/wholesale tiers and offline snapshots; named customer arrangements/payment allocation; correction request and reversal workflow; debt aging/reminders |
+| 3. Inventory and returns | Partial: reservation/partial collection/cancellation already implemented | Serial evidence at collection; uncollected reminders; inspected return disposition; linked replacement sale and difference settlement in either direction |
+| 4. Suppliers | Existing PO/GRN/invoice/payment workflow retained | Supplier advances, credit balances, allocation/statements and supplier returns with stock/journal linkage |
+| 5. Accounting and tax | Draft statements/full-history paging implemented | Authorized manual/reversal journals, internal funds transfer, statement classifications/opening balances and accountant sign-off; reviewed versioned Nigerian tax rules, liabilities and payments. Do not activate invented statutory rates |
+| 6. Services and logistics | Existing aftersales charges/payments retained | Non-stock service costing, technician/parts integration, outsourced provider payables and correct delivery fee/provider liability/retained income split |
+| 7. Documents and dashboard | Index-backed server dashboard sums/counts implemented; validation/release in progress | Issued/versioned quotation → proforma → invoice conversion, collection-linked A4 waybills; further profit/aging/product metrics and large-report jobs |
+| 8. Budgeting and hardening | HR employee/compensation/attendance connector foundations exist | Budget-versus-actual, HR workflow/payroll expansion, real-device attendance acceptance, cross-role/offline/security regression and release verification |
+
+### First dependency group: store close and bounded dashboard
+
+`getDailyCloseWorkspace`, `prepareDailyClose` and `signDailyClose` reuse the existing journal lines, stock counts, shifts, branch scope and audit system. Cash is account 1010 for the selected store, including non-POS postings. Opening cash is derived from older journal lines, not an editable balance. Store-less/company-wide cash is deliberately excluded. Dates use Africa/Lagos boundaries. Every source page is read within a Firestore transaction snapshot. No business ledger is rewritten.
+
+Cash differences and outstanding stock/till checks require explanations; they do not silently post adjustments. Direct built-in branch managers, operations administrators and finance officers gain scoped daily-close permissions additively. Custom roles gain only permissions explicitly assigned by their administrator. Signed evidence is retained in revision/sign-off records. Later/backdated postings are flagged and require a new revision. Daily close is evidence, not a period lock; bank reconciliation remains separate.
+
+`getDashboardWorkspace` uses index-backed Firestore counts/sums, returning a fixed-size summary and seven trend points rather than complete sales, product, request and transfer registers. Both historical and simple transfers are counted, with an OR scope preventing double-counting a transfer whose source and destination are the same store. Unauthorized sections return unavailable values rather than fake zeros. Sales show invoiced value and payment position at checkout, not current receivables or net sales after later returns. Real data only; no backfill or fabricated production records. Materialized rollups remain an optional later optimization, not a prerequisite for correctness.
+
+No migration rewrites existing documents. New daily-close collections are callable-only and deny direct client reads/writes; new indexes support the scoped aggregate/evidence queries. Newly introduced callable transport access must be verified at release; prior approvals for other services do not authorize new Cloud Run IAM changes.
+
+Validation checkpoint: 228 unit/UI tests, 25 sales/administration/accounting callable emulator tests and 25 Firestore security tests passed. Typecheck, lint, Functions compilation, production build, index validation, secret scanning and diff checks passed. Production release and authenticated live acceptance remain separate checkpoints; the other workstreams above are not marked complete by this first group.
 
 ## Financial history scalability — 6 October 2026
 

@@ -243,6 +243,7 @@ export default function GuidePage() {
         <section id="daily-checks" className="scroll-mt-24 rounded-2xl border bg-white p-5">
           <h2 className="text-xl font-semibold">Daily checks</h2>
           <p className="mt-2 text-sm leading-6">Open <Link className="font-semibold underline" href="/daily-reconciliation">Daily checks</Link> to count shelf stock, check ledger balances, close the POS shift with actual till cash, and match bank entries. Record the reason for a variance; counts do not silently overwrite stock.</p>
+          <p className="mt-2 text-sm leading-6">In Store daily close, choose the store and Nigerian business date, review ledger-derived opening cash, receipts, payments and expected cash, then enter the physical cash counted. Explain any variance or incomplete stock/till checks before preparing. An authorized manager or finance user can sign the prepared revision; a manager with both permissions can do both. This records evidence, not a cash adjustment or an accounting lock. Later postings or changed checks require a new revision, while earlier evidence and sign-offs remain on record. Company-wide cash without a store allocation is not included in a store close; bank reconciliation remains a separate control.</p>
           <p className="mt-2 text-sm text-[var(--muted)]">These are separate auditable checks, not yet one signed-off daily close covering every cash movement.</p>
         </section>
       )}

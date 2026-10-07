@@ -1,4 +1,6 @@
 import "./config.js";
+export { getDailyCloseWorkspace, prepareDailyClose, signDailyClose } from "./callable/daily-close.js";
+export { getDashboardWorkspace } from "./callable/dashboard.js";
 export { stockTransfers } from "./callable/stock-transfers.js";
 export { getMyAccessContext } from "./callable/get-my-access-context.js";
 export { saveOrganizationRole, getAssignableRolePermissions } from "./callable/manage-roles.js";

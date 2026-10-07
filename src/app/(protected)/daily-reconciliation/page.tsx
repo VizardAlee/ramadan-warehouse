@@ -5,6 +5,7 @@ import { Banknote, ClipboardCheck, Landmark, ScanSearch } from "lucide-react";
 import { useAuth } from "@/features/auth/auth-context";
 import { hasPermission } from "@/lib/permissions/roles";
 import type { PermissionId } from "@/types/domain";
+import { DailyClosePanel } from "@/features/reconciliation/daily-close-panel";
 
 const steps: Array<{
   title: string;
@@ -60,6 +61,7 @@ export default function DailyReconciliationPage() {
           Check the goods physically present and the money physically held against the app. Each check keeps its own dated, auditable record; a variance is never silently written away.
         </p>
       </header>
+      <DailyClosePanel />
       {visibleSteps.length ? (
         <div className="grid gap-4 md:grid-cols-2">
           {visibleSteps.map((step, index) => (
@@ -81,9 +83,6 @@ export default function DailyReconciliationPage() {
       ) : (
         <p className="rounded-xl border bg-white p-5">Your assigned roles do not include daily reconciliation actions.</p>
       )}
-      <p className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950">
-        Stock counts, till closes and bank reconciliations are separate evidence today. This page does not yet create a single signed-off daily close or include every non-POS cash movement.
-      </p>
     </div>
   );
 }

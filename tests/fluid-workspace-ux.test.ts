@@ -7,9 +7,13 @@ const source = (path: string) => readFileSync(join(process.cwd(), path), "utf8")
 describe("fluid workspace foundations", () => {
   it("loads dashboard sales independently of operations and avoids stale totals on failure", () => {
     const dashboard = source("src/app/(protected)/dashboard/page.tsx");
-    expect(dashboard).toContain("void loadSalesRegister(salesBranchId)");
+    expect(dashboard).toContain('"getDashboardWorkspace", { ...input, section: "sales" }');
+    expect(dashboard).toContain('"getDashboardWorkspace", { ...input, section: "operations" }');
+    expect(dashboard).not.toContain("loadSalesRegister");
+    expect(dashboard).not.toContain("loadScopedRegister");
+    expect(dashboard).not.toContain("useOrganizationCollection");
     expect(dashboard).toContain("setSalesLoading(false)");
-    expect(dashboard).toContain("setOperationsLoading(false)");
+    expect(dashboard).toContain("setLoading(false)");
     expect(dashboard).toContain("setSalesError(true)");
     expect(dashboard).toContain("setOperationsError(true)");
     expect(dashboard).toContain('salesError ? "—" : value');

@@ -1,5 +1,24 @@
 {
   "indexes": [
+    {"collectionGroup":"stockTransfers","queryScope":"COLLECTION","fields":[{"fieldPath":"organizationId","order":"ASCENDING"},{"fieldPath":"sourceWarehouseId","order":"ASCENDING"}]},
+    {"collectionGroup":"stockTransfers","queryScope":"COLLECTION","fields":[{"fieldPath":"organizationId","order":"ASCENDING"},{"fieldPath":"sourceWarehouseId","order":"ASCENDING"},{"fieldPath":"status","order":"ASCENDING"}]},
+    {"collectionGroup":"stockTransfers","queryScope":"COLLECTION","fields":[{"fieldPath":"organizationId","order":"ASCENDING"},{"fieldPath":"destinationBranchId","order":"ASCENDING"}]},
+    {"collectionGroup":"stockTransfers","queryScope":"COLLECTION","fields":[{"fieldPath":"organizationId","order":"ASCENDING"},{"fieldPath":"destinationBranchId","order":"ASCENDING"},{"fieldPath":"status","order":"ASCENDING"}]},
+    {"collectionGroup":"stockTransfers","queryScope":"COLLECTION","fields":[{"fieldPath":"organizationId","order":"ASCENDING"},{"fieldPath":"sourceBranchId","order":"ASCENDING"}]},
+    {"collectionGroup":"stockTransfers","queryScope":"COLLECTION","fields":[{"fieldPath":"organizationId","order":"ASCENDING"},{"fieldPath":"sourceBranchId","order":"ASCENDING"},{"fieldPath":"status","order":"ASCENDING"}]},
+    {"collectionGroup":"stockTransfers","queryScope":"COLLECTION","fields":[{"fieldPath":"organizationId","order":"ASCENDING"},{"fieldPath":"status","order":"ASCENDING"}]},
+    {"collectionGroup":"transfers","queryScope":"COLLECTION","fields":[{"fieldPath":"organizationId","order":"ASCENDING"},{"fieldPath":"originWarehouseId","order":"ASCENDING"}]},
+    {"collectionGroup":"transfers","queryScope":"COLLECTION","fields":[{"fieldPath":"organizationId","order":"ASCENDING"},{"fieldPath":"destinationBranchId","order":"ASCENDING"}]},
+    {"collectionGroup":"transfers","queryScope":"COLLECTION","fields":[{"fieldPath":"organizationId","order":"ASCENDING"},{"fieldPath":"sourceBranchId","order":"ASCENDING"}]},
+    {"collectionGroup":"transfers","queryScope":"COLLECTION","fields":[{"fieldPath":"organizationId","order":"ASCENDING"},{"fieldPath":"sourceBranchId","order":"ASCENDING"},{"fieldPath":"status","order":"ASCENDING"}]},
+    {"collectionGroup":"sales","queryScope":"COLLECTION","fields":[{"fieldPath":"organizationId","order":"ASCENDING"},{"fieldPath":"branchId","order":"ASCENDING"},{"fieldPath":"paymentStatus","order":"ASCENDING"},{"fieldPath":"recordedAt","order":"ASCENDING"}]},
+    {"collectionGroup":"branchRequests","queryScope":"COLLECTION","fields":[{"fieldPath":"organizationId","order":"ASCENDING"},{"fieldPath":"branchId","order":"ASCENDING"},{"fieldPath":"status","order":"ASCENDING"}]},
+    {"collectionGroup":"sales","queryScope":"COLLECTION","fields":[{"fieldPath":"organizationId","order":"ASCENDING"},{"fieldPath":"paymentStatus","order":"ASCENDING"},{"fieldPath":"recordedAt","order":"ASCENDING"}]},
+    {"collectionGroup":"branchRequests","queryScope":"COLLECTION","fields":[{"fieldPath":"organizationId","order":"ASCENDING"},{"fieldPath":"status","order":"ASCENDING"}]},
+    {"collectionGroup":"products","queryScope":"COLLECTION","fields":[{"fieldPath":"organizationId","order":"ASCENDING"},{"fieldPath":"active","order":"ASCENDING"}]},
+    {"collectionGroup":"journalLines","queryScope":"COLLECTION","fields":[{"fieldPath":"organizationId","order":"ASCENDING"},{"fieldPath":"branchId","order":"ASCENDING"},{"fieldPath":"accountCode","order":"ASCENDING"},{"fieldPath":"__name__","order":"ASCENDING"}]},
+    {"collectionGroup":"stockCounts","queryScope":"COLLECTION","fields":[{"fieldPath":"organizationId","order":"ASCENDING"},{"fieldPath":"branchId","order":"ASCENDING"},{"fieldPath":"countDate","order":"ASCENDING"},{"fieldPath":"__name__","order":"ASCENDING"}]},
+    {"collectionGroup":"posShifts","queryScope":"COLLECTION","fields":[{"fieldPath":"organizationId","order":"ASCENDING"},{"fieldPath":"branchId","order":"ASCENDING"},{"fieldPath":"__name__","order":"ASCENDING"}]},
     {
       "collectionGroup": "sales", "queryScope": "COLLECTION",
       "fields": [

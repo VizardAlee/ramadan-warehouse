@@ -1,5 +1,6 @@
 import type { OperatingContext } from "@/features/auth/operating-context";
 import type { BranchRequest, Product } from "@/types/domain";
+import { pipelineStages } from "../../../functions/src/dashboard/model";
 export interface DashboardTransfer {
   status: string;
   originWarehouseId?: string;
@@ -68,42 +69,12 @@ export function summarizeDashboard(
   };
 }
 
-const transferStageStatuses: Readonly<Record<string, ReadonlySet<string>>> = {
-  Review: new Set([
-    "draft",
-    "submitted",
-    "under_review",
-    "changes_requested",
-    "requested",
-  ]),
-  Preparation: new Set([
-    "approved",
-    "partially_reserved",
-    "reserved",
-    "picking",
-    "partially_picked",
-    "picked",
-    "packing",
-    "packed",
-    "ready_for_dispatch",
-  ]),
-  "In transit": new Set(["partially_dispatched", "dispatched"]),
-  "Receiving & issues": new Set([
-    "awaiting_receipt",
-    "problem",
-    "partially_received",
-    "received",
-    "disputed",
-    "cost_reconciliation",
-  ]),
-} as const;
-
 export function summarizeTransferPipeline(
   transfers: readonly DashboardTransfer[],
 ) {
-  return Object.entries(transferStageStatuses).map(([label, statuses]) => ({
+  return Object.entries(pipelineStages).map(([label, statuses]) => ({
     label,
-    value: transfers.filter((transfer) => statuses.has(transfer.status)).length,
+    value: transfers.filter((transfer) => statuses.includes(transfer.status)).length,
   }));
 }
 
