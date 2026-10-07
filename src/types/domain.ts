@@ -215,6 +215,7 @@ export interface AccountingPeriod {
 }
 
 export interface Customer {
+  pricingTier?: "retail" | "wholesale";
   id: string;
   organizationId: string;
   customerNumber: string;

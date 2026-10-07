@@ -30,6 +30,7 @@ const emptyForm = {
   email: "",
   address: "",
   taxId: "",
+  pricingTier: "retail" as "retail" | "wholesale",
   active: true,
 };
 
@@ -123,6 +124,7 @@ export default function CustomersPage() {
       email: customer.email ?? "",
       address: customer.address ?? "",
       taxId: customer.taxId ?? "",
+      pricingTier: customer.pricingTier ?? "retail",
       active: customer.active,
     });
     setAction("edit");
@@ -513,6 +515,15 @@ export default function CustomersPage() {
                     }
                     className="mt-1 w-full rounded-lg border p-3"
                   />
+                </label>
+                <label className="text-sm font-medium">
+                  Default price level
+                  <select className="mt-1 w-full rounded-lg border p-3" value={form.pricingTier}
+                    onChange={(event) => setForm({ ...form, pricingTier: event.target.value as "retail" | "wholesale" })}>
+                    <option value="retail">Retail</option>
+                    <option value="wholesale">Wholesale / dealer</option>
+                  </select>
+                  <span className="mt-1 block text-xs text-[var(--muted)]">POS uses wholesale where configured; this does not authorize credit.</span>
                 </label>
                 <label className="flex items-center gap-2 self-end pb-3 text-sm">
                   <input

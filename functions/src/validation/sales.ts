@@ -7,6 +7,7 @@ const positiveMoney = z.number().int().positive().max(Number.MAX_SAFE_INTEGER);
 export const salesPriceInput = z.object({
   productId: id,
   basePriceMinor: positiveMoney,
+  wholesalePriceMinor: positiveMoney.nullable().optional(),
   vatRateBasisPoints: z.number().int().min(0).max(10_000),
   active: z.boolean().default(true),
   idempotencyKey: z.string().uuid(),
@@ -64,6 +65,7 @@ export const saveCustomerInput = z
     email: z.string().trim().email().max(254).optional(),
     address: z.string().trim().max(500).optional(),
     taxId: z.string().trim().max(80).optional(),
+    pricingTier: z.enum(["retail", "wholesale"]).optional(),
     active: z.boolean().default(true),
     idempotencyKey: z.string().uuid(),
   })
@@ -183,6 +185,7 @@ export const commitSaleInput = z.object({
     .array(
       z.object({
         productId: id,
+        priceTier: z.enum(["retail", "wholesale"]).optional(),
         quantity: z.number().int().positive().max(100_000),
         priceVersion: z.number().int().positive().optional(),
         unitPriceMinor: money.optional(),

@@ -38,6 +38,7 @@ import { useAuth } from "@/features/auth/auth-context";
 import {
   calculatePosCart,
   posLineUnitPriceMinor,
+  productForPriceTier,
   provisionalReceiptReference,
   reconcileHeldCart,
 } from "@/features/pos/calculations";
@@ -387,7 +388,11 @@ export default function PosPage() {
               ? { ...line, quantity: line.quantity + 1 }
               : line,
           )
-        : [...lines, { product, quantity: 1 }];
+        : [...lines, {
+            product: productForPriceTier(product, selectedCustomer?.pricingTier === "wholesale" && product.wholesalePriceMinor ? "wholesale" : "retail"),
+            quantity: 1,
+            priceTier: selectedCustomer?.pricingTier === "wholesale" && product.wholesalePriceMinor ? "wholesale" : "retail",
+          }];
     });
   }
 
@@ -461,6 +466,7 @@ export default function PosPage() {
         lines: cart.map((line) => ({
           productId: line.product.id,
           quantity: line.quantity,
+          priceTier: line.priceTier ?? "retail",
           ...(line.sellingPriceMinor !== undefined ? {
             catalogUnitPriceMinor: line.product.unitPriceMinor,
             sellingPriceMinor: line.sellingPriceMinor,
@@ -761,10 +767,11 @@ export default function PosPage() {
       recordedAt: new Date().toISOString(),
       offline: !online,
       provisionalReceiptReference: !online ? provisional : undefined,
-      lines: cart.map(({ product, quantity, sellingPriceMinor, priceOverrideReason }) => ({
+      lines: cart.map(({ product, quantity, sellingPriceMinor, priceOverrideReason, priceTier }) => ({
         productId: product.id,
         quantity,
-        ...(!online || sellingPriceMinor !== undefined
+        priceTier: priceTier ?? "retail",
+        ...(!online || sellingPriceMinor !== undefined || priceTier === "wholesale"
           ? {
               priceVersion: product.priceVersion,
               unitPriceMinor: product.unitPriceMinor,
@@ -1083,7 +1090,7 @@ export default function PosPage() {
     setCart((current) => current.map((item) => item.product.id !== line.product.id
       ? item
       : amountMinor === item.product.unitPriceMinor
-        ? { product: item.product, quantity: item.quantity }
+        ? { product: item.product, quantity: item.quantity, ...(item.priceTier ? { priceTier: item.priceTier } : {}) }
         : { ...item, sellingPriceMinor: amountMinor, priceOverrideReason: salePriceReason.trim() }));
     setSalePriceProductId(null);
     setSalePriceReason("");
@@ -1609,6 +1616,19 @@ export default function PosPage() {
                         {formatNaira(line.quantity * posLineUnitPriceMinor(line))}
                       </span>
                     </div>
+                    <label className="mt-2 block text-xs font-medium">
+                      Price level
+                      <select className="mt-1 w-full rounded-lg border p-2" value={line.priceTier ?? "retail"}
+                        onChange={(event) => {
+                          const tier = event.target.value as "retail" | "wholesale";
+                          const original = workspace.products.find((product) => product.id === line.product.id)!;
+                          setCart((lines) => lines.map((item) => item.product.id === original.id
+                            ? { ...item, product: productForPriceTier(original, tier), priceTier: tier } : item));
+                        }}>
+                        <option value="retail">Retail / store price</option>
+                        <option value="wholesale" disabled={!line.product.wholesalePriceMinor}>Wholesale</option>
+                      </select>
+                    </label>
                     <div className="mt-3 flex items-center justify-between">
                       <span className="text-xs text-[var(--muted)]">
                         {formatNaira(posLineUnitPriceMinor(line))} each
@@ -1738,7 +1758,16 @@ export default function PosPage() {
                   Customer
                   <select
                     value={customerId}
-                    onChange={(event) => setCustomerId(event.target.value)}
+                    onChange={(event) => {
+                      const id = event.target.value;
+                      const customer = workspace.customers.find((item) => item.id === id);
+                      setCustomerId(id);
+                      setCart((lines) => lines.map((line) => {
+                        const original = workspace.products.find((item) => item.id === line.product.id)!;
+                        const tier = customer?.pricingTier === "wholesale" && original.wholesalePriceMinor ? "wholesale" : "retail";
+                        return { ...line, product: productForPriceTier(original, tier), priceTier: tier };
+                      }));
+                    }}
                     className="mt-1 w-full rounded-lg border p-3"
                   >
                     <option value="">Walk-in customer</option>
@@ -1764,6 +1793,7 @@ export default function PosPage() {
               <p className="mt-2 text-xs text-[var(--muted)]">
                 Attach named customers to cash, card, transfer, or credit sales.
                 Leave as walk-in only when no customer record is needed.
+                {selectedCustomer?.pricingTier === "wholesale" && " Wholesale is selected where configured; products without a wholesale price use retail. Sale-specific price overrides stay unchanged."}
               </p>
             </div>
             <fieldset className="mt-4">

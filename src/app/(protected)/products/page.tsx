@@ -75,6 +75,7 @@ const schema = z.object({
       "Enter no more than two decimal places.",
     )
     .optional(),
+  wholesalePriceNaira: z.number().positive().refine((value) => Math.abs(value * 100 - Math.round(value * 100)) < 1e-6, "Enter no more than two decimal places.").optional(),
   active: z.boolean(),
 });
 type Values = z.input<typeof schema>;
@@ -107,6 +108,7 @@ export default function ProductsPage() {
     id: string;
     productId: string;
     basePriceMinor: number;
+    wholesalePriceMinor?: number | null;
     vatRateBasisPoints: number;
     active: boolean;
   }>("productSalesPrices");
@@ -173,6 +175,7 @@ export default function ProductsPage() {
             reorderLevel: product.reorderLevel,
             defaultUnitCostNaira: koboToNaira(configuredCost),
             baseSellingPriceNaira: koboToNaira(configuredPrice?.basePriceMinor),
+            wholesalePriceNaira: configuredPrice?.wholesalePriceMinor ? koboToNaira(configuredPrice.wholesalePriceMinor) : undefined,
             vatPercent:
               configuredPrice === undefined
                 ? undefined
@@ -188,6 +191,7 @@ export default function ProductsPage() {
       const {
         defaultUnitCostNaira,
         baseSellingPriceNaira,
+        wholesalePriceNaira,
         vatPercent,
         ...productValues
       } = values;
@@ -226,6 +230,7 @@ export default function ProductsPage() {
         await callAdministration("saveProductSalesPrice", {
           productId: saved.productId,
           basePriceMinor: nairaToKobo(baseSellingPriceNaira),
+          wholesalePriceMinor: wholesalePriceNaira === undefined ? null : nairaToKobo(wholesalePriceNaira),
           vatRateBasisPoints: Math.round((vatPercent ?? 0) * 100),
           active: true,
           idempotencyKey: crypto.randomUUID(),
@@ -517,7 +522,7 @@ export default function ProductsPage() {
               {canManageBasePrice && (
                 <>
                   <label className="text-sm">
-                    Central base selling price (₦)
+                    Retail selling price (₦)
                     <input
                       type="number"
                       min="0.01"
@@ -534,6 +539,13 @@ export default function ProductsPage() {
                       Branches may sell above this. A lower price needs
                       administrator approval.
                     </span>
+                  </label>
+                  <label className="text-sm">
+                    Wholesale selling price (₦, optional)
+                    <input type="number" min="0.01" step="0.01" inputMode="decimal"
+                      {...form.register("wholesalePriceNaira", { setValueAs: (value) => value === "" ? undefined : Number(value) })}
+                      className="mt-1 w-full rounded-lg border p-2.5" />
+                    <span className="mt-1 block text-xs text-[var(--muted)]">An approved catalogue price. Leave empty to disable wholesale pricing.</span>
                   </label>
                   <label className="text-sm">
                     VAT rate (%)

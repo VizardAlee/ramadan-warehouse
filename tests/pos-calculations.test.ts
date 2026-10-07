@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   calculatePosCart,
   posLineUnitPriceMinor,
+  productForPriceTier,
   provisionalReceiptReference,
   reconcileHeldCart,
 } from "../src/features/pos/calculations";
@@ -21,6 +22,14 @@ const product = {
 };
 
 describe("POS cart calculations", () => {
+  it("restores wholesale held carts using the current wholesale snapshot", () => {
+    const current = { ...product, wholesalePriceMinor: 70000, centralPriceVersion: 5 };
+    const restored = reconcileHeldCart([{ productId: product.id, quantity: 2, priceTier: "wholesale" }], [current]);
+    expect(restored.lines[0]).toMatchObject({ priceTier: "wholesale", product: { unitPriceMinor: 70000, priceVersion: 5 } });
+    expect(calculatePosCart(restored.lines).subtotalAmountMinor).toBe(140000);
+    expect(current.unitPriceMinor).toBe(100000);
+    expect(() => productForPriceTier(product, "wholesale")).toThrow("not configured");
+  });
   it("keeps VAT separate from the net selling price", () => {
     expect(calculatePosCart([{ product, quantity: 2 }])).toEqual({
       subtotalAmountMinor: 200_000,

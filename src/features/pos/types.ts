@@ -14,6 +14,7 @@ export interface PosCustomer {
   customerNumber: string;
   name: string;
   phone: string | null;
+  pricingTier?: "retail" | "wholesale";
   creditStatus: "pending" | "approved" | "suspended" | "rejected";
   creditLimitMinor: number;
   outstandingBalanceMinor: number;
@@ -36,7 +37,9 @@ export interface PosProduct {
   basePriceMinor: number;
   vatRateBasisPoints: number;
   priceVersion: number;
-  priceSource: "central" | "branch";
+  priceSource: "central" | "branch" | "wholesale";
+  wholesalePriceMinor?: number | null;
+  centralPriceVersion?: number;
   availableQuantity: number;
 }
 
@@ -88,6 +91,7 @@ export interface PosWorkspace {
 export interface PosCartLine {
   product: PosProduct;
   quantity: number;
+  priceTier?: "retail" | "wholesale";
   sellingPriceMinor?: number;
   priceOverrideReason?: string;
 }
@@ -100,6 +104,7 @@ export interface HeldPosSale {
     productId: string;
     quantity: number;
     catalogUnitPriceMinor?: number;
+    priceTier?: "retail" | "wholesale";
     sellingPriceMinor?: number;
     priceOverrideReason?: string;
   }>;
@@ -131,6 +136,7 @@ export interface PosSalePayload {
     productId: string;
     quantity: number;
     priceVersion?: number;
+    priceTier?: "retail" | "wholesale";
     unitPriceMinor?: number;
     vatRateBasisPoints?: number;
     sellingPriceMinor?: number;
@@ -163,7 +169,11 @@ export interface QueuedPosSale {
 }
 
 export interface SaleDocument {
-  collections?: Array<{ id: string; collector: string; collectedAt: string | null; releasedBy: string; totalQuantity: number; lines: Array<{ productName: string; quantity: number }> }>;
+  collections?: Array<{
+    id: string; referenceNumber?: string; waybillNumber?: string; collector: string; collectedAt: string | null;
+    releasedBy: string; releasedByName?: string; notes?: string | null; totalQuantity: number;
+    lines: Array<{ saleItemId?: string; productName: string; quantity: number; sku?: string; unitOfMeasure?: string }>;
+  }>;
   official: boolean;
   organization: {
     legalName: string;

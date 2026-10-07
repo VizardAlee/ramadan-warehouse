@@ -171,6 +171,7 @@ export const saveCustomer = onCall({ enforceAppCheck }, async (request) => {
       email: input.email?.toLowerCase(),
       address: input.address,
       taxId: input.taxId,
+      pricingTier: input.pricingTier ?? current!.get("pricingTier") ?? "retail",
       active: input.active,
       updatedAt: now,
       updatedBy: actor.userId,
@@ -204,9 +205,9 @@ export const saveCustomer = onCall({ enforceAppCheck }, async (request) => {
       correlationId: cid,
       sourceFunction: "saveCustomer",
       before: current!.exists
-        ? { name: current!.get("name"), active: current!.get("active") }
+        ? { name: current!.get("name"), active: current!.get("active"), pricingTier: current!.get("pricingTier") ?? "retail" }
         : undefined,
-      after: { name: input.name, active: input.active, customerNumber },
+      after: { name: input.name, active: input.active, customerNumber, pricingTier: mutable.pricingTier },
     });
     result = { customerId: customer.id, customerNumber, saved: true };
   });

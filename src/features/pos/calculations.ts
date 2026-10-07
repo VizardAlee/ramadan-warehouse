@@ -20,6 +20,13 @@ export function posLineUnitPriceMinor(line: PosCartLine): number {
   return line.sellingPriceMinor ?? line.product.unitPriceMinor;
 }
 
+export function productForPriceTier(product: PosProduct, tier: "retail" | "wholesale"): PosProduct {
+  if (tier === "retail") return product;
+  if (!Number.isSafeInteger(product.wholesalePriceMinor) || Number(product.wholesalePriceMinor) <= 0 || !product.centralPriceVersion)
+    throw new Error(`Wholesale price is not configured for ${product.name}.`);
+  return { ...product, unitPriceMinor: Number(product.wholesalePriceMinor), priceVersion: product.centralPriceVersion, priceSource: "wholesale" };
+}
+
 export function reconcileHeldCart(
   heldLines: HeldPosSale["lines"],
   products: readonly PosProduct[],
@@ -30,11 +37,14 @@ export function reconcileHeldCart(
   let omittedProductCount = 0;
   let resetPriceCount = 0;
   const lines = heldLines.flatMap<PosCartLine>((heldLine) => {
-    const product = productById.get(heldLine.productId);
-    if (!product || !Number.isSafeInteger(heldLine.quantity) || heldLine.quantity <= 0) {
+    const catalogProduct = productById.get(heldLine.productId);
+    if (!catalogProduct || !Number.isSafeInteger(heldLine.quantity) || heldLine.quantity <= 0) {
       omittedProductCount += 1;
       return [];
     }
+    let product: PosProduct;
+    try { product = productForPriceTier(catalogProduct, heldLine.priceTier ?? "retail"); }
+    catch { omittedProductCount += 1; return []; }
     const available = Math.max(
       0,
       product.availableQuantity -
@@ -55,6 +65,7 @@ export function reconcileHeldCart(
     return [{
       product,
       quantity,
+      ...(heldLine.priceTier ? { priceTier: heldLine.priceTier } : {}),
       ...(keepPrice ? {
         sellingPriceMinor: heldLine.sellingPriceMinor,
         priceOverrideReason: heldLine.priceOverrideReason,

@@ -706,6 +706,9 @@ describe("Firestore baseline rules", () => {
     const financeDb = environment.authenticatedContext("finance").firestore();
     await assertSucceeds(cashierDb.doc("products/product-1").get());
     await assertSucceeds(cashierDb.doc("productSalesPrices/product-1").get());
+    await assertFails(cashierDb.doc("productSalesPrices/product-1").update({ wholesalePriceMinor: 1 }));
+    await assertFails(adminDb.doc("productSalesPrices/product-1/versions/1").set({ organizationId: "org-1", basePriceMinor: 1 }));
+    await assertFails(cashierDb.doc("productSalesPrices/product-1/versions/1").set({ organizationId: "org-1", basePriceMinor: 1 }));
     await assertSucceeds(cashierDb.doc("sales/sale-1").get());
     await environment.withSecurityRulesDisabled(async (context) => {
       await context.firestore().doc("saleCollections/collection-1").set({ organizationId: "org-1", branchId: "branch-1", saleId: "sale-1" });

@@ -10,6 +10,15 @@ The HR page also keeps append-only dated staff activities (leave, training, perf
 
 ## Connecting a fingerprint terminal
 
+No scanner has been purchased yet. Employee setup and manual attendance do not
+depend on choosing one. Before purchase, ask the supplier for the exact model's
+integration manual and an attendance-only sample export containing staff ID,
+event ID, date/time/time zone and clock-in/clock-out type. Confirm how stored
+events are retrieved after a network interruption and whether an API/SDK licence
+or local gateway is required. Compatibility remains unverified until the actual
+model and protocol have been reviewed and tested; a fingerprint reader alone
+does not guarantee attendance integration.
+
 The in-app HR checklist is a preparation guide, not a claim that every scanner is plug-and-play. Before an adapter can be activated:
 
 1. Create the employee records, including staff without app accounts, and assign their store.

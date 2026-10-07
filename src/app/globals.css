@@ -56,7 +56,13 @@
     max-width: none !important;
     border-radius: 0 !important;
     box-shadow: none !important;
+    max-height: none !important;
+    overflow: visible !important;
+    animation: none !important;
+    transform: none !important;
   }
+
+  [data-print-document] tr { break-inside: avoid; }
 
   [data-no-print] {
     display: none !important;

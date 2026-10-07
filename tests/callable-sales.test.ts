@@ -1485,8 +1485,46 @@ describe.sequential("sales callables", () => {
     expect(competing.filter((result) => result.status === "fulfilled")).toHaveLength(1);
     expect(competing.filter((result) => result.status === "rejected")).toHaveLength(1);
     expect((await balance.get()).data()).toMatchObject({ onHandQuantity: 6, reservedQuantity: 0, availableQuantity: 6, totalValueMinor: 30_000 });
-    expect(await call(branchManager, "getSaleDocument", { saleId: completed.saleId })).toMatchObject({ sale: { collectionStatus: "collected" }, items: [expect.objectContaining({ collectedQuantity: 4 })], collections: expect.any(Array) });
+    const saleDocument = await call<{ collections: Array<{ id: string; waybillNumber: string }> }>(branchManager, "getSaleDocument", { saleId: completed.saleId });
+    expect(saleDocument).toMatchObject({ sale: { collectionStatus: "collected" }, items: [expect.objectContaining({ collectedQuantity: 4 })], collections: [expect.objectContaining({ waybillNumber: expect.stringMatching(/^WB-INV-/), releasedByName: expect.any(String), lines: [expect.objectContaining({ saleItemId, quantity: expect.any(Number), sku: "PANEL-620", unitOfMeasure: "unit" })] }), expect.any(Object)] });
+    expect((await call<{ collections: Array<{ waybillNumber: string }> }>(branchManager, "getSaleDocument", { saleId: completed.saleId })).collections.map((record) => record.waybillNumber)).toEqual(saleDocument.collections.map((record) => record.waybillNumber));
     // Preserve the shared fixture expected by the older immediate-sale cases.
     await balance.update({ onHandQuantity: 10, reservedQuantity: 0, availableQuantity: 10, totalValueMinor: 50_000 });
+  });
+
+  it("posts approved wholesale through the controlled workflow and rejects stale offline price tiers", async () => {
+    const priceRef = adminDb.doc(`productSalesPrices/${productId}`);
+    await expect(call(cashier, "saveProductSalesPrice", { productId, basePriceMinor: 10000, wholesalePriceMinor: 8000, vatRateBasisPoints: 750, idempotencyKey: crypto.randomUUID() })).rejects.toMatchObject({ code: "functions/permission-denied" });
+    const priceKey = crypto.randomUUID();
+    const configure = { productId, basePriceMinor: 10000, wholesalePriceMinor: 8000, vatRateBasisPoints: 750, idempotencyKey: priceKey };
+    await call(administrator, "saveProductSalesPrice", configure);
+    const price = await priceRef.get();
+    await call(administrator, "saveProductSalesPrice", configure);
+    expect((await priceRef.get()).get("version")).toBe(price.get("version"));
+    expect((await priceRef.collection("versions").doc(String(price.get("version"))).get()).data()).toMatchObject({ wholesalePriceMinor: 8000, basePriceMinor: 10000 });
+    const customer = await call<{ customerId: string }>(administrator, "saveCustomer", { name: "Wholesale dealer", phone: "08011223344", pricingTier: "wholesale", idempotencyKey: crypto.randomUUID() });
+    const deviceId = crypto.randomUUID();
+    const shift = await call<{ shiftId: string }>(branchManager, "openPosShift", { branchId, deviceId, deviceName: "Wholesale test", openingCashMinor: 0, idempotencyKey: crypto.randomUUID() });
+    const context = { type: "branch", id: branchId };
+    const workspace = await call<{ customers: Array<{ id: string; pricingTier: string }>; products: Array<{ id: string; wholesalePriceMinor: number; centralPriceVersion: number }> }>(branchManager, "getPosWorkspace", { branchId, operatingContext: context });
+    expect(workspace.customers).toContainEqual(expect.objectContaining({ id: customer.customerId, pricingTier: "wholesale" }));
+    expect(workspace.products).toContainEqual(expect.objectContaining({ id: productId, wholesalePriceMinor: 8000, centralPriceVersion: price.get("version") }));
+    const payload = { branchId, shiftId: shift.shiftId, deviceId, customerId: customer.customerId, recordedAt: new Date().toISOString(), offline: false,
+      lines: [{ productId, quantity: 1, priceTier: "wholesale", unitPriceMinor: 8000, priceVersion: price.get("version"), vatRateBasisPoints: 750 }],
+      payments: [{ method: "cash", amountMinor: 8600 }], idempotencyKey: crypto.randomUUID(), operatingContext: context };
+    const order = await call<{ orderId: string }>(branchManager, "createPosSaleOrder", payload);
+    await call(branchManager, "acceptPosSaleOrderPayment", { orderId: order.orderId, shiftId: shift.shiftId, deviceId, idempotencyKey: crypto.randomUUID(), operatingContext: context });
+    const completed = await call<{ saleId: string }>(branchManager, "confirmPosSaleOrder", { orderId: order.orderId, idempotencyKey: crypto.randomUUID(), operatingContext: context });
+    const items = await adminDb.collection("saleItems").where("saleId", "==", completed.saleId).get();
+    expect(items.docs[0]!.data()).toMatchObject({ unitPriceMinor: 8000, priceTier: "wholesale", priceSource: "wholesale", priceVersion: price.get("version") });
+    const checkoutCollections = await adminDb.collection("saleCollections").where("saleId", "==", completed.saleId).get();
+    expect(checkoutCollections.size).toBe(1);
+    expect(checkoutCollections.docs[0]!.data()).toMatchObject({ source: "checkout", totalQuantity: 1, collector: "Collector name not captured at checkout" });
+    await call(branchManager, "confirmPosSaleOrder", { orderId: order.orderId, idempotencyKey: crypto.randomUUID(), operatingContext: context });
+    expect((await adminDb.collection("saleCollections").where("saleId", "==", completed.saleId).get()).size).toBe(1);
+    await call(administrator, "saveProductSalesPrice", { ...configure, wholesalePriceMinor: 7500, idempotencyKey: crypto.randomUUID() });
+    await expect(call(branchManager, "commitPosSale", { ...payload, offline: true, provisionalReceiptReference: "OFF-WHOLESALE-STALE", idempotencyKey: crypto.randomUUID() })).rejects.toMatchObject({ code: "functions/failed-precondition" });
+    expect((await adminDb.doc(`saleItems/${items.docs[0]!.id}`).get()).get("unitPriceMinor")).toBe(8000);
+    expect((await priceRef.collection("versions").doc(String(price.get("version"))).get()).get("wholesalePriceMinor")).toBe(8000);
   });
 });

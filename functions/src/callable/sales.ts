@@ -5,6 +5,7 @@ import type { z } from "zod";
 import { db } from "../admin.js";
 import { accountingPeriodReference, assertAccountingPeriodOpen } from "../accounting/period-lock.js";
 import { collectReservedSale } from "../sales/collection.js";
+import { resolveCatalogPrice } from "../sales/pricing.js";
 import { bankAccountSummary, resolveSettlementAccount } from "../accounting/settlement-account.js";
 import { writeAuditLog } from "../audit/write-audit-log.js";
 import {
@@ -116,6 +117,28 @@ async function activeBranchLocation(
   return active[0]!;
 }
 
+function catalogPriceFromSnapshots(
+  central: FirebaseFirestore.DocumentSnapshot,
+  branch: FirebaseFirestore.DocumentSnapshot,
+  tier: "retail" | "wholesale" = "retail",
+) {
+  try {
+    return resolveCatalogPrice({
+      basePriceMinor: Number(central.get("basePriceMinor")),
+      version: Number(central.get("version")),
+      wholesalePriceMinor: central.get("wholesalePriceMinor"),
+    }, {
+      active: branch.get("active"),
+      sellingPriceMinor: branch.get("sellingPriceMinor"),
+      version: branch.get("version"),
+      belowBaseApproved: branch.get("belowBaseApproved"),
+      basePriceVersion: branch.get("basePriceVersion"),
+    }, tier);
+  } catch (cause) {
+    throw new HttpsError("failed-precondition", (cause as Error).message);
+  }
+}
+
 export const saveProductSalesPrice = onCall(
   { enforceAppCheck },
   async (request) => {
@@ -142,12 +165,33 @@ export const saveProductSalesPrice = onCall(
         throw new HttpsError("not-found", "Product not found.");
       const now = FieldValue.serverTimestamp();
       const version = Number(current!.get("version") ?? 0) + 1;
+      // Omitted fields from older clients preserve existing wholesale configuration.
+      const wholesalePriceMinor = input.wholesalePriceMinor === undefined
+        ? current!.get("wholesalePriceMinor") ?? null : input.wholesalePriceMinor;
+      if (current!.exists && !current!.get("effectiveFrom")) {
+        transaction.create(price.collection("versions").doc(String(current!.get("version"))), {
+          organizationId: actor.organizationId, productId: input.productId,
+          version: current!.get("version"), basePriceMinor: current!.get("basePriceMinor"),
+          wholesalePriceMinor: current!.get("wholesalePriceMinor") ?? null,
+          vatRateBasisPoints: current!.get("vatRateBasisPoints"), active: current!.get("active"),
+          effectiveFrom: current!.get("updatedAt") ?? now, capturedAt: now,
+          migratedFromLegacy: true, createdBy: current!.get("updatedBy") ?? actor.userId,
+        });
+      }
+      transaction.create(price.collection("versions").doc(String(version)), {
+        organizationId: actor.organizationId, productId: input.productId, version,
+        basePriceMinor: input.basePriceMinor, wholesalePriceMinor,
+        vatRateBasisPoints: input.vatRateBasisPoints, active: input.active,
+        effectiveFrom: now, createdAt: now, createdBy: actor.userId,
+      });
       transaction.set(price, {
         organizationId: actor.organizationId,
         productId: input.productId,
         sku: productSnapshot!.get("sku"),
         productName: productSnapshot!.get("name"),
         basePriceMinor: input.basePriceMinor,
+        wholesalePriceMinor,
+        effectiveFrom: now,
         vatRateBasisPoints: input.vatRateBasisPoints,
         currency: "NGN",
         active: input.active,
@@ -174,12 +218,14 @@ export const saveProductSalesPrice = onCall(
         before: current!.exists
           ? {
               basePriceMinor: current!.get("basePriceMinor"),
+              wholesalePriceMinor: current!.get("wholesalePriceMinor") ?? null,
               vatRateBasisPoints: current!.get("vatRateBasisPoints"),
               version: current!.get("version"),
             }
           : undefined,
         after: {
           basePriceMinor: input.basePriceMinor,
+          wholesalePriceMinor,
           vatRateBasisPoints: input.vatRateBasisPoints,
           active: input.active,
           version,
@@ -431,6 +477,8 @@ export const getPosWorkspace = onCall(
               vatRateBasisPoints: Number(central.get("vatRateBasisPoints")),
               priceVersion,
               priceSource: overrideActive ? "branch" : "central",
+              wholesalePriceMinor: central.get("wholesalePriceMinor") ?? null,
+              centralPriceVersion: centralVersion,
               availableQuantity: Number(balance?.get("availableQuantity") ?? 0),
             },
           ];
@@ -443,6 +491,7 @@ export const getPosWorkspace = onCall(
         id: customer.id,
         customerNumber: customer.get("customerNumber"),
         name: customer.get("name"),
+        pricingTier: customer.get("pricingTier") ?? "retail",
         phone: customer.get("phone") ?? null,
         creditStatus: customer.get("creditStatus") ?? "pending",
         creditLimitMinor: Number(customer.get("creditLimitMinor") ?? 0),
@@ -541,9 +590,32 @@ export const getSaleDocument = onCall(
       !payments.docs.every(belongsToSale)
     )
       throw new HttpsError("data-loss", "Sale document evidence is inconsistent.");
+    const saleCollections = collections.docs.filter(belongsToSale);
+    const staffIds = [...new Set(saleCollections.map((record) => String(record.get("releasedBy"))))];
+    const staff = staffIds.length ? await db.getAll(...staffIds.map((id) => db.doc(`users/${id}`))) : [];
+    const staffNames = new Map(staff.filter((record) => record.exists && record.get("organizationId") === actor.organizationId)
+      .map((record) => [record.id, String(record.get("displayName") || "Authorized staff")]));
+    const movementIds = [...new Set(saleCollections.map((record) => record.get("inventoryTransactionId")).filter((id): id is string => typeof id === "string" && id.length > 0 && !id.includes("/")))];
+    const movements = movementIds.length ? await db.getAll(...movementIds.map((id) => db.doc(`inventoryTransactions/${id}`))) : [];
+    const movementById = new Map(movements.filter((record) => record.exists && record.get("organizationId") === actor.organizationId &&
+      ((record.get("referenceType") === "saleCollection" && saleCollections.some((collection) => collection.id === record.get("referenceId"))) ||
+        (record.get("referenceType") === "sale" && record.get("referenceId") === sale.id && record.get("transactionType") === "branch_sale")))
+      .map((record) => [record.id, String(record.get("transactionNumber"))]));
+    const itemById = new Map(items.docs.map((item) => [item.id, item]));
     return {
       official: true,
-      collections: collections.docs.filter(belongsToSale).map((record) => ({ id: record.id, collector: record.get("collector"), collectedAt: iso(record.get("collectedAt")), releasedBy: record.get("releasedBy"), totalQuantity: record.get("totalQuantity"), lines: (record.get("lines") as Array<{ productName: string; quantity: number }>).map((line) => ({ productName: line.productName, quantity: line.quantity })) })),
+      collections: saleCollections.map((record) => ({
+        id: record.id, referenceNumber: record.get("referenceNumber") ?? record.id,
+        waybillNumber: `WB-${movementById.get(String(record.get("inventoryTransactionId"))) ?? record.id}`,
+        collector: record.get("collector"), collectedAt: iso(record.get("collectedAt")),
+        releasedBy: record.get("releasedBy"), releasedByName: staffNames.get(String(record.get("releasedBy"))) ?? "Authorized staff",
+        notes: record.get("notes") ?? null, totalQuantity: record.get("totalQuantity"),
+        lines: (record.get("lines") as Array<{ saleItemId: string; productName: string; quantity: number }>).map((line) => ({
+          saleItemId: line.saleItemId, productName: line.productName, quantity: line.quantity,
+          sku: itemById.get(line.saleItemId)?.get("sku") ?? "",
+          unitOfMeasure: itemById.get(line.saleItemId)?.get("unitOfMeasure") ?? "unit",
+        })),
+      })),
       organization: {
         legalName: sale.get("organizationLegalName") ?? organization.get("legalName"),
         tradingName: sale.get("organizationTradingName") ?? organization.get("tradingName") ?? null,
@@ -904,7 +976,7 @@ export const createPosSaleOrder = onCall(
     const operation = db.doc(
       `idempotencyKeys/${actor.organizationId}_createPosSaleOrder_${input.idempotencyKey}`,
     );
-    const pricedLines = input.lines.filter((line) => line.sellingPriceMinor !== undefined);
+    const pricedLines = input.lines.filter((line) => line.sellingPriceMinor !== undefined || line.priceTier === "wholesale");
     const centralPriceReferences = pricedLines.map((line) => db.doc(`productSalesPrices/${line.productId}`));
     const branchPriceReferences = pricedLines.map((line) => db.doc(
       `branchSalesPrices/${branchPriceId(actor.organizationId, input.branchId, line.productId)}`,
@@ -935,13 +1007,9 @@ export const createPosSaleOrder = onCall(
         const override = snapshots[5 + pricedLines.length + index]!;
         if (!central.exists || central.get("organizationId") !== actor.organizationId || central.get("active") !== true)
           throw new HttpsError("failed-precondition", "The central product price is unavailable.");
-        const centralBasePrice = Number(central.get("basePriceMinor"));
-        const centralVersion = Number(central.get("version"));
-        const overrideActive = override.exists && override.get("active") === true &&
-          (Number(override.get("sellingPriceMinor")) >= centralBasePrice ||
-            (override.get("belowBaseApproved") === true && Number(override.get("basePriceVersion")) === centralVersion));
-        const catalogPrice = overrideActive ? Number(override.get("sellingPriceMinor")) : centralBasePrice;
-        const catalogVersion = overrideActive ? Number(override.get("version")) : centralVersion;
+        const selected = catalogPriceFromSnapshots(central, override, line.priceTier);
+        const catalogPrice = selected.unitPriceMinor;
+        const catalogVersion = selected.priceVersion;
         if (line.unitPriceMinor !== catalogPrice || line.priceVersion !== catalogVersion ||
           line.vatRateBasisPoints !== Number(central.get("vatRateBasisPoints")))
           throw new HttpsError("failed-precondition", "The catalogue price changed. Refresh the POS and review this sale price.");
@@ -1064,7 +1132,8 @@ export const createPosSaleOrder = onCall(
             (sum, line) => sum + line.quantity,
             0,
           ),
-          priceOverrides: pricedLines.map((line) => ({
+          priceLevels: input.lines.map((line) => ({ productId: line.productId, tier: line.priceTier ?? "retail" })),
+          priceOverrides: pricedLines.filter((line) => line.sellingPriceMinor !== undefined).map((line) => ({
             productId: line.productId,
             catalogUnitPriceMinor: line.unitPriceMinor,
             sellingPriceMinor: line.sellingPriceMinor,
@@ -1451,23 +1520,12 @@ async function postPosSale(
             "failed-precondition",
             `Set the central selling price for ${String(product.get("name"))}.`,
           );
-        const centralVersion = Number(central.get("version"));
-        const centralBasePrice = Number(central.get("basePriceMinor"));
-        const overrideActive =
-          override.exists &&
-          override.get("active") === true &&
-          (Number(override.get("sellingPriceMinor")) >= centralBasePrice ||
-            (override.get("belowBaseApproved") === true &&
-              Number(override.get("basePriceVersion")) === centralVersion));
-        const unitPriceMinor = overrideActive
-          ? Number(override.get("sellingPriceMinor"))
-          : centralBasePrice;
+        const selected = catalogPriceFromSnapshots(central, override, line.priceTier);
+        const unitPriceMinor = selected.unitPriceMinor;
         const vatRateBasisPoints = Number(central.get("vatRateBasisPoints"));
-        const priceVersion = overrideActive
-          ? Number(override.get("version"))
-          : Number(central.get("version"));
+        const priceVersion = selected.priceVersion;
         if (
-          (input.offline || line.sellingPriceMinor !== undefined) &&
+          (input.offline || line.sellingPriceMinor !== undefined || line.priceTier === "wholesale") &&
           (line.unitPriceMinor !== unitPriceMinor ||
             line.vatRateBasisPoints !== vatRateBasisPoints ||
             line.priceVersion !== priceVersion)
@@ -1507,7 +1565,7 @@ async function postPosSale(
           unitPriceMinor: line.sellingPriceMinor ?? unitPriceMinor,
           vatRateBasisPoints,
           priceVersion,
-          priceSource: line.sellingPriceMinor !== undefined ? "pos_override" : overrideActive ? "branch" : "central",
+          priceSource: line.sellingPriceMinor !== undefined ? "pos_override" : selected.priceSource,
           catalogUnitPriceMinor: unitPriceMinor,
           priceOverrideReason: line.priceOverrideReason,
           issued,
@@ -1702,9 +1760,13 @@ async function postPosSale(
         createdAt: now,
         createdBy: actor.userId,
       });
+      const checkoutCollectionLines: Array<Record<string, unknown>> = [];
       resolvedLines.forEach((line, index) => {
         const calculatedLine = calculated.lines[index]!;
         const saleItem = db.collection("saleItems").doc();
+        checkoutCollectionLines.push({ saleItemId: saleItem.id, productId: line.product.id,
+          productName: line.product.get("name"), quantity: line.input.quantity,
+          costAmountMinor: calculatedLine.costAmountMinor });
         transaction.create(saleItem, {
           organizationId: actor.organizationId,
           branchId: input.branchId,
@@ -1723,6 +1785,7 @@ async function postPosSale(
           basePriceMinor: centralPrices[index]!.get("basePriceMinor"),
           priceVersion: line.priceVersion,
           priceSource: line.priceSource,
+          priceTier: line.input.priceTier ?? "retail",
           vatRateBasisPoints: line.vatRateBasisPoints,
           subtotalAmountMinor: calculatedLine.subtotalAmountMinor,
           discountAmountMinor: calculatedLine.discountAmountMinor,
@@ -1809,6 +1872,25 @@ async function postPosSale(
           balanceAfter: 0,
         });
       });
+      if (!deferCollection) {
+        const checkoutCollection = db.doc(`saleCollections/${sale.id}_checkout`);
+        const collector = "Collector name not captured at checkout";
+        const totalQuantity = input.lines.reduce((sum, line) => sum + line.quantity, 0);
+        transaction.create(checkoutCollection, {
+          organizationId: actor.organizationId, branchId: input.branchId, saleId: sale.id,
+          referenceNumber: saleNumber, customerId: input.customerId ?? null,
+          customerName: input.customerId ? customerSnapshot.get("name") : "Walk-in customer",
+          collector, notes: "Immediate stock release recorded by the authorized checkout workflow.",
+          lines: checkoutCollectionLines, totalQuantity, costAmountMinor: calculated.costAmountMinor,
+          inventoryTransactionId: inventoryTransaction.id, journalEntryId: journal.id,
+          collectedAt: input.offline ? recordedAt : now, postedAt: now,
+          releasedBy: actor.userId, correlationId: cid, source: "checkout",
+        });
+        writeAuditLog(transaction, actor, { action: "sale.goods_collected", entityType: "saleCollection",
+          entityId: checkoutCollection.id, sourceFunction: "commitPosSale", correlationId: cid,
+          reason: "Authorized immediate checkout release", after: { saleId: sale.id, branchId: input.branchId,
+            totalQuantity, collector, inventoryTransactionId: inventoryTransaction.id, journalEntryId: journal.id } });
+      }
       input.payments.forEach((payment, index) => {
         const settlement = settlementAccounts[index]!;
         transaction.create(db.collection("salePayments").doc(), clean({
@@ -1968,6 +2050,7 @@ async function postPosSale(
                 creditAuthorizedBy: workflowCreditAuthorization?.authorizedBy ?? actor.userId }
             : {}),
           source: input.offline ? "offline_sync" : "online_pos",
+          priceLevels: resolvedLines.map((line) => ({ productId: line.product.id, tier: line.input.priceTier ?? "retail", priceVersion: line.priceVersion, catalogUnitPriceMinor: line.catalogUnitPriceMinor })),
           priceOverrides: resolvedLines.filter((line) => line.priceOverrideReason).map((line) => ({
             productId: line.product.id,
             catalogUnitPriceMinor: line.catalogUnitPriceMinor,

@@ -209,6 +209,9 @@ export default function GuidePage() {
             description="Prices and product information are reused. VAT is separate; confirmed sales create controlled documents. You can type a quantity, hold a basket locally and create a customer without leaving POS."
             steps={salesWorkflowSteps}
           />
+          <p className="rounded-xl border bg-white p-4 text-sm leading-6">
+            In Products, authorized price administrators can set retail and optional wholesale prices. In Customers, choose Retail or Wholesale / dealer as the default price level. Selecting a customer in POS updates the basket&apos;s catalogue prices; a product without a wholesale price uses retail. You can also choose the price level beneath each basket item. An agreed sale-specific price keeps its audit reason and remains unchanged when switching levels. Review the total before receiving the order. Held baskets retain their price level; offline orders retain their snapshot and need explicit review if that catalogue version changes before synchronization. Changing a catalogue price never changes an already posted sale.
+          </p>
           <p className="rounded-xl border border-indigo-200 bg-indigo-50 p-4 text-sm leading-6">
             On a new device, use the <strong>Install app</strong> banner after signing in. Chrome or Edge may open an install prompt; iPhone, iPad and Safari show short on-screen steps instead. If you dismiss the banner, use the download icon in the top bar later. Install while connected, then open POS online once to prepare its offline cache.
           </p>
@@ -227,6 +230,7 @@ export default function GuidePage() {
             To use exchange credit, first submit and approve the original sale return with Exchange credit as its resolution. Start a new sale in the same store, choose Exchange credit as the payment method, and select the issued credit number. The credit pays up to its remaining balance; any shortfall is recorded as cash, and unused credit remains for another sale. Exchange credit requires an online connection.
           </p>
           <p className="rounded-xl border bg-white p-4 text-sm leading-6">Use New sale, Awaiting action and Held sales at the top of POS to jump between tasks. On smaller screens, tap Current sale above the bottom menu to open the cart; your basket stays in place while you browse.</p>
+          <p className="rounded-xl border bg-white p-4 text-sm leading-6">After recording physical collection, open the sale document and choose View waybill beside that handover. Print the A4 waybill or save it as PDF. Each partial collection has its own waybill; it contains only the quantities actually handed over, the collector and releasing staff. Printing again keeps the same reference and never reduces stock again. Goods still reserved do not appear as released goods.</p>
         </section>
       )}
       {canPurchase && (
@@ -266,6 +270,7 @@ export default function GuidePage() {
           <h2 className="text-xl font-semibold">Employees and attendance</h2>
           <p className="mt-2 text-sm leading-6">Add employees in <Link className="font-semibold underline" href="/hr">HR &amp; attendance</Link> even if they never sign in to this app. An app user can be linked to an employee. Record attendance corrections with a reason and keep salary terms and staff activities in their separate records.</p>
           <p className="mt-2 text-sm text-[var(--muted)]">The HR page has a four-step fingerprint-device checklist. Add employees, match each terminal user ID, obtain the device model and API/export details from its installer, then have an integrator connect and test it. Entering an attendance ID alone does not connect a scanner or run payroll; never upload fingerprint templates or device credentials to employee records.</p>
+          <p className="mt-2 text-sm text-[var(--muted)]">No device yet? Start with employee records and manual attendance. Before buying, ask the supplier for the exact model’s integration manual and an attendance-only sample export, plus details of any required licence or gateway. Compatibility must be checked before promising automatic sync.</p>
         </section>
       )}
       <section id="alerts" className="scroll-mt-24 rounded-2xl border bg-white p-5">
