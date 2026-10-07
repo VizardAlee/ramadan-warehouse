@@ -1,4 +1,5 @@
 {
+  "lastLiveAudit": { "project": "ramadan-warehouse-staging", "verifiedAt": "2026-10-07T09:40:20.667Z", "queryShapes": 371, "unsupportedQueries": 0, "readyIndexes": 194, "singleFieldOverrides": 0 },
   "catalogSha256": "ec0fec6c643ab5f64f977480a08f81292603d4dda7c10e00dcc4314ac90a6054",
   "sourceFingerprints": {
     "functions/src/accounting/daily-close.ts": "88916698e8112584523b1770eb98be7e052761b4982e6f572df1e6f7221d617a",

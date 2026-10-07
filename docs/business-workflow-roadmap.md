@@ -90,6 +90,20 @@ regressions plus a baseline check in CI/production safeguards. See
 `docs/firestore-index-audit.md` for coverage, safe rerun and maintenance steps.
 Final deployment/readiness and full 371-shape results are recorded after release.
 
+Verified production release: index-only deployment `d0d3703` completed (a
+transient rules compilation API connection failure was retried successfully).
+All 194 indexes are READY, with no single-field overrides. The final live audit
+at 2026-10-07 09:40 UTC passed 371/371 query shapes across 73 collections, with
+zero unsupported queries and zero missing-index findings. The complete-source
+baseline guard is recorded in `5b1c467`; 240 unit/UI tests, typecheck, lint,
+production build, secret scan, production safeguards and diff checks passed.
+Recent logs contained 26 historical index errors across dashboard, sales reports
+and stock-position reports; the affected query families are included in this
+audit. No real transactions, user impersonation, rules changes, App Hosting
+rollout or service IAM changes were performed. This is current query/index
+coverage evidence, not an end-to-end browser/RBAC acceptance claim or completion
+of the remaining business-workflow roadmap.
+
 ## Financial history scalability — 6 October 2026
 
 Financial statements and Tax Centre now aggregate stable 500-line server-side

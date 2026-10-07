@@ -48,3 +48,8 @@ emulator cannot prove production composite-index coverage.
 Reference: [Firestore Query Explain](https://firebase.google.com/docs/firestore/query-explain).
 
 Deployment/readiness/final verification is recorded in the workflow roadmap.
+
+Final verification (7 October 2026, 09:40 UTC): 371/371 live query plans passed;
+zero unsupported queries, 194/194 indexes READY, zero single-field overrides.
+Seven new regression tests pass; the complete suite contains 240 passing tests.
+The deployment was index-only; no business data or access controls were changed.
