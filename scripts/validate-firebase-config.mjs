@@ -5,6 +5,7 @@ if (config.firestore?.rules !== "firestore.rules" || config.firestore?.indexes !
 if (config.storage?.rules !== "storage.rules") throw new Error("Storage rules are not declared.");
 const { indexes } = JSON.parse(readFileSync("firestore.indexes.json", "utf8"));
 const salesReportAggregates = [
+  [], // Count-only dashboard queries cannot use the wider financial-sum indexes.
   ["discountAmountMinor", "netAmountMinor", "subtotalAmountMinor", "vatAmountMinor"],
   ["amountPaidMinor", "creditAmountMinor", "grossAmountMinor"],
 ];

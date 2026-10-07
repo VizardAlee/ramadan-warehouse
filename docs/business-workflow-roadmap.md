@@ -59,6 +59,14 @@ Initial release attempt (7 October 2026, source `5c40b37`): Firestore rules rele
 
 Completed release (7 October 2026): the owner explicitly approved disabling Cloud Run invoker IAM checks for those four new services only. The scoped changes succeeded; all four services report ready, production mode and App Check enabled, and each unauthenticated callable probe returns Firebase JSON HTTP 401 `UNAUTHENTICATED`. No other service IAM configuration was changed. All 142 indexes are READY. App Hosting build/rollout `build-2026-10-07-001` is READY/SUCCEEDED, with 100% production traffic and reconciliation complete. The web source checkpoint is `488cffd` (implementation `5c40b37`). Signed-in live mutations were not exercised; the 25 callable emulator tests and 25 security tests remain the workflow/authorization evidence. No real business data was modified during release verification. Remaining workstreams are still pending/partial as shown above.
 
+Dashboard follow-up (7 October 2026): live `getDashboardWorkspace` errors identified
+missing count-only sales indexes (`branchId, organizationId, recordedAt ASC` and
+`organizationId, recordedAt ASC`). Wider financial-sum and descending register
+indexes do not cover these queries. Added both definitions and release-guard
+regressions rejecting missing or descending count indexes. This remediation is
+index-only: no permission changes, ledger edits, data migration or web rollout.
+Deployment/readiness and live aggregate verification are recorded separately below.
+
 ## Financial history scalability — 6 October 2026
 
 Financial statements and Tax Centre now aggregate stable 500-line server-side
