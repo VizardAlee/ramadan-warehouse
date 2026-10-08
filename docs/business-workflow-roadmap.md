@@ -166,12 +166,31 @@ compilation, production build, secret scan and diff checks passed. The live audi
 passed 432/432 query shapes with all 222 indexes READY before baseline refresh.
 No new query shapes, schema migration, client permission or IAM change is needed.
 Source `7bb67e1` is committed and pushed, and clean production preflight passed.
-The backend-only release attempt stopped at expired Firebase credentials before
-any upload or function update. Reauthenticate, then deploy the ten existing
-stock-engine consumers and verify ACTIVE/App Check metadata and endpoint auth
-barriers. No web changes are required for this foundation. The live supplier
-refund release and App Hosting build `006` remain the previous checkpoint;
-do not describe this new foundation as deployed yet.
+The initial release attempt stopped before upload on expired Firebase credentials.
+After user-controlled reauthentication, the backend-only deployment completed
+explicitly. All ten stock-engine consumers are ACTIVE with App Check enabled;
+the Functions API reported no unreachable regions. No IAM changes were made.
+
+| Function | Verified deployed revision |
+| --- | --- |
+| postOpeningStock | postopeningstock-00014-tek |
+| postInventoryReceipt | postinventoryreceipt-00014-hov |
+| moveInventoryBetweenLocations | moveinventorybetweenlocations-00014-nes |
+| postStockAdjustment | poststockadjustment-00014-lir |
+| postStockCount | poststockcount-00014-ceh |
+| receivePurchaseOrderItem | receivepurchaseorderitem-00009-voc |
+| confirmCsvImport | confirmcsvimport-00015-mew |
+| confirmTransferDispatch | confirmtransferdispatch-00015-huz |
+| confirmTransferReceipt | confirmtransferreceipt-00015-xiq |
+| resolveTransferDiscrepancy | resolvetransferdiscrepancy-00014-xaz |
+
+Live `postInventoryReceipt` and `receivePurchaseOrderItem` probes returned Firebase
+JSON 401 UNAUTHENTICATED. These confirm endpoint/auth barriers, not signed-in
+business acceptance; financial and inventory behavior was validated in the demo
+emulator without live test postings. No web changes were required; App Hosting
+build `006` and the supplier-refund release were left unchanged. The foundation
+is deployed, but the supplier goods-return UI and credit-note workflow remain
+unfinished as described above.
 
 ## Next five priorities — 7 October 2026 implementation checkpoint
 
