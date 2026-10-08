@@ -165,7 +165,13 @@ in isolation after correcting test-fixture setup). Typecheck, lint, Functions
 compilation, production build, secret scan and diff checks passed. The live audit
 passed 432/432 query shapes with all 222 indexes READY before baseline refresh.
 No new query shapes, schema migration, client permission or IAM change is needed.
-Backend release is pending; no web changes are required for this foundation.
+Source `7bb67e1` is committed and pushed, and clean production preflight passed.
+The backend-only release attempt stopped at expired Firebase credentials before
+any upload or function update. Reauthenticate, then deploy the ten existing
+stock-engine consumers and verify ACTIVE/App Check metadata and endpoint auth
+barriers. No web changes are required for this foundation. The live supplier
+refund release and App Hosting build `006` remain the previous checkpoint;
+do not describe this new foundation as deployed yet.
 
 ## Next five priorities — 7 October 2026 implementation checkpoint
 
