@@ -11,6 +11,7 @@ import {
 import { useEffect, useMemo, useRef, useState } from "react";
 import { SupplierAccounts } from "@/features/procurement/supplier-accounts";
 import { GoodsReceivedNotes } from "@/features/procurement/goods-received-note";
+import { SupplierReturns } from "@/features/procurement/supplier-returns";
 import { Button } from "@/components/ui/button";
 import { callAdministration } from "@/features/administration/api";
 import { useAuth } from "@/features/auth/auth-context";
@@ -103,6 +104,7 @@ export default function ProcurementPage() {
   const [invoiceIssueDates, setInvoiceIssueDates] = useState<Record<string, string>>({});
   const [invoiceDueDates, setInvoiceDueDates] = useState<Record<string, string>>({});
   const [receiptOrderId, setReceiptOrderId] = useState<string | null>(null);
+  const [returnInvoiceId, setReturnInvoiceId] = useState<string | null>(null);
   const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Lagos", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
   const can = (permission: Parameters<typeof hasPermission>[1]) =>
     Boolean(profile && hasPermission(profile, permission));
@@ -860,6 +862,8 @@ export default function ProcurementPage() {
 
       {can("payables.read") && workspace && <SupplierAccounts suppliers={workspace.suppliers} banks={workspace.bankAccounts} branches={workspace.branches} scope={contextScope} canPay={can("payables.pay")} invoice={paymentInvoice} closeInvoice={() => setPaymentInvoice(null)} onComplete={() => { setMessage("Supplier transaction recorded with its accounting and audit entries."); void load(); }} />}
 
+      {returnInvoiceId && <SupplierReturns invoiceId={returnInvoiceId} canPost={can("procurement.receive") && can("payables.approve")} onClose={() => setReturnInvoiceId(null)} onComplete={() => { void load(); }} />}
+
       {can("payables.read") && (
         <section className="rounded-xl border bg-white p-5">
           <h2 className="flex items-center gap-2 text-xl font-semibold">
@@ -885,11 +889,12 @@ export default function ProcurementPage() {
                   <p className="mt-1 text-sm">
                     Outstanding <strong className={invoice.outstandingAmountMinor > 0 ? "finance-attention" : "finance-neutral"}>{formatNaira(invoice.outstandingAmountMinor)}</strong> ·{" "}
                     <span className="capitalize">
-                      {invoice.status.replaceAll("_", " ")}
+                      {invoice.status === "paid" && invoice.creditedAmountMinor ? "settled (includes credit note)" : invoice.status.replaceAll("_", " ")}
                     </span>
                   </p>
                 </div>
                 <div className="flex flex-col gap-2 sm:flex-row">
+                  {["approved", "partially_paid", "paid"].includes(invoice.status) && <Button variant="outline" disabled={busy} onClick={() => setReturnInvoiceId(invoice.id)}>Returns & credit notes</Button>}
                   {invoice.status === "submitted" &&
                     can("payables.approve") &&
                     (invoice.createdBy !== user?.uid || canApproveOwnWork) && (

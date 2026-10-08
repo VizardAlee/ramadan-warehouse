@@ -22,6 +22,7 @@ import {
   uniquenessDocumentId,
 } from "../inventory/calculations.js";
 import { postInventoryTransaction } from "../inventory/post-inventory-transaction.js";
+import { supplierReturnAmounts } from "../inventory/supplier-return-calculations.js";
 import { assertBalancedJournal } from "../sales/calculations.js";
 import { correlationId, parseInput } from "../utils/callable.js";
 import {
@@ -33,6 +34,7 @@ import {
   saveSupplierInput,
   submitSupplierInvoiceInput,
   supplierInvoiceActionInput,
+  postSupplierReturnInput,
 } from "../validation/procurement.js";
 
 const accountNames: Readonly<Record<string, string>> = {
@@ -43,6 +45,7 @@ const accountNames: Readonly<Record<string, string>> = {
   "1250": "Supplier advances and credits",
   "1300": "Input VAT recoverable",
   "2000": "Accounts payable",
+  "5010": "Supplier return inventory valuation variance",
 };
 function supplierMoney(value: unknown) {
   const amount = value ?? 0;
@@ -179,7 +182,7 @@ function journalLines(
   return lines;
 }
 function writeJournal(
-  transaction: FirebaseFirestore.Transaction,
+  transaction: Pick<FirebaseFirestore.Transaction, "create" | "set">,
   actor: Awaited<ReturnType<typeof requireAccess>>,
   values: {
     journal: FirebaseFirestore.DocumentReference;
@@ -389,6 +392,42 @@ export const saveSupplier = onCall({ enforceAppCheck }, async (request) => {
   return result;
 });
 
+async function supplierReturnWorkspace(actor: Awaited<ReturnType<typeof requireAccess>>, input: ReturnType<typeof procurementWorkspaceInput.parse>) {
+  requirePermission(actor, "payables.read");
+  const invoice = await db.doc(`supplierInvoices/${input.supplierInvoiceId!}`).get();
+  if (!invoice.exists || invoice.get("organizationId") !== actor.organizationId) throw new HttpsError("not-found", "Supplier invoice not found.");
+  const scope = procurementScopeFrom(invoice);
+  requireProcurementScope(actor, scope);
+  if ((input.branchId && input.branchId !== scope.branchId) || (input.warehouseId && input.warehouseId !== scope.warehouseId)) throw new HttpsError("permission-denied", "Invoice belongs to another store.");
+  const limit = Math.min(input.limit, 100);
+  if (input.view === "supplier_return_receipts") {
+    const line = await db.doc(`supplierInvoiceItems/${input.supplierInvoiceItemId!}`).get();
+    if (!line.exists || line.get("organizationId") !== actor.organizationId || line.get("supplierInvoiceId") !== invoice.id) throw new HttpsError("permission-denied", "Invoice product is unavailable.");
+    let query = db.collection("purchaseReceipts").where("organizationId", "==", actor.organizationId)
+      .where("purchaseOrderItemId", "==", line.get("purchaseOrderItemId")).orderBy("receivedAt", "desc").orderBy(FieldPath.documentId(), "desc");
+    if (input.cursor) {
+      const cursor = await db.doc(`purchaseReceipts/${input.cursor}`).get();
+      if (!cursor.exists || cursor.get("organizationId") !== actor.organizationId || cursor.get("purchaseOrderItemId") !== line.get("purchaseOrderItemId")) throw new HttpsError("invalid-argument", "Receipt page is unavailable.");
+      query = query.startAfter(cursor);
+    }
+    const receipts = await query.limit(limit + 1).get();
+    return { receipts: receipts.docs.slice(0, limit).map((receipt) => ({ id: receipt.id, receiptNumber: receipt.get("receiptNumber") ?? "Historical receipt", quantity: receipt.get("quantity"), returnedQuantity: receipt.get("returnedQuantity") ?? 0, receivedAt: receipt.get("receivedAt")?.toDate?.().toISOString() ?? "" })), nextCursor: receipts.size > limit ? receipts.docs[limit - 1]!.id : null };
+  }
+  const lines = await db.collection("supplierInvoiceItems").where("organizationId", "==", actor.organizationId).where("supplierInvoiceId", "==", invoice.id).limit(101).get();
+  if (lines.size > 100) throw new HttpsError("failed-precondition", "Invoice needs reconciliation before returns.");
+  let query = db.collection("supplierReturns").where("organizationId", "==", actor.organizationId).where("supplierInvoiceId", "==", invoice.id).orderBy("createdAt", "desc").orderBy(FieldPath.documentId(), "desc");
+  if (input.cursor) {
+    const cursor = await db.doc(`supplierReturns/${input.cursor}`).get();
+    if (!cursor.exists || cursor.get("organizationId") !== actor.organizationId || cursor.get("supplierInvoiceId") !== invoice.id) throw new HttpsError("invalid-argument", "Return page is unavailable.");
+    query = query.startAfter(cursor);
+  }
+  const history = await query.limit(limit + 1).get();
+  return { invoiceNumber: invoice.get("supplierInvoiceNumber"), outstandingAmountMinor: invoice.get("outstandingAmountMinor"),
+    lines: lines.docs.map((line) => ({ id: line.id, productName: line.get("productName"), quantity: line.get("quantity"), returnedQuantity: line.get("returnedQuantity") ?? 0 })),
+    returns: history.docs.slice(0, limit).map((record) => ({ id: record.id, returnNumber: record.get("returnNumber"), creditNoteReference: record.get("creditNoteReference"), productName: record.get("productName"), quantity: record.get("quantity"), grossAmountMinor: record.get("grossAmountMinor"), payableReductionMinor: record.get("payableReductionMinor"), supplierCreditMinor: record.get("supplierCreditMinor"), inventoryTransactionNumber: record.get("inventoryTransactionNumber"), journalNumber: record.get("journalNumber"), returnedAt: record.get("effectiveAt")?.toDate?.().toISOString() ?? "", reason: record.get("reason") })),
+    nextCursor: history.size > limit ? history.docs[limit - 1]!.id : null };
+}
+
 export const getProcurementWorkspace = onCall(
   { enforceAppCheck },
   async (request) => {
@@ -397,6 +436,7 @@ export const getProcurementWorkspace = onCall(
     const input = parseInput(procurementWorkspaceInput, request.data);
     if (input.branchId) requireBranchScope(actor, input.branchId);
     if (input.warehouseId) requireWarehouseScope(actor, input.warehouseId);
+    if (["supplier_returns", "supplier_return_receipts"].includes(input.view)) return supplierReturnWorkspace(actor, input);
     if (input.view === "purchase_receipts") return purchaseReceiptWorkspace(actor, input);
     if (input.view === "supplier_account" || input.view === "supplier_payables") {
       requirePermission(actor, "payables.read");
@@ -1528,6 +1568,106 @@ export const approveSupplierInvoice = onCall(
     return { supplierInvoiceId: invoice.id, approved: true };
   },
 );
+
+export const postSupplierReturn = onCall({ enforceAppCheck, timeoutSeconds: 120 }, async (request) => {
+  const actor = await requireAccess(request);
+  requirePermission(actor, "procurement.receive");
+  requirePermission(actor, "payables.approve");
+  const input = parseInput(postSupplierReturnInput, request.data);
+  try {
+  const invoiceRef = db.doc(`supplierInvoices/${input.supplierInvoiceId}`), lineRef = db.doc(`supplierInvoiceItems/${input.supplierInvoiceItemId}`), receiptRef = db.doc(`purchaseReceipts/${input.receiptId}`);
+  const [initialInvoice, initialLine, initialReceipt] = await Promise.all([invoiceRef.get(), lineRef.get(), receiptRef.get()]);
+  if (!initialInvoice.exists || initialInvoice.get("organizationId") !== actor.organizationId) throw new HttpsError("not-found", "Supplier invoice not found.");
+  const scope = procurementScopeFrom(initialInvoice);
+  requireProcurementScope(actor, scope);
+  if (!initialLine.exists || !initialReceipt.exists || initialLine.get("organizationId") !== actor.organizationId || initialReceipt.get("organizationId") !== actor.organizationId || initialLine.get("supplierInvoiceId") !== invoiceRef.id || initialReceipt.get("purchaseOrderItemId") !== initialLine.get("purchaseOrderItemId")) throw new HttpsError("permission-denied", "Choose the original invoice product and its receipt.");
+  const returnRef = db.doc(`supplierReturns/${uniquenessDocumentId(actor.organizationId, "supplier-return", input.idempotencyKey)}`);
+  const requestHash = uniquenessDocumentId(JSON.stringify(input));
+  const result = async (posted: boolean) => {
+    const record = await returnRef.get();
+    if (!record.exists || record.get("requestHash") !== requestHash) throw new HttpsError("already-exists", "This request key belongs to another return. Check return history before retrying.");
+    return { returnId: record.id, returnNumber: record.get("returnNumber"), inventoryTransactionId: record.get("inventoryTransactionId"), journalEntryId: record.get("journalEntryId"), posted };
+  };
+  if ((await returnRef.get()).exists) return result(false);
+  const originalMovementId = String(initialReceipt.get("inventoryTransactionId") ?? "");
+  if (!originalMovementId || !initialReceipt.get("receivingLocationId")) throw new HttpsError("failed-precondition", "This receipt needs its original stock evidence reconciled before returning goods.");
+  const entriesQuery = db.collection("inventoryEntries").where("transactionId", "==", originalMovementId).where("locationId", "==", initialReceipt.get("receivingLocationId")).limit(5001);
+  const initialEntries = await entriesQuery.get();
+  const lotId = initialEntries.docs[0]?.get("lotId") as string | undefined;
+  const supplierRef = db.doc(`suppliers/${initialInvoice.get("supplierId")}`), orderRef = db.doc(`purchaseOrders/${initialInvoice.get("purchaseOrderId")}`), orderItemRef = db.doc(`purchaseOrderItems/${initialLine.get("purchaseOrderItemId")}`);
+  const journalRef = db.collection("journalEntries").doc(), journalCounter = db.doc(`journalCounters/${uniquenessDocumentId(actor.organizationId, "general")}`);
+  const creditLock = db.doc(`supplierReturnCreditNoteLines/${uniquenessDocumentId(actor.organizationId, invoiceRef.id, lineRef.id, receiptRef.id, normalizeInventoryIdentifier(input.creditNoteReference))}`);
+  const effectiveAt = Timestamp.fromDate(new Date(input.returnedAt));
+  const accountingPeriod = accountingPeriodReference(actor.organizationId, effectiveAt);
+  const referenceNumber = `SRT-${effectiveAt.toDate().getUTCFullYear()}-${returnRef.id.slice(0, 16).toUpperCase()}`;
+  const correlation = correlationId();
+  const posted = await postInventoryTransaction(actor, {
+    transactionType: "supplier_return", productId: String(initialLine.get("productId")), quantity: input.quantity,
+    sourceLocationId: String(initialReceipt.get("receivingLocationId")), externalAccount: `supplier:${supplierRef.id}`,
+    lotId, serialNumbers: input.serialNumbers, effectiveAt: input.returnedAt, reason: input.reason,
+    referenceType: "supplier_return", referenceId: returnRef.id, referenceNumber,
+    idempotencyKey: `supplier-return-${input.idempotencyKey}`, correlationId: correlation, sourceFunction: "postSupplierReturn",
+  }, {
+    async prepare(reader, movement) {
+      const [invoice, line, receipt, supplier, order, item, counter, period, lock, reversed, originalMovement] = await Promise.all([reader.get(invoiceRef), reader.get(lineRef), reader.get(receiptRef), reader.get(supplierRef), reader.get(orderRef), reader.get(orderItemRef), reader.get(journalCounter), reader.get(accountingPeriod), reader.get(creditLock), reader.get(db.doc(`inventoryReversals/${originalMovementId}`)), reader.get(db.doc(`inventoryTransactions/${originalMovementId}`))]);
+      if ([invoice, line, receipt, supplier, order, item, originalMovement].some((document) => !document.exists || document.get("organizationId") !== actor.organizationId)) throw new HttpsError("failed-precondition", "Original purchasing evidence is unavailable.");
+      requireProcurementScope(actor, procurementScopeFrom(invoice));
+      if (invoice.get("supplierId") !== supplierRef.id || invoice.get("purchaseOrderId") !== order.id || order.get("supplierId") !== supplier.id || line.get("supplierInvoiceId") !== invoice.id || line.get("purchaseOrderItemId") !== item.id || item.get("purchaseOrderId") !== order.id || receipt.get("purchaseOrderId") !== order.id || receipt.get("purchaseOrderItemId") !== item.id || receipt.get("supplierId") !== supplier.id || line.get("productId") !== movement.productId || item.get("productId") !== movement.productId || receipt.get("productId") !== movement.productId || receipt.get("receivingLocationId") !== movement.sourceLocationId || order.get("receivingLocationId") !== movement.sourceLocationId || receipt.get("inventoryTransactionId") !== originalMovementId || line.get("unitCostMinor") !== receipt.get("unitCostMinor")) throw new HttpsError("failed-precondition", "Receipt, invoice and stock evidence do not match.");
+      if ((scope.branchId ?? null) !== (invoice.get("branchId") ?? null) || (scope.warehouseId ?? null) !== (invoice.get("warehouseId") ?? null) || (scope.branchId ?? null) !== (movement.sourceBranchId ?? null) || (scope.warehouseId ?? null) !== (movement.sourceWarehouseId ?? null)) throw new HttpsError("permission-denied", "Return goods from their original recording store.");
+      if (!["approved", "partially_paid", "paid"].includes(String(invoice.get("status"))) || reversed.exists || originalMovement.get("status") !== "posted" || originalMovement.get("transactionType") !== "inventory_receipt" || originalMovement.get("referenceType") !== "purchase_order" || originalMovement.get("referenceId") !== order.id) throw new HttpsError("failed-precondition", "Only posted, unreversed purchases with an approved invoice can be returned.");
+      if (lock.exists) throw new HttpsError("already-exists", "This credit-note product/receipt has already been recorded. Check return history.");
+      assertAccountingPeriodOpen(period);
+      if (effectiveAt.toMillis() < receipt.get("receivedAt")?.toMillis?.() || effectiveAt.toMillis() > Date.now() + 300_000) throw new HttpsError("invalid-argument", "The return date must follow receipt and cannot be in the future.");
+      const evidence = await reader.get(entriesQuery);
+      if (evidence.empty || evidence.size > 5000 || evidence.docs.some((entry) => entry.get("organizationId") !== actor.organizationId || entry.get("productId") !== movement.productId || entry.get("quantityDelta") <= 0 || (entry.get("lotId") ?? null) !== (lotId ?? null)) || evidence.docs.reduce((sum, entry) => sum + Number(entry.get("quantityDelta")), 0) !== receipt.get("quantity")) throw new HttpsError("failed-precondition", "Original receipt ledger evidence needs reconciliation.");
+      const originalSerials = new Set(evidence.docs.map((entry) => normalizeInventoryIdentifier(String(entry.get("serialNumber") ?? ""))));
+      if (input.serialNumbers.some((serial) => !originalSerials.has(normalizeInventoryIdentifier(serial)))) throw new HttpsError("failed-precondition", "A serial number was not received on this receipt.");
+      const receiptReturnedQuantity = supplierMoney(receipt.get("returnedQuantity")) + input.quantity;
+      if (receiptReturnedQuantity > supplierMoney(receipt.get("quantity"))) throw new HttpsError("failed-precondition", "Return exceeds this receipt's remaining quantity.");
+      let amounts: ReturnType<typeof supplierReturnAmounts>;
+      try { amounts = supplierReturnAmounts({ quantity: line.get("quantity"), netMinor: line.get("netAmountMinor"), vatMinor: line.get("vatAmountMinor"), returnedQuantity: line.get("returnedQuantity") ?? 0, returnedNetMinor: line.get("returnedNetMinor") ?? 0, returnedVatMinor: line.get("returnedVatMinor") ?? 0, returnQuantity: input.quantity, outstandingMinor: invoice.get("outstandingAmountMinor"), movementValueMinor: movement.movementValueMinor }); }
+      catch (cause) { throw new HttpsError("failed-precondition", cause instanceof Error ? cause.message : "Return amounts require reconciliation."); }
+      const balance = supplierMoney(supplier.get("outstandingBalanceMinor"));
+      if (amounts.payableReductionMinor > balance) throw new HttpsError("failed-precondition", "Supplier payable needs reconciliation.");
+      const currentAdvance = supplierMoney(supplier.get("advanceBalanceMinor"));
+      const advances = { ...(supplier.get("advanceBalancesByLocation") ?? {}) } as Record<string, number>;
+      const scopeKey = scope.branchId ? `branch:${scope.branchId}` : `warehouse:${scope.warehouseId}`;
+      if (Object.values(advances).reduce((sum, value) => sum + supplierMoney(value), 0) !== currentAdvance) throw new HttpsError("failed-precondition", "Supplier credit locations need reconciliation.");
+      advances[scopeKey] = supplierMoney(supplierMoney(advances[scopeKey]) + amounts.supplierCreditMinor);
+      const nextAdvance = supplierMoney(currentAdvance + amounts.supplierCreditMinor);
+      const lines = [
+        { accountCode: "2000", debitMinor: amounts.payableReductionMinor, creditMinor: 0 },
+        { accountCode: "1250", debitMinor: amounts.supplierCreditMinor, creditMinor: 0 },
+        { accountCode: "1200", debitMinor: 0, creditMinor: movement.movementValueMinor },
+        { accountCode: "1300", debitMinor: 0, creditMinor: amounts.vatMinor },
+        { accountCode: "5010", debitMinor: Math.max(0, -amounts.valuationVarianceMinor), creditMinor: Math.max(0, amounts.valuationVarianceMinor) },
+      ].filter((entry) => entry.debitMinor || entry.creditMinor);
+      assertBalancedJournal(lines);
+      return { amounts, receiptReturnedQuantity, balance: balance - amounts.payableReductionMinor, nextAdvance, advances, lines, counterValue: Number(counter.get("value") ?? 0) + 1, productName: String(line.get("productName")), invoiceStatus: invoice.get("status"), invoiceOutstanding: supplierMoney(invoice.get("outstandingAmountMinor")) - amounts.payableReductionMinor, invoiceCredited: supplierMoney(supplierMoney(invoice.get("creditedAmountMinor")) + amounts.payableReductionMinor), orderItemReturned: supplierMoney(supplierMoney(item.get("returnedQuantity")) + input.quantity) };
+    },
+    apply(writer, state, movement) {
+      const now = FieldValue.serverTimestamp();
+      const journalNumber = writeJournal(writer, actor, { journal: journalRef, journalCounter, journalCounterValue: state.counterValue, journalType: "supplier_return", referenceType: "supplierReturn", referenceId: returnRef.id, referenceNumber, description: `Supplier return ${referenceNumber} · ${input.creditNoteReference}`, ...scope, effectiveAt, lines: state.lines });
+      writer.create(returnRef, clean({ organizationId: actor.organizationId, ...scope, requestHash, returnNumber: referenceNumber, supplierId: supplierRef.id, supplierInvoiceId: invoiceRef.id, supplierInvoiceItemId: lineRef.id, purchaseOrderId: orderRef.id, purchaseOrderItemId: orderItemRef.id, receiptId: receiptRef.id, productId: movement.productId, productName: state.productName, quantity: input.quantity, serialNumbers: input.serialNumbers, lotId, sourceLocationId: movement.sourceLocationId, creditNoteReference: input.creditNoteReference, reason: input.reason, netAmountMinor: state.amounts.netMinor, vatAmountMinor: state.amounts.vatMinor, grossAmountMinor: state.amounts.grossMinor, payableReductionMinor: state.amounts.payableReductionMinor, supplierCreditMinor: state.amounts.supplierCreditMinor, inventoryValueMinor: movement.movementValueMinor, valuationVarianceMinor: state.amounts.valuationVarianceMinor, inventoryTransactionId: movement.transactionId, inventoryTransactionNumber: movement.transactionNumber, journalEntryId: journalRef.id, journalNumber, effectiveAt, createdAt: now, createdBy: actor.userId, correlationId: correlation, status: "posted", currency: "NGN" }));
+      writer.create(creditLock, { organizationId: actor.organizationId, returnId: returnRef.id, createdAt: now });
+      writer.set(db.doc(`supplierReturnReceiptLocks/${originalMovementId}`), { organizationId: actor.organizationId, receiptId: receiptRef.id, originalInventoryTransactionId: originalMovementId, latestReturnId: returnRef.id, updatedAt: now }, { merge: true });
+      writer.update(lineRef, { returnedQuantity: state.amounts.returnedQuantity, returnedNetMinor: state.amounts.returnedNetMinor, returnedVatMinor: state.amounts.returnedVatMinor, updatedAt: now });
+      writer.update(receiptRef, { returnedQuantity: state.receiptReturnedQuantity, updatedAt: now });
+      writer.update(orderItemRef, { returnedQuantity: state.orderItemReturned, updatedAt: now });
+      writer.update(invoiceRef, { outstandingAmountMinor: state.invoiceOutstanding, creditedAmountMinor: state.invoiceCredited, status: state.invoiceOutstanding === 0 ? "paid" : state.invoiceStatus, updatedAt: now });
+      writer.update(supplierRef, { outstandingBalanceMinor: state.balance, advanceBalanceMinor: state.nextAdvance, advanceBalancesByLocation: state.advances, updatedAt: now, updatedBy: actor.userId });
+      writer.create(db.collection("supplierAccountEntries").doc(), clean({ organizationId: actor.organizationId, supplierId: supplierRef.id, ...scope, entryType: "supplier_return", referenceType: "supplierReturn", referenceId: returnRef.id, referenceNumber, amountMinor: -state.amounts.payableReductionMinor, advanceAmountMinor: state.amounts.supplierCreditMinor, balanceAfterMinor: state.balance, advanceBalanceAfterMinor: state.nextAdvance, journalEntryId: journalRef.id, effectiveAt, createdAt: now, createdBy: actor.userId, currency: "NGN" }));
+      writeAuditLog(writer, actor, { action: "supplier.return_posted", entityType: "supplierReturn", entityId: returnRef.id, correlationId: correlation, sourceFunction: "postSupplierReturn", reason: input.reason, after: clean({ invoiceId: invoiceRef.id, receiptId: receiptRef.id, quantity: input.quantity, creditNoteReference: input.creditNoteReference, grossAmountMinor: state.amounts.grossMinor, payableReductionMinor: state.amounts.payableReductionMinor, supplierCreditMinor: state.amounts.supplierCreditMinor, inventoryTransactionId: movement.transactionId, journalEntryId: journalRef.id, ...scope }) });
+      return undefined;
+    },
+  });
+  return result(posted.posted);
+  } catch (cause) {
+    if (cause instanceof HttpsError && ["failed-precondition", "already-exists", "invalid-argument"].includes(cause.code))
+      throw new HttpsError(cause.code, cause.message, { code: "SUPPLIER_RETURN_ACTION_REQUIRED", userMessage: cause.message });
+    throw cause;
+  }
+});
 
 export const recordSupplierPayment = onCall(
   { enforceAppCheck },

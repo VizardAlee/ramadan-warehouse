@@ -2,6 +2,32 @@
 
 This roadmap extends the existing Firebase application and preserves historical users, stock entries, sales, journals and audit records. A requested capability is not marked complete merely because a screen or a partial workflow exists.
 
+### Supplier goods returns and credit notes — 8 October 2026 (release in validation)
+
+Purchasing now has **Returns & credit notes** on approved/settled supplier invoices.
+One product/batch from one original GRN can be fully or partially returned per note.
+The trusted `postSupplierReturn` transaction validates original receipt stock evidence,
+serial ownership, available stock, invoice quantities, store scope, receiving and
+payable-approval permissions, accounting period and duplicate credit-note references.
+Stock, cumulative return projections, supplier payable/credit, balanced journal and
+audit commit together. Same-key retries cannot post twice. Original invoice amounts,
+payments and ledger entries are preserved. Stock-only reversal of either the return
+or its supporting receipt is blocked after a linked credit note.
+
+Credit reduces the original invoice's unpaid balance first; excess uses the existing
+supplier advance/credit asset and store-scoped application/refund workflow. A refund
+is recorded only when money is actually received, with its receiving company account.
+Original invoice VAT snapshots are allocated cumulatively to avoid rounding drift.
+Inventory valuation differences post explicitly to account 5010. No statutory rate
+changes are introduced. Return history and receipt selection use bounded cursor pages.
+
+Migration is additive: absent returned-quantity/amount projections mean zero; no
+historical quantities, invoice values, Auth users or journals are rewritten. Existing
+receipts without matching original stock evidence require reconciliation, not guessed
+links. New supplier-return records and control locks are server-only. This release
+does not introduce multi-product atomic credit documents or a linked return-correction
+screen; those remain explicit follow-up work, not a reason to use generic stock reversal.
+
 ### Supplier advances and statements release — 8 October 2026
 
 Sources `c326aa7` and corrected UI checkpoint `dde638c` are deployed. Existing

@@ -27,6 +27,7 @@ const movementTitles: Record<string, string> = {
   stock_transfer_receipt: "Transfer received",
   discrepancy_resolution: "Stock discrepancy resolved",
   branch_sale: "Sold to customer",
+  supplier_return: "Returned to supplier",
   sale_reservation: "Reserved for customer",
   sale_reservation_release: "Customer reservation cancelled",
   customer_collection: "Collected by customer",

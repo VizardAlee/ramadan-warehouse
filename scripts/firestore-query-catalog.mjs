@@ -102,6 +102,10 @@ export function queryCatalog() {
   for (const field of ["originWarehouseId", "destinationBranchId"]) for (const optional of subsets(["status", "sourceType"])) add("assigned transfer register", "transfers", [org, [field, "in"], ...eq(optional)], [["__name__", "ASCENDING"]]);
   for (const collection of ["purchaseOrders", "purchaseOrderItems", "supplierInvoices", "expenses"]) for (const scope of subsets(["branchId", "warehouseId"])) add("procurement/expense workspace", collection, [org, ...eq(scope)]);
   add("purchase receipt history", "purchaseReceipts", [org, ["purchaseOrderId", "=="]], dateOrder("receivedAt"));
+  add("supplier return original receipts", "purchaseReceipts", [org, ["purchaseOrderItemId", "=="]], dateOrder("receivedAt"));
+  add("supplier return history", "supplierReturns", [org, ["supplierInvoiceId", "=="]], dateOrder("createdAt"));
+  add("supplier return invoice products", "supplierInvoiceItems", [org, ["supplierInvoiceId", "=="]]);
+  add("supplier return receipt ledger", "inventoryEntries", [["transactionId", "=="], ["locationId", "=="]]);
   add("purchase receipt stock evidence", "inventoryEntries", [org, ["transactionId", "=="], ["locationId", "=="]]);
   for (const scope of [[], ["branchId"], ["warehouseId"]]) {
     const filters = [org, ["supplierId", "=="], ...eq(scope)];

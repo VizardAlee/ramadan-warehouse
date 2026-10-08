@@ -157,6 +157,7 @@ export {
   submitSupplierInvoice,
   approveSupplierInvoice,
   recordSupplierPayment,
+  postSupplierReturn,
 } from "./callable/procurement.js";
 export {
   getExpenseWorkspace,

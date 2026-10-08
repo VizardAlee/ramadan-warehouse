@@ -33,6 +33,7 @@ export type PostingType =
   | "discrepancy_resolution"
   | "branch_sale"
   | "sale_return"
+  | "supplier_return"
   | "reversal";
 export interface PostingRequest {
   readonly transactionType: PostingType;
@@ -472,9 +473,10 @@ export async function postInventoryTransaction<State = undefined>(
           item.snapshot.get("productId") !== product.id ||
           item.locationId !== sourceLocation.id ||
           item.status === "written_off" ||
+          item.status === "returned_to_supplier" ||
           (item.status === "reserved" &&
-            item.snapshot.get("reservedTransferId") !==
-              input.transferContext?.transferId)
+            (!trustedTransfer || item.snapshot.get("reservedTransferId") !==
+              input.transferContext?.transferId))
         )
           throw new HttpsError(
             "failed-precondition",
@@ -729,7 +731,7 @@ export async function postInventoryTransaction<State = undefined>(
               branchId: destinationLocation?.branchId,
               status: destinationLocation
                 ? serialStatus(destinationLocation)
-                : "written_off",
+                : input.transactionType === "supplier_return" ? "returned_to_supplier" : "written_off",
               active: Boolean(destinationLocation),
               currentUnitCostMinor: cost,
               lastTransactionId: transactionReference.id,

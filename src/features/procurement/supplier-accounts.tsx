@@ -19,7 +19,8 @@ interface Statement {
 const labels: Record<string, string> = {
   supplier_invoice: "Invoice approved", supplier_payment: "Payment made",
   supplier_advance: "Advance paid", supplier_advance_applied: "Advance applied to invoice",
-  supplier_advance_refund: "Unused advance refunded by supplier",
+  supplier_advance_refund: "Advance / credit refunded by supplier",
+  supplier_return: "Goods returned — supplier credit note",
 };
 
 interface Payables {
@@ -153,7 +154,7 @@ function SupplierPaymentDialog({ supplier, invoice, refund = false, scope, banks
   return <AppDialog role="dialog" aria-modal="true" aria-labelledby="supplier-payment-title"><div className="app-dialog-panel w-full max-w-lg rounded-2xl bg-white p-6">
     <h2 id="supplier-payment-title" className="text-xl font-semibold">{refund ? "Receive supplier advance refund" : invoice ? "Pay supplier invoice" : "Record supplier advance"}</h2>
     <p className="mt-2 text-sm text-[var(--muted)]">{supplier.name}{refund ? " · money returned to the company" : invoice ? ` · ${invoice.supplierInvoiceNumber}` : " · money paid before invoice settlement"}</p>
-    {refund && <p className="mt-3 rounded-lg bg-blue-50 p-3 text-sm">Record only money actually returned by the supplier. Unused advance in this store: {formatNaira(availableAdvance)}. This reduces the advance, not invoice debt, and does not return goods or change stock.</p>}
+    {refund && <p className="mt-3 rounded-lg bg-blue-50 p-3 text-sm">Record only money actually returned by the supplier. Unused advance / supplier credit in this store: {formatNaira(availableAdvance)}. This reduces that credit balance, not invoice debt, and does not return goods or change stock. Goods must be recorded separately under Returns &amp; credit notes.</p>}
     {error && <p role="alert" className="mt-3 rounded-lg bg-red-50 p-3 text-red-800">{error}</p>}
     {uncertain && <p className="mt-3 rounded-lg bg-amber-50 p-3 text-sm">Details are locked until the result is confirmed. Retry the same transaction; do not record the money again. If this page is closed, check supplier history first.</p>}
     <fieldset disabled={busy || uncertain} className="mt-4 space-y-3">
@@ -187,7 +188,7 @@ export function SupplierAccounts({ suppliers, scope, banks, branches, canPay, in
   function close() { setAdvanceSupplier(null); setRefund(false); setSelectedInvoice(null); closeInvoice(); }
   return <section className="rounded-xl border bg-white p-5">
     <h2 className="text-xl font-semibold">Supplier accounts &amp; statements</h2>
-    <p className="text-sm text-[var(--muted)]">Payables and unused advances are separate. Filter history below; invoice payments support part payment.</p>
+    <p className="text-sm text-[var(--muted)]">Payables and unused advances / supplier credits are separate. Filter history below; invoice payments support part payment. Return-credit balances can be applied to another invoice in the same store or refunded through Receive advance refund.</p>
     <div className="mt-3 flex flex-wrap gap-3"><label className="min-w-0 flex-1 text-sm">Supplier<select aria-label="Supplier account" value={supplierId} onChange={(event) => setSupplierId(event.target.value)} className="mt-1 w-full rounded-lg border p-3"><option value="">Choose supplier</option>{suppliers.map((supplier) => <option key={supplier.id} value={supplier.id}>{supplier.supplierNumber} · {supplier.name}{supplier.active ? "" : " (inactive)"}</option>)}</select></label>{canPay && selected?.active && <Button className="self-end" onClick={() => { setRefund(false); setAdvanceSupplier(selected.id); }}>Record advance</Button>}{canPay && selected && (selected.advanceBalanceMinor ?? 0) > 0 && <Button variant="outline" className="self-end" onClick={() => { setRefund(true); setAdvanceSupplier(selected.id); }}>Receive advance refund</Button>}</div>
     {selected && <SupplierPayables key={`payables-${JSON.stringify([selected.id, scope, refresh])}`} supplierId={selected.id} scope={scope} canPay={canPay} onPay={setSelectedInvoice} />}
     {selected && <SupplierStatement key={JSON.stringify([selected.id, scope, refresh])} supplierId={selected.id} scope={scope} />}

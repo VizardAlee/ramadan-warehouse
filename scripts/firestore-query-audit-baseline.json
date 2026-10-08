@@ -1,16 +1,16 @@
 {
   "lastLiveAudit": {
     "project": "ramadan-warehouse-staging",
-    "verifiedAt": "2026-10-08T13:42:36.811Z",
-    "queryShapes": 432,
+    "verifiedAt": "2026-10-08T14:20:17.555Z",
+    "queryShapes": 436,
     "unsupportedQueries": 0,
-    "readyIndexes": 222,
+    "readyIndexes": 224,
     "singleFieldOverrides": 0
   },
-  "catalogSha256": "f80bd62b938908e6469e924919819eb6bd485fdef8393847ce00be6c5d5df395",
+  "catalogSha256": "0bd905dfb512f861270df863dcd79bc4e83bea0ad0c754d3536f68b448d8bbea",
   "sourceFingerprints": {
     "functions/src/accounting/daily-close.ts": "88916698e8112584523b1770eb98be7e052761b4982e6f572df1e6f7221d617a",
-    "functions/src/audit/write-audit-log.ts": "254809826e21fad67216e0dbf0f5bc8e644955907cdf4bfbe2160ba1afb5ee33",
+    "functions/src/audit/write-audit-log.ts": "db7b9594fb7312ca692836ceb529dfe7785c52b36b53dab59743d4619af311a7",
     "functions/src/auth/authorize.ts": "bcedf4b712dd3fc65f57ff8fd991fcd08336752a266169a4949e802a9df48201",
     "functions/src/auth/custom-roles.ts": "f35e0e79877655caf11f0c4e97d747b4c40477911a8755028ef5a096295fc146",
     "functions/src/callable/accounting-close.ts": "8e632a28435541fc2d062b974a48ff81eab3a1164eb73614e297c49344b11c66",
@@ -33,15 +33,15 @@
     "functions/src/callable/manage-roles.ts": "cafd5c85fe810569b119c64e640e97cb93b450b3cc4d616a4e81b0a124d09a7d",
     "functions/src/callable/manage-users.ts": "4afaad46c8d64ffdc08fc49a419d608ee3a6cb0ff1b3ad20bb497ca166e27d7a",
     "functions/src/callable/operational-readiness.ts": "5710f7b794dc5560f44a60fa86e21dc96c9591066d6996ca0119ba7615e11279",
-    "functions/src/callable/procurement.ts": "6d58a8be9bf3af3e8c4b116f760acaa57408d7a2416d975faf54eb715c9a731b",
+    "functions/src/callable/procurement.ts": "7040ef363b06dd2e7d7c699fff5aabb0aa4958ef2bff342a32eeb26a9905d877",
     "functions/src/callable/reset-organization.ts": "ef008e650d39213d23c35d3d801015dccad8ad7ea78edf9d62b6b5c230d53a5c",
-    "functions/src/callable/reverse-inventory.ts": "5a9902d73ce7d80d4f8a9a226beb45c620090d190348d1c628a6ed88dc54e297",
+    "functions/src/callable/reverse-inventory.ts": "87a89a023ee29422c2a19ec085fcd84b682c317ebdf3314897b06c80bb089f54",
     "functions/src/callable/sales-returns.ts": "d2fb54e2abae1f6428ae457e4e2963d5d2860c6e74bd547550750025d28e67b2",
     "functions/src/callable/sales.ts": "43e2e8784635d41e077f93e8246b1cb2d21208f7b4b2f39608e6fd667e2aa98f",
     "functions/src/callable/stock-counts.ts": "319e73fba41579383a5fd615a2f60e90e77c7bc86613d6446a07c5c040adc49d",
     "functions/src/callable/stock-transfers.ts": "b085f0aedf64a0cf3b9c40f315e277b4149449bbf4017852f4b933c16941a074",
     "functions/src/callable/transfers.ts": "40f6059886b760b10f6dcec2f08ad3b53070db51b384454d8eb96fe58de59497",
-    "functions/src/inventory/post-inventory-transaction.ts": "0c7ce4392a8d3a2bfaf72602da5f0597586c0db2a7edd292e91617d6a29d7d08",
+    "functions/src/inventory/post-inventory-transaction.ts": "45bac0a0400ef0ca3587f9c94645774c51e7cdfc19db4543398938822266b29d",
     "functions/src/jobs/delivery-jobs.ts": "2f9584b18d3648713f4862fb6663e3c1ecd7de695c27cf142933c2df7630a41c",
     "functions/src/notifications/debt-reminders.ts": "c69fa232df0f3d3ad39cb47685ad0bd169c513f59bfc23e27ce160081efff70f",
     "functions/src/notifications/in-app.ts": "58a443c5eaabdfdbdd74242963d9ba4c6078e69265614c4242ac4f9b66c8accf",
@@ -303,6 +303,8 @@
     "fbd42a0b30966efe64a89990f19ebd3893a59de617d37ff0b5374fdf25c0c736",
     "fe4c61fa93d9212dc9e72ba06dc518317dc6ec28da9e0127e20cb3e1e0922e2d",
     "2022fe076c199a1f850792b38948904e2c4c42a067180d3d4a3baa573b2556a8",
-    "a17e2b22b5643586a2bc023e7c3bd48f0cf18e71daa0024a6735f29a4d023417"
+    "a17e2b22b5643586a2bc023e7c3bd48f0cf18e71daa0024a6735f29a4d023417",
+    "a5c5e66d432d774e97ae175f6fdc2fd08b0148f1a62fbb31759acff512dab0b3",
+    "f60f9c0712b59a2360ea53fbad7e6ae878b72c45f46fe90f69ebc057117578a1"
   ]
 }

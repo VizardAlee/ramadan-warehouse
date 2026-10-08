@@ -416,6 +416,16 @@ service cloud.firestore {
       allow read: if sameOrganization(resource.data) && hasAnyRole(["system_administrator", "finance_officer", "auditor"]) && permitted("payables.read");
       allow create, update, delete: if false;
     }
+    // Read through the scoped procurement workspace; financial history is server-only.
+    match /supplierReturns/{documentId} {
+      allow read, write: if false;
+    }
+    match /supplierReturnCreditNoteLines/{documentId} {
+      allow read, write: if false;
+    }
+    match /supplierReturnReceiptLocks/{documentId} {
+      allow read, write: if false;
+    }
     match /supplierPaymentAllocations/{documentId} {
       allow read: if sameOrganization(resource.data) && hasAnyRole(["system_administrator", "finance_officer", "auditor"]) && permitted("payables.read");
       allow create, update, delete: if false;

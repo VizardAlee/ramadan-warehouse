@@ -332,6 +332,7 @@ export interface SupplierInvoice {
   vatAmountMinor: number;
   grossAmountMinor: number;
   outstandingAmountMinor: number;
+  creditedAmountMinor?: number;
   createdBy: string;
 }
 

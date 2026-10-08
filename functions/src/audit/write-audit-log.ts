@@ -13,7 +13,7 @@ export interface AuditEvent {
   readonly after?: Readonly<Record<string, unknown>>;
 }
 
-export function writeAuditLog(transaction: Transaction, actor: AccessProfile, event: AuditEvent): string {
+export function writeAuditLog(transaction: Pick<Transaction, "create">, actor: AccessProfile, event: AuditEvent): string {
   const reference = db.collection("auditLogs").doc();
   const record: Record<string, unknown> = {
     organizationId: actor.organizationId,

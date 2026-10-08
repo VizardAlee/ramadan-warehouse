@@ -36,6 +36,8 @@ const specialActions: Readonly<Record<string, string>> = {
   "supplier.advance_recorded": "Paid a supplier advance",
   "supplier.advance_applied": "Applied a supplier advance to an invoice",
   "supplier.advance_refunded": "Received a refund of unused supplier advance",
+  "supplier.return_posted": "Returned goods to a supplier and recorded their credit note",
+  "inventory.supplier_return": "Released goods back to a supplier",
   "aftersales_case.payment_recorded": "Recorded an aftersales payment",
   "transfer.reservation_released": "Released reserved transfer stock",
   "transfer.discrepancy_created": "Reported a transfer discrepancy",

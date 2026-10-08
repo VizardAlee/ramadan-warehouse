@@ -25,4 +25,9 @@ describe("user-facing Firebase errors", () => {
     expect(price.message).not.toContain("secret-id");
     expect(price.diagnosticCode).toBe("STALE_POS_PRICE");
   });
+  it("shows trusted supplier-return correction guidance", () => {
+    const error = toUserFacingError({ code: "functions/failed-precondition", details: { code: "SUPPLIER_RETURN_ACTION_REQUIRED", userMessage: "A serial number was not received on this receipt." } });
+    expect(error.message).toBe("A serial number was not received on this receipt.");
+    expect(error.diagnosticCode).toBe("SUPPLIER_RETURN_ACTION_REQUIRED");
+  });
 });

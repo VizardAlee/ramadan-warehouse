@@ -20,7 +20,9 @@ export const saveSupplierInput = z.object({
 });
 
 export const procurementWorkspaceInput = z.object({
-  view: z.enum(["workspace", "supplier_account", "supplier_payables", "purchase_receipts"]).default("workspace"),
+  view: z.enum(["workspace", "supplier_account", "supplier_payables", "purchase_receipts", "supplier_returns", "supplier_return_receipts"]).default("workspace"),
+  supplierInvoiceId: id.optional(),
+  supplierInvoiceItemId: id.optional(),
   supplierId: id.optional(),
   purchaseOrderId: id.optional(),
   receiptId: id.optional(),
@@ -37,6 +39,10 @@ export const procurementWorkspaceInput = z.object({
     context.addIssue({ code: "custom", path: ["supplierId"], message: "Select a supplier." });
   if (value.view === "purchase_receipts" && !value.purchaseOrderId)
     context.addIssue({ code: "custom", path: ["purchaseOrderId"], message: "Select a purchase order." });
+  if (["supplier_returns", "supplier_return_receipts"].includes(value.view) && !value.supplierInvoiceId)
+    context.addIssue({ code: "custom", path: ["supplierInvoiceId"], message: "Select the original supplier invoice." });
+  if (value.view === "supplier_return_receipts" && !value.supplierInvoiceItemId)
+    context.addIssue({ code: "custom", path: ["supplierInvoiceItemId"], message: "Select the original invoice product." });
   if (value.from && value.through && value.from > value.through)
     context.addIssue({ code: "custom", path: ["through"], message: "The end date must not precede the start date." });
 });
@@ -107,6 +113,15 @@ export const submitSupplierInvoiceInput = z.object({
 export const supplierInvoiceActionInput = z.object({
   supplierInvoiceId: id,
   notes: optionalText(500),
+  idempotencyKey: z.string().uuid(),
+});
+
+export const postSupplierReturnInput = z.object({
+  supplierInvoiceId: id, supplierInvoiceItemId: id, receiptId: id,
+  quantity: z.number().int().positive().max(5_000),
+  serialNumbers: z.array(z.string().trim().min(1).max(160)).max(5_000).default([]),
+  returnedAt: z.string().datetime(), reason: z.string().trim().min(5).max(500),
+  creditNoteReference: z.string().trim().min(2).max(160),
   idempotencyKey: z.string().uuid(),
 });
 

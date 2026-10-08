@@ -315,6 +315,7 @@ textarea { min-height: 96px; }
 .app-dialog-panel.max-w-xl { --dialog-max-width: 36rem; }
 .app-dialog-panel.max-w-2xl { --dialog-max-width: 42rem; }
 .app-dialog-panel.max-w-3xl { --dialog-max-width: 48rem; }
+.app-dialog-panel.max-w-4xl { --dialog-max-width: 56rem; }
 .app-dialog-panel.max-w-5xl { --dialog-max-width: 64rem; }
 @supports (height: 100svh) {
   .app-dialog-panel { max-height: calc(100svh - 1rem); }
