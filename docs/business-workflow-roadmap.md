@@ -6,7 +6,7 @@ This roadmap extends the existing Firebase application and preserves historical 
 
 | Priority | This implementation group | Remaining gate / dependency |
 | --- | --- | --- |
-| 1. Customer invoice repayments, advances and debt aging | Implemented additive invoice receivable projections, agreed due dates, explicit invoice repayment and bounded FIFO, arrangement advances/application, aging, existing-worker due reminders and customer UI/guide | Six additive indexes deployed and all 200 indexes READY; 378/378 live query shapes verified on 8 October. Application rollout verification remains the release gate. Historical allocations are not guessed; advanced statements, direct POS advance tender and unused-advance refunds remain separate work |
+| 1. Customer invoice repayments, advances and debt aging | Implemented, validated and deployed: additive invoice receivable projections, agreed due dates, explicit invoice repayment and bounded FIFO, arrangement advances/application, aging, existing-worker due reminders and customer UI/guide | All 200 indexes READY; 378/378 live query shapes verified on 8 October. Historical allocations are not guessed; advanced statements, direct POS advance tender and unused-advance refunds remain separate work |
 | 2. Supplier accounts | Existing PO/GRN/invoice/payment flow retained | Next: advances, allocation/statement and supplier returns, with invoice/stock/journal linkage |
 | 3. Inspected customer returns and replacement differences | Existing returns, refund, exchange-credit and collection controls retained; tracked account-credit returns now reduce the original unpaid invoice | Next: separate inspection/disposition and linked replacement settlement in both directions |
 | 4. Accounting and reviewed tax | Existing ledger/statements and period locks retained; advances use liability 2210, separate from accrued expenses 2300 | Next: manual/reversal journals, internal funds transfers, accountant-reviewed classifications and effective-dated statutory configuration. No new tax rates activated |
@@ -31,12 +31,27 @@ also passed (42 combined), including denial of forged receivables, advance balan
 and job cursors; the emulator command exited successfully. Earlier emulator attempts encountered cold-start test timeouts
 under concurrent validation; a rerun uses 120-second test/hook allowances.
 
-Pending deployment scope: `saveCustomer`, `recordCustomerPayment`,
+Completed deployment scope: `saveCustomer`, `recordCustomerPayment`,
 `getCustomerHistory`, `createPosSaleOrder`, `commitPosSale`, `confirmPosSaleOrder`,
 `approveSaleReturn`, `deliverPendingNotifications`, indexes and App Hosting.
 No new callable, service IAM relaxation, rules change or historical migration is
-needed for this slice. Do not claim deployment complete before verifying the
-affected services and web rollout. Priorities 2–5 remain pending.
+needed for this slice. Priorities 2–5 remain pending.
+
+### Customer receivables release — 8 October 2026
+
+Implementation/source checkpoint: `1ebf462`. All eight affected Functions report
+ACTIVE on new revisions with App Check enabled. The existing notification worker
+retains its scheduled-functions feature flag enabled. No IAM changes were made.
+App Hosting `build-2026-10-08-001` is READY, rollout SUCCEEDED, with 100% traffic
+and reconciliation complete. Customers, POS and Guide return HTTP 200.
+The release passed 264 unit/interface tests, 17 sales emulator tests, 25 security
+tests, typecheck, lint, production build, secret scanning, index validation and
+diff checks. All 378 live query plans passed; all 200 indexes are READY.
+Earlier deployment attempts encountered API connection timeouts; scoped retries
+completed successfully. No real customer/payment/inventory mutations were used
+for acceptance. Signed-in live financial workflows remain unexercised; emulator
+tests are the current workflow and authorization evidence. Historical sale and
+repayment allocations were not rewritten or invented.
 
 | Request | Current implementation | Remaining work |
 | --- | --- | --- |
@@ -47,7 +62,7 @@ affected services and web rollout. Priorities 2–5 remain pending.
 | Logistics and outsourced services | Transfer costs and aftersales charges/payments exist | External provider payables, service-item costing, payment accounts, balanced journals and provider statements |
 | Retail and wholesale prices | Retail/store and optional wholesale price, customer default and POS line selection; server validation, retained version/effective-from snapshots, held/offline price level and manual override audit implemented and deployed | Signed-in live acceptance; scheduled future price lists and additional configurable levels remain extensions |
 | Product stock ledger/history | Immutable inventory entries and paginated product movement history exist | Human-readable running balance across reservations, collection and all future transaction types |
-| Customer account arrangements | Named arrangements, POS selection, repayment allocation and original-arrangement return credits implemented, validated and deployed | Invoice-level allocation, advances, arrangement-filtered statements and aging |
+| Customer account arrangements | Named arrangements, POS selection, invoice/arrangement repayment allocation, advances/application, original-invoice return credits and aging/reminders implemented, validated and deployed | Arrangement-filtered statements, direct POS advance tender, unused-advance refunds and evidence-based historical allocation |
 | Financial statements | Ledger-derived balance sheet, income statement, cash-flow statement and trial balance with CSV export exist | Opening-balance/COA review, complete transaction classifications and accountant sign-off before external use |
 | Waybill, quotation and proforma | Official sale invoice/receipt printing, transfer reference and collection-linked A4 waybill deployed; each partial handover retains its stock-movement reference on reprint | Signed-in live acceptance; issued/versioned quotation and proforma conversion; older collection-history paging |
 | Returns/exchanges | Partial returns, refunds, customer-account and exchange credit exist | Linked replacement sale with automatic difference settlement either direction, inventory disposition and balanced posting |
@@ -98,7 +113,7 @@ The client authorized all eight groups. Continue the existing modules in this de
 | Group | Implementation checkpoint | Next acceptance criteria |
 | --- | --- | --- |
 | 1. Daily reconciliation | Implemented, validated and deployed | Nigerian business date, all store-allocated cash journals, counted cash/variance, stock/shift exceptions, retained revisions, separate prepare/sign permissions, same authorized manager allowed, stale evidence rejected, historical sign-off preserved; signed-in live acceptance remains separate |
-| 2. Sales and customers | Retail/wholesale pricing and named arrangements/payment allocation implemented, validated and deployed | Invoice-level allocation, advances, arrangement-filtered statements; correction request and reversal workflow; debt aging/reminders. Scheduled future price lists are not implemented |
+| 2. Sales and customers | Retail/wholesale pricing, named arrangements, invoice/payment allocation, advances/application and debt aging/reminders implemented, validated and deployed | Arrangement-filtered statements, unused-advance refunds and direct POS advance tender; correction request and reversal workflow. Scheduled future price lists are not implemented |
 | 3. Inventory and returns | Partial: reservation/partial collection/cancellation already implemented | Serial evidence at collection; uncollected reminders; inspected return disposition; linked replacement sale and difference settlement in either direction |
 | 4. Suppliers | Existing PO/GRN/invoice/payment workflow retained | Supplier advances, credit balances, allocation/statements and supplier returns with stock/journal linkage |
 | 5. Accounting and tax | Draft statements/full-history paging implemented | Authorized manual/reversal journals, internal funds transfer, statement classifications/opening balances and accountant sign-off; reviewed versioned Nigerian tax rules, liabilities and payments. Do not activate invented statutory rates |
