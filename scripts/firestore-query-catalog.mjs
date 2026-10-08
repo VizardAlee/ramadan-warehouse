@@ -117,6 +117,11 @@ export function queryCatalog() {
   for (const field of ["sourceWarehouseId", "originWarehouseId"]) for (const status of [[], [["status", "in"]]]) add("legacy location dashboard", field === "sourceWarehouseId" ? "stockTransfers" : "transfers", [org, [field, "=="], ...status], [], []);
   add("dashboard active products", "products", [org, ["active", "=="]], [], []);
   for (const field of ["customerNumber", "normalizedName", "phone", "email"]) add("customer register/search", "customers", [org], [[field, "ASCENDING"]]);
+  for (const scope of [[], [["branchId", "=="]]]) {
+    const filters = [org, ...eq(["customerId", "receivableStatus"]), ...scope];
+    add("customer unpaid invoice pages", "sales", filters, dateOrder("receivableDueDate", "ASCENDING"));
+    add("customer receivable aging", "sales", [...filters, ["receivableDueDate", ">="], ["receivableDueDate", "<="]], [], ["receivableOutstandingMinor"]);
+  }
   add("notification inbox/clear all", "notifications", [org], [["occurredAt", "DESCENDING"]], null, "users/index-audit-probe");
   for (const collection of ["branches", "users", "products", "suppliers", "inventoryLocations", "auditLogs", "roles", "bankAccounts", "taxRules", "journalEntries", "journalLines"]) add("organization-scoped client registers", collection, [org]);
   add("daily close cash evidence", "journalLines", eq(["organizationId", "branchId", "accountCode"]), [["__name__", "ASCENDING"]]);

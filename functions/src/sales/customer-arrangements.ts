@@ -1,4 +1,5 @@
 import { HttpsError } from "firebase-functions/v2/https";
+import { moneyBalances } from "./receivables.js";
 
 export interface CustomerArrangement {
   id: string;
@@ -42,12 +43,12 @@ export function changeArrangementBalance(data: Parameters<typeof customerArrange
   return accounts.filter((item) => item.id !== "general");
 }
 
-export function upsertArrangement(data: Parameters<typeof customerArrangements>[0], input: { id: string; name: string; active: boolean }) {
+export function upsertArrangement(data: Parameters<typeof customerArrangements>[0] & { advanceBalances?: unknown }, input: { id: string; name: string; active: boolean }) {
   const named = customerArrangements(data).filter((item) => item.id !== "general");
   const current = named.find((item) => item.id === input.id);
   if ((!current && named.length >= 20) || named.some((item) => item.id !== input.id && item.name.toLowerCase() === input.name.toLowerCase()))
     throw new HttpsError("failed-precondition", "Use a unique account name; a customer can have up to 20 named arrangements.");
-  if (!input.active && (current?.outstandingBalanceMinor ?? 0) > 0)
+  if (!input.active && ((current?.outstandingBalanceMinor ?? 0) > 0 || (moneyBalances(data.advanceBalances)[input.id] ?? 0) > 0))
     throw new HttpsError("failed-precondition", "Settle this account before deactivating it.");
   const saved = { ...input, outstandingBalanceMinor: current?.outstandingBalanceMinor ?? 0 };
   return current ? named.map((item) => item.id === input.id ? saved : item) : [...named, saved];

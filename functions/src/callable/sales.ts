@@ -7,6 +7,7 @@ import { accountingPeriodReference, assertAccountingPeriodOpen } from "../accoun
 import { collectReservedSale } from "../sales/collection.js";
 import { resolveCatalogPrice } from "../sales/pricing.js";
 import { customerArrangements, selectedArrangement, changeArrangementBalance } from "../sales/customer-arrangements.js";
+import { changeMoneyBalance, UNDATED_DEBT } from "../sales/receivables.js";
 import { bankAccountSummary, resolveSettlementAccount } from "../accounting/settlement-account.js";
 import { writeAuditLog } from "../audit/write-audit-log.js";
 import {
@@ -1709,6 +1710,7 @@ async function postPosSale(
               creditAuthorizedBy: workflowCreditAuthorization?.authorizedBy ?? actor.userId }
           : {}),
         amountPaidMinor: calculated.grossAmountMinor - input.creditAmountMinor,
+        ...(input.creditAmountMinor > 0 ? { receivableVersion: 1, receivableOutstandingMinor: input.creditAmountMinor, receivableStatus: "open", receivableDueDate: input.creditDueDate ?? UNDATED_DEBT, receivablePaidMinor: calculated.grossAmountMinor - input.creditAmountMinor, receivableCreditedMinor: 0 } : {}),
         source: input.offline ? "offline_sync" : "online_pos",
         subtotalAmountMinor: calculated.subtotalAmountMinor,
         discountAmountMinor: calculated.discountAmountMinor,
@@ -1946,6 +1948,7 @@ async function postPosSale(
         const creditLimit = Number(customerSnapshot.get("creditLimitMinor") ?? 0);
         transaction.update(customer, {
           arrangements,
+          invoiceDebtByAccount: changeMoneyBalance(customerSnapshot.get("invoiceDebtByAccount"), customerAccount!.id, input.creditAmountMinor),
           outstandingBalanceMinor: nextOutstanding,
           availableCreditMinor: Math.max(0, creditLimit - nextOutstanding),
           updatedAt: now,

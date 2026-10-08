@@ -98,6 +98,7 @@ export interface PosCartLine {
 }
 
 export interface HeldPosSale {
+  creditDueDate?: string;
   customerAccountId?: string;
   id: string;
   userId: string;
@@ -128,6 +129,7 @@ export interface HeldPosSale {
 }
 
 export interface PosSalePayload {
+  creditDueDate?: string;
   customerAccountId?: string;
   branchId: string;
   shiftId: string;

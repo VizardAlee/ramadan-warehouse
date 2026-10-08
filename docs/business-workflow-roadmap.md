@@ -2,6 +2,42 @@
 
 This roadmap extends the existing Firebase application and preserves historical users, stock entries, sales, journals and audit records. A requested capability is not marked complete merely because a screen or a partial workflow exists.
 
+## Next five priorities — 7 October 2026 implementation checkpoint
+
+| Priority | This implementation group | Remaining gate / dependency |
+| --- | --- | --- |
+| 1. Customer invoice repayments, advances and debt aging | Implemented additive invoice receivable projections, agreed due dates, explicit invoice repayment and bounded FIFO, arrangement advances/application, aging, existing-worker due reminders and customer UI/guide | Six additive indexes deployed and all 200 indexes READY; 378/378 live query shapes verified on 8 October. Application rollout verification remains the release gate. Historical allocations are not guessed; advanced statements, direct POS advance tender and unused-advance refunds remain separate work |
+| 2. Supplier accounts | Existing PO/GRN/invoice/payment flow retained | Next: advances, allocation/statement and supplier returns, with invoice/stock/journal linkage |
+| 3. Inspected customer returns and replacement differences | Existing returns, refund, exchange-credit and collection controls retained; tracked account-credit returns now reduce the original unpaid invoice | Next: separate inspection/disposition and linked replacement settlement in both directions |
+| 4. Accounting and reviewed tax | Existing ledger/statements and period locks retained; advances use liability 2210, separate from accrued expenses 2300 | Next: manual/reversal journals, internal funds transfers, accountant-reviewed classifications and effective-dated statutory configuration. No new tax rates activated |
+| 5. Commercial conversions, provider payables and budgets | Existing documents, aftersales and transfer costs retained | Next: issued quotation/proforma conversion, non-stock services/logistics provider settlement and budget-versus-actual |
+
+These five are dependency-ordered implementation groups, not five features marked
+complete by a single customer-account change. Do not deploy the first group by
+refreshing the query audit baseline without a successful live audit.
+
+Customer-receivables index gate (8 October 2026): Firebase authentication was
+renewed using the IPv4 connection workaround. Six additive indexes deployed;
+all 200 indexes are READY, with no field overrides. The live planner audit passed
+378/378 query shapes with zero missing indexes. The guarded baseline was refreshed
+only after that successful audit. All 264 unit/interface tests, including the
+release-guard file, passed with the refreshed baseline. The 8 October emulator
+rerun also passed all 17 sales and 25 security tests and exited successfully.
+Typecheck, lint, Functions compilation, production build, JSON index validation,
+secret scan and diff checks passed. The implementation-checkpoint sales emulator
+suite passed all 17 cases, including checkout-paid projections, due-date retention,
+concurrent advance retries and reminders. The final 25 Firestore security tests
+also passed (42 combined), including denial of forged receivables, advance balances
+and job cursors; the emulator command exited successfully. Earlier emulator attempts encountered cold-start test timeouts
+under concurrent validation; a rerun uses 120-second test/hook allowances.
+
+Pending deployment scope: `saveCustomer`, `recordCustomerPayment`,
+`getCustomerHistory`, `createPosSaleOrder`, `commitPosSale`, `confirmPosSaleOrder`,
+`approveSaleReturn`, `deliverPendingNotifications`, indexes and App Hosting.
+No new callable, service IAM relaxation, rules change or historical migration is
+needed for this slice. Do not claim deployment complete before verifying the
+affected services and web rollout. Priorities 2–5 remain pending.
+
 | Request | Current implementation | Remaining work |
 | --- | --- | --- |
 | Daily physical stock and cash reconciliation | Stock counts, inventory-ledger reconciliation, POS opening/closing cash variance and bank reconciliation exist; a dated store daily close now records cash ledger evidence, physical counted cash, exceptions, retained revisions and audited sign-off | Bank reconciliation remains a separate control; company-wide cash must have a store allocation before inclusion in a store close |

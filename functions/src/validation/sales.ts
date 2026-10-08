@@ -93,16 +93,24 @@ export const customerPaymentInput = z.object({
   method: z.enum(["cash", "card", "bank_transfer"]),
   bankAccountId: id.optional(),
   amountMinor: positiveMoney,
+  purpose: z.enum(["repayment", "advance"]).default("repayment"),
+  source: z.enum(["receipt", "advance_balance"]).default("receipt"),
+  invoiceAllocations: z.array(z.object({ saleId: id, amountMinor: positiveMoney })).min(1).max(50).optional(),
   allocations: z.array(z.object({ accountId: z.union([z.literal("general"), z.string().uuid()]), amountMinor: positiveMoney })).min(1).max(21).optional(),
   reference: z.string().trim().max(120).optional(),
   notes: z.string().trim().max(500).optional(),
   idempotencyKey: z.string().uuid(),
 }).superRefine((value, context) => {
+  if (value.invoiceAllocations && (new Set(value.invoiceAllocations.map((item) => item.saleId)).size !== value.invoiceAllocations.length || value.invoiceAllocations.reduce((sum, item) => sum + item.amountMinor, 0) > value.amountMinor))
+    context.addIssue({ code: "custom", path: ["invoiceAllocations"], message: "Use each invoice once without exceeding the payment total." });
+  if ((value.purpose === "advance" && (value.source !== "receipt" || value.invoiceAllocations)) || (value.source === "advance_balance" && value.bankAccountId))
+    context.addIssue({ code: "custom", path: ["source"], message: "Advance applications are not new cash or bank receipts." });
   if (value.allocations && (new Set(value.allocations.map((item) => item.accountId)).size !== value.allocations.length || value.allocations.reduce((sum, item) => sum + item.amountMinor, 0) !== value.amountMinor))
     context.addIssue({ code: "custom", path: ["allocations"], message: "Use each account once and allocate the exact payment total." });
 });
 
 export const customerHistoryInput = z.object({
+  view: z.enum(["activity", "receivables"]).default("activity"),
   customerId: id,
   branchId: id.optional(),
   limit: z.number().int().min(1).max(100).default(50),
@@ -230,6 +238,7 @@ export const commitSaleInput = z.object({
     .max(5),
   customerId: id.optional(),
   creditAmountMinor: money.default(0),
+  creditDueDate: z.iso.date().optional(),
   customerAccountId: z.union([z.literal("general"), z.string().uuid()]).optional(),
   discountAmountMinor: money.default(0),
   discountReason: z.string().trim().min(3).max(300).optional(),

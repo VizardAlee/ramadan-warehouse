@@ -21,6 +21,7 @@ import { customerHistoryLabel, customerHistoryTone, type CustomerHistory } from 
 import { useCustomerRegister, type CustomerSearchField } from "@/features/customers/use-customer-register";
 import { hasPermission } from "@/lib/permissions/roles";
 import type { Branch, Customer } from "@/types/domain";
+import { CustomerReceivablesPanel, type OpenCustomerInvoice } from "@/features/customers/receivables-panel";
 
 type CustomerAction = "create" | "edit" | "credit" | "payment";
 
@@ -51,6 +52,9 @@ export default function CustomersPage() {
   const [paymentAllocations, setPaymentAllocations] = useState([{ accountId: "general", amount: "" }]);
   const paymentRetryKey = useRef<string | null>(null);
   const [paymentUncertain, setPaymentUncertain] = useState(false);
+  const [paymentPurpose, setPaymentPurpose] = useState<"repayment" | "advance">("repayment");
+  const [paymentSource, setPaymentSource] = useState<"receipt" | "advance_balance">("receipt");
+  const [paymentInvoice, setPaymentInvoice] = useState<OpenCustomerInvoice | null>(null);
   const [paymentMethod, setPaymentMethod] = useState<
     "cash" | "card" | "bank_transfer"
   >("cash");
@@ -119,6 +123,9 @@ export default function CustomersPage() {
     setPaymentAllocations([{ accountId: "general", amount: "" }]);
     paymentRetryKey.current = null;
     setPaymentUncertain(false);
+    setPaymentPurpose("repayment");
+    setPaymentSource("receipt");
+    setPaymentInvoice(null);
     setPaymentReference("");
     setPaymentBankAccountId("");
     setHistory(null);
@@ -203,7 +210,7 @@ export default function CustomersPage() {
 
   async function recordPayment() {
     if (!selected || !branchId) return;
-    if (paymentMethod !== "cash" && !paymentBankAccountId) {
+    if (paymentSource === "receipt" && paymentMethod !== "cash" && !paymentBankAccountId) {
       setError("Select the receiving company account.");
       return;
     }
@@ -221,7 +228,10 @@ export default function CustomersPage() {
         customerId: selected.id,
         branchId,
         method: paymentMethod,
-        bankAccountId: paymentMethod !== "cash" ? paymentBankAccountId : undefined,
+        purpose: paymentPurpose,
+        source: paymentSource,
+        invoiceAllocations: paymentInvoice ? [{ saleId: paymentInvoice.id, amountMinor }] : undefined,
+        bankAccountId: paymentSource === "receipt" && paymentMethod !== "cash" ? paymentBankAccountId : undefined,
         amountMinor,
         allocations,
         reference: paymentReference || undefined,
@@ -229,7 +239,7 @@ export default function CustomersPage() {
       });
       closeAction();
       setMessage(
-        `Payment ${result.paymentNumber} recorded and posted to Accounts Receivable.`,
+        `Account transaction ${result.paymentNumber} recorded with its balanced accounting entry.`,
       );
     } catch (cause) {
       const code = typeof cause === "object" && cause !== null && "diagnosticCode" in cause ? String(cause.diagnosticCode) : "";
@@ -297,10 +307,16 @@ export default function CustomersPage() {
         setPaymentAllocations([{ accountId: "general", amount: "" }]);
         paymentRetryKey.current = null;
         setPaymentUncertain(false);
+        setPaymentPurpose("repayment"); setPaymentSource("receipt"); setPaymentInvoice(null);
         setAction("payment");
         setPaymentBankAccountId("");
         void loadHistory(customer, 1, branchId);
       }}><CreditCard className="mr-1 size-4" /> Payment</Button>}
+      {canRecordPayment && customer.active && <Button size="sm" variant="outline" onClick={() => {
+        setSelected(customer); setPaymentAmount(""); setPaymentAllocations([{ accountId: "general", amount: "" }]);
+        paymentRetryKey.current = null; setPaymentUncertain(false); setPaymentPurpose("advance"); setPaymentSource("receipt"); setPaymentInvoice(null);
+        setAction("payment"); setPaymentBankAccountId(""); void loadHistory(customer, 1, branchId);
+      }}>Record advance</Button>}
     </div>;
   }
 
@@ -326,7 +342,7 @@ export default function CustomersPage() {
       {error && !history && <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-800">{error}</p>}
       <div className="space-y-2">
         {history?.rows.map((row) => <div key={row.id} className="flex flex-wrap items-start justify-between gap-2 rounded-lg border p-3 text-sm">
-          <div><strong className="capitalize">{`${customerHistoryLabel(row.kind, row.detail)} · ${row.accountName ?? "General account"}${row.allocations?.length ? " — " + row.allocations.map((allocation) => `${allocation.accountName}: ${formatNaira(allocation.amountMinor)}`).join("; ") : ""}`}</strong><p className="text-xs text-[var(--muted)]">{row.reference} · {row.at ? new Date(row.at).toLocaleString("en-NG") : "Date pending"}</p></div>
+          <div><strong className="capitalize">{`${customerHistoryLabel(row.kind, row.detail, row.invoiceAllocations)} · ${row.accountName ?? "General account"}${row.allocations?.length ? " — " + row.allocations.map((allocation) => `${allocation.accountName}: ${formatNaira(allocation.amountMinor)}`).join("; ") : ""}`}</strong><p className="text-xs text-[var(--muted)]">{row.reference} · {row.at ? new Date(row.at).toLocaleString("en-NG") : "Date pending"}</p></div>
           <FinancialAmount tone={customerHistoryTone(row.kind, row.detail)} className="font-semibold">{formatNaira(Math.abs(row.amountMinor))}</FinancialAmount>
         </div>)}
         {history && history.rows.length === 0 && <p className="rounded-lg bg-slate-50 p-3 text-sm text-[var(--muted)]">No recorded activity in this store.</p>}
@@ -481,7 +497,7 @@ export default function CustomersPage() {
                     ? "Edit customer"
                     : action === "credit"
                       ? "Administrator credit decision"
-                    : "Record customer payment"}
+                    : paymentPurpose === "advance" ? "Record customer advance" : "Record customer payment"}
               </h2>
             </div>
             {(action === "create" || action === "edit") && (
@@ -626,6 +642,12 @@ export default function CustomersPage() {
                   Outstanding before payment:{" "}
                   {formatNaira(selected.outstandingBalanceMinor)}
                 </p>
+                <p className="rounded-lg bg-blue-50 p-3 text-sm">{paymentPurpose === "advance" ? "This is money received before a sale. It stays as a customer advance liability until applied—not sales income." : "Without an invoice selection, repayments clear historical unallocated debt first, then the oldest tracked invoices in this store and arrangement (up to 50 per receipt)."}</p>
+                {paymentPurpose === "repayment" && <>
+                  <label className="block text-sm font-medium">Payment source<select className="mt-1 w-full rounded-lg border p-3" value={paymentSource} onChange={(event) => setPaymentSource(event.target.value as "receipt" | "advance_balance")}><option value="receipt">New cash / bank / card receipt</option><option value="advance_balance">Apply previously received advance</option></select></label>
+                  {paymentSource === "advance_balance" && <p className="text-sm">Unused advances across all arrangements: {formatNaira(Object.values(history?.customer.advanceBalances ?? {}).reduce((sum, amount) => sum + amount, 0))}. Application uses the balance of each selected arrangement.</p>}
+                  {paymentInvoice ? <div className="rounded-lg border p-3 text-sm">Paying {paymentInvoice.reference} · {paymentInvoice.accountName}<Button size="sm" variant="outline" onClick={() => setPaymentInvoice(null)}>Use automatic allocation</Button></div> : <CustomerReceivablesPanel key={branchId} customerId={selected.id} branchId={branchId || undefined} onSelect={(invoice) => { setPaymentInvoice(invoice); setPaymentAllocations([{ accountId: invoice.accountId, amount: "" }]); setPaymentAmount(String(invoice.outstandingMinor / 100)); }} />}
+                </>}
                 {!contextBranchId && !assignedBranchId && (
                   <label className="block text-sm font-medium">
                     Receiving branch
@@ -645,7 +667,7 @@ export default function CustomersPage() {
                   </label>
                 )}
                 <label className="block text-sm font-medium">
-                  Amount received (₦)
+                  {paymentSource === "advance_balance" ? "Amount to apply (₦)" : "Amount received (₦)"}
                   <input
                     type="number"
                     min="0.01"
@@ -655,7 +677,7 @@ export default function CustomersPage() {
                     className="mt-1 w-full rounded-lg border p-3"
                   />
                 </label>
-                <label className="block text-sm font-medium">
+                {paymentSource === "receipt" && <label className="block text-sm font-medium">
                   Method
                   <select
                     value={paymentMethod}
@@ -670,9 +692,9 @@ export default function CustomersPage() {
                     <option value="card">Card / POS terminal</option>
                     <option value="bank_transfer">Bank transfer</option>
                   </select>
-                </label>
-                <fieldset className="space-y-3 rounded-lg border p-3"><legend className="px-1 font-semibold">Apply payment to customer accounts</legend>
-                  <p className="text-xs text-[var(--muted)]">This allocates debt repayment between arrangements, not between cash/card/bank methods. Allocations must equal the amount received.</p>
+                </label>}
+                <fieldset disabled={Boolean(paymentInvoice)} className="space-y-3 rounded-lg border p-3"><legend className="px-1 font-semibold">Apply payment to customer accounts</legend>
+                  <p className="text-xs text-[var(--muted)]">{paymentPurpose === "advance" ? "Choose the arrangement holding this advance." : "This allocates debt repayment between arrangements, not between cash/card/bank methods."} Allocations must equal the total entered.</p>
                   {paymentAllocations.map((allocation, index) => <div key={index} className="space-y-2 rounded-lg bg-slate-50 p-2">
                     <label className="block text-sm">Customer account {index + 1}<select className="mt-1 w-full rounded-lg border p-3" value={allocation.accountId} onChange={(event) => setPaymentAllocations((items) => items.map((item, position) => position === index ? { ...item, accountId: event.target.value } : item))}>
                       {(history?.customer.arrangements ?? [{ id: "general", name: "General account", outstandingBalanceMinor: selected.outstandingBalanceMinor }]).map((account) => <option key={account.id} value={account.id}>{account.name} · {formatNaira(account.outstandingBalanceMinor)} due</option>)}
@@ -681,7 +703,7 @@ export default function CustomersPage() {
                   </div>)}
                   <Button size="sm" variant="outline" disabled={paymentAllocations.length >= (history?.customer.arrangements?.length ?? 1)} onClick={() => setPaymentAllocations((items) => [...items.map((item) => ({ ...item, amount: items.length === 1 ? paymentAmount : item.amount })), { accountId: history?.customer.arrangements?.find((account) => !items.some((item) => item.accountId === account.id))?.id ?? "general", amount: "" }])}>Split across arrangements</Button>
                 </fieldset>
-                {paymentMethod !== "cash" && (
+                {paymentSource === "receipt" && paymentMethod !== "cash" && (
                   <label className="block text-sm font-medium">Receiving company account
                     <select value={paymentBankAccountId} onChange={(event) => setPaymentBankAccountId(event.target.value)} className="mt-1 w-full rounded-lg border p-3">
                       <option value="">Select account</option>
@@ -690,7 +712,7 @@ export default function CustomersPage() {
                     <span className="mt-1 block text-xs text-[var(--muted)]">{historyLoading ? "Loading accounts…" : "This account receives the money and is used in the accounting journal."}</span>
                   </label>
                 )}
-                {paymentMethod !== "cash" && (
+                {paymentSource === "receipt" && paymentMethod !== "cash" && (
                   <label className="block text-sm font-medium">
                     Reference (optional)
                     <input
@@ -713,7 +735,7 @@ export default function CustomersPage() {
                   busy ||
                   Boolean(arrangementDraft && (arrangementDraft.name.trim().length < 2 || arrangementDraft.reason.trim().length < 5)) ||
                   (action === "credit" && reason.trim().length < 3) ||
-                  (action === "payment" && (!paymentAmount || !branchId || (paymentMethod !== "cash" && !paymentBankAccountId)))
+                  (action === "payment" && (!paymentAmount || !branchId || (paymentSource === "receipt" && paymentMethod !== "cash" && !paymentBankAccountId)))
                 }
                 onClick={() =>
                   void (action === "create" || action === "edit"
@@ -729,7 +751,7 @@ export default function CustomersPage() {
                 {action === "credit"
                   ? "Save decision"
                   : action === "payment"
-                    ? "Record payment"
+                    ? paymentPurpose === "advance" ? "Record advance" : paymentSource === "advance_balance" ? "Apply advance" : "Record payment"
                     : "Save customer"}
               </Button>
             </div>

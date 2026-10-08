@@ -1,4 +1,4 @@
-import { FieldValue, Timestamp } from "firebase-admin/firestore";
+import { AggregateField, FieldValue, Timestamp } from "firebase-admin/firestore";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
 import { db } from "../admin.js";
 import { accountingPeriodReference, assertAccountingPeriodOpen } from "../accounting/period-lock.js";
@@ -15,6 +15,7 @@ import { enforceAppCheck } from "../config.js";
 import { uniquenessDocumentId } from "../inventory/calculations.js";
 import { assertBalancedJournal } from "../sales/calculations.js";
 import { customerArrangements, changeArrangementBalance, selectedArrangement, upsertArrangement } from "../sales/customer-arrangements.js";
+import { changeMoneyBalance, legacyDebt, moneyBalances, reduceInvoice, UNDATED_DEBT } from "../sales/receivables.js";
 import { correlationId, parseInput } from "../utils/callable.js";
 import {
   customerPaymentInput,
@@ -35,6 +36,38 @@ export const getCustomerHistory = onCall({ enforceAppCheck }, async (request) =>
   if (!allBranches && !branchId)
     throw new HttpsError("invalid-argument", "Select an assigned branch for this customer history.");
   if (branchId) requireBranchScope(actor, branchId);
+  if (input.view === "receivables") {
+    let base: FirebaseFirestore.Query = db.collection("sales").where("organizationId", "==", actor.organizationId).where("customerId", "==", customer.id).where("receivableStatus", "==", "open");
+    if (branchId) base = base.where("branchId", "==", branchId);
+    let page = base.orderBy("receivableDueDate").orderBy("__name__");
+    if (input.cursor?.sale) {
+      const start = await db.doc(`sales/${input.cursor.sale}`).get();
+      if (!start.exists || start.get("organizationId") !== actor.organizationId || start.get("customerId") !== customer.id || (branchId && start.get("branchId") !== branchId) || start.get("receivableVersion") !== 1)
+        throw new HttpsError("invalid-argument", "Start from the first invoice page.");
+      page = page.startAfter(start);
+    }
+    const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Lagos", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+    const daysAgo = (days: number) => new Date(Date.parse(`${today}T00:00:00Z`) - days * 86400000).toISOString().slice(0, 10);
+    const windows = [
+      { name: "Current", from: today, to: "9999-12-30" },
+      { name: "1–30 days", from: daysAgo(30), to: daysAgo(1) },
+      { name: "31–60 days", from: daysAgo(60), to: daysAgo(31) },
+      { name: "61–90 days", from: daysAgo(90), to: daysAgo(61) },
+      { name: "90+ days", from: "0001-01-01", to: daysAgo(91) },
+      { name: "Due date not set", from: UNDATED_DEBT, to: UNDATED_DEBT },
+    ];
+    const [invoices, aging] = await Promise.all([page.limit(input.limit + 1).get(), Promise.all(windows.map(async (window) => {
+      const sums = await base.where("receivableDueDate", ">=", window.from).where("receivableDueDate", "<=", window.to).aggregate({ amount: AggregateField.sum("receivableOutstandingMinor") }).get();
+      return { name: window.name, amountMinor: Number(sums.data().amount ?? 0) };
+    }))]);
+    const visible = invoices.docs.slice(0, input.limit);
+    return {
+      invoices: visible.map((sale) => ({ id: sale.id, reference: sale.get("saleNumber"), accountId: sale.get("customerAccountId") ?? "general", accountName: sale.get("customerAccountName") ?? "General account", dueDate: sale.get("receivableDueDate") === UNDATED_DEBT ? null : sale.get("receivableDueDate"), outstandingMinor: sale.get("receivableOutstandingMinor"), paidMinor: sale.get("receivablePaidMinor") ?? 0, creditedMinor: sale.get("receivableCreditedMinor") ?? 0 })),
+      aging, historicalUnallocatedMinor: customerArrangements(customer.data()!).reduce((sum, account) => sum + legacyDebt(account.outstandingBalanceMinor, customer.get("invoiceDebtByAccount"), account.id), 0),
+      advanceBalances: moneyBalances(customer.get("advanceBalances")),
+      moreAvailable: invoices.size > input.limit, nextCursor: invoices.size > input.limit ? { sale: visible.at(-1)!.id } : null,
+    };
+  }
   type HistorySource = "sale" | "return" | "account";
   const scoped = async (collection: string, dateField: string, source: HistorySource) => {
     let query: FirebaseFirestore.Query = db.collection(collection)
@@ -81,6 +114,7 @@ export const getCustomerHistory = onCall({ enforceAppCheck }, async (request) =>
       detail: String(record.get("entryType") ?? "account activity"),
       accountName: record.get("customerAccountName") ?? "General account",
       allocations: record.get("allocations") ?? [],
+      invoiceAllocations: record.get("invoiceAllocations") ?? [],
       at: date(record.get("effectiveAt")),
       sortAt: sortTime(record.get("effectiveAt")),
     })),
@@ -103,8 +137,8 @@ export const getCustomerHistory = onCall({ enforceAppCheck }, async (request) =>
     customer: { id: customer.id, name: customer.get("name"), customerNumber: customer.get("customerNumber"),
       creditStatus: customer.get("creditStatus"), creditLimitMinor: Number(customer.get("creditLimitMinor") ?? 0),
       outstandingBalanceMinor: Number(customer.get("outstandingBalanceMinor") ?? 0),
-      availableCreditMinor: Number(customer.get("availableCreditMinor") ?? 0), arrangements: customerArrangements(customer.data()!) },
-    rows: page.map((row) => ({ id: row.id, kind: row.kind, reference: row.reference, branchId: row.branchId, amountMinor: row.amountMinor, detail: row.detail, at: row.at, accountName: row.accountName, allocations: "allocations" in row ? row.allocations : [] })),
+      availableCreditMinor: Number(customer.get("availableCreditMinor") ?? 0), arrangements: customerArrangements(customer.data()!), advanceBalances: moneyBalances(customer.get("advanceBalances")) },
+    rows: page.map((row) => ({ id: row.id, kind: row.kind, reference: row.reference, branchId: row.branchId, amountMinor: row.amountMinor, detail: row.detail, at: row.at, accountName: row.accountName, allocations: "allocations" in row ? row.allocations : [], invoiceAllocations: "invoiceAllocations" in row ? row.invoiceAllocations : [] })),
     moreAvailable,
     nextCursor: moreAvailable ? nextCursor : null,
   };
@@ -151,7 +185,7 @@ export const saveCustomer = onCall({ enforceAppCheck }, async (request) => {
     if (
       current!.exists &&
       !input.active &&
-      Number(current!.get("outstandingBalanceMinor") ?? 0) > 0
+      (Number(current!.get("outstandingBalanceMinor") ?? 0) > 0 || Object.values(moneyBalances(current!.get("advanceBalances"))).some((amount) => amount > 0))
     )
       throw new HttpsError(
         "failed-precondition",
@@ -340,7 +374,9 @@ export const recordCustomerPayment = onCall(
       )
         throw new HttpsError("failed-precondition", "Branch is unavailable.");
       const outstanding = Number(current!.get("outstandingBalanceMinor") ?? 0);
-      if (input.amountMinor > outstanding)
+      if (input.purpose === "advance" && current!.get("active") !== true)
+        throw new HttpsError("failed-precondition", "Reactivate this customer before recording a new advance.");
+      if (input.purpose === "repayment" && input.amountMinor > outstanding)
         throw new HttpsError(
           "invalid-argument",
           "The payment cannot exceed the customer's outstanding balance.",
@@ -350,21 +386,69 @@ export const recordCustomerPayment = onCall(
       const year = new Date().getUTCFullYear();
       const paymentNumber = `CRP-${year}-${String(paymentSequence).padStart(6, "0")}`;
       const journalNumber = `JRN-${year}-${String(journalSequence).padStart(6, "0")}`;
-      const nextOutstanding = outstanding - input.amountMinor;
+      const nextOutstanding = outstanding - (input.purpose === "repayment" ? input.amountMinor : 0);
       const allocations = (input.allocations ?? [{ accountId: "general", amountMinor: input.amountMinor }]).map((item) => ({
-        ...item, accountName: selectedArrangement(current!.data()!, item.accountId, true).name,
+        ...item, accountName: selectedArrangement(current!.data()!, item.accountId, input.purpose === "repayment").name,
       }));
-      const arrangements = changeArrangementBalance(current!.data()!, allocations.map((item) => ({ accountId: item.accountId, amountMinor: -item.amountMinor })));
+      const arrangements = input.purpose === "repayment" ? changeArrangementBalance(current!.data()!, allocations.map((item) => ({ accountId: item.accountId, amountMinor: -item.amountMinor }))) : current!.get("arrangements") ?? [];
+      const invoicePayments: Array<{ sale: FirebaseFirestore.DocumentSnapshot; amountMinor: number; accountId: string }> = [];
+      if (input.purpose === "repayment") {
+        if (input.invoiceAllocations) {
+          const invoices = await transaction.getAll(...input.invoiceAllocations.map((item) => db.doc(`sales/${item.saleId}`)));
+          invoices.forEach((sale, index) => {
+            if (!sale.exists || sale.get("organizationId") !== actor.organizationId || sale.get("customerId") !== customer.id || sale.get("receivableVersion") !== 1)
+              throw new HttpsError("invalid-argument", "Select a tracked invoice belonging to this customer.");
+            requireBranchScope(actor, String(sale.get("branchId")));
+            invoicePayments.push({ sale, amountMinor: input.invoiceAllocations![index]!.amountMinor, accountId: sale.get("customerAccountId") ?? "general" });
+          });
+        }
+        for (const allocation of allocations) {
+          const account = selectedArrangement(current!.data()!, allocation.accountId, true);
+          const legacy = legacyDebt(account.outstandingBalanceMinor, current!.get("invoiceDebtByAccount"), account.id);
+          if (!input.invoiceAllocations) {
+            let remaining = Math.max(0, allocation.amountMinor - legacy);
+            if (remaining) {
+              const invoices = await transaction.get(db.collection("sales").where("organizationId", "==", actor.organizationId).where("customerId", "==", customer.id).where("customerAccountId", "==", account.id).where("branchId", "==", input.branchId).where("receivableStatus", "==", "open").orderBy("recordedAt").limit(50));
+              for (const sale of invoices.docs) {
+                const amountMinor = Math.min(remaining, Number(sale.get("receivableOutstandingMinor")));
+                if (amountMinor > 0) invoicePayments.push({ sale, amountMinor, accountId: account.id });
+                if (invoicePayments.length > 50) throw new HttpsError("invalid-argument", "Allocate no more than 50 invoices in one receipt.");
+                remaining -= amountMinor;
+                if (!remaining) break;
+              }
+              if (remaining) throw new HttpsError("failed-precondition", "Select the invoices explicitly, choose their store, or split this receipt into smaller allocations.");
+            }
+          }
+          const applied = invoicePayments.filter((item) => item.accountId === account.id).reduce((sum, item) => sum + item.amountMinor, 0);
+          if (applied > allocation.amountMinor || allocation.amountMinor - applied > legacy)
+            throw new HttpsError("invalid-argument", "Invoice allocations must match their customer arrangements; only historical debt can remain unallocated.");
+        }
+        if (invoicePayments.some((item) => !allocations.some((allocation) => allocation.accountId === item.accountId)))
+          throw new HttpsError("invalid-argument", "Include each invoice's arrangement in the receipt allocation.");
+      }
+      let invoiceDebtByAccount = moneyBalances(current!.get("invoiceDebtByAccount"));
+      let advanceBalances = moneyBalances(current!.get("advanceBalances"));
+      for (const item of invoicePayments) {
+        reduceInvoice(Number(item.sale.get("receivableOutstandingMinor")), item.amountMinor);
+        invoiceDebtByAccount = changeMoneyBalance(invoiceDebtByAccount, item.accountId, -item.amountMinor);
+      }
+      if (input.purpose === "advance" || input.source === "advance_balance") {
+        for (const allocation of allocations) advanceBalances = changeMoneyBalance(advanceBalances, allocation.accountId, input.purpose === "advance" ? allocation.amountMinor : -allocation.amountMinor);
+      }
       const creditLimit = Number(current!.get("creditLimitMinor") ?? 0);
-      const account = resolveSettlementAccount(actor.organizationId, input.method, input.bankAccountId, bankAccountSnapshot);
+      const account = input.source === "advance_balance" ? { accountCode: "2210", accountName: "Customer advances", bankAccountId: undefined, bankName: undefined, bankAccountName: undefined, accountNumberLast4: undefined } : resolveSettlementAccount(actor.organizationId, input.method, input.bankAccountId, bankAccountSnapshot);
       const journalLines = [
         { accountCode: account.accountCode, accountName: account.accountName, debitMinor: input.amountMinor, creditMinor: 0 },
-        { accountCode: "1100", accountName: "Accounts receivable", debitMinor: 0, creditMinor: input.amountMinor },
+        { accountCode: input.purpose === "advance" ? "2210" : "1100", accountName: input.purpose === "advance" ? "Customer advances" : "Accounts receivable", debitMinor: 0, creditMinor: input.amountMinor },
       ];
       assertBalancedJournal(journalLines);
       const now = FieldValue.serverTimestamp();
+      const invoiceAllocations = invoicePayments.map((item) => ({ saleId: item.sale.id, saleNumber: item.sale.get("saleNumber"), accountId: item.accountId, amountMinor: item.amountMinor }));
+      for (const item of invoicePayments) transaction.update(item.sale.ref, { ...reduceInvoice(Number(item.sale.get("receivableOutstandingMinor")), item.amountMinor), receivablePaidMinor: Number(item.sale.get("receivablePaidMinor") ?? 0) + item.amountMinor, receivableUpdatedAt: now });
       transaction.update(customer, {
         arrangements,
+        invoiceDebtByAccount,
+        advanceBalances,
         outstandingBalanceMinor: nextOutstanding,
         availableCreditMinor:
           current!.get("creditStatus") === "approved"
@@ -392,7 +476,9 @@ export const recordCustomerPayment = onCall(
         customerNumber: current!.get("customerNumber"),
         customerName: current!.get("name"),
         paymentNumber,
-        method: input.method,
+        method: input.source === "advance_balance" ? "customer_advance" : input.method,
+        purpose: input.purpose,
+        source: input.source,
         bankAccountId: account.bankAccountId,
         bankName: account.bankName,
         bankAccountName: account.bankAccountName,
@@ -401,6 +487,7 @@ export const recordCustomerPayment = onCall(
         journalEntryId: journal.id,
         amountMinor: input.amountMinor,
         allocations,
+        invoiceAllocations,
         reference: input.reference,
         notes: input.notes,
         currency: "NGN",
@@ -413,12 +500,14 @@ export const recordCustomerPayment = onCall(
         organizationId: actor.organizationId,
         branchId: input.branchId,
         customerId: customer.id,
-        entryType: "payment",
+        entryType: input.purpose === "advance" ? "advance" : input.source === "advance_balance" ? "advance_applied" : "payment",
         referenceType: "customerPayment",
         referenceId: payment.id,
         referenceNumber: paymentNumber,
-        amountMinor: -input.amountMinor,
+        amountMinor: input.purpose === "advance" ? input.amountMinor : -input.amountMinor,
         allocations,
+        invoiceAllocations,
+        advanceBalancesAfter: advanceBalances,
         customerAccountName: allocations.length === 1 ? allocations[0]!.accountName : "Multiple arrangements",
         balanceAfterMinor: nextOutstanding,
         currency: "NGN",
@@ -430,7 +519,7 @@ export const recordCustomerPayment = onCall(
         organizationId: actor.organizationId,
         branchId: input.branchId,
         journalNumber,
-        journalType: "customer_payment",
+        journalType: input.purpose === "advance" ? "customer_advance" : input.source === "advance_balance" ? "customer_advance_applied" : "customer_payment",
         status: "posted",
         referenceType: "customerPayment",
         referenceId: payment.id,
@@ -483,7 +572,7 @@ export const recordCustomerPayment = onCall(
         createdBy: actor.userId,
       });
       writeAuditLog(transaction, actor, {
-        action: "customer.payment_recorded",
+        action: input.purpose === "advance" ? "customer.advance_recorded" : input.source === "advance_balance" ? "customer.advance_applied" : "customer.payment_recorded",
         entityType: "customerPayment",
         entityId: payment.id,
         correlationId: cid,
@@ -496,6 +585,9 @@ export const recordCustomerPayment = onCall(
           bankAccountId: account.bankAccountId ?? null,
           ledgerAccountCode: account.accountCode,
           allocations,
+          invoiceAllocations,
+          purpose: input.purpose,
+          source: input.source,
         },
       });
       result = { paymentId: payment.id, paymentNumber, recorded: true };

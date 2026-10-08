@@ -20,6 +20,7 @@ import {
 } from "../inventory/calculations.js";
 import { assertBalancedJournal } from "../sales/calculations.js";
 import { selectedArrangement, changeArrangementBalance } from "../sales/customer-arrangements.js";
+import { changeMoneyBalance, legacyDebt, reduceInvoice } from "../sales/receivables.js";
 import { correlationId, parseInput } from "../utils/callable.js";
 import {
   approveSaleReturnInput,
@@ -578,6 +579,9 @@ export const approveSaleReturn = onCall(
         const account = selectedArrangement(customerSnapshot.data()!, originalSale.get("customerAccountId") ?? "general", true);
         if (account.outstandingBalanceMinor < gross)
           throw new HttpsError("failed-precondition", "The original customer account has insufficient outstanding debt for this return credit. Choose an authorized refund or exchange instead.");
+        if (originalSale.get("receivableVersion") === 1) reduceInvoice(Number(originalSale.get("receivableOutstandingMinor")), gross);
+        else if (legacyDebt(account.outstandingBalanceMinor, customerSnapshot.get("invoiceDebtByAccount"), account.id) < gross)
+          throw new HttpsError("failed-precondition", "This historical return cannot reduce debt belonging to newer invoices.");
       }
       const restockCost = lines
         .filter((line) => line.line.get("condition") === "restockable")
@@ -773,6 +777,7 @@ export const approveSaleReturn = onCall(
           limit = Number(customerSnapshot.get("creditLimitMinor") ?? 0);
         transaction.update(customer, {
           arrangements: changeArrangementBalance(customerSnapshot.data()!, [{ accountId: originalSale.get("customerAccountId") ?? "general", amountMinor: -gross }]),
+          ...(originalSale.get("receivableVersion") === 1 ? { invoiceDebtByAccount: changeMoneyBalance(customerSnapshot.get("invoiceDebtByAccount"), originalSale.get("customerAccountId") ?? "general", -gross) } : {}),
           outstandingBalanceMinor: next,
           availableCreditMinor:
             customerSnapshot.get("creditStatus") === "approved"
@@ -781,6 +786,7 @@ export const approveSaleReturn = onCall(
           updatedAt: now,
           updatedBy: actor.userId,
         });
+        if (originalSale.get("receivableVersion") === 1) transaction.update(originalSale.ref, { ...reduceInvoice(Number(originalSale.get("receivableOutstandingMinor")), gross), receivableCreditedMinor: Number(originalSale.get("receivableCreditedMinor") ?? 0) + gross, receivableUpdatedAt: now });
         transaction.create(db.collection("customerAccountEntries").doc(), {
           organizationId: actor.organizationId,
           branchId: current.get("branchId"),

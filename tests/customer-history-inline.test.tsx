@@ -5,6 +5,7 @@ import CustomersPage from "@/app/(protected)/customers/page";
 
 const api = vi.hoisted(() => ({ call: vi.fn() }));
 vi.mock("@/features/administration/api", () => ({ callAdministration: api.call }));
+vi.mock("@/features/customers/receivables-panel", () => ({ CustomerReceivablesPanel: () => <div>Invoice picker</div> }));
 vi.mock("@/features/customers/use-customer-register", () => ({ useCustomerRegister: () => ({
   data: [{ id: "c1", name: "Amina Musa", customerNumber: "CUS-000001", creditStatus: "approved", creditLimitMinor: 100000, outstandingBalanceMinor: 25000, availableCreditMinor: 75000, active: true }],
   loading: false, error: null, page: 1, pageSize: 25, hasNextPage: false,
@@ -25,6 +26,20 @@ vi.mock("@/features/administration/use-organization-collection", () => ({
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
 
 describe("customer account history", () => {
+  it("preserves advance intent after a validation rejection and allows correction", async () => {
+    api.call.mockResolvedValueOnce({ customer: {}, rows: [], bankAccounts: [] });
+    api.call.mockRejectedValueOnce(Object.assign(new Error("Choose an active account"), { diagnosticCode: "functions/failed-precondition" }));
+    api.call.mockResolvedValueOnce({ paymentNumber: "CRP-ADVANCE" });
+    render(<CustomersPage />);
+    fireEvent.click(screen.getAllByRole("button", { name: "Record advance" })[0]!);
+    fireEvent.change(screen.getByLabelText("Amount received (₦)"), { target: { value: "100" } });
+    fireEvent.click(screen.getAllByRole("button", { name: "Record advance" }).at(-1)!);
+    await waitFor(() => expect(screen.getAllByText("Choose an active account").length).toBeGreaterThan(0));
+    expect(screen.getByText("Record customer advance")).toBeTruthy();
+    fireEvent.click(screen.getAllByRole("button", { name: "Record advance" }).at(-1)!);
+    await waitFor(() => expect(api.call.mock.calls.filter(([name]) => name === "recordCustomerPayment")).toHaveLength(2));
+    expect(api.call.mock.calls.filter(([name]) => name === "recordCustomerPayment").every(([, input]) => input.purpose === "advance" && input.source === "receipt")).toBe(true);
+  });
   it("allocates a receipt across arrangements without changing the receiving payment method", async () => {
     const accountId = "11111111-1111-4111-8111-111111111111";
     api.call.mockResolvedValueOnce({ customer: { arrangements: [{ id: "general", name: "General account", active: true, outstandingBalanceMinor: 5000 }, { id: accountId, name: "Installation project", active: true, outstandingBalanceMinor: 20000 }] }, rows: [], bankAccounts: [] });

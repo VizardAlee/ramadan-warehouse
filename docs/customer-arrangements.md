@@ -9,7 +9,7 @@ It does not create duplicate customer identities or separate credit limits.
 - In POS, select the customer and their active arrangement before receiving the order. The sale retains that selection through payment confirmation.
 - In Record payment, choose the receiving company account as required and allocate the receipt to one or more arrangements. Allocations must equal the amount received; an arrangement cannot repay another arrangement's debt.
 - Full customer history shows arrangement balances and allocation details alongside paginated sales, returns and account entries.
-- Return credits reduce the original sale's arrangement. Renaming an arrangement does not rewrite historical labels. An arrangement with outstanding debt cannot be deactivated; arrangements are not deleted.
+- Return credits reduce the original sale's arrangement and, for tracked invoices, its unpaid projection. Renaming an arrangement does not rewrite historical labels. An arrangement with outstanding debt or an unused advance cannot be deactivated; arrangements are not deleted.
 
 ## Historical data and integrity
 
@@ -28,9 +28,38 @@ Held and offline payloads retain the selected arrangement ID. Credit sales still
 require a connection. Unknown or deactivated arrangements are rejected by the
 server rather than silently reassigned. Direct client balance writes remain denied.
 
-## Remaining work
+## Invoice repayment, advances and aging
 
-Invoice-level payment allocation/settlement, advance wallets, arrangement-filtered
-statements, debt aging/reminders and historical correction workflows remain
-separate roadmap items. Arrangement allocation alone does not settle individual
-invoice balances.
+New credit sales retain an optional agreed due date (including split-tender credit).
+Their original issued amounts remain immutable. Separate invoice projections track
+later repayments, credited returns and current unpaid balance.
+
+Full customer history shows paginated unpaid invoices, server-aggregated aging
+(current, 1–30, 31–60, 61–90, over 90 days and undated), and unused advances.
+Record payment can select one invoice for full or partial repayment. The trusted
+API supports up to 50 unique invoice allocations per receipt. Without explicit
+selection, receipts clear historical unallocated debt first, then the oldest
+tracked invoices in the receiving store and selected arrangements, up to 50.
+For other stores or larger batches, select invoices explicitly or split receipts.
+
+Record advance receives money into the selected company account and credits the
+customer-advance liability (2210), not sales income or accrued expenses (2300).
+To apply it, open Payment, choose Apply previously received advance and select
+the invoice/arrangement. This debits 2210 and credits receivables (1100), without
+another cash receipt. Insufficient advances and overpaid invoices are rejected.
+Customer-wide credit authorization still applies when receiving a credit order;
+advance application is currently a subsequent customer-account action, not a
+direct POS tender. Unused advance refunds remain a later controlled workflow.
+
+The existing scheduled notification worker scans due invoices in resumable
+25-record pages per organization. Due-today alerts are deduplicated per date;
+overdue reminders per seven-day epoch window. Eligible active payment staff in
+the responsible store (or organization administrators) receive the existing
+bell/push notification linking to customer history. Settled invoices supersede
+undelivered alerts. Undated/historical debt gets no invented overdue date.
+This requires the existing scheduled-functions feature flag and delivery worker.
+
+No historical sale/payment is backfilled or reassigned. Legacy debt remains
+explicitly unallocated; historical migration requires verified evidence and a
+separate reconciliation plan. Arrangement-filtered statements, unused-advance
+refunds, direct POS advance tender and historical corrections remain roadmap work.

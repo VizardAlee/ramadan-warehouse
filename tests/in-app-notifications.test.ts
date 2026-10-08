@@ -12,6 +12,16 @@ const user = (overrides: Partial<InboxCandidate> = {}): InboxCandidate => ({
 });
 
 describe("in-app notification recipients", () => {
+  it("scopes debt reminders to active payment staff in the responsible store", () => {
+    const event = { eventType: "customer.debt_overdue", organizationId: "org-1", branchId: "branch-1" };
+    expect(notificationActionFor(event, user())).toEqual({ eligible: true, actionRequired: true });
+    expect(notificationActionFor(event, user({ status: "inactive" })).eligible).toBe(false);
+    expect(notificationActionFor(event, user({ branchIds: ["branch-2"] })).eligible).toBe(false);
+    expect(notificationActionFor(event, user({ organizationId: "other" })).eligible).toBe(false);
+    expect(notificationActionFor(event, user({ effectivePermissions: ["customers.read"] })).eligible).toBe(false);
+    expect(notificationActionFor(event, user({ effectivePermissions: ["customers.read", "customers.payment.record"] })).eligible).toBe(true);
+    expect(notificationActionFor(event, user({ roleId: "system_administrator", branchIds: [] })).eligible).toBe(true);
+  });
   it("assigns sales payment actions by permission and branch", () => {
     const received = { eventType: "sales_order.received", organizationId: "org-1", branchId: "branch-1" };
     const accepted = { ...received, eventType: "sales_order.payment_accepted" };

@@ -9,6 +9,8 @@ import {
 import type { DeliveryResult, NotificationEvent } from "./delivery.js";
 
 type SupportedEvent =
+  | "customer.debt_due"
+  | "customer.debt_overdue"
   | "sales_order.received"
   | "sales_order.payment_accepted"
   | "sales_order.completed"
@@ -19,6 +21,8 @@ type SupportedEvent =
   | "stock_transfer.resolve";
 
 const supported = new Set<SupportedEvent>([
+  "customer.debt_due",
+  "customer.debt_overdue",
   "sales_order.received",
   "sales_order.payment_accepted",
   "sales_order.completed",
@@ -40,6 +44,8 @@ export interface InboxCandidate {
   authDisabled?: boolean;
   roleId?: string;
   roleIds?: string[];
+  effectivePermissions?: AccessProfile["effectivePermissions"];
+  directRoleIds?: AccessProfile["directRoleIds"];
   branchIds?: string[];
   warehouseIds?: string[];
 }
@@ -52,6 +58,7 @@ export interface InboxEvent extends NotificationEvent {
   destinationBranchId?: string | null;
   warehouseId?: string | null;
   referenceNumber?: string | null;
+  customerId?: string;
   createdAt?: Timestamp;
 }
 
@@ -96,6 +103,8 @@ function actorFor(candidate: InboxCandidate): AccessProfile | null {
     organizationId: candidate.organizationId,
     roleId: roleIds[0]!,
     roleIds,
+    effectivePermissions: candidate.effectivePermissions,
+    directRoleIds: candidate.directRoleIds,
     branchIds: candidate.branchIds ?? [],
     warehouseIds: candidate.warehouseIds ?? [],
     authorizationVersion: 1,
@@ -114,6 +123,11 @@ export function notificationActionFor(
   if (!actor || actor.organizationId !== event.organizationId)
     return { eligible: false, actionRequired: false };
   const wide = organizationWide(actor);
+  if (event.eventType.startsWith("customer.debt_")) {
+    const inScope = wide || Boolean(event.branchId && actor.branchIds.includes(event.branchId));
+    const eligible = inScope && hasServerPermission(actor, "customers.read") && hasServerPermission(actor, "customers.payment.record");
+    return { eligible, actionRequired: eligible };
+  }
   if (event.eventType.startsWith("sales_order.")) {
     const atBranch = Boolean(event.branchId && actor.branchIds.includes(event.branchId));
     if (!wide && !atBranch) return { eligible: false, actionRequired: false };
@@ -150,6 +164,9 @@ function display(event: InboxEvent): { title: string; body: string; href: string
   const reference = event.referenceNumber || "this item";
   const entityId = encodeURIComponent(event.entityId);
   switch (event.eventType) {
+    case "customer.debt_due":
+    case "customer.debt_overdue":
+      return { title: event.eventType === "customer.debt_due" ? "Customer payment due today" : "Customer payment overdue", body: `${reference} still has an unpaid balance. Open the customer account to review and record repayment.`, href: `/customers/${encodeURIComponent(event.customerId!)}` };
     case "sales_order.received":
       return { title: "Order ready for payment", body: `${reference} has been received. Record its payment when ready.`, href: "/pos" };
     case "sales_order.payment_accepted":
@@ -183,10 +200,15 @@ export async function deliverInAppNotification(event: InboxEvent): Promise<Deliv
     return { delivered: false, retryable: false, errorSummary: "Unsupported in-app event" };
   if (!event.organizationId || !event.entityId)
     return { delivered: false, retryable: false, errorSummary: "Missing event scope" };
-  const collectionName = event.eventType.startsWith("sales_order.") ? "salesOrders" : "stockTransfers";
+  const debt = event.eventType.startsWith("customer.debt_");
+  const collectionName = debt ? "sales" : event.eventType.startsWith("sales_order.") ? "salesOrders" : "stockTransfers";
   const entity = await db.doc(`${collectionName}/${event.entityId}`).get();
   if (!entity.exists || entity.get("organizationId") !== event.organizationId)
     return { delivered: false, retryable: false, errorSummary: "Source record unavailable" };
+  if (debt && (entity.get("receivableStatus") !== "open" || Number(entity.get("receivableOutstandingMinor")) <= 0))
+    return { delivered: true, providerMessageId: `in_app:superseded:${event.id}` };
+  if (debt && !entity.get("customerId"))
+    return { delivered: false, retryable: false, errorSummary: "Customer reference unavailable" };
   const expected = expectedStatus[event.eventType];
   // Later transitions supersede an action alert even if the worker sees events out of order.
   if (expected && !expected.includes(String(entity.get("status"))))
@@ -198,7 +220,7 @@ export async function deliverInAppNotification(event: InboxEvent): Promise<Deliv
     .filter(({ decision }) => decision.eligible);
   if (!candidates.length)
     return { delivered: false, retryable: false, errorSummary: "No eligible recipient" };
-  const content = display(event);
+  const content = display(debt ? { ...event, customerId: String(entity.get("customerId")) } : event);
   const occurredAt = event.createdAt instanceof Timestamp ? event.createdAt : Timestamp.now();
   const inboxId = `${collectionName}_${event.entityId}`;
   for (const { candidate, decision } of candidates) {
@@ -211,7 +233,7 @@ export async function deliverInAppNotification(event: InboxEvent): Promise<Deliv
       transaction.set(ref, {
         organizationId: event.organizationId,
         recipientId: candidate.id,
-        entityType: collectionName === "salesOrders" ? "salesOrder" : "stockTransfer",
+        entityType: debt ? "sale" : collectionName === "salesOrders" ? "salesOrder" : "stockTransfer",
         entityId: event.entityId,
         eventId: event.id,
         eventType: event.eventType,

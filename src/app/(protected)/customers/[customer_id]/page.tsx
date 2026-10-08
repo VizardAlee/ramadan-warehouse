@@ -11,6 +11,7 @@ import { customerHistoryLabel, customerHistoryTone, type CustomerHistory, type C
 import { formatNaira } from "@/features/inventory/format";
 import { hasPermission } from "@/lib/permissions/roles";
 import type { Branch } from "@/types/domain";
+import { CustomerReceivablesPanel } from "@/features/customers/receivables-panel";
 
 export default function CustomerHistoryPage() {
   const { customer_id: customerId } = useParams<{ customer_id: string }>();
@@ -73,17 +74,18 @@ export default function CustomerHistoryPage() {
       </label>
       <p className="mt-2 text-xs text-[var(--muted)]">Credit position covers the whole organization. Store selection filters the transaction list only.</p>
     </section>
+    <CustomerReceivablesPanel key={branchId} customerId={customerId} branchId={branchId || undefined} />
     {error && <p role="alert" className="rounded-xl bg-red-50 p-4 text-sm text-red-800">{error}</p>}
     {loading && <p role="status" className="text-sm text-[var(--muted)]">Loading customer transactions…</p>}
     <section aria-label="Customer transactions" className="hidden lg:block">
       <div className="responsive-table-wrap"><table className="responsive-table">
         <thead className="bg-slate-50"><tr><th className="px-4 py-3">Date</th><th className="px-4 py-3">Activity</th><th className="px-4 py-3">Reference</th><th className="px-4 py-3 text-right">Amount</th></tr></thead>
-        <tbody>{rows.map((row) => <tr key={row.id} className="border-t"><td className="px-4 py-3">{row.at ? new Date(row.at).toLocaleString("en-NG") : "Date pending"}</td><td className="px-4 py-3 capitalize">{`${customerHistoryLabel(row.kind, row.detail)} · ${row.accountName ?? "General account"}${row.allocations?.length ? " — " + row.allocations.map((allocation) => `${allocation.accountName}: ${formatNaira(allocation.amountMinor)}`).join("; ") : ""}`}</td><td className="px-4 py-3 font-mono text-xs">{row.reference}</td><td className={`px-4 py-3 text-right font-semibold finance-${customerHistoryTone(row.kind, row.detail)}`}>{formatNaira(Math.abs(row.amountMinor))}</td></tr>)}
+        <tbody>{rows.map((row) => <tr key={row.id} className="border-t"><td className="px-4 py-3">{row.at ? new Date(row.at).toLocaleString("en-NG") : "Date pending"}</td><td className="px-4 py-3 capitalize">{`${customerHistoryLabel(row.kind, row.detail, row.invoiceAllocations)} · ${row.accountName ?? "General account"}${row.allocations?.length ? " — " + row.allocations.map((allocation) => `${allocation.accountName}: ${formatNaira(allocation.amountMinor)}`).join("; ") : ""}`}</td><td className="px-4 py-3 font-mono text-xs">{row.reference}</td><td className={`px-4 py-3 text-right font-semibold finance-${customerHistoryTone(row.kind, row.detail)}`}>{formatNaira(Math.abs(row.amountMinor))}</td></tr>)}
           {!loading && rows.length === 0 && <tr><td colSpan={4} className="p-8 text-center text-[var(--muted)]">No recorded transactions for this selection.</td></tr>}
         </tbody>
       </table></div>
     </section>
-    <section aria-label="Customer transactions on compact screens" className="space-y-3 lg:hidden">{rows.map((row) => <article key={row.id} className="rounded-xl border bg-white p-4"><div className="flex justify-between gap-3"><strong className="capitalize">{`${customerHistoryLabel(row.kind, row.detail)} · ${row.accountName ?? "General account"}${row.allocations?.length ? " — " + row.allocations.map((allocation) => `${allocation.accountName}: ${formatNaira(allocation.amountMinor)}`).join("; ") : ""}`}</strong><strong className={`finance-${customerHistoryTone(row.kind, row.detail)}`}>{formatNaira(Math.abs(row.amountMinor))}</strong></div><p className="mt-1 text-xs text-[var(--muted)]">{row.reference} · {row.at ? new Date(row.at).toLocaleString("en-NG") : "Date pending"}</p></article>)}
+    <section aria-label="Customer transactions on compact screens" className="space-y-3 lg:hidden">{rows.map((row) => <article key={row.id} className="rounded-xl border bg-white p-4"><div className="flex justify-between gap-3"><strong className="capitalize">{`${customerHistoryLabel(row.kind, row.detail, row.invoiceAllocations)} · ${row.accountName ?? "General account"}${row.allocations?.length ? " — " + row.allocations.map((allocation) => `${allocation.accountName}: ${formatNaira(allocation.amountMinor)}`).join("; ") : ""}`}</strong><strong className={`finance-${customerHistoryTone(row.kind, row.detail)}`}>{formatNaira(Math.abs(row.amountMinor))}</strong></div><p className="mt-1 text-xs text-[var(--muted)]">{row.reference} · {row.at ? new Date(row.at).toLocaleString("en-NG") : "Date pending"}</p></article>)}
       {!loading && rows.length === 0 && <p className="rounded-xl border bg-white p-6 text-center text-[var(--muted)]">No recorded transactions for this selection.</p>}
     </section>
     <CursorTablePagination page={pageStarts.length} pageSize={pageSize} rowCount={rows.length} hasNextPage={Boolean(result?.nextCursor)} loading={loading} onPrevious={() => setPageStarts((current) => current.length > 1 ? current.slice(0, -1) : current)} onNext={() => { if (result?.nextCursor) setPageStarts((current) => [...current, result.nextCursor]); }} onPageSizeChange={(size) => { setPageSize(size); setPageStarts([null]); }} itemLabel="transactions" />

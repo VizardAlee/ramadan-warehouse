@@ -18,6 +18,7 @@ import { FieldValue, Timestamp, getFirestore } from "firebase-admin/firestore";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { balanceDocumentId } from "../functions/src/inventory/calculations";
 import { deliverInAppNotification, type InboxEvent } from "../functions/src/notifications/in-app";
+import { queueDebtReminders } from "../functions/src/notifications/debt-reminders";
 
 const projectId = "demo-ramadan-warehouse";
 const adminApp =
@@ -782,6 +783,8 @@ describe.sequential("sales callables", () => {
       grossAmountMinor: 10_750,
       creditAmountMinor: 7_750,
       amountPaidMinor: 3_000,
+      receivableOutstandingMinor: 7_750,
+      receivablePaidMinor: 3_000,
     });
     expect(customer.data()).toMatchObject({
       outstandingBalanceMinor: 7_750,
@@ -1511,12 +1514,12 @@ describe.sequential("sales callables", () => {
     expect(workspace.customers.find((item) => item.id === created.customerId)?.arrangements).toContainEqual(expect.objectContaining({ id: "general", outstandingBalanceMinor: 5000 }));
     const price = workspace.products.find((item) => item.id === productId)!;
     const gross = price.unitPriceMinor * 2 + Math.round(price.unitPriceMinor * 2 * price.vatRateBasisPoints / 10000);
-    const payload = { branchId, deviceId, shiftId: shift.shiftId, recordedAt: new Date().toISOString(), offline: false, customerId: created.customerId, customerAccountId: accountId, creditAmountMinor: gross, lines: [{ productId, quantity: 2 }], payments: [], idempotencyKey: crypto.randomUUID(), operatingContext: context };
+    const payload = { branchId, deviceId, shiftId: shift.shiftId, recordedAt: new Date().toISOString(), offline: false, customerId: created.customerId, customerAccountId: accountId, creditAmountMinor: gross, creditDueDate: "2026-10-08", lines: [{ productId, quantity: 2 }], payments: [], idempotencyKey: crypto.randomUUID(), operatingContext: context };
     await expect(call(branchManager, "createPosSaleOrder", { ...payload, customerAccountId: crypto.randomUUID() })).rejects.toMatchObject({ code: "functions/failed-precondition" });
     const order = await call<{ orderId: string }>(branchManager, "createPosSaleOrder", payload);
     await call(branchManager, "acceptPosSaleOrderPayment", { orderId: order.orderId, shiftId: shift.shiftId, deviceId, idempotencyKey: crypto.randomUUID(), operatingContext: context });
     const sale = await call<{ saleId: string }>(branchManager, "confirmPosSaleOrder", { orderId: order.orderId, idempotencyKey: crypto.randomUUID(), operatingContext: context });
-    expect((await adminDb.doc(`sales/${sale.saleId}`).get()).data()).toMatchObject({ customerAccountId: accountId, customerAccountName: "Installation project" });
+    expect((await adminDb.doc(`sales/${sale.saleId}`).get()).data()).toMatchObject({ customerAccountId: accountId, customerAccountName: "Installation project", receivableVersion: 1, receivableOutstandingMinor: gross, receivableDueDate: "2026-10-08" });
     expect((await customerRef.get()).get("arrangements")[0].outstandingBalanceMinor).toBe(gross);
     const payment = { customerId: created.customerId, branchId, method: "cash", amountMinor: 1000, idempotencyKey: crypto.randomUUID(), operatingContext: context };
     await expect(call(administrator, "recordCustomerPayment", { ...payment, amountMinor: 5001 })).rejects.toMatchObject({ code: "functions/failed-precondition" });
@@ -1527,6 +1530,8 @@ describe.sequential("sales callables", () => {
     expect((await customerRef.get()).data()).toMatchObject({ outstandingBalanceMinor: 5000 + gross - 1000, arrangements: [expect.objectContaining({ id: accountId, outstandingBalanceMinor: gross - 600 })] });
     const paymentRecord = await adminDb.doc(`customerPayments/${receipt.paymentId}`).get();
     expect(paymentRecord.get("allocations")).toHaveLength(2);
+    expect(paymentRecord.get("invoiceAllocations")).toEqual([expect.objectContaining({ saleId: sale.saleId, accountId, amountMinor: 600 })]);
+    expect((await adminDb.doc(`sales/${sale.saleId}`).get()).get("receivableOutstandingMinor")).toBe(gross - 600);
     const journal = await adminDb.doc(`journalEntries/${paymentRecord.get("journalEntryId")}`).get();
     expect(journal.data()).toMatchObject({ totalDebitMinor: 1000, totalCreditMinor: 1000 });
     await expect(call(administrator, "saveCustomer", { ...configure, arrangement: { ...configure.arrangement, active: false }, idempotencyKey: crypto.randomUUID() })).rejects.toMatchObject({ code: "functions/failed-precondition" });
@@ -1537,11 +1542,55 @@ describe.sequential("sales callables", () => {
     const remaining = gross - 600 - returnAmount;
     expect((await customerRef.get()).get("arrangements")[0].outstandingBalanceMinor).toBe(remaining);
     await call(administrator, "recordCustomerPayment", { ...payment, amountMinor: remaining, allocations: [{ accountId, amountMinor: remaining }], idempotencyKey: crypto.randomUUID() });
+    expect((await adminDb.doc(`sales/${sale.saleId}`).get()).data()).toMatchObject({ receivableOutstandingMinor: 0, receivableStatus: "settled", receivableCreditedMinor: returnAmount, amountPaidMinor: 0, creditAmountMinor: gross });
     await call(administrator, "saveCustomer", { ...configure, arrangement: { ...configure.arrangement, active: false }, idempotencyKey: crypto.randomUUID() });
     await expect(call(branchManager, "createPosSaleOrder", { ...payload, idempotencyKey: crypto.randomUUID() })).rejects.toMatchObject({ code: "functions/failed-precondition" });
     const history = await call<{ customer: { arrangements: unknown[] }; rows: unknown[] }>(administrator, "getCustomerHistory", { customerId: created.customerId });
     expect(history.customer.arrangements).toContainEqual(expect.objectContaining({ id: "general", outstandingBalanceMinor: 4600 }));
     expect(history.rows).toContainEqual(expect.objectContaining({ kind: "account", accountName: "Multiple arrangements" }));
+  });
+
+  it("allocates invoice repayments and advances atomically, with aging and resumable debt reminders", async () => {
+    const saved = await call<{ customerId: string }>(administrator, "saveCustomer", { name: "Advance test", phone: "08077665544", idempotencyKey: crypto.randomUUID() });
+    const customer = adminDb.doc(`customers/${saved.customerId}`);
+    await customer.update({ outstandingBalanceMinor: 10500, invoiceDebtByAccount: { general: 10000 }, creditLimitMinor: 20000, availableCreditMinor: 9500 });
+    const invoice = adminDb.collection("sales").doc();
+    await invoice.set({ organizationId, branchId, customerId: saved.customerId, customerAccountId: "general", customerAccountName: "General account", saleNumber: "INV-ADVANCE-TEST", receivableVersion: 1, receivableStatus: "open", receivableOutstandingMinor: 10000, receivablePaidMinor: 0, receivableCreditedMinor: 0, receivableDueDate: "2026-10-01", recordedAt: Timestamp.now(), grossAmountMinor: 10000, amountPaidMinor: 0, creditAmountMinor: 10000 });
+    const base = { customerId: saved.customerId, branchId, method: "bank_transfer", bankAccountId, amountMinor: 4000, purpose: "advance", idempotencyKey: crypto.randomUUID() };
+    await expect(call(cashier, "recordCustomerPayment", base)).rejects.toMatchObject({ code: "functions/permission-denied" });
+    const receipt = await call<{ paymentId: string }>(administrator, "recordCustomerPayment", base);
+    expect(await call(administrator, "recordCustomerPayment", base)).toMatchObject({ recorded: false, paymentId: receipt.paymentId });
+    expect((await customer.get()).data()).toMatchObject({ outstandingBalanceMinor: 10500, advanceBalances: { general: 4000 } });
+    const receiptRecord = await adminDb.doc(`customerPayments/${receipt.paymentId}`).get();
+    const receiptLines = await adminDb.collection("journalLines").where("journalEntryId", "==", receiptRecord.get("journalEntryId")).get();
+    expect(receiptLines.docs.map((line) => line.data())).toEqual(expect.arrayContaining([expect.objectContaining({ accountCode: "1040", debitMinor: 4000 }), expect.objectContaining({ accountCode: "2210", creditMinor: 4000 })]));
+    const application = { customerId: saved.customerId, branchId, amountMinor: 4000, purpose: "repayment", source: "advance_balance", method: "cash", invoiceAllocations: [{ saleId: invoice.id, amountMinor: 4000 }], idempotencyKey: crypto.randomUUID() };
+    const applications = await Promise.all([call<{ paymentId: string; recorded: boolean }>(administrator, "recordCustomerPayment", application), call<{ paymentId: string; recorded: boolean }>(administrator, "recordCustomerPayment", application)]);
+    expect(applications.map((item) => item.recorded).sort()).toEqual([false, true]);
+    const applied = applications.find((item) => item.recorded)!;
+    expect((await customer.get()).data()).toMatchObject({ outstandingBalanceMinor: 6500, advanceBalances: { general: 0 }, invoiceDebtByAccount: { general: 6000 } });
+    expect((await invoice.get()).data()).toMatchObject({ receivableOutstandingMinor: 6000, receivablePaidMinor: 4000, amountPaidMinor: 0 });
+    const appliedRecord = await adminDb.doc(`customerPayments/${applied.paymentId}`).get();
+    const appliedLines = await adminDb.collection("journalLines").where("journalEntryId", "==", appliedRecord.get("journalEntryId")).get();
+    expect(appliedLines.docs.map((line) => line.data())).toEqual(expect.arrayContaining([expect.objectContaining({ accountCode: "2210", debitMinor: 4000 }), expect.objectContaining({ accountCode: "1100", creditMinor: 4000 })]));
+    expect(appliedLines.docs.every((line) => !["1010", "1040"].includes(String(line.get("accountCode"))))).toBe(true);
+    await expect(call(administrator, "recordCustomerPayment", { ...application, amountMinor: 1, invoiceAllocations: [{ saleId: invoice.id, amountMinor: 1 }], idempotencyKey: crypto.randomUUID() })).rejects.toMatchObject({ code: "functions/failed-precondition" });
+    await expect(call(administrator, "recordCustomerPayment", { ...application, source: "receipt", amountMinor: 6001, invoiceAllocations: [{ saleId: invoice.id, amountMinor: 6001 }], idempotencyKey: crypto.randomUUID() })).rejects.toMatchObject({ code: "functions/failed-precondition" });
+    const history = await call<{ invoices: unknown[]; aging: Array<{ name: string; amountMinor: number }>; historicalUnallocatedMinor: number }>(administrator, "getCustomerHistory", { customerId: saved.customerId, branchId, view: "receivables", limit: 25 });
+    expect(history).toMatchObject({ historicalUnallocatedMinor: 500, invoices: [expect.objectContaining({ id: invoice.id, outstandingMinor: 6000 })] });
+    expect(history.aging.reduce((sum, bucket) => sum + bucket.amountMinor, 0)).toBe(6000);
+    const reminderDate = new Date("2026-10-07T12:00:00Z");
+    await queueDebtReminders(organizationId, reminderDate, 1);
+    await queueDebtReminders(organizationId, reminderDate, 1);
+    const reminders = await adminDb.collection("notificationEvents").where("entityId", "==", invoice.id).where("eventType", "==", "customer.debt_overdue").get();
+    expect(reminders.size).toBe(1);
+    const reminder = reminders.docs[0]!;
+    await deliverInAppNotification({ ...reminder.data(), id: reminder.id } as InboxEvent);
+    expect((await adminDb.doc(`users/${branchManager.auth.currentUser!.uid}/notifications/sales_${invoice.id}`).get()).get("href")).toBe(`/customers/${saved.customerId}`);
+    await call(administrator, "recordCustomerPayment", { ...application, source: "receipt", amountMinor: 6500, invoiceAllocations: [{ saleId: invoice.id, amountMinor: 6000 }], idempotencyKey: crypto.randomUUID() });
+    expect((await customer.get()).get("outstandingBalanceMinor")).toBe(0);
+    expect((await invoice.get()).get("receivableStatus")).toBe("settled");
+    expect(await deliverInAppNotification({ ...reminder.data(), id: `${reminder.id}_retry` } as InboxEvent)).toMatchObject({ delivered: true, providerMessageId: expect.stringContaining("superseded") });
   });
 
   it("posts approved wholesale through the controlled workflow and rejects stale offline price tiers", async () => {

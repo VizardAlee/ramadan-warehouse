@@ -126,6 +126,7 @@ export default function PosPage() {
   const [discountAmount, setDiscountAmount] = useState("");
   const [discountReason, setDiscountReason] = useState("");
   const [creditPaidAmount, setCreditPaidAmount] = useState("0.00");
+  const [creditDueDate, setCreditDueDate] = useState("");
   const [creditIntent, setCreditIntent] = useState<"credit" | "part">("credit");
   const [creditUpfrontMethod, setCreditUpfrontMethod] = useState<
     "cash" | "card" | "bank_transfer"
@@ -449,6 +450,7 @@ export default function PosPage() {
     setDiscountAmount("");
     setDiscountReason("");
     setCreditPaidAmount("0.00");
+    setCreditDueDate("");
     setCreditIntent("credit");
     setCreditUpfrontMethod("cash");
     setSplitPayments([]);
@@ -483,6 +485,7 @@ export default function PosPage() {
         discountAmount,
         discountReason,
         creditPaidAmount,
+        creditDueDate: creditDueDate || undefined,
         creditIntent,
         creditUpfrontMethod,
         splitPayments: paymentMethod === "split" ? splitPayments : undefined,
@@ -570,6 +573,7 @@ export default function PosPage() {
     setDiscountAmount(restoredDiscountAmount);
     setDiscountReason(restoredDiscountReason);
     setCreditPaidAmount(heldSale.creditPaidAmount);
+    setCreditDueDate(heldSale.creditDueDate ?? "");
     setCreditIntent(heldSale.creditIntent ?? (Number(heldSale.creditPaidAmount) > 0 ? "part" : "credit"));
     setCreditUpfrontMethod(heldSale.creditUpfrontMethod);
     setSplitPayments((heldSale.splitPayments ?? []).map((payment) => ({
@@ -834,6 +838,7 @@ export default function PosPage() {
       customerId: customerId || undefined,
       customerAccountId: customerId ? customerAccountId : undefined,
       creditAmountMinor,
+      creditDueDate: creditAmountMinor > 0 && creditDueDate ? creditDueDate : undefined,
       discountAmountMinor,
       discountReason:
         discountAmountMinor > 0 ? discountReason.trim() : undefined,
@@ -2052,6 +2057,7 @@ export default function PosPage() {
                 </label>
               </div>
             ) : null}
+            {creditAmountMinor > 0 && <label className="mt-3 block text-sm font-medium">Payment due date<input type="date" value={creditDueDate} onChange={(event) => setCreditDueDate(event.target.value)} className="mt-1 w-full rounded-lg border p-3" /><span className="mt-1 block text-xs text-[var(--muted)]">Leave blank only when terms have not been agreed; undated debt is not marked overdue.</span></label>}
             <Button
               className="mt-5 w-full"
               disabled={
