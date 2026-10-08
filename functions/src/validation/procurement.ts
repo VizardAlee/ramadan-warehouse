@@ -112,7 +112,7 @@ export const supplierInvoiceActionInput = z.object({
 
 export const recordSupplierPaymentInput = z.object({
   supplierId: id,
-  purpose: z.enum(["payment", "advance"]).default("payment"),
+  purpose: z.enum(["payment", "advance", "advance_refund"]).default("payment"),
   source: z.enum(["disbursement", "advance_balance"]).default("disbursement"),
   amountMinor: positiveMoney.optional(),
   branchId: id.optional(),
@@ -139,11 +139,13 @@ export const recordSupplierPaymentInput = z.object({
     context.addIssue({ code: "custom", path: ["branchId"], message: "Choose one payment location." });
   if (value.purpose === "advance" && (!value.amountMinor || value.allocations.length || value.source !== "disbursement" || (!value.branchId && !value.warehouseId)))
     context.addIssue({ code: "custom", path: ["amountMinor"], message: "An advance requires an amount, a payment location, a new disbursement and no invoice allocations." });
+  if (value.purpose === "advance_refund" && (!value.amountMinor || value.allocations.length || value.source !== "disbursement" || (!value.branchId && !value.warehouseId) || !value.notes?.trim()))
+    context.addIssue({ code: "custom", path: ["notes"], message: "An advance refund requires an amount, a recording store, a refund reason and no invoice allocations. Record money actually received, not advance application." });
   if (value.purpose === "payment" && (!value.allocations.length || value.amountMinor !== undefined))
     context.addIssue({ code: "custom", path: ["allocations"], message: "Allocate the payment to its invoices." });
   if (value.source === "advance_balance" && value.bankAccountId)
     context.addIssue({ code: "custom", path: ["bankAccountId"], message: "Applying an advance does not make another bank payment." });
-  const total = value.purpose === "advance" ? value.amountMinor ?? 0 : value.allocations.reduce((sum, allocation) => sum + allocation.amountMinor, 0);
+  const total = value.purpose !== "payment" ? value.amountMinor ?? 0 : value.allocations.reduce((sum, allocation) => sum + allocation.amountMinor, 0);
   if (!Number.isSafeInteger(total) || total <= 0 || total > Number.MAX_SAFE_INTEGER)
     context.addIssue({ code: "custom", path: ["allocations"], message: "Payment allocation total is invalid." });
 });

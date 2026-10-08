@@ -19,6 +19,7 @@ interface Statement {
 const labels: Record<string, string> = {
   supplier_invoice: "Invoice approved", supplier_payment: "Payment made",
   supplier_advance: "Advance paid", supplier_advance_applied: "Advance applied to invoice",
+  supplier_advance_refund: "Unused advance refunded by supplier",
 };
 
 interface Payables {
@@ -102,8 +103,8 @@ function SupplierStatement({ supplierId, scope }: { supplierId: string; scope: S
   </section>;
 }
 
-function SupplierPaymentDialog({ supplier, invoice, scope, banks, branches, onClose, onComplete }: {
-  supplier: Supplier; invoice?: SupplierInvoice; scope: Scope; banks: Bank[];
+function SupplierPaymentDialog({ supplier, invoice, refund = false, scope, banks, branches, onClose, onComplete }: {
+  supplier: Supplier; invoice?: SupplierInvoice; refund?: boolean; scope: Scope; banks: Bank[];
   branches: Array<{ id: string; name: string }>; onClose: () => void; onComplete: () => void;
 }) {
   const [amount, setAmount] = useState(invoice ? String(invoice.outstandingAmountMinor / 100) : "");
@@ -126,13 +127,14 @@ function SupplierPaymentDialog({ supplier, invoice, scope, banks, branches, onCl
   const scopeKey = paymentScope.branchId ? `branch:${paymentScope.branchId}` : `warehouse:${paymentScope.warehouseId}`;
   const availableAdvance = supplier.advanceBalancesByLocation?.[scopeKey] ?? 0;
   const valid = Number.isSafeInteger(amountMinor) && amountMinor > 0 &&
+    (!refund || (amountMinor <= availableAdvance && Boolean(notes.trim()))) &&
     (!invoice || amountMinor <= invoice.outstandingAmountMinor) && Boolean(paymentScope.branchId || paymentScope.warehouseId) &&
     (source === "advance_balance" ? amountMinor <= availableAdvance : method === "cash" || Boolean(bankAccountId && reference.trim()));
   async function submit() {
     if (!valid && !pending.current) return;
     setBusy(true); setError(""); setUncertain(true);
     pending.current ??= {
-      supplierId: supplier.id, purpose: invoice ? "payment" : "advance", source, ...paymentScope,
+      supplierId: supplier.id, purpose: refund ? "advance_refund" : invoice ? "payment" : "advance", source, ...paymentScope,
       method, bankAccountId: source === "disbursement" && method !== "cash" ? bankAccountId : undefined,
       reference: reference || undefined, notes: notes || undefined,
       amountMinor: invoice ? undefined : amountMinor,
@@ -149,8 +151,9 @@ function SupplierPaymentDialog({ supplier, invoice, scope, banks, branches, onCl
     } finally { setBusy(false); }
   }
   return <AppDialog role="dialog" aria-modal="true" aria-labelledby="supplier-payment-title"><div className="app-dialog-panel w-full max-w-lg rounded-2xl bg-white p-6">
-    <h2 id="supplier-payment-title" className="text-xl font-semibold">{invoice ? "Pay supplier invoice" : "Record supplier advance"}</h2>
-    <p className="mt-2 text-sm text-[var(--muted)]">{supplier.name}{invoice ? ` · ${invoice.supplierInvoiceNumber}` : " · money paid before invoice settlement"}</p>
+    <h2 id="supplier-payment-title" className="text-xl font-semibold">{refund ? "Receive supplier advance refund" : invoice ? "Pay supplier invoice" : "Record supplier advance"}</h2>
+    <p className="mt-2 text-sm text-[var(--muted)]">{supplier.name}{refund ? " · money returned to the company" : invoice ? ` · ${invoice.supplierInvoiceNumber}` : " · money paid before invoice settlement"}</p>
+    {refund && <p className="mt-3 rounded-lg bg-blue-50 p-3 text-sm">Record only money actually returned by the supplier. Unused advance in this store: {formatNaira(availableAdvance)}. This reduces the advance, not invoice debt, and does not return goods or change stock.</p>}
     {error && <p role="alert" className="mt-3 rounded-lg bg-red-50 p-3 text-red-800">{error}</p>}
     {uncertain && <p className="mt-3 rounded-lg bg-amber-50 p-3 text-sm">Details are locked until the result is confirmed. Retry the same transaction; do not record the money again. If this page is closed, check supplier history first.</p>}
     <fieldset disabled={busy || uncertain} className="mt-4 space-y-3">
@@ -160,12 +163,12 @@ function SupplierPaymentDialog({ supplier, invoice, scope, banks, branches, onCl
       {amountError && <p role="alert" className="text-sm text-red-800">{amountError}</p>}
       {source === "disbursement" && <>
         <label className="block text-sm">Payment method<select aria-label="Supplier payment method" value={method} onChange={(event) => setMethod(event.target.value as typeof method)} className="mt-1 w-full rounded-lg border p-3"><option value="bank_transfer">Bank transfer</option><option value="card">Card / POS</option><option value="cash">Cash</option></select></label>
-        {method !== "cash" && <label className="block text-sm">Company account paid from<select aria-label="Supplier funding account" value={bankAccountId} onChange={(event) => setBank(event.target.value)} className="mt-1 w-full rounded-lg border p-3"><option value="">Choose account</option>{banks.map((bank) => <option key={bank.id} value={bank.id}>{bank.bankName} · {bank.accountName} · ••••{bank.accountNumberLast4}</option>)}</select></label>}
+        {method !== "cash" && <label className="block text-sm">{refund ? "Company account money received into" : "Company account paid from"}<select aria-label={refund ? "Supplier refund receiving account" : "Supplier funding account"} value={bankAccountId} onChange={(event) => setBank(event.target.value)} className="mt-1 w-full rounded-lg border p-3"><option value="">Choose account</option>{banks.map((bank) => <option key={bank.id} value={bank.id}>{bank.bankName} · {bank.accountName} · ••••{bank.accountNumberLast4}</option>)}</select></label>}
         <label className="block text-sm">Payment reference{method === "cash" ? " (optional)" : ""}<input value={reference} onChange={(event) => setReference(event.target.value)} className="mt-1 w-full rounded-lg border p-3" /></label>
       </>}
-      <label className="block text-sm">Notes (optional)<textarea value={notes} maxLength={500} onChange={(event) => setNotes(event.target.value)} className="mt-1 w-full rounded-lg border p-3" /></label>
+      <label className="block text-sm">{refund ? "Refund reason (required)" : "Notes (optional)"}<textarea value={notes} maxLength={500} onChange={(event) => setNotes(event.target.value)} className="mt-1 w-full rounded-lg border p-3" /></label>
     </fieldset>
-    <div className="mt-5 flex flex-wrap justify-end gap-2 border-t pt-4"><Button variant="outline" disabled={busy || uncertain} onClick={onClose}>Cancel</Button><Button disabled={busy || (!valid && !uncertain)} onClick={() => void submit()}>{uncertain ? "Retry same transaction" : source === "advance_balance" ? "Apply advance" : invoice ? "Record payment" : "Record advance"}</Button></div>
+    <div className="mt-5 flex flex-wrap justify-end gap-2 border-t pt-4"><Button variant="outline" disabled={busy || uncertain} onClick={onClose}>Cancel</Button><Button disabled={busy || (!valid && !uncertain)} onClick={() => void submit()}>{uncertain ? "Retry same transaction" : refund ? "Record refund received" : source === "advance_balance" ? "Apply advance" : invoice ? "Record payment" : "Record advance"}</Button></div>
   </div></AppDialog>;
 }
 
@@ -175,18 +178,19 @@ export function SupplierAccounts({ suppliers, scope, banks, branches, canPay, in
 }) {
   const [supplierId, setSupplierId] = useState("");
   const [advanceSupplier, setAdvanceSupplier] = useState<string | null>(null);
+  const [refund, setRefund] = useState(false);
   const [selectedInvoice, setSelectedInvoice] = useState<SupplierInvoice | null>(null);
   const [refresh, setRefresh] = useState(0);
   const selected = suppliers.find((supplier) => supplier.id === supplierId);
   const activeInvoice = invoice ?? selectedInvoice;
   const paying = suppliers.find((supplier) => supplier.id === (activeInvoice?.supplierId ?? advanceSupplier));
-  function close() { setAdvanceSupplier(null); setSelectedInvoice(null); closeInvoice(); }
+  function close() { setAdvanceSupplier(null); setRefund(false); setSelectedInvoice(null); closeInvoice(); }
   return <section className="rounded-xl border bg-white p-5">
     <h2 className="text-xl font-semibold">Supplier accounts &amp; statements</h2>
     <p className="text-sm text-[var(--muted)]">Payables and unused advances are separate. Filter history below; invoice payments support part payment.</p>
-    <div className="mt-3 flex flex-wrap gap-3"><label className="min-w-0 flex-1 text-sm">Supplier<select aria-label="Supplier account" value={supplierId} onChange={(event) => setSupplierId(event.target.value)} className="mt-1 w-full rounded-lg border p-3"><option value="">Choose supplier</option>{suppliers.map((supplier) => <option key={supplier.id} value={supplier.id}>{supplier.supplierNumber} · {supplier.name}{supplier.active ? "" : " (inactive)"}</option>)}</select></label>{canPay && selected?.active && <Button className="self-end" onClick={() => setAdvanceSupplier(selected.id)}>Record advance</Button>}</div>
+    <div className="mt-3 flex flex-wrap gap-3"><label className="min-w-0 flex-1 text-sm">Supplier<select aria-label="Supplier account" value={supplierId} onChange={(event) => setSupplierId(event.target.value)} className="mt-1 w-full rounded-lg border p-3"><option value="">Choose supplier</option>{suppliers.map((supplier) => <option key={supplier.id} value={supplier.id}>{supplier.supplierNumber} · {supplier.name}{supplier.active ? "" : " (inactive)"}</option>)}</select></label>{canPay && selected?.active && <Button className="self-end" onClick={() => { setRefund(false); setAdvanceSupplier(selected.id); }}>Record advance</Button>}{canPay && selected && (selected.advanceBalanceMinor ?? 0) > 0 && <Button variant="outline" className="self-end" onClick={() => { setRefund(true); setAdvanceSupplier(selected.id); }}>Receive advance refund</Button>}</div>
     {selected && <SupplierPayables key={`payables-${JSON.stringify([selected.id, scope, refresh])}`} supplierId={selected.id} scope={scope} canPay={canPay} onPay={setSelectedInvoice} />}
     {selected && <SupplierStatement key={JSON.stringify([selected.id, scope, refresh])} supplierId={selected.id} scope={scope} />}
-    {paying && <SupplierPaymentDialog key={activeInvoice?.id ?? `advance-${paying.id}`} supplier={paying} invoice={activeInvoice ?? undefined} scope={scope} banks={banks} branches={branches} onClose={close} onComplete={() => { close(); setRefresh((value) => value + 1); onComplete(); }} />}
+    {paying && <SupplierPaymentDialog key={activeInvoice?.id ?? `${refund ? "refund" : "advance"}-${paying.id}`} supplier={paying} invoice={activeInvoice ?? undefined} refund={refund && !activeInvoice} scope={scope} banks={banks} branches={branches} onClose={close} onComplete={() => { close(); setRefresh((value) => value + 1); onComplete(); }} />}
   </section>;
 }

@@ -515,6 +515,34 @@ describe.sequential("procurement callables", () => {
     await expect(call(headOfficeManager, "getProcurementWorkspace", { ...input, cursor: "aging-0" })).rejects.toMatchObject({ code: "functions/invalid-argument" });
   });
 
+  it("receives unused supplier advances once, without reducing invoice debt or moving stock", async () => {
+    const { supplierId } = await call<{ supplierId: string }>(administrator, "saveSupplier", {
+      name: "Refund Supplier", phone: "07099998888", active: true, idempotencyKey: crypto.randomUUID(),
+    });
+    const supplier = adminDb.doc(`suppliers/${supplierId}`);
+    await call(headOfficeManager, "recordSupplierPayment", { supplierId, branchId: headOfficeId, purpose: "advance", amountMinor: 40_000, method: "bank_transfer", bankAccountId, reference: "REF-ADV", paidAt: new Date().toISOString(), idempotencyKey: crypto.randomUUID() });
+    await supplier.update({ active: false }); // Revoking new purchases must not trap existing money.
+    const before = await adminDb.collection("inventoryTransactions").where("organizationId", "==", organizationId).get();
+    const refund = { supplierId, branchId: headOfficeId, purpose: "advance_refund", amountMinor: 10_000, method: "bank_transfer", bankAccountId, reference: "REF-RECEIVED", notes: "Unused deposit returned", paidAt: new Date().toISOString(), idempotencyKey: crypto.randomUUID() };
+    const results = await Promise.all([1, 2].map(() => call<{ paymentId: string; recorded: boolean }>(headOfficeManager, "recordSupplierPayment", refund)));
+    expect(results[0]!.paymentId).toBe(results[1]!.paymentId);
+    expect(results.filter((result) => result.recorded)).toHaveLength(1);
+    expect((await supplier.get()).data()).toMatchObject({ advanceBalanceMinor: 30_000, outstandingBalanceMinor: 0, advanceBalancesByLocation: { [`branch:${headOfficeId}`]: 30_000 } });
+    const payment = await adminDb.doc(`supplierPayments/${results[0]!.paymentId}`).get();
+    expect(payment.data()).toMatchObject({ purpose: "advance_refund", direction: "inflow", bankAccountId, ledgerAccountCode: "1041" });
+    const lines = await adminDb.collection("journalLines").where("journalEntryId", "==", payment.get("journalEntryId")).get();
+    expect(lines.docs.map((line) => [line.get("accountCode"), line.get("debitMinor"), line.get("creditMinor")])).toEqual(expect.arrayContaining([["1041", 10_000, 0], ["1250", 0, 10_000]]));
+    await expect(call(headOfficeManager, "recordSupplierPayment", { ...refund, amountMinor: 40_000, idempotencyKey: crypto.randomUUID() })).rejects.toMatchObject({ code: "functions/failed-precondition" });
+    const otherStoreRefund = Object.fromEntries(Object.entries(refund).filter(([key]) => key !== "branchId"));
+    await expect(call(administrator, "recordSupplierPayment", { ...otherStoreRefund, warehouseId, idempotencyKey: crypto.randomUUID() })).rejects.toMatchObject({ code: "functions/failed-precondition" });
+    await expect(call(warehouseManager, "recordSupplierPayment", { ...refund, idempotencyKey: crypto.randomUUID() })).rejects.toMatchObject({ code: "functions/permission-denied" });
+    const competing = await Promise.allSettled([1, 2].map(() => call(headOfficeManager, "recordSupplierPayment", { ...refund, amountMinor: 25_000, idempotencyKey: crypto.randomUUID() })));
+    expect(competing.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+    const statement = await call<{ closingAdvanceMinor: number; closingPayableMinor: number }>(headOfficeManager, "getProcurementWorkspace", { view: "supplier_account", supplierId, branchId: headOfficeId, limit: 25 });
+    expect(statement).toMatchObject({ closingAdvanceMinor: 5_000, closingPayableMinor: 0 });
+    expect((await adminDb.collection("inventoryTransactions").where("organizationId", "==", organizationId).get()).size).toBe(before.size);
+  });
+
   it("keeps supplier advances separate, applies partial amounts once and preserves paginated statements", async () => {
     const { supplierId } = await call<{ supplierId: string }>(administrator, "saveSupplier", {
       name: "Advance Supplier", phone: "07033334444", active: true, idempotencyKey: crypto.randomUUID(),

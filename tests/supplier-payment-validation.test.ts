@@ -2,6 +2,13 @@ import { describe, expect, it } from "vitest";
 import { recordSupplierPaymentInput, procurementWorkspaceInput, submitSupplierInvoiceInput } from "../functions/src/validation/procurement";
 const base = { supplierId: "supplier", method: "cash", paidAt: "2026-10-08T10:00:00Z", idempotencyKey: "08a610c3-3012-414b-82de-f921b982defb" };
 describe("supplier payment validation", () => {
+  it("requires a reason, scope and actual receipt account for advance refunds", () => {
+    const refund = { ...base, purpose: "advance_refund", branchId: "head-office", amountMinor: 1000, notes: "Unused deposit returned" };
+    expect(recordSupplierPaymentInput.safeParse(refund).success).toBe(true);
+    for (const change of [{ notes: "" }, { branchId: undefined }, { source: "advance_balance" }, { allocations: [{ supplierInvoiceId: "invoice", amountMinor: 1000 }] }, { amountMinor: 0 }, { method: "bank_transfer" }])
+      expect(recordSupplierPaymentInput.safeParse({ ...refund, ...change }).success).toBe(false);
+    expect(recordSupplierPaymentInput.safeParse({ ...refund, method: "bank_transfer", bankAccountId: "bank", reference: "REFUND-1" }).success).toBe(true);
+  });
   it("requires explicit advance amount and operating location", () => {
     expect(recordSupplierPaymentInput.safeParse({ ...base, purpose: "advance", amountMinor: 1000 }).success).toBe(false);
     expect(recordSupplierPaymentInput.safeParse({ ...base, purpose: "advance", amountMinor: 1000, branchId: "head-office" }).success).toBe(true);

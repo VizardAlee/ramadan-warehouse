@@ -14,6 +14,20 @@ function statementResponse(statement: object) {
   api.call.mockImplementation((_name: string, input: { view?: string }) => Promise.resolve(input.view === "supplier_payables" ? emptyPayables : statement));
 }
 describe("supplier account workflow", () => {
+  it("requires a receiving account and reason before recording an advance refund", async () => {
+    statementResponse({ entries: [], nextCursor: null, openingPayableMinor: 0, closingPayableMinor: 0, openingAdvanceMinor: 5000, closingAdvanceMinor: 5000 });
+    render(<SupplierAccounts {...props} invoice={null} />);
+    fireEvent.change(screen.getByLabelText("Supplier account"), { target: { value: supplier.id } });
+    fireEvent.click(screen.getByRole("button", { name: "Receive advance refund" }));
+    expect(screen.getByRole("dialog", { name: "Receive supplier advance refund" })).toBeTruthy();
+    fireEvent.change(screen.getByLabelText("Supplier payment amount"), { target: { value: "25" } });
+    expect((screen.getByRole("button", { name: "Record refund received" }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.change(screen.getByLabelText("Supplier refund receiving account"), { target: { value: "bank1" } });
+    fireEvent.change(screen.getByLabelText("Payment reference"), { target: { value: "RETURNED-1" } });
+    fireEvent.change(screen.getByLabelText("Refund reason (required)"), { target: { value: "Deposit no longer required" } });
+    fireEvent.click(screen.getByRole("button", { name: "Record refund received" }));
+    await waitFor(() => expect(api.call).toHaveBeenCalledWith("recordSupplierPayment", expect.objectContaining({ purpose: "advance_refund", branchId: "branch1", bankAccountId: "bank1", amountMinor: 2500, allocations: [], notes: "Deposit no longer required" })));
+  });
   it("validates excess decimal places without crashing the payment dialog", () => {
     render(<SupplierAccounts {...props} />);
     fireEvent.change(screen.getByLabelText("Supplier payment amount"), { target: { value: "1.234" } });

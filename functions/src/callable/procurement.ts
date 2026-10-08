@@ -1593,7 +1593,7 @@ export const recordSupplierPayment = onCall(
       if (input.purpose === "advance" && supplierSnapshot.get("active") !== true)
         throw new HttpsError("failed-precondition", "New advances require an active supplier.");
       const invoices = snapshots.slice(6),
-        total = input.purpose === "advance" ? input.amountMinor! : input.allocations.reduce(
+        total = input.purpose !== "payment" ? input.amountMinor! : input.allocations.reduce(
           (sum, allocation) => sum + allocation.amountMinor,
           0,
         );
@@ -1622,18 +1622,18 @@ export const recordSupplierPayment = onCall(
           "failed-precondition",
           "Payment exceeds the supplier's outstanding balance.",
         );
-      if (input.source === "advance_balance" && total > currentAdvance)
+      if ((input.source === "advance_balance" || input.purpose === "advance_refund") && total > currentAdvance)
         throw new HttpsError("failed-precondition", "The supplier has insufficient unused advance credit.");
       const paymentScope = input.branchId || input.warehouseId ? { branchId: input.branchId, warehouseId: input.warehouseId } : procurementScopeFrom(invoices[0]!);
       if (invoices.some((invoice) => (invoice.get("branchId") || undefined) !== paymentScope.branchId || (invoice.get("warehouseId") || undefined) !== paymentScope.warehouseId))
         throw new HttpsError("invalid-argument", "Settle invoices in their own recording store. Payments covering different stores must be recorded separately.");
-      const advanceDelta = input.purpose === "advance" ? total : input.source === "advance_balance" ? -total : 0;
+      const advanceDelta = input.purpose === "advance" ? total : input.source === "advance_balance" || input.purpose === "advance_refund" ? -total : 0;
       const nextAdvance = supplierMoney(currentAdvance + advanceDelta);
-      const nextBalance = supplierMoney(currentBalance - (input.purpose === "advance" ? 0 : total));
+      const nextBalance = supplierMoney(currentBalance - (input.purpose === "payment" ? total : 0));
       const scopeKey = paymentScope.branchId ? `branch:${paymentScope.branchId}` : `warehouse:${paymentScope.warehouseId}`;
       const advanceBalances = { ...(supplierSnapshot.get("advanceBalancesByLocation") ?? {}) } as Record<string, number>;
       const scopedAdvance = supplierMoney(advanceBalances[scopeKey]);
-      if (input.source === "advance_balance" && total > scopedAdvance)
+      if ((input.source === "advance_balance" || input.purpose === "advance_refund") && total > scopedAdvance)
         throw new HttpsError("failed-precondition", "This store has insufficient unused supplier advance. Credit from another store needs an authorized transfer first.");
       if (advanceDelta) {
         if (Object.values(advanceBalances).reduce((sum, amount) => sum + supplierMoney(amount), 0) !== currentAdvance)
@@ -1648,7 +1648,10 @@ export const recordSupplierPayment = onCall(
         input.bankAccountId,
         bankAccountSnapshot,
       );
-      const lines = [
+      const lines = input.purpose === "advance_refund" ? [
+        { accountCode: settlement.accountCode, accountName: settlement.accountName, debitMinor: total, creditMinor: 0 },
+        { accountCode: "1250", debitMinor: 0, creditMinor: total },
+      ] : [
         { accountCode: input.purpose === "advance" ? "1250" : "2000", debitMinor: total, creditMinor: 0 },
         {
           accountCode: settlement.accountCode,
@@ -1663,11 +1666,11 @@ export const recordSupplierPayment = onCall(
         journalCounter,
         journalCounterValue:
           Number(journalCounterSnapshot.get("value") ?? 0) + 1,
-        journalType: input.purpose === "advance" ? "supplier_advance" : input.source === "advance_balance" ? "supplier_advance_applied" : "supplier_payment",
+        journalType: input.purpose === "advance_refund" ? "supplier_advance_refund" : input.purpose === "advance" ? "supplier_advance" : input.source === "advance_balance" ? "supplier_advance_applied" : "supplier_payment",
         referenceType: "supplierPayment",
         referenceId: payment.id,
         referenceNumber: paymentNumber,
-        description: `Supplier payment ${paymentNumber}`,
+        description: `Supplier ${input.purpose === "advance_refund" ? "advance refund received" : "payment"} ${paymentNumber}`,
         ...paymentScope,
         effectiveAt,
         lines,
@@ -1710,6 +1713,7 @@ export const recordSupplierPayment = onCall(
           ...paymentScope,
           paymentNumber,
           purpose: input.purpose,
+          direction: input.purpose === "advance_refund" ? "inflow" : input.source === "advance_balance" ? "non_cash" : "outflow",
           source: input.source,
           method: input.source === "advance_balance" ? "supplier_advance" : input.method,
           reference: input.reference,
@@ -1733,11 +1737,11 @@ export const recordSupplierPayment = onCall(
         organizationId: actor.organizationId,
         supplierId: supplier.id,
         ...paymentScope,
-        entryType: input.purpose === "advance" ? "supplier_advance" : input.source === "advance_balance" ? "supplier_advance_applied" : "supplier_payment",
+        entryType: input.purpose === "advance_refund" ? "supplier_advance_refund" : input.purpose === "advance" ? "supplier_advance" : input.source === "advance_balance" ? "supplier_advance_applied" : "supplier_payment",
         referenceType: "supplierPayment",
         referenceId: payment.id,
         referenceNumber: paymentNumber,
-        amountMinor: input.purpose === "advance" ? 0 : -total,
+        amountMinor: input.purpose === "payment" ? -total : 0,
         advanceAmountMinor: advanceDelta,
         advanceBalanceAfterMinor: nextAdvance,
         journalEntryId: journal.id,
@@ -1757,11 +1761,12 @@ export const recordSupplierPayment = onCall(
         createdBy: actor.userId,
       });
       writeAuditLog(transaction, actor, {
-        action: input.purpose === "advance" ? "supplier.advance_recorded" : input.source === "advance_balance" ? "supplier.advance_applied" : "supplier_payment.recorded",
+        action: input.purpose === "advance_refund" ? "supplier.advance_refunded" : input.purpose === "advance" ? "supplier.advance_recorded" : input.source === "advance_balance" ? "supplier.advance_applied" : "supplier_payment.recorded",
         entityType: "supplierPayment",
         entityId: payment.id,
         correlationId: correlationId(),
         sourceFunction: "recordSupplierPayment",
+        reason: input.notes,
         after: {
           supplierId: supplier.id,
           amountMinor: total,

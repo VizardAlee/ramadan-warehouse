@@ -119,7 +119,25 @@ did not start another web rollout. A redundant post-backend App Hosting metadata
 refresh timed out; its earlier READY/100%-traffic verification remains recorded
 above. Supplier returns/refunds/credits are the next supplier-workstream slice,
 not yet implemented; the broader backlog is not complete.
-Supplier returns/refunds/credits and the broader remaining roadmap are not complete.
+
+### Supplier unused-advance refund — 8 October 2026 implementation
+
+The existing supplier-payment mutation, statement, permissions, company-account
+resolver and audit system now support receiving unused advances back from a
+supplier. Refunds require an explicit amount, recording store and reason; non-cash
+receipts require the receiving company account and reference. They debit cash/bank,
+credit supplier advances (1250), and leave invoice debt and stock unchanged.
+Store-scoped/global advance guards and idempotent transaction posting protect
+against duplicate or competing refunds. Inactive suppliers may refund existing
+money. The existing journal-derived daily reconciliation includes cash receipts.
+No migration/history rewrite or additional permission/IAM change is required.
+The supplier UI and user guide distinguish this from goods returns. Validation
+passed: 282 unit/interface tests, six procurement emulator cases and 25 security
+tests; typecheck, lint, Functions compilation, production build, secret scan and
+diff checks passed. The live query audit passed 432/432 shapes with all 222 indexes
+READY before refreshing the guarded baseline. Deployment is pending; physical
+supplier returns and linked credit-note settlement remain unfinished.
+The broader remaining roadmap is not complete.
 
 ## Next five priorities — 7 October 2026 implementation checkpoint
 

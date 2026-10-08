@@ -136,3 +136,17 @@ Still pending in this workstream: supplier return/refund/credit
 settlement with stock and accounting linkage. Existing
 expenses, bank reconciliation, period close and draft financial statements are
 separate modules; this change does not replace them.
+
+### Refunds of unused supplier advances
+
+Receive advance refund extends the existing supplier-payment callable, account
+statement and permissions. Record only money actually received. A refund requires
+an amount, the advance's recording store and a reason; bank/card receipts also
+require an explicit receiving company account and external reference. Cash is
+posted to cash on hand and enters the existing journal-derived daily reconciliation.
+The transaction debits the receiving account and credits supplier advances (1250),
+reduces both total and store-scoped unused advances, and leaves invoice payable
+and inventory unchanged. Repeated requests reuse one payment/journal/audit event;
+competing refunds cannot overdraw the balance. Inactive suppliers remain eligible
+to refund existing money. No historical records are rewritten. Goods returns and
+their credit notes/refunds remain a separate, unfinished workflow.
