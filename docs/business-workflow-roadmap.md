@@ -90,6 +90,35 @@ build, Functions build, secret scanning and the index guard passed. The fresh
 12:49 UTC live audit passed 432/432 query plans with all 222 indexes READY.
 No historical ledger or financial data is rewritten. Deploy only the ten
 existing callable consumers of the shared posting engine; no web change is needed.
+
+### Inventory replay hardening release — 8 October 2026
+
+Source `0a622f9` is deployed. The scoped ten-function deployment explicitly
+completed after two failed pre-upload attempts (Secret Manager connection and
+Pub/Sub service identity checks). A live Functions listing confirms all ten
+consumers ACTIVE with App Check enabled:
+
+| Callable | Live revision |
+| --- | --- |
+| postOpeningStock | postopeningstock-00013-vam |
+| postInventoryReceipt | postinventoryreceipt-00013-xip |
+| moveInventoryBetweenLocations | moveinventorybetweenlocations-00013-jux |
+| postStockAdjustment | poststockadjustment-00013-wax |
+| postStockCount | poststockcount-00013-ves |
+| receivePurchaseOrderItem | receivepurchaseorderitem-00008-fam |
+| confirmCsvImport | confirmcsvimport-00014-qiq |
+| confirmTransferDispatch | confirmtransferdispatch-00014-sad |
+| confirmTransferReceipt | confirmtransferreceipt-00014-bit |
+| resolveTransferDiscrepancy | resolvetransferdiscrepancy-00013-tel |
+
+Live receipt callables return Firebase JSON UNAUTHENTICATED/HTTP 401 without a
+session; this checks the authentication barrier, not signed-in business acceptance.
+No live financial/stock mutations or IAM changes were performed. The web remains
+the previously verified GRN build `build-2026-10-08-005`; this backend-only fix
+did not start another web rollout. A redundant post-backend App Hosting metadata
+refresh timed out; its earlier READY/100%-traffic verification remains recorded
+above. Supplier returns/refunds/credits are the next supplier-workstream slice,
+not yet implemented; the broader backlog is not complete.
 Supplier returns/refunds/credits and the broader remaining roadmap are not complete.
 
 ## Next five priorities — 7 October 2026 implementation checkpoint
