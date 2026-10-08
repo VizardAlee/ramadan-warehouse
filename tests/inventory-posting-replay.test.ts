@@ -44,4 +44,15 @@ describe("inventory posting replay references", () => {
     });
     expect(mocks.runTransaction).toHaveBeenCalledOnce();
   });
+
+  it.each([true, false])("does not repeat linked financial callbacks on replay (initial=%s)", async (initial) => {
+    const extension = { prepare: vi.fn(), apply: vi.fn() };
+    mocks.get.mockResolvedValue(initial ? posted : { exists: false });
+    mocks.getAll.mockResolvedValue([posted]);
+    await expect(postInventoryTransaction(actor, input, extension)).resolves.toMatchObject({
+      transactionId: "original-posted-id", posted: false,
+    });
+    expect(extension.prepare).not.toHaveBeenCalled();
+    expect(extension.apply).not.toHaveBeenCalled();
+  });
 });

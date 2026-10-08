@@ -83,6 +83,36 @@ interface BalanceState {
   createdAt?: unknown;
 }
 
+/** Calculated by the ledger, never accepted from a callable payload. */
+export interface InventoryPostingContext {
+  readonly transactionId: string;
+  readonly transactionNumber: string;
+  readonly productId: string;
+  readonly quantity: number;
+  readonly movementValueMinor: number;
+  readonly movementUnitCostMinor: number;
+  readonly sourceLocationId?: string;
+  readonly destinationLocationId?: string;
+  readonly sourceBranchId?: string;
+  readonly sourceWarehouseId?: string;
+  readonly destinationBranchId?: string;
+  readonly destinationWarehouseId?: string;
+  readonly effectiveAt: Timestamp;
+}
+
+/**
+ * Trusted server-only integration for linked financial postings. The caller must
+ * enforce its own business permission, original-document and period controls.
+ * prepare runs after stock validation and before any writes, on every retry.
+ * apply is synchronous, cannot read, and commits in the SAME Firestore transaction.
+ * Neither callback runs when an already committed operation is replayed.
+ * One invocation still covers one product/lot, not an atomic multi-line document.
+ */
+export interface InventoryPostingExtension<State> {
+  prepare(reader: Pick<Transaction, "get" | "getAll">, context: InventoryPostingContext): Promise<State>;
+  apply(writer: Pick<Transaction, "create" | "set" | "update">, state: State, context: InventoryPostingContext): undefined;
+}
+
 function clean(values: Record<string, unknown>) {
   return Object.fromEntries(
     Object.entries(values).filter(([, value]) => value !== undefined),
@@ -220,9 +250,10 @@ function assertInternalBoundary(
     );
 }
 
-export async function postInventoryTransaction(
+export async function postInventoryTransaction<State = undefined>(
   actor: AccessProfile,
   input: PostingRequest,
+  extension?: InventoryPostingExtension<State>,
 ): Promise<{
   transactionId: string;
   transactionNumber: string;
@@ -518,6 +549,25 @@ export async function postInventoryTransaction(
         ),
       };
     }
+    const postingContext: InventoryPostingContext = {
+      transactionId: transactionReference.id,
+      transactionNumber,
+      productId: product.id,
+      quantity: input.quantity,
+      movementValueMinor: movementValue,
+      movementUnitCostMinor: movementUnitCost,
+      sourceLocationId: sourceLocation?.id,
+      destinationLocationId: destinationLocation?.id,
+      sourceBranchId: sourceLocation?.branchId,
+      sourceWarehouseId: sourceLocation?.warehouseId,
+      destinationBranchId: destinationLocation?.branchId,
+      destinationWarehouseId: destinationLocation?.warehouseId,
+      effectiveAt,
+    };
+    const extensionState = extension ? await extension.prepare({
+      get: transaction.get.bind(transaction),
+      getAll: transaction.getAll.bind(transaction),
+    }, postingContext) : undefined;
     const now = FieldValue.serverTimestamp();
     transaction.set(
       counterReference,
@@ -819,6 +869,11 @@ export async function postInventoryTransaction(
       updatedAt: now,
       updatedBy: actor.userId,
     });
+    if (extension) extension.apply({
+      create: transaction.create.bind(transaction),
+      set: transaction.set.bind(transaction),
+      update: transaction.update.bind(transaction),
+    }, extensionState as State, postingContext);
     transaction.create(operation, {
       organizationId: actor.organizationId,
       action: "inventoryPost",

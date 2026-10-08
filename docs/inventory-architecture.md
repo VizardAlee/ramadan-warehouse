@@ -23,6 +23,33 @@ Organization, role, assignments, status, product state, locations, balances, cos
 
 The posting transaction reads the idempotency record, product/cost, counter, all locations, balances, lot, and serial records before writing. Firestore retries conflicting transactions. Consequently, two deductions cannot both consume the same available quantity. Header, entries, balance projections, asset projections, uniqueness state, and audit event commit together.
 
+## Trusted linked-posting extension (8 October 2026)
+
+`postInventoryTransaction` accepts an optional third, server-only argument for
+business workflows that must commit financial consequences with stock. Existing
+callers omit it and retain their behavior. It is not a callable input or a new
+permission. No client may supply callbacks or ledger-calculated values.
+
+- `prepare` receives only transaction read methods. It runs after core stock
+  validation/calculation and before writes, on each Firestore retry.
+- `apply` is synchronous and receives only create/set/update methods. It cannot
+  perform transaction reads. Its writes share the stock transaction; a failure
+  rolls back headers, entries, balances, linked writes, counter and idempotency
+  state together.
+- Both callbacks receive the actual ledger movement value/cost, original posting
+  reference, effective date, product and source/destination scope. Financial
+  workflows must not substitute client prices for these costs.
+- A committed idempotency replay skips both callbacks and returns the original
+  stock reference, including when another request wins a concurrent race.
+- Callbacks must not send notifications, make external payments or perform other
+  non-transactional side effects: Firestore may rerun them. Persist outbox work in
+  the same transaction instead.
+- The calling workflow must enforce organization/location permissions, original
+  document eligibility, period locks, balanced journals, tax snapshots and its own
+  business limits. This extension does not provide those controls automatically.
+- One invocation still posts one product/lot. Looping invocations is not an atomic
+  multi-line return or journal. There is no supplier goods-return UI yet.
+
 ## Known limits
 
 - Reservation quantities remain zero until the transfer phase.

@@ -16,6 +16,9 @@ import {
 import { getAuth as getAdminAuth } from "firebase-admin/auth";
 import { FieldValue, getFirestore } from "firebase-admin/firestore";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import type { AccessProfile } from "../functions/src/auth/authorize";
+import type { InventoryPostingExtension, PostingRequest } from "../functions/src/inventory/post-inventory-transaction";
+import { balanceDocumentId } from "../functions/src/inventory/calculations";
 
 const projectId = "demo-ramadan-warehouse";
 const adminApp =
@@ -826,5 +829,81 @@ describe.sequential("inventory callables", () => {
       { productId, limit: 100 },
     );
     expect(broken.discrepancyCount).toBeGreaterThan(0);
+  });
+
+  it("commits linked stock and financial writes atomically, including failure and concurrent retries", async () => {
+    if (!getAdminApps().some((app) => app.name === "[DEFAULT]")) initializeAdminApp({ projectId });
+    const { postInventoryTransaction } = await import("../functions/src/inventory/post-inventory-transaction");
+    const { db: postingDb } = await import("../functions/src/admin");
+    const actor: AccessProfile = {
+      userId: administrator.auth.currentUser!.uid, organizationId,
+      roleId: "system_administrator", branchIds: [], warehouseIds: [], authorizationVersion: 1,
+    };
+    const created = await call<{ productId: string }>(administrator, "saveProduct", product({ sku: "ATOMIC-LINK", name: "Atomic integration fixture" }));
+    await call(administrator, "postOpeningStock", {
+      productId: created.productId, destinationLocationId: "location-b", quantity: 8,
+      unitCostMinor: 100, externalAccount: "migration", serialNumbers: [], effectiveAt: new Date().toISOString(),
+      reason: "Atomic test opening", idempotencyKey: crypto.randomUUID(),
+    });
+    const balance = adminDb.doc(`inventoryBalances/${balanceDocumentId(organizationId, created.productId, "location-b")}`);
+    const financial = postingDb.doc("supplierReturnTestControls/atomic-integration");
+    await financial.set({ remainingMinor: 800 });
+    const request = (key: string): PostingRequest => ({
+      transactionType: "stock_adjustment", productId: created.productId, quantity: 2,
+      sourceLocationId: "location-b", externalAccount: "adjustment", serialNumbers: [],
+      effectiveAt: new Date().toISOString(), reason: "Atomic integration regression",
+      idempotencyKey: key, correlationId: key, sourceFunction: "atomic-integration-test",
+    });
+    let prepared = 0;
+    let applied = 0;
+    const extension = (failure?: "prepare" | "apply"): InventoryPostingExtension<number> => ({
+      async prepare(reader, context) {
+        prepared++;
+        expect("create" in reader).toBe(false);
+        expect(context).toMatchObject({ productId: created.productId, quantity: 2, movementValueMinor: 200, movementUnitCostMinor: 100, sourceLocationId: "location-b", sourceWarehouseId: "warehouse-a" });
+        const current = await reader.get(financial);
+        if (failure === "prepare") throw new Error("Financial validation rejected");
+        return Number(current.get("remainingMinor")) - context.movementValueMinor;
+      },
+      apply(writer, remainingMinor, context) {
+        applied++;
+        expect("get" in writer).toBe(false);
+        writer.update(financial, { remainingMinor });
+        writer.create(postingDb.doc(`supplierReturnTestJournals/${context.transactionId}`), {
+          inventoryTransactionId: context.transactionId, transactionNumber: context.transactionNumber,
+          totalDebitMinor: context.movementValueMinor, totalCreditMinor: context.movementValueMinor,
+        });
+        if (failure === "apply") throw new Error("Financial write rejected");
+        return undefined;
+      },
+    });
+    const original = await balance.get();
+    for (const failure of ["prepare", "apply"] as const) {
+      const input = request(crypto.randomUUID());
+      await expect(postInventoryTransaction(actor, input, extension(failure))).rejects.toThrow("Financial");
+      expect((await balance.get()).data()).toEqual(original.data());
+      expect((await financial.get()).get("remainingMinor")).toBe(800);
+      expect((await adminDb.doc(`idempotencyKeys/${organizationId}_inventoryPost_${input.idempotencyKey}`).get()).exists).toBe(false);
+      expect((await adminDb.collection("supplierReturnTestJournals").get()).empty).toBe(true);
+    }
+    const input = request(crypto.randomUUID());
+    const results = await Promise.all([postInventoryTransaction(actor, input, extension()), postInventoryTransaction(actor, input, extension())]);
+    expect(results[0]!.transactionId).toBe(results[1]!.transactionId);
+    expect(results.filter((result) => result.posted)).toHaveLength(1);
+    expect((await balance.get()).get("onHandQuantity")).toBe(6);
+    expect((await financial.get()).get("remainingMinor")).toBe(600);
+    const beforeReplay = { prepared, applied };
+    await expect(postInventoryTransaction(actor, input, extension())).resolves.toMatchObject({ posted: false, transactionId: results[0]!.transactionId });
+    expect({ prepared, applied }).toEqual(beforeReplay);
+    const journals = await adminDb.collection("supplierReturnTestJournals").get();
+    expect(journals.size).toBe(1);
+    expect(journals.docs[0]!.get("totalDebitMinor")).toBe(journals.docs[0]!.get("totalCreditMinor"));
+    const entries = await adminDb.collection("inventoryEntries").where("transactionId", "==", results[0]!.transactionId).get();
+    expect(entries.size).toBe(2);
+    expect(entries.docs.reduce((sum, entry) => sum + Number(entry.get("quantityDelta")), 0)).toBe(0);
+    // Stock validation runs before linked business reads/writes.
+    const tooMuch = { ...request(crypto.randomUUID()), quantity: 99 };
+    await expect(postInventoryTransaction(actor, tooMuch, extension())).rejects.toMatchObject({ code: "failed-precondition" });
+    expect({ prepared, applied }).toEqual(beforeReplay);
   });
 });

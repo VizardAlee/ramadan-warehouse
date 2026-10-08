@@ -148,6 +148,25 @@ request failures occurred before rollout; subsequent deployments completed.
 Physical supplier returns and linked credit-note settlement remain unfinished.
 The broader remaining roadmap is not complete.
 
+### Atomic stock/financial integration foundation — 8 October 2026
+
+The shared inventory engine now has a trusted, optional linked-posting extension.
+Business-document reads happen before writes, and linked financial writes commit
+in the same Firestore transaction as stock, audit and idempotency. Callbacks use
+ledger-calculated movement cost; they do not execute on committed replay. Existing
+callers remain unchanged. This is not a supplier goods-return screen or completed
+credit-note workflow. Original invoice/receipt validation, partial-return VAT
+apportionment, serialized return lifecycle, credit allocation and the user-facing
+workflow remain the next implementation slice.
+
+Validation passed: 284 unit/UI tests; 52 emulator/security cases across the
+inventory, transfer, procurement and security runs (the new atomic case passed
+in isolation after correcting test-fixture setup). Typecheck, lint, Functions
+compilation, production build, secret scan and diff checks passed. The live audit
+passed 432/432 query shapes with all 222 indexes READY before baseline refresh.
+No new query shapes, schema migration, client permission or IAM change is needed.
+Backend release is pending; no web changes are required for this foundation.
+
 ## Next five priorities — 7 October 2026 implementation checkpoint
 
 | Priority | This implementation group | Remaining gate / dependency |
