@@ -36,6 +36,23 @@ Typecheck, lint, production build, Functions compilation, production environment
 validation, secret scan and diff checks passed. Application deployment follows;
 signed-in live financial acceptance remains unexercised.
 
+### Supplier aging release — 8 October 2026
+
+Source `a798f1e` is deployed. `getProcurementWorkspace` and `submitSupplierInvoice`
+are ACTIVE on revisions `getprocurementworkspace-00008-rig` and
+`submitsupplierinvoice-00007-xaw`, with App Check enabled. App Hosting
+`build-2026-10-08-004` is READY, with 100% traffic and no reconciliation pending.
+Purchasing returns HTTP 200 and the workspace callable rejects unauthenticated
+requests with Firebase JSON UNAUTHENTICATED. No signed-in live financial mutations
+were performed. Runtime Config/Secret Manager connection failures required scoped
+retries; the successful Functions command explicitly completed. A web-build
+cancellation request arrived after its Cloud Build had already finished; the web
+and backend release are now both verified complete. Subsequent API/UI releases
+must complete the backend before starting the dependent web rollout.
+
+Current work has moved on to bounded receiving history and printable GRNs.
+Supplier returns/refunds/credits and the broader remaining roadmap are not complete.
+
 ## Next five priorities — 7 October 2026 implementation checkpoint
 
 | Priority | This implementation group | Remaining gate / dependency |
