@@ -242,6 +242,11 @@ export default function GuidePage() {
             <li>In <Link className="font-semibold underline" href="/procurement">Purchasing</Link>, review existing orders first. Expand New order only when needed, then choose the supplier and receiving store. There is no separate warehouse to create.</li>
             <li>Create and approve the purchase order, then record the goods actually received. Check quantities and any tracked serials before posting.</li>
             <li>Record the supplier invoice and any outstanding payment. Choose the company account used for a bank or card payment; do not mark a bank payment as cash.</li>
+            <li>Use Record payment / apply advance on an invoice to pay all or part of its outstanding amount. Select New company payment when money leaves the company now, or Apply unused supplier advance when using money already paid. Applying an advance does not record a second cash payment.</li>
+            <li>For money paid before settling an invoice, choose the supplier under Supplier accounts &amp; statements, then Record advance. Select the recording store and the company account paid from. Unused advances are shown separately from amounts owed.</li>
+            <li>Supplier invoice payments stay in the invoice’s recording store. Only advances recorded for that store can be applied; credit from another store must not be silently moved between accounts.</li>
+            <li>Filter the supplier statement by dates and use page controls for older entries. Totals cover the full selected period; Export this page exports only visible entries. Older payments without a store are visible in the consolidated view, not store-filtered history.</li>
+            <li>If a payment connection is interrupted, use Retry same transaction. Do not create another payment until its result is known. After closing or refreshing the page, check the supplier history before recording the money again.</li>
           </ol>
         </section>
       )}

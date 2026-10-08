@@ -35,4 +35,12 @@ describe("cross-section Firestore index release guard", () => {
     expect(catalog.some((shape) => shape.collection === "sales" && shape.sums?.length === 4 && !shape.filters.some(([field]) => field === "recordedAt"))).toBe(true);
     for (const collection of ["customers", "notifications", "employees", "attendanceEvents", "pushDeliveries", "notificationEvents", "integrationOutbox", "saleReturns", "bankStatementTransactions"]) expect(catalog.some((shape) => shape.collection === collection)).toBe(true);
   });
+  it("covers supplier statements in organization and legacy location scopes with separate sums", () => {
+    const pages = catalog.filter((shape) => shape.sources.includes("supplier statement pages"));
+    expect(pages).toHaveLength(12);
+    for (const field of ["amountMinor", "advanceAmountMinor"]) {
+      expect(catalog.filter((shape) => shape.sources.includes("supplier statement separate totals") && shape.sums?.[0] === field)).toHaveLength(12);
+      expect(catalog.filter((shape) => shape.sources.includes("supplier statement opening balance") && shape.sums?.[0] === field)).toHaveLength(3);
+    }
+  });
 });

@@ -40,7 +40,7 @@ order, a physical receipt, a supplier invoice, and a payment as the same event.
 - Invoice totals are `net + VAT = gross`; invoice approval debits inventory and
   input VAT and credits Accounts Payable by the same gross amount.
 - Supplier payments cannot exceed the approved invoice outstanding balance.
-  Partial payments are supported by the backend, and payment allocations and
+  Partial payments are supported by the payment dialog and backend, and payment allocations and
   journals must balance before commit.
 - Firestore clients cannot directly mutate purchasing, receipt, supplier
   invoice, payment, supplier-account, journal, or inventory records.
@@ -50,7 +50,9 @@ order, a physical receipt, a supplier invoice, and a payment as the same event.
 | Event                     | Debit                                 | Credit                                         |
 | ------------------------- | ------------------------------------- | ---------------------------------------------- |
 | Approved supplier invoice | `1200 Inventory` and `1300 Input VAT` | `2000 Accounts Payable`                        |
-| Supplier payment          | `2000 Accounts Payable`               | settlement account (`1010`, `1020`, or `1030`) |
+| Supplier payment          | `2000 Accounts Payable`               | cash `1010` or the explicitly selected company settlement account |
+| Supplier advance          | `1250 Supplier advances and credits` | cash or the explicitly selected company settlement account |
+| Advance applied to invoice | `2000 Accounts Payable`             | `1250 Supplier advances and credits` |
 
 These are controlled system account codes, not user-entered posting accounts.
 External bank or terminal settlement is not inferred from a recorded method or
@@ -71,6 +73,35 @@ purchase orders require no destructive migration: read paths retain their
 historical warehouse fields, while the UI creates new orders only for Head
 Office/stores using branch ownership.
 
-This phase does not yet add operating-expense bills, bank-statement import and
-reconciliation, accounting-period close, or complete financial statements.
-Those remain separate controlled finance phases.
+## Advances and statement controls
+
+Record advances separately from invoice payments. Unused advances are an asset,
+not a negative payable. Applying an advance requires an approved outstanding
+invoice and consumes the unused advance atomically; it does not record money
+leaving the company again. Duplicate retries and concurrent applications are
+guarded by the existing idempotency record, invoice and supplier transactions.
+The selected funding/recording store is retained in the payment and journal.
+Advances also retain a transactional per-location balance projection. Invoice
+settlement must use the invoice's recording store, and advance application can
+consume only that store's advance. Cross-store credit movement is not silently
+inferred; an explicit transfer workflow remains future work. This prevents branch
+statements from clearing one store's payable against another store's advance.
+
+Statements use Nigerian business dates, bounded cursor pages (25/50/100), and
+server aggregates for full-period opening/closing payable and advance balances.
+The two aggregates must remain separate: older invoice/payment entries have no
+advance field and must not be excluded from payable totals. Historical entries
+are not rewritten to introduce that field. Store-filtered history excludes old
+unscoped payments, which remain visible in the consolidated view. Missing
+historical allocations are not guessed. CSV export is explicitly page-only.
+Inactive suppliers remain selectable for history and existing invoice settlement;
+they cannot receive new advances or be selected for new purchase orders.
+
+Interrupted payment requests retain their exact payload/idempotency key for a
+same-transaction retry and lock inputs until the outcome is known. After closing
+or refreshing, inspect history before initiating another payment.
+
+Still pending in this workstream: payable aging, supplier return/refund/credit
+settlement with stock and accounting linkage, and richer GRN printout. Existing
+expenses, bank reconciliation, period close and draft financial statements are
+separate modules; this change does not replace them.

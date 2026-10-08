@@ -2,8 +2,10 @@
 
 The catalog in `scripts/firestore-query-catalog.mjs` combines source-extracted
 literal queries with explicit dynamic filter matrices. It covers the current
-application, not hypothetical future functionality. Current scope: 371 query
-shapes and 70 query-bearing source files/hook consumers.
+application, not hypothetical future functionality. The 8 October supplier-account
+checkpoint covers 420 query shapes, including dated supplier statement pages,
+separate payable/advance sums and opening balances across organization, store
+and historical warehouse scopes.
 
 Coverage includes POS, sales/collection/returns and customer histories/search;
 inventory stock/valuation sums, movement history, serials, adjustments and counts;
@@ -48,6 +50,11 @@ emulator cannot prove production composite-index coverage.
 Reference: [Firestore Query Explain](https://firebase.google.com/docs/firestore/query-explain).
 
 Deployment/readiness/final verification is recorded in the workflow roadmap.
+
+Supplier-account verification (8 October 2026): 420/420 live query plans passed
+with zero missing indexes after all 215 indexes reached READY. Fifteen additive
+supplier-account indexes were deployed; historical business data was not changed.
+The guarded baseline was refreshed only after the successful live audit.
 
 Final verification (7 October 2026, 09:40 UTC): 371/371 live query plans passed;
 zero unsupported queries, 194/194 indexes READY, zero single-field overrides.

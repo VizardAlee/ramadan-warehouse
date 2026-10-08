@@ -101,6 +101,14 @@ export function queryCatalog() {
   for (const optional of subsets(["originWarehouseId", "destinationBranchId", "status", "sourceType"])) add("transfer register filters", "transfers", [org, ...eq(optional)], [["__name__", "ASCENDING"]]);
   for (const field of ["originWarehouseId", "destinationBranchId"]) for (const optional of subsets(["status", "sourceType"])) add("assigned transfer register", "transfers", [org, [field, "in"], ...eq(optional)], [["__name__", "ASCENDING"]]);
   for (const collection of ["purchaseOrders", "purchaseOrderItems", "supplierInvoices", "expenses"]) for (const scope of subsets(["branchId", "warehouseId"])) add("procurement/expense workspace", collection, [org, ...eq(scope)]);
+  for (const scope of [[], ["branchId"], ["warehouseId"]]) {
+    const filters = [org, ["supplierId", "=="], ...eq(scope)];
+    for (const range of [[], [["effectiveAt", ">="]], [["effectiveAt", "<="]], [["effectiveAt", ">="], ["effectiveAt", "<="]]]) {
+      add("supplier statement pages", "supplierAccountEntries", [...filters, ...range], dateOrder("effectiveAt"));
+      for (const field of ["amountMinor", "advanceAmountMinor"]) add("supplier statement separate totals", "supplierAccountEntries", [...filters, ...range], [], [field]);
+    }
+    for (const field of ["amountMinor", "advanceAmountMinor"]) add("supplier statement opening balance", "supplierAccountEntries", [...filters, ["effectiveAt", "<"]], [], [field]);
+  }
   for (const scope of [[], ["branchId"]]) {
     const filters = [org, ...eq(scope)];
     add("aftersales workspace", "aftersalesCases", filters);

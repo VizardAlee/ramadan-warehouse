@@ -1,13 +1,13 @@
 {
   "lastLiveAudit": {
     "project": "ramadan-warehouse-staging",
-    "verifiedAt": "2026-10-08T07:41:26.298Z",
-    "queryShapes": 378,
+    "verifiedAt": "2026-10-08T08:23:57.827Z",
+    "queryShapes": 420,
     "unsupportedQueries": 0,
-    "readyIndexes": 200,
+    "readyIndexes": 215,
     "singleFieldOverrides": 0
   },
-  "catalogSha256": "7f6f875a8f2a8309dbe7818d06967efcbd2936a2fc200ccc8074721fc436e600",
+  "catalogSha256": "44048c779b34b400071e0ec1ed00d657ef8bb9f0fcd45c43d86e124c264bc291",
   "sourceFingerprints": {
     "functions/src/accounting/daily-close.ts": "88916698e8112584523b1770eb98be7e052761b4982e6f572df1e6f7221d617a",
     "functions/src/audit/write-audit-log.ts": "254809826e21fad67216e0dbf0f5bc8e644955907cdf4bfbe2160ba1afb5ee33",
@@ -33,7 +33,7 @@
     "functions/src/callable/manage-roles.ts": "cafd5c85fe810569b119c64e640e97cb93b450b3cc4d616a4e81b0a124d09a7d",
     "functions/src/callable/manage-users.ts": "4afaad46c8d64ffdc08fc49a419d608ee3a6cb0ff1b3ad20bb497ca166e27d7a",
     "functions/src/callable/operational-readiness.ts": "5710f7b794dc5560f44a60fa86e21dc96c9591066d6996ca0119ba7615e11279",
-    "functions/src/callable/procurement.ts": "d9a3ed95d6b98a11661ed5e7651b3d1b2bece6c26c73c1bca4e1954bf037e112",
+    "functions/src/callable/procurement.ts": "394dc32c595de5c0b0cee605a56f0e2a9974e9b101f09042721a59c54425adf9",
     "functions/src/callable/reset-organization.ts": "ef008e650d39213d23c35d3d801015dccad8ad7ea78edf9d62b6b5c230d53a5c",
     "functions/src/callable/reverse-inventory.ts": "5a9902d73ce7d80d4f8a9a226beb45c620090d190348d1c628a6ed88dc54e297",
     "functions/src/callable/sales-returns.ts": "d2fb54e2abae1f6428ae457e4e2963d5d2860c6e74bd547550750025d28e67b2",
@@ -281,6 +281,21 @@
     "bbfdfcb907d132e0999fa43eb9c6577441b71c48dbf2cbab79105e2b076461ac",
     "ce60ff0ec16075fe3b83e253e4beee8f05dc6b92d9a921e7fc1884db3510d7e3",
     "3b65b46bc3d3be37e33555aee690eeeab12f47ce42698c900f36ee454f097625",
-    "f71813a6a4e8f02ea2a41e190360e72998af3406384274539357e6271857cbcf"
+    "f71813a6a4e8f02ea2a41e190360e72998af3406384274539357e6271857cbcf",
+    "7946610ce1d5da8e370a0c4975a13c974f8b14b0ebf29b44fca825ec7515d3af",
+    "727eaf95f8ee1cd3fd61cdf6f58ab9ae32faa156b8fc356dccc55f142fc88be1",
+    "48d623581febd16ea77dd0e67cbdb8745b412ac52cca7725b75f470727384b09",
+    "3939b5b4bac71e48d58a15614859eb153acac4d8165774417aab58e8482403f0",
+    "631327f2ca1abb70da82d4e37f8e408fee6e7f0963afe335c140a25bbc460c6e",
+    "31eeab8beb23328faea4446eb2fe49d49fc5a0273a8ae1fa708d42424921ea57",
+    "8db3807901300fd734cb5e7851d33845caa58cf1301222572cec5e1d63f56513",
+    "cc0d36dae658a12178077fa9090eb20c6e1cd32b949a94635d908e7ac5795bee",
+    "12d6bbbf3023630160088fe78490133c716d8cf3acc50dc9a9aa38e669115add",
+    "cfa3370f1b1007510cb286fff32e5511adb8c725f1e010cc0d880fc0492de154",
+    "781de4b4dfb8a226ce09224f9e8e0abff9e2c8e7a309127139d77a1ee06cb547",
+    "84c4a5a5aff334fe291d3ee3cb036effb3780143c1abe217e86a649289cbd0af",
+    "fa22c8b2a0d95c0ef63b30f47affd70a0825074ff0d13cb8bf9475f743362d3c",
+    "b3a4b1476d46765f93d201926eda8e5c9f2a6f8ee706bc529754e2237f4e65a6",
+    "6b31aee5e40148d7a518ec261c66a725cebb79ea031a443986ac18062aa263b6"
   ]
 }

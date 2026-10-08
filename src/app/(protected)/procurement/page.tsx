@@ -9,6 +9,7 @@ import {
   WalletCards,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { SupplierAccounts } from "@/features/procurement/supplier-accounts";
 import { Button } from "@/components/ui/button";
 import { callAdministration } from "@/features/administration/api";
 import { useAuth } from "@/features/auth/auth-context";
@@ -70,7 +71,7 @@ const blankLine = (): DraftLine => ({
 function procurementScopeFromKey(key: string) {
   const [type, id] = key.split(":");
   if (!id) return {};
-  return type === "branch" ? { branchId: id } : { warehouseId: id };
+  return type === "branch" ? { branchId: id } : type === "warehouse" ? { warehouseId: id } : {};
 }
 
 export default function ProcurementPage() {
@@ -97,16 +98,7 @@ export default function ProcurementPage() {
   const [invoiceNumbers, setInvoiceNumbers] = useState<Record<string, string>>(
     {},
   );
-  const [paymentDrafts, setPaymentDrafts] = useState<
-    Record<
-      string,
-      {
-        method: "cash" | "card" | "bank_transfer";
-        bankAccountId: string;
-        reference: string;
-      }
-    >
-  >({});
+  const [paymentInvoice, setPaymentInvoice] = useState<SupplierInvoice | null>(null);
   const can = (permission: Parameters<typeof hasPermission>[1]) =>
     Boolean(profile && hasPermission(profile, permission));
   const canApproveOwnWork = Boolean(profile && canSelfAuthorize(profile));
@@ -409,7 +401,7 @@ export default function ProcurementPage() {
                 className="mt-1 w-full rounded-lg border p-3"
               >
                 <option value="">Select supplier</option>
-                {workspace.suppliers.map((record) => (
+                {workspace.suppliers.filter((record) => record.active).map((record) => (
                   <option key={record.id} value={record.id}>
                     {record.supplierNumber} · {record.name}
                   </option>
@@ -850,6 +842,8 @@ export default function ProcurementPage() {
         </div>
       </section>
 
+      {can("payables.read") && workspace && <SupplierAccounts suppliers={workspace.suppliers} banks={workspace.bankAccounts} branches={workspace.branches} scope={contextScope} canPay={can("payables.pay")} invoice={paymentInvoice} closeInvoice={() => setPaymentInvoice(null)} onComplete={() => { setMessage("Supplier transaction recorded with its accounting and audit entries."); void load(); }} />}
+
       {can("payables.read") && (
         <section className="rounded-xl border bg-white p-5">
           <h2 className="flex items-center gap-2 text-xl font-semibold">
@@ -861,11 +855,6 @@ export default function ProcurementPage() {
           </p>
           <div className="mt-4 space-y-3">
             {workspace?.supplierInvoices.map((invoice) => {
-              const payment = paymentDrafts[invoice.id] ?? {
-                method: "bank_transfer" as const,
-                bankAccountId: "",
-                reference: "",
-              };
               return (
               <article
                 key={invoice.id}
@@ -912,109 +901,7 @@ export default function ProcurementPage() {
                     )}
                   {["approved", "partially_paid"].includes(invoice.status) &&
                     can("payables.pay") && (
-                      <>
-                        <select
-                          aria-label="Supplier payment method"
-                          value={payment.method}
-                          onChange={(event) =>
-                            setPaymentDrafts({
-                              ...paymentDrafts,
-                              [invoice.id]: {
-                                ...payment,
-                                method: event.target.value as typeof payment.method,
-                                bankAccountId:
-                                  event.target.value === "cash"
-                                    ? ""
-                                    : payment.bankAccountId,
-                              },
-                            })
-                          }
-                          className="min-h-10 rounded-lg border px-3"
-                        >
-                          <option value="bank_transfer">Bank transfer</option>
-                          <option value="card">Card / POS</option>
-                          <option value="cash">Cash</option>
-                        </select>
-                        <select
-                          aria-label="Company bank account"
-                          value={payment.bankAccountId}
-                          disabled={payment.method === "cash"}
-                          onChange={(event) =>
-                            setPaymentDrafts({
-                              ...paymentDrafts,
-                              [invoice.id]: {
-                                ...payment,
-                                bankAccountId: event.target.value,
-                              },
-                            })
-                          }
-                          className="min-h-10 rounded-lg border px-3 disabled:bg-slate-100"
-                        >
-                          <option value="">
-                            {payment.method === "cash"
-                              ? "Cash on hand"
-                              : "Select bank account"}
-                          </option>
-                          {workspace.bankAccounts.map((account) => (
-                            <option key={account.id} value={account.id}>
-                              {account.bankName} · {account.accountName} · ••••
-                              {account.accountNumberLast4}
-                            </option>
-                          ))}
-                        </select>
-                        <input
-                          value={payment.reference}
-                          onChange={(event) =>
-                            setPaymentDrafts({
-                              ...paymentDrafts,
-                              [invoice.id]: {
-                                ...payment,
-                                reference: event.target.value,
-                              },
-                            })
-                          }
-                          placeholder={
-                            payment.method === "cash"
-                              ? "Reference (optional)"
-                              : "Payment reference"
-                          }
-                          className="min-h-10 rounded-lg border px-3"
-                        />
-                        <Button
-                          disabled={
-                            busy ||
-                            (payment.method !== "cash" &&
-                              (!payment.reference.trim() ||
-                                !payment.bankAccountId))
-                          }
-                          onClick={() =>
-                            void run(
-                              () =>
-                                callAdministration("recordSupplierPayment", {
-                                  supplierId: invoice.supplierId,
-                                  method: payment.method,
-                                  bankAccountId:
-                                    payment.bankAccountId || undefined,
-                                  reference:
-                                    payment.reference || undefined,
-                                  allocations: [
-                                    {
-                                      supplierInvoiceId: invoice.id,
-                                      amountMinor:
-                                        invoice.outstandingAmountMinor,
-                                    },
-                                  ],
-                                  paidAt: new Date().toISOString(),
-                                  idempotencyKey: crypto.randomUUID(),
-                                }),
-                              `Payment recorded against ${invoice.supplierInvoiceNumber}.`,
-                            )
-                          }
-                        >
-                          Pay outstanding
-                        </Button>
-                      </>
-                    )}
+                      <Button disabled={busy} onClick={() => setPaymentInvoice(invoice)}>Record payment / apply advance</Button>                   )}
                 </div>
               </article>
               );

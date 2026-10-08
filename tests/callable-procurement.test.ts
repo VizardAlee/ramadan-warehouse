@@ -443,4 +443,72 @@ describe.sequential("procurement callables", () => {
       .where("journalEntryId", "==", paymentJournal.docs[0]!.id).get();
     expect(paymentLines.docs.map((line) => line.get("accountCode"))).toContain("1041");
   });
+
+  it("keeps supplier advances separate, applies partial amounts once and preserves paginated statements", async () => {
+    const { supplierId } = await call<{ supplierId: string }>(administrator, "saveSupplier", {
+      name: "Advance Supplier", phone: "07033334444", active: true, idempotencyKey: crypto.randomUUID(),
+    });
+    const advance = { supplierId, branchId: headOfficeId, purpose: "advance", amountMinor: 40_000,
+      method: "bank_transfer", bankAccountId, reference: "ADV-001", paidAt: new Date().toISOString(), idempotencyKey: crypto.randomUUID() };
+    const [first, retry] = await Promise.all([
+      call<{ paymentId: string; recorded: boolean }>(headOfficeManager, "recordSupplierPayment", advance),
+      call<{ paymentId: string; recorded: boolean }>(headOfficeManager, "recordSupplierPayment", advance),
+    ]);
+    expect(first.paymentId).toBe(retry.paymentId);
+    expect([first.recorded, retry.recorded].sort()).toEqual([false, true]);
+    const supplier = adminDb.doc(`suppliers/${supplierId}`);
+    expect((await supplier.get()).data()).toMatchObject({ outstandingBalanceMinor: 0, advanceBalanceMinor: 40_000 });
+    const advancePayment = await adminDb.doc(`supplierPayments/${first.paymentId}`).get();
+    const lines = await adminDb.collection("journalLines").where("journalEntryId", "==", advancePayment.get("journalEntryId")).get();
+    expect(lines.docs.map((line) => [line.get("accountCode"), line.get("debitMinor"), line.get("creditMinor")])).toEqual(expect.arrayContaining([["1250", 40_000, 0], ["1041", 0, 40_000]]));
+    expect(lines.docs.every((line) => line.get("branchId") === headOfficeId)).toBe(true);
+    // Existing approved invoice fixtures; the preceding test covers actual PO → GRN → invoice posting.
+    const invoices = [adminDb.collection("supplierInvoices").doc(), adminDb.collection("supplierInvoices").doc()];
+    await supplier.update({ outstandingBalanceMinor: 30_000 });
+    for (const [index, invoice] of invoices.entries()) {
+      const amount = index === 0 ? 20_000 : 10_000;
+      await invoice.set({ organizationId, supplierId, branchId: headOfficeId, status: "approved", outstandingAmountMinor: amount, supplierInvoiceNumber: `ADV-INV-${index}`, createdAt: FieldValue.serverTimestamp() });
+      await adminDb.collection("supplierAccountEntries").add({ organizationId, supplierId, branchId: headOfficeId, entryType: "supplier_invoice", referenceNumber: `ADV-INV-${index}`, amountMinor: amount, effectiveAt: FieldValue.serverTimestamp(), createdAt: FieldValue.serverTimestamp() });
+    }
+    const application = { supplierId, branchId: headOfficeId, source: "advance_balance", method: "cash", allocations: [{ supplierInvoiceId: invoices[0]!.id, amountMinor: 10_000 }], paidAt: new Date().toISOString(), idempotencyKey: crypto.randomUUID() };
+    const applied = await call<{ paymentId: string }>(headOfficeManager, "recordSupplierPayment", application);
+    expect((await supplier.get()).data()).toMatchObject({ outstandingBalanceMinor: 20_000, advanceBalanceMinor: 30_000 });
+    expect((await invoices[0]!.get()).data()).toMatchObject({ status: "partially_paid", outstandingAmountMinor: 10_000 });
+    const applicationPayment = await adminDb.doc(`supplierPayments/${applied.paymentId}`).get();
+    expect(applicationPayment.get("method")).toBe("supplier_advance");
+    expect(applicationPayment.get("bankAccountId")).toBeUndefined();
+    const applicationLines = await adminDb.collection("journalLines").where("journalEntryId", "==", applicationPayment.get("journalEntryId")).get();
+    expect(applicationLines.docs.map((line) => [line.get("accountCode"), line.get("debitMinor"), line.get("creditMinor")])).toEqual(expect.arrayContaining([["2000", 10_000, 0], ["1250", 0, 10_000]]));
+    await call(headOfficeManager, "recordSupplierPayment", { supplierId, branchId: headOfficeId, method: "cash", allocations: [{ supplierInvoiceId: invoices[1]!.id, amountMinor: 5_000 }], paidAt: new Date().toISOString(), idempotencyKey: crypto.randomUUID() });
+    const concurrent = await Promise.allSettled([1, 2].map(() => call(headOfficeManager, "recordSupplierPayment", { ...application, idempotencyKey: crypto.randomUUID() })));
+    expect(concurrent.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+    expect((await supplier.get()).data()).toMatchObject({ outstandingBalanceMinor: 5_000, advanceBalanceMinor: 20_000 });
+    expect((await supplier.get()).get("advanceBalancesByLocation")).toEqual({ [`branch:${headOfficeId}`]: 20_000 });
+    const otherStorePayment = { supplierId, warehouseId, source: "advance_balance", method: "cash", paidAt: new Date().toISOString() };
+    await expect(call(administrator, "recordSupplierPayment", { ...otherStorePayment, allocations: [{ supplierInvoiceId: invoices[1]!.id, amountMinor: 1_000 }], idempotencyKey: crypto.randomUUID() })).rejects.toMatchObject({ code: "functions/invalid-argument" });
+    await expect(call(headOfficeManager, "recordSupplierPayment", { ...application, allocations: [{ supplierInvoiceId: invoices[1]!.id, amountMinor: 6_000 }], idempotencyKey: crypto.randomUUID() })).rejects.toThrow();
+    await expect(call(warehouseManager, "recordSupplierPayment", { ...application, idempotencyKey: crypto.randomUUID() })).rejects.toThrow();
+    const statement = await call<{ entries: unknown[]; nextCursor: string; closingPayableMinor: number; closingAdvanceMinor: number }>(headOfficeManager, "getProcurementWorkspace", { view: "supplier_account", supplierId, branchId: headOfficeId, limit: 1 });
+    expect(statement.entries).toHaveLength(1);
+    expect(statement.nextCursor).toBeTruthy();
+    expect(statement.closingPayableMinor).toBe(5_000);
+    expect(statement.closingAdvanceMinor).toBe(20_000);
+    const tomorrow = new Date(Date.now() + 86_400_000).toISOString().slice(0, 10);
+    const future = await call<{ entries: unknown[]; openingPayableMinor: number; closingPayableMinor: number; openingAdvanceMinor: number; closingAdvanceMinor: number }>(headOfficeManager, "getProcurementWorkspace", { view: "supplier_account", supplierId, branchId: headOfficeId, from: tomorrow, limit: 25 });
+    expect(future).toMatchObject({ entries: [], openingPayableMinor: 5_000, closingPayableMinor: 5_000, openingAdvanceMinor: 20_000, closingAdvanceMinor: 20_000 });
+    const page = await call<{ entries: Array<{ id: string }> }>(headOfficeManager, "getProcurementWorkspace", { view: "supplier_account", supplierId, branchId: headOfficeId, limit: 1, cursor: statement.nextCursor });
+    expect(page.entries[0]!.id).not.toBe(statement.nextCursor);
+    await expect(call(headOfficeManager, "getProcurementWorkspace", { view: "supplier_account", supplierId })).rejects.toThrow();
+    await expect(call(warehouseManager, "getProcurementWorkspace", { view: "supplier_account", supplierId, branchId: headOfficeId })).rejects.toThrow();
+    expect((await adminDb.collection("supplierPayments").where("supplierId", "==", supplierId).get()).size).toBe(4);
+    const otherStoreInvoice = adminDb.collection("supplierInvoices").doc();
+    await otherStoreInvoice.set({ organizationId, supplierId, warehouseId, status: "approved", outstandingAmountMinor: 1_000, supplierInvoiceNumber: "OTHER-STORE" });
+    await supplier.update({ outstandingBalanceMinor: 6_000 });
+    await expect(call(administrator, "recordSupplierPayment", { ...otherStorePayment, allocations: [{ supplierInvoiceId: otherStoreInvoice.id, amountMinor: 1_000 }], idempotencyKey: crypto.randomUUID() })).rejects.toMatchObject({ code: "functions/failed-precondition" });
+    expect((await supplier.get()).get("advanceBalancesByLocation")).toEqual({ [`branch:${headOfficeId}`]: 20_000 });
+    await supplier.update({ active: false });
+    const workspace = await call<{ suppliers: Array<{ id: string; active: boolean }> }>(headOfficeManager, "getProcurementWorkspace", { branchId: headOfficeId });
+    expect(workspace.suppliers).toContainEqual(expect.objectContaining({ id: supplierId, active: false }));
+    await expect(call(headOfficeManager, "recordSupplierPayment", { ...advance, idempotencyKey: crypto.randomUUID() })).rejects.toMatchObject({ code: "functions/failed-precondition" });
+  });
 });

@@ -273,6 +273,8 @@ export interface Supplier {
   email?: string;
   paymentTermsDays: number;
   outstandingBalanceMinor: number;
+  advanceBalanceMinor?: number;
+  advanceBalancesByLocation?: Record<string, number>;
   active: boolean;
 }
 

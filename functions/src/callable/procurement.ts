@@ -1,4 +1,4 @@
-import { FieldValue, Timestamp } from "firebase-admin/firestore";
+import { AggregateField, FieldPath, FieldValue, Timestamp } from "firebase-admin/firestore";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
 import { db } from "../admin.js";
 import {
@@ -40,9 +40,16 @@ const accountNames: Readonly<Record<string, string>> = {
   "1020": "Card clearing",
   "1030": "Bank transfer clearing",
   "1200": "Inventory asset",
+  "1250": "Supplier advances and credits",
   "1300": "Input VAT recoverable",
   "2000": "Accounts payable",
 };
+function supplierMoney(value: unknown) {
+  const amount = value ?? 0;
+  if (typeof amount !== "number" || !Number.isSafeInteger(amount) || amount < 0)
+    throw new HttpsError("failed-precondition", "Supplier balances require reconciliation before posting.");
+  return amount;
+}
 function clean(values: Record<string, unknown>) {
   return Object.fromEntries(
     Object.entries(values).filter(
@@ -328,6 +335,60 @@ export const getProcurementWorkspace = onCall(
     const input = parseInput(procurementWorkspaceInput, request.data);
     if (input.branchId) requireBranchScope(actor, input.branchId);
     if (input.warehouseId) requireWarehouseScope(actor, input.warehouseId);
+    if (input.view === "supplier_account") {
+      requirePermission(actor, "payables.read");
+      const organizationWide = ["system_administrator", "operations_administrator", "finance_officer", "auditor"].some((role) => hasRole(actor, role as Parameters<typeof hasRole>[1]));
+      if (!organizationWide && !input.branchId && !input.warehouseId)
+        throw new HttpsError("permission-denied", "Select an assigned store for supplier history.");
+      const supplier = await db.doc(`suppliers/${input.supplierId}`).get();
+      if (!supplier.exists || supplier.get("organizationId") !== actor.organizationId)
+        throw new HttpsError("not-found", "Supplier not found.");
+      let base: FirebaseFirestore.Query = db.collection("supplierAccountEntries")
+        .where("organizationId", "==", actor.organizationId).where("supplierId", "==", supplier.id);
+      if (input.branchId) base = base.where("branchId", "==", input.branchId);
+      if (input.warehouseId) base = base.where("warehouseId", "==", input.warehouseId);
+      const from = input.from ? Timestamp.fromDate(new Date(`${input.from}T00:00:00+01:00`)) : undefined;
+      const through = input.through ? Timestamp.fromDate(new Date(`${input.through}T23:59:59.999+01:00`)) : undefined;
+      let period = base;
+      if (from) period = period.where("effectiveAt", ">=", from);
+      if (through) period = period.where("effectiveAt", "<=", through);
+      // Keep sums separate: older payable entries have no advanceAmountMinor.
+      // A multi-field aggregate would exclude those historical documents.
+      const sumBalances = async (query: FirebaseFirestore.Query) => {
+        const [payable, advance] = await Promise.all([
+          query.aggregate({ value: AggregateField.sum("amountMinor") }).get(),
+          query.aggregate({ value: AggregateField.sum("advanceAmountMinor") }).get(),
+        ]);
+        return { payable: payable.data().value, advance: advance.data().value };
+      };
+      let page = period.orderBy("effectiveAt", "desc").orderBy(FieldPath.documentId(), "desc");
+      if (input.cursor) {
+        const cursor = await db.doc(`supplierAccountEntries/${input.cursor}`).get();
+        if (!cursor.exists || cursor.get("organizationId") !== actor.organizationId || cursor.get("supplierId") !== supplier.id ||
+          (input.branchId && cursor.get("branchId") !== input.branchId) || (input.warehouseId && cursor.get("warehouseId") !== input.warehouseId) ||
+          (from && cursor.get("effectiveAt").toMillis() < from.toMillis()) || (through && cursor.get("effectiveAt").toMillis() > through.toMillis()))
+          throw new HttpsError("invalid-argument", "Restart supplier history after changing filters.");
+        page = page.startAfter(cursor);
+      }
+      const [entries, totals, opening] = await Promise.all([
+        page.limit(Math.min(input.limit, 100) + 1).get(), sumBalances(period),
+        from ? sumBalances(base.where("effectiveAt", "<", from)) : Promise.resolve(null),
+      ]);
+      const openingPayable = opening?.payable ?? 0, openingAdvance = opening?.advance ?? 0;
+      const closingPayable = openingPayable + totals.payable, closingAdvance = openingAdvance + totals.advance;
+      if (![openingPayable, openingAdvance, closingPayable, closingAdvance].every(Number.isSafeInteger))
+        throw new HttpsError("failed-precondition", "Supplier statement totals require reconciliation.");
+      const documents = entries.docs.slice(0, Math.min(input.limit, 100));
+      return {
+        supplier: clean({ id: supplier.id, name: supplier.get("name"), supplierNumber: supplier.get("supplierNumber"),
+          ...(organizationWide ? { outstandingBalanceMinor: supplierMoney(supplier.get("outstandingBalanceMinor")), advanceBalanceMinor: supplierMoney(supplier.get("advanceBalanceMinor")) } : {}) }),
+        entries: documents.map((entry) => ({ id: entry.id, ...entry.data() })),
+        openingPayableMinor: openingPayable, closingPayableMinor: closingPayable,
+        openingAdvanceMinor: openingAdvance, closingAdvanceMinor: closingAdvance,
+        nextCursor: entries.size > documents.length ? documents.at(-1)!.id : null,
+        scopeNote: input.branchId || input.warehouseId ? "Store-filtered ledger activity. Older organization-wide payments without a location are excluded; consolidated balances may differ." : "Consolidated supplier ledger activity. Compare with current control balances before external use.",
+      };
+    }
     const scopedQuery = (collection: string, limit: number) => {
       let query: FirebaseFirestore.Query = db
         .collection(collection)
@@ -354,7 +415,6 @@ export const getProcurementWorkspace = onCall(
       db
         .collection("suppliers")
         .where("organizationId", "==", actor.organizationId)
-        .where("active", "==", true)
         .limit(200)
         .get(),
       db
@@ -1361,10 +1421,14 @@ export const recordSupplierPayment = onCall(
     const actor = await requireAccess(request);
     requirePermission(actor, "payables.pay");
     const input = parseInput(recordSupplierPaymentInput, request.data);
+    if (input.branchId) requireBranchScope(actor, input.branchId);
+    if (input.warehouseId) requireWarehouseScope(actor, input.warehouseId);
     const supplier = db.doc(`suppliers/${input.supplierId}`),
       invoiceRefs = input.allocations.map((allocation) =>
         db.doc(`supplierInvoices/${allocation.supplierInvoiceId}`),
       );
+    const paymentLocation = input.branchId ? db.doc(`branches/${input.branchId}`)
+      : input.warehouseId ? db.doc(`warehouses/${input.warehouseId}`) : supplier;
     const bankAccount = input.bankAccountId
       ? db.doc(`bankAccounts/${input.bankAccountId}`)
       : db.doc("bankAccounts/no-bank-account");
@@ -1389,13 +1453,14 @@ export const recordSupplierPayment = onCall(
         journalCounter,
         accountingPeriod,
         bankAccount,
+        paymentLocation,
         ...invoiceRefs,
       );
       const previous = snapshots[0]!,
         supplierSnapshot = snapshots[1]!,
         journalCounterSnapshot = snapshots[2]!,
         accountingPeriodSnapshot = snapshots[3]!,
-        bankAccountSnapshot = snapshots[4]!;
+        bankAccountSnapshot = snapshots[4]!, locationSnapshot = snapshots[5]!;
       if (previous.exists) {
         result = {
           paymentId: String(previous.get("entityId")),
@@ -1409,8 +1474,12 @@ export const recordSupplierPayment = onCall(
         supplierSnapshot.get("organizationId") !== actor.organizationId
       )
         throw new HttpsError("failed-precondition", "Supplier is unavailable.");
-      const invoices = snapshots.slice(5),
-        total = input.allocations.reduce(
+      if ((input.branchId || input.warehouseId) && (!locationSnapshot.exists || locationSnapshot.get("organizationId") !== actor.organizationId || locationSnapshot.get("status") !== "active"))
+        throw new HttpsError("failed-precondition", "Choose an active payment store.");
+      if (input.purpose === "advance" && supplierSnapshot.get("active") !== true)
+        throw new HttpsError("failed-precondition", "New advances require an active supplier.");
+      const invoices = snapshots.slice(6),
+        total = input.purpose === "advance" ? input.amountMinor! : input.allocations.reduce(
           (sum, allocation) => sum + allocation.amountMinor,
           0,
         );
@@ -1432,21 +1501,41 @@ export const recordSupplierPayment = onCall(
             "A payment allocation exceeds an approved outstanding supplier invoice.",
           );
       });
-      if (total > Number(supplierSnapshot.get("outstandingBalanceMinor") ?? 0))
+      const currentBalance = supplierMoney(supplierSnapshot.get("outstandingBalanceMinor"));
+      const currentAdvance = supplierMoney(supplierSnapshot.get("advanceBalanceMinor"));
+      if (input.purpose === "payment" && total > currentBalance)
         throw new HttpsError(
           "failed-precondition",
           "Payment exceeds the supplier's outstanding balance.",
         );
+      if (input.source === "advance_balance" && total > currentAdvance)
+        throw new HttpsError("failed-precondition", "The supplier has insufficient unused advance credit.");
+      const paymentScope = input.branchId || input.warehouseId ? { branchId: input.branchId, warehouseId: input.warehouseId } : procurementScopeFrom(invoices[0]!);
+      if (invoices.some((invoice) => (invoice.get("branchId") || undefined) !== paymentScope.branchId || (invoice.get("warehouseId") || undefined) !== paymentScope.warehouseId))
+        throw new HttpsError("invalid-argument", "Settle invoices in their own recording store. Payments covering different stores must be recorded separately.");
+      const advanceDelta = input.purpose === "advance" ? total : input.source === "advance_balance" ? -total : 0;
+      const nextAdvance = supplierMoney(currentAdvance + advanceDelta);
+      const nextBalance = supplierMoney(currentBalance - (input.purpose === "advance" ? 0 : total));
+      const scopeKey = paymentScope.branchId ? `branch:${paymentScope.branchId}` : `warehouse:${paymentScope.warehouseId}`;
+      const advanceBalances = { ...(supplierSnapshot.get("advanceBalancesByLocation") ?? {}) } as Record<string, number>;
+      const scopedAdvance = supplierMoney(advanceBalances[scopeKey]);
+      if (input.source === "advance_balance" && total > scopedAdvance)
+        throw new HttpsError("failed-precondition", "This store has insufficient unused supplier advance. Credit from another store needs an authorized transfer first.");
+      if (advanceDelta) {
+        if (Object.values(advanceBalances).reduce((sum, amount) => sum + supplierMoney(amount), 0) !== currentAdvance)
+          throw new HttpsError("failed-precondition", "Supplier advance locations require reconciliation before posting.");
+        advanceBalances[scopeKey] = supplierMoney(scopedAdvance + advanceDelta);
+      }
       const now = FieldValue.serverTimestamp(),
         paymentNumber = `PAY-${payment.id.slice(0, 10).toUpperCase()}`;
-      const settlement = resolveSettlementAccount(
+      const settlement: ReturnType<typeof resolveSettlementAccount> = input.source === "advance_balance" ? { accountCode: "1250", accountName: accountNames["1250"]! } : resolveSettlementAccount(
         actor.organizationId,
         input.method,
         input.bankAccountId,
         bankAccountSnapshot,
       );
       const lines = [
-        { accountCode: "2000", debitMinor: total, creditMinor: 0 },
+        { accountCode: input.purpose === "advance" ? "1250" : "2000", debitMinor: total, creditMinor: 0 },
         {
           accountCode: settlement.accountCode,
           accountName: settlement.accountName,
@@ -1460,11 +1549,12 @@ export const recordSupplierPayment = onCall(
         journalCounter,
         journalCounterValue:
           Number(journalCounterSnapshot.get("value") ?? 0) + 1,
-        journalType: "supplier_payment",
+        journalType: input.purpose === "advance" ? "supplier_advance" : input.source === "advance_balance" ? "supplier_advance_applied" : "supplier_payment",
         referenceType: "supplierPayment",
         referenceId: payment.id,
         referenceNumber: paymentNumber,
         description: `Supplier payment ${paymentNumber}`,
+        ...paymentScope,
         effectiveAt,
         lines,
       });
@@ -1489,10 +1579,10 @@ export const recordSupplierPayment = onCall(
           createdAt: now,
         });
       });
-      const nextBalance =
-        Number(supplierSnapshot.get("outstandingBalanceMinor")) - total;
       transaction.update(supplier, {
         outstandingBalanceMinor: nextBalance,
+        advanceBalanceMinor: nextAdvance,
+        advanceBalancesByLocation: advanceBalances,
         updatedAt: now,
         updatedBy: actor.userId,
       });
@@ -1503,8 +1593,11 @@ export const recordSupplierPayment = onCall(
           supplierId: supplier.id,
           supplierNumber: supplierSnapshot.get("supplierNumber"),
           supplierName: supplierSnapshot.get("name"),
+          ...paymentScope,
           paymentNumber,
-          method: input.method,
+          purpose: input.purpose,
+          source: input.source,
+          method: input.source === "advance_balance" ? "supplier_advance" : input.method,
           reference: input.reference,
           bankAccountId: settlement.bankAccountId,
           bankName: settlement.bankName,
@@ -1522,20 +1615,25 @@ export const recordSupplierPayment = onCall(
           createdAt: now,
         }),
       );
-      transaction.create(db.collection("supplierAccountEntries").doc(), {
+      transaction.create(db.collection("supplierAccountEntries").doc(), clean({
         organizationId: actor.organizationId,
         supplierId: supplier.id,
-        entryType: "supplier_payment",
+        ...paymentScope,
+        entryType: input.purpose === "advance" ? "supplier_advance" : input.source === "advance_balance" ? "supplier_advance_applied" : "supplier_payment",
         referenceType: "supplierPayment",
         referenceId: payment.id,
         referenceNumber: paymentNumber,
-        amountMinor: -total,
+        amountMinor: input.purpose === "advance" ? 0 : -total,
+        advanceAmountMinor: advanceDelta,
+        advanceBalanceAfterMinor: nextAdvance,
+        journalEntryId: journal.id,
+        allocations: input.allocations,
         balanceAfterMinor: nextBalance,
         currency: "NGN",
         effectiveAt,
         createdAt: now,
         createdBy: actor.userId,
-      });
+      }));
       transaction.create(operation, {
         organizationId: actor.organizationId,
         action: "recordSupplierPayment",
@@ -1545,7 +1643,7 @@ export const recordSupplierPayment = onCall(
         createdBy: actor.userId,
       });
       writeAuditLog(transaction, actor, {
-        action: "supplier_payment.recorded",
+        action: input.purpose === "advance" ? "supplier.advance_recorded" : input.source === "advance_balance" ? "supplier.advance_applied" : "supplier_payment.recorded",
         entityType: "supplierPayment",
         entityId: payment.id,
         correlationId: correlationId(),
@@ -1554,6 +1652,9 @@ export const recordSupplierPayment = onCall(
           supplierId: supplier.id,
           amountMinor: total,
           method: input.method,
+          purpose: input.purpose,
+          source: input.source,
+          advanceBalanceAfterMinor: nextAdvance,
           bankAccountId: settlement.bankAccountId ?? null,
           ledgerAccountCode: settlement.accountCode,
         },
