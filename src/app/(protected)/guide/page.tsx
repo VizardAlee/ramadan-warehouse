@@ -246,6 +246,7 @@ export default function GuidePage() {
             <li>For money paid before settling an invoice, choose the supplier under Supplier accounts &amp; statements, then Record advance. Select the recording store and the company account paid from. Unused advances are shown separately from amounts owed.</li>
             <li>Supplier invoice payments stay in the invoice’s recording store. Only advances recorded for that store can be applied; credit from another store must not be silently moved between accounts.</li>
             <li>Filter the supplier statement by dates and use page controls for older entries. Totals cover the full selected period; Export this page exports only visible entries. Older payments without a store are visible in the consolidated view, not store-filtered history.</li>
+            <li>Enter the supplier invoice date and, when known, its payment due date. Supplier accounts show current unpaid invoices and debt aging: Current, 1–30, 31–60, 61–90 and 90+ days overdue. Due date not set means an older invoice has no recorded due date; it does not mean overdue. Use the unpaid invoice page controls to find older invoices and pay or apply advances directly from a row. Statement date filters do not change this current debt summary.</li>
             <li>If a payment connection is interrupted, use Retry same transaction. Do not create another payment until its result is known. After closing or refreshing the page, check the supplier history before recording the money again.</li>
           </ol>
         </section>

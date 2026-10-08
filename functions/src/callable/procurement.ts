@@ -335,7 +335,7 @@ export const getProcurementWorkspace = onCall(
     const input = parseInput(procurementWorkspaceInput, request.data);
     if (input.branchId) requireBranchScope(actor, input.branchId);
     if (input.warehouseId) requireWarehouseScope(actor, input.warehouseId);
-    if (input.view === "supplier_account") {
+    if (input.view === "supplier_account" || input.view === "supplier_payables") {
       requirePermission(actor, "payables.read");
       const organizationWide = ["system_administrator", "operations_administrator", "finance_officer", "auditor"].some((role) => hasRole(actor, role as Parameters<typeof hasRole>[1]));
       if (!organizationWide && !input.branchId && !input.warehouseId)
@@ -343,6 +343,49 @@ export const getProcurementWorkspace = onCall(
       const supplier = await db.doc(`suppliers/${input.supplierId}`).get();
       if (!supplier.exists || supplier.get("organizationId") !== actor.organizationId)
         throw new HttpsError("not-found", "Supplier not found.");
+      if (input.view === "supplier_payables") {
+        let invoices: FirebaseFirestore.Query = db.collection("supplierInvoices")
+          .where("organizationId", "==", actor.organizationId).where("supplierId", "==", supplier.id)
+          .where("status", "in", ["approved", "partially_paid"]);
+        if (input.branchId) invoices = invoices.where("branchId", "==", input.branchId);
+        if (input.warehouseId) invoices = invoices.where("warehouseId", "==", input.warehouseId);
+        let page = invoices.orderBy(FieldPath.documentId());
+        if (input.cursor) {
+          const start = await db.doc(`supplierInvoices/${input.cursor}`).get();
+          if (!start.exists || start.get("organizationId") !== actor.organizationId || start.get("supplierId") !== supplier.id ||
+            !["approved", "partially_paid"].includes(String(start.get("status"))) ||
+            (input.branchId && start.get("branchId") !== input.branchId) || (input.warehouseId && start.get("warehouseId") !== input.warehouseId))
+            throw new HttpsError("invalid-argument", "Restart unpaid invoices after changing filters or settling an invoice.");
+          page = page.startAfter(start);
+        }
+        const asOfDate = new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Lagos", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+        const daysAgo = (days: number) => new Date(Date.parse(`${asOfDate}T00:00:00Z`) - days * 86_400_000).toISOString().slice(0, 10);
+        const windows = [
+          { name: "Current", from: asOfDate, to: "9999-12-31" },
+          { name: "1–30 days", from: daysAgo(30), to: daysAgo(1) },
+          { name: "31–60 days", from: daysAgo(60), to: daysAgo(31) },
+          { name: "61–90 days", from: daysAgo(90), to: daysAgo(61) },
+          { name: "90+ days", from: "0001-01-01", to: daysAgo(91) },
+        ];
+        const [rows, total, aging] = await Promise.all([
+          page.limit(Math.min(input.limit, 100) + 1).get(),
+          invoices.aggregate({ amount: AggregateField.sum("outstandingAmountMinor") }).get(),
+          Promise.all(windows.map(async (window) => {
+            const value = await invoices.where("dueDate", ">=", window.from).where("dueDate", "<=", window.to)
+              .aggregate({ amount: AggregateField.sum("outstandingAmountMinor") }).get();
+            return { name: window.name, amountMinor: supplierMoney(value.data().amount) };
+          })),
+        ]);
+        const totalOutstandingMinor = supplierMoney(total.data().amount);
+        const undatedMinor = supplierMoney(totalOutstandingMinor - aging.reduce((sum, bucket) => sum + bucket.amountMinor, 0));
+        const visible = rows.docs.slice(0, Math.min(input.limit, 100));
+        return {
+          asOfDate, totalOutstandingMinor, aging: [...aging, { name: "Due date not set", amountMinor: undatedMinor }],
+          invoices: visible.map((invoice) => ({ id: invoice.id, ...invoice.data() })),
+          nextCursor: rows.size > visible.length ? visible.at(-1)!.id : null,
+          note: "Current approved unpaid invoices, not a historical balance. Aging uses Nigerian business dates. Missing historical due dates are not guessed; advances are separate assets.",
+        };
+      }
       let base: FirebaseFirestore.Query = db.collection("supplierAccountEntries")
         .where("organizationId", "==", actor.organizationId).where("supplierId", "==", supplier.id);
       if (input.branchId) base = base.where("branchId", "==", input.branchId);

@@ -103,6 +103,10 @@ export function queryCatalog() {
   for (const collection of ["purchaseOrders", "purchaseOrderItems", "supplierInvoices", "expenses"]) for (const scope of subsets(["branchId", "warehouseId"])) add("procurement/expense workspace", collection, [org, ...eq(scope)]);
   for (const scope of [[], ["branchId"], ["warehouseId"]]) {
     const filters = [org, ["supplierId", "=="], ...eq(scope)];
+    const unpaid = [...filters, ["status", "in"]];
+    add("supplier unpaid invoice pages", "supplierInvoices", unpaid, [["__name__", "ASCENDING"]]);
+    add("supplier unpaid totals", "supplierInvoices", unpaid, [], ["outstandingAmountMinor"]);
+    add("supplier payable aging", "supplierInvoices", [...unpaid, ["dueDate", ">="], ["dueDate", "<="]], [], ["outstandingAmountMinor"]);
     for (const range of [[], [["effectiveAt", ">="]], [["effectiveAt", "<="]], [["effectiveAt", ">="], ["effectiveAt", "<="]]]) {
       add("supplier statement pages", "supplierAccountEntries", [...filters, ...range], dateOrder("effectiveAt"));
       for (const field of ["amountMinor", "advanceAmountMinor"]) add("supplier statement separate totals", "supplierAccountEntries", [...filters, ...range], [], [field]);

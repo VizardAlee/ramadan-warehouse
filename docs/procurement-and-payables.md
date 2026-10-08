@@ -101,7 +101,19 @@ Interrupted payment requests retain their exact payload/idempotency key for a
 same-transaction retry and lock inputs until the outcome is known. After closing
 or refreshing, inspect history before initiating another payment.
 
-Still pending in this workstream: payable aging, supplier return/refund/credit
+### Current unpaid invoices and aging
+
+Supplier accounts now show current approved/part-paid invoices in bounded
+25/50/100-row pages, with payment/advance application available from each row.
+Totals are server-side aggregates over the selected store or consolidated scope,
+not a sum of the visible page. Aging uses Nigerian business dates: Current,
+1–30, 31–60, 61–90 and 90+ days overdue. Old invoices without a recorded due date
+are shown separately as Due date not set; dates are never inferred or migrated.
+These are current balances, independent of the historical statement date range.
+Invoice creation captures the invoice date and an optional payment due date.
+The due date cannot precede issuance, and duplicate invoice lines are rejected.
+
+Still pending in this workstream: supplier return/refund/credit
 settlement with stock and accounting linkage, and richer GRN printout. Existing
 expenses, bank reconciliation, period close and draft financial statements are
 separate modules; this change does not replace them.

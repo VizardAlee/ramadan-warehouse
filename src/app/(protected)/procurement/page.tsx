@@ -99,6 +99,9 @@ export default function ProcurementPage() {
     {},
   );
   const [paymentInvoice, setPaymentInvoice] = useState<SupplierInvoice | null>(null);
+  const [invoiceIssueDates, setInvoiceIssueDates] = useState<Record<string, string>>({});
+  const [invoiceDueDates, setInvoiceDueDates] = useState<Record<string, string>>({});
+  const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Lagos", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
   const can = (permission: Parameters<typeof hasPermission>[1]) =>
     Boolean(profile && hasPermission(profile, permission));
   const canApproveOwnWork = Boolean(profile && canSelfAuthorize(profile));
@@ -778,7 +781,8 @@ export default function ProcurementPage() {
               </div>
               {can("payables.create") &&
                 ["partially_received", "received"].includes(order.status) && (
-                  <div className="mt-4 flex flex-col gap-2 border-t pt-4 sm:flex-row">
+                  <div className="mt-4 grid items-end gap-3 border-t pt-4 md:grid-cols-2 xl:grid-cols-[minmax(0,1fr)_10rem_12rem_auto]">
+                    <label className="min-w-0 flex-1 text-sm">Supplier invoice number
                     <input
                       value={invoiceNumbers[order.id] ?? ""}
                       onChange={(event) =>
@@ -788,11 +792,16 @@ export default function ProcurementPage() {
                         })
                       }
                       placeholder="Supplier invoice number"
-                      className="min-h-10 flex-1 rounded-lg border px-3"
+                      className="block min-h-10 w-full rounded-lg border px-3"
                     />
+                    </label>
+                    <label className="text-sm">Invoice date<input type="date" value={invoiceIssueDates[order.id] ?? today} onChange={(event) => setInvoiceIssueDates({ ...invoiceIssueDates, [order.id]: event.target.value })} className="block min-h-10 w-full rounded-lg border px-3" /></label>
+                    <label className="text-sm">Payment due date (optional)<input type="date" min={invoiceIssueDates[order.id] ?? today} value={invoiceDueDates[order.id] ?? ""} onChange={(event) => setInvoiceDueDates({ ...invoiceDueDates, [order.id]: event.target.value })} className="block min-h-10 w-full rounded-lg border px-3" /></label>
                     <Button
                       disabled={
                         busy ||
+                        !(invoiceIssueDates[order.id] ?? today) ||
+                        Boolean(invoiceDueDates[order.id] && (invoiceDueDates[order.id] ?? "") < (invoiceIssueDates[order.id] ?? today)) ||
                         !(invoiceNumbers[order.id] ?? "").trim() ||
                         !(itemsByOrder.get(order.id) ?? []).some(
                           (item) =>
@@ -806,9 +815,8 @@ export default function ProcurementPage() {
                             callAdministration("submitSupplierInvoice", {
                               purchaseOrderId: order.id,
                               supplierInvoiceNumber: invoiceNumbers[order.id],
-                              invoiceDate: new Date()
-                                .toISOString()
-                                .slice(0, 10),
+                              invoiceDate: invoiceIssueDates[order.id] ?? today,
+                              dueDate: invoiceDueDates[order.id] || undefined,
                               lines: (itemsByOrder.get(order.id) ?? [])
                                 .filter(
                                   (item) =>
@@ -862,6 +870,7 @@ export default function ProcurementPage() {
               >
                 <div>
                   <strong>{invoice.supplierInvoiceNumber}</strong>
+                  <p className="text-xs text-[var(--muted)]">Invoice date: {invoice.invoiceDate ?? "Not recorded"} · Payment due: {invoice.dueDate ?? "Not recorded"}</p>
                   <p className="text-sm text-[var(--muted)]">
                     {invoice.supplierName} · {invoice.purchaseOrderNumber}
                   </p>

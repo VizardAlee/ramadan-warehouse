@@ -20,7 +20,7 @@ export const saveSupplierInput = z.object({
 });
 
 export const procurementWorkspaceInput = z.object({
-  view: z.enum(["workspace", "supplier_account"]).default("workspace"),
+  view: z.enum(["workspace", "supplier_account", "supplier_payables"]).default("workspace"),
   supplierId: id.optional(),
   from: z.string().date().optional(),
   through: z.string().date().optional(),
@@ -31,7 +31,7 @@ export const procurementWorkspaceInput = z.object({
 }).superRefine((value, context) => {
   if (value.branchId && value.warehouseId)
     context.addIssue({ code: "custom", path: ["branchId"], message: "Choose one operating location." });
-  if (value.view === "supplier_account" && !value.supplierId)
+  if (value.view !== "workspace" && !value.supplierId)
     context.addIssue({ code: "custom", path: ["supplierId"], message: "Select a supplier." });
   if (value.from && value.through && value.from > value.through)
     context.addIssue({ code: "custom", path: ["through"], message: "The end date must not precede the start date." });
@@ -93,6 +93,11 @@ export const submitSupplierInvoiceInput = z.object({
   })).min(1).max(100),
   notes: optionalText(500),
   idempotencyKey: z.string().uuid(),
+}).superRefine((value, context) => {
+  if (value.dueDate && value.dueDate < value.invoiceDate)
+    context.addIssue({ code: "custom", path: ["dueDate"], message: "The due date cannot precede the invoice date." });
+  if (new Set(value.lines.map((line) => line.purchaseOrderItemId)).size !== value.lines.length)
+    context.addIssue({ code: "custom", path: ["lines"], message: "Each purchase order item may appear only once." });
 });
 
 export const supplierInvoiceActionInput = z.object({

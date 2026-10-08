@@ -325,6 +325,8 @@ export interface SupplierInvoice {
   operationalLocationType?: "head_office" | "store" | "legacy_warehouse";
   operationalLocationId?: string;
   supplierInvoiceNumber: string;
+  invoiceDate?: string;
+  dueDate?: string;
   status: "submitted" | "approved" | "partially_paid" | "paid";
   netAmountMinor: number;
   vatAmountMinor: number;

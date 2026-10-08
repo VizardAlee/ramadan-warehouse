@@ -43,4 +43,8 @@ describe("cross-section Firestore index release guard", () => {
       expect(catalog.filter((shape) => shape.sources.includes("supplier statement opening balance") && shape.sums?.[0] === field)).toHaveLength(3);
     }
   });
+  it("covers supplier unpaid pages, full totals and dated aging in every supported scope", () => {
+    for (const source of ["supplier unpaid invoice pages", "supplier unpaid totals", "supplier payable aging"])
+      expect(catalog.filter((shape) => shape.sources.includes(source))).toHaveLength(3);
+  });
 });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { recordSupplierPaymentInput, procurementWorkspaceInput } from "../functions/src/validation/procurement";
+import { recordSupplierPaymentInput, procurementWorkspaceInput, submitSupplierInvoiceInput } from "../functions/src/validation/procurement";
 const base = { supplierId: "supplier", method: "cash", paidAt: "2026-10-08T10:00:00Z", idempotencyKey: "08a610c3-3012-414b-82de-f921b982defb" };
 describe("supplier payment validation", () => {
   it("requires explicit advance amount and operating location", () => {
@@ -16,6 +16,14 @@ describe("supplier payment validation", () => {
   });
   it("requires supplier identity and ordered statement dates", () => {
     expect(procurementWorkspaceInput.safeParse({ view: "supplier_account" }).success).toBe(false);
+    expect(procurementWorkspaceInput.safeParse({ view: "supplier_payables" }).success).toBe(false);
     expect(procurementWorkspaceInput.safeParse({ view: "supplier_account", supplierId: "supplier", from: "2026-10-08", through: "2026-10-01" }).success).toBe(false);
+  });
+  it("validates invoice due dates and rejects duplicate billed items", () => {
+    const invoice = { purchaseOrderId: "order", supplierInvoiceNumber: "SUP-1", invoiceDate: "2026-10-08", lines: [{ purchaseOrderItemId: "item", quantity: 1 }], idempotencyKey: base.idempotencyKey };
+    expect(submitSupplierInvoiceInput.safeParse(invoice).success).toBe(true);
+    expect(submitSupplierInvoiceInput.safeParse({ ...invoice, dueDate: "2026-10-09" }).success).toBe(true);
+    expect(submitSupplierInvoiceInput.safeParse({ ...invoice, dueDate: "2026-10-07" }).success).toBe(false);
+    expect(submitSupplierInvoiceInput.safeParse({ ...invoice, lines: [...invoice.lines, ...invoice.lines] }).success).toBe(false);
   });
 });

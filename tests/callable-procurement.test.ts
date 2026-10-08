@@ -444,6 +444,35 @@ describe.sequential("procurement callables", () => {
     expect(paymentLines.docs.map((line) => line.get("accountCode"))).toContain("1041");
   });
 
+  it("ages current supplier debt without guessing legacy dates and pages unpaid invoices", async () => {
+    const supplierId = "aging-supplier";
+    await adminDb.doc(`suppliers/${supplierId}`).set({ organizationId, name: "Aging supplier", active: true, outstandingBalanceMinor: 2100 });
+    const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Lagos", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+    const ago = (days: number) => new Date(Date.parse(`${today}T00:00:00Z`) - days * 86400000).toISOString().slice(0, 10);
+    for (const [index, days] of [0, 30, 60, 90, 91, null].entries()) {
+      await adminDb.doc(`supplierInvoices/aging-${index}`).set({ organizationId, supplierId, branchId: headOfficeId, status: index === 1 ? "partially_paid" : "approved", outstandingAmountMinor: (index + 1) * 100, supplierInvoiceNumber: `AGING-${index}`, ...(days === null ? {} : { dueDate: ago(days) }) });
+    }
+    await adminDb.doc("supplierInvoices/aging-paid").set({ organizationId, supplierId, branchId: headOfficeId, status: "paid", outstandingAmountMinor: 9999, dueDate: ago(10) });
+    await adminDb.doc("supplierInvoices/aging-other").set({ organizationId, supplierId, warehouseId, status: "approved", outstandingAmountMinor: 700, dueDate: ago(10) });
+    const input = { view: "supplier_payables", supplierId, branchId: headOfficeId, limit: 1 };
+    type Payables = { invoices: { id: string }[]; nextCursor: string | null; totalOutstandingMinor: number; aging: { name: string; amountMinor: number }[] };
+    const first = await call<Payables>(headOfficeManager, "getProcurementWorkspace", input);
+    expect(first.invoices).toHaveLength(1);
+    expect(first.totalOutstandingMinor).toBe(2100);
+    expect(first.aging.map((bucket) => bucket.amountMinor)).toEqual([100, 200, 300, 400, 500, 600]);
+    const second = await call<Payables>(headOfficeManager, "getProcurementWorkspace", { ...input, cursor: first.nextCursor });
+    expect(second.invoices[0]!.id).not.toBe(first.invoices[0]!.id);
+    expect(second.totalOutstandingMinor).toBe(2100);
+    expect((await adminDb.doc("supplierInvoices/aging-5").get()).get("dueDate")).toBeUndefined();
+    await expect(call(warehouseManager, "getProcurementWorkspace", input)).rejects.toThrow();
+    await expect(call(headOfficeManager, "getProcurementWorkspace", { ...input, cursor: "aging-other" })).rejects.toMatchObject({ code: "functions/invalid-argument" });
+    await call(headOfficeManager, "recordSupplierPayment", { supplierId, branchId: headOfficeId, method: "cash", allocations: [{ supplierInvoiceId: "aging-0", amountMinor: 100 }], paidAt: new Date().toISOString(), idempotencyKey: crypto.randomUUID() });
+    const afterPayment = await call<Payables>(headOfficeManager, "getProcurementWorkspace", input);
+    expect(afterPayment.totalOutstandingMinor).toBe(2000);
+    expect(afterPayment.aging[0]!.amountMinor).toBe(0);
+    await expect(call(headOfficeManager, "getProcurementWorkspace", { ...input, cursor: "aging-0" })).rejects.toMatchObject({ code: "functions/invalid-argument" });
+  });
+
   it("keeps supplier advances separate, applies partial amounts once and preserves paginated statements", async () => {
     const { supplierId } = await call<{ supplierId: string }>(administrator, "saveSupplier", {
       name: "Advance Supplier", phone: "07033334444", active: true, idempotencyKey: crypto.randomUUID(),

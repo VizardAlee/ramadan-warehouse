@@ -21,6 +21,45 @@ const labels: Record<string, string> = {
   supplier_advance: "Advance paid", supplier_advance_applied: "Advance applied to invoice",
 };
 
+interface Payables {
+  asOfDate: string; totalOutstandingMinor: number; note: string;
+  aging: Array<{ name: string; amountMinor: number }>;
+  invoices: SupplierInvoice[]; nextCursor: string | null;
+}
+function SupplierPayables({ supplierId, scope, canPay, onPay }: {
+  supplierId: string; scope: Scope; canPay: boolean; onPay: (invoice: SupplierInvoice) => void;
+}) {
+  const [limit, setLimit] = useState(25);
+  const [pages, setPages] = useState<Array<string | null>>([null]);
+  const [response, setResponse] = useState<{ key: string; data?: Payables; error?: string }>();
+  const cursor = pages.at(-1);
+  const key = JSON.stringify([supplierId, scope, limit, cursor]);
+  const data = response?.key === key ? response.data : undefined;
+  const error = response?.key === key ? response.error : undefined;
+  useEffect(() => {
+    let active = true;
+    void callAdministration<object, Payables>("getProcurementWorkspace", { view: "supplier_payables", supplierId, ...scope, limit, cursor: cursor || undefined })
+      .then((value) => { if (active) setResponse({ key, data: value }); })
+      .catch((cause) => { if (active) setResponse({ key, error: cause instanceof Error ? cause.message : "Unpaid supplier invoices could not be loaded." }); });
+    return () => { active = false; };
+  }, [supplierId, scope, limit, cursor, key]);
+  return <section aria-label="Supplier unpaid invoices" className="mt-4 space-y-3 rounded-xl border p-4">
+    <h3 className="font-semibold">Unpaid invoices &amp; debt aging</h3>
+    {error && <p role="alert" className="text-red-800">{error}</p>}
+    {!data && !error && <p role="status">Loading unpaid invoices…</p>}
+    {data && <>
+      <p className="text-sm">Outstanding approved invoices: <strong className="finance-attention">{formatNaira(data.totalOutstandingMinor)}</strong> · as at {data.asOfDate}</p>
+      <p className="text-xs text-[var(--muted)]">{data.note}</p>
+      <div className="grid grid-cols-2 gap-2 lg:grid-cols-3">{data.aging.map((bucket) => <div className="rounded-lg bg-slate-50 p-3" key={bucket.name}><p className="text-xs">{bucket.name}</p><strong className={bucket.name === "Current" ? "finance-balance" : "finance-attention"}>{formatNaira(bucket.amountMinor)}</strong></div>)}</div>
+      <div className="overflow-x-auto"><table className="w-full text-left text-sm"><thead><tr><th className="p-2">Invoice</th><th className="p-2">Invoice date</th><th className="p-2">Due date</th><th className="p-2 text-right">Still owed</th><th className="p-2">Action</th></tr></thead><tbody>
+        {data.invoices.map((invoice) => <tr className="border-t" key={invoice.id}><td className="p-2">{invoice.supplierInvoiceNumber}</td><td className="p-2 whitespace-nowrap">{invoice.invoiceDate ?? "Not recorded"}</td><td className={`p-2 whitespace-nowrap ${invoice.dueDate && invoice.dueDate < data.asOfDate ? "finance-outflow" : ""}`}>{invoice.dueDate ?? "Not recorded"}</td><td className="p-2 text-right finance-attention">{formatNaira(invoice.outstandingAmountMinor)}</td><td className="p-2">{canPay && <Button variant="outline" onClick={() => onPay(invoice)}>Pay / apply advance</Button>}</td></tr>)}
+        {!data.invoices.length && <tr><td colSpan={5} className="p-3">No approved unpaid invoices.</td></tr>}
+      </tbody></table></div>
+      <CursorTablePagination page={pages.length} pageSize={limit} rowCount={data.invoices.length} hasNextPage={Boolean(data.nextCursor)} loading={false} onPrevious={() => setPages((value) => value.slice(0, -1))} onNext={() => { if (data.nextCursor) setPages((value) => [...value, data.nextCursor]); }} onPageSizeChange={(size) => { setLimit(size); setPages([null]); }} itemLabel="unpaid invoices" />
+    </>}
+  </section>;
+}
+
 function SupplierStatement({ supplierId, scope }: { supplierId: string; scope: Scope }) {
   const [from, setFrom] = useState("");
   const [through, setThrough] = useState("");
@@ -40,7 +79,7 @@ function SupplierStatement({ supplierId, scope }: { supplierId: string; scope: S
       .catch((cause) => { if (active) setResponse({ key, error: cause instanceof Error ? cause.message : "Supplier history could not be loaded." }); });
     return () => { active = false; };
   }, [supplierId, scope, from, through, limit, cursor, key]);
-  return <div className="mt-4 space-y-3">
+  return <section aria-label="Supplier account statement" className="mt-4 space-y-3">
     <div className="grid gap-3 sm:grid-cols-2">
       <label>From<input aria-label="Supplier statement from" type="date" value={from} onChange={(event) => { setFrom(event.target.value); setPages([null]); }} className="mt-1 w-full rounded-lg border p-2" /></label>
       <label>Through<input aria-label="Supplier statement through" type="date" value={through} onChange={(event) => { setThrough(event.target.value); setPages([null]); }} className="mt-1 w-full rounded-lg border p-2" /></label>
@@ -60,7 +99,7 @@ function SupplierStatement({ supplierId, scope }: { supplierId: string; scope: S
       <CursorTablePagination page={pages.length} pageSize={limit} rowCount={data.entries.length} hasNextPage={Boolean(data.nextCursor)} loading={false} onPrevious={() => setPages((value) => value.slice(0, -1))} onNext={() => { if (data.nextCursor) setPages((value) => [...value, data.nextCursor]); }} onPageSizeChange={(size) => { setLimit(size); setPages([null]); }} itemLabel="supplier entries" />
       <Button variant="outline" disabled={!data.entries.length} onClick={() => downloadCsv("supplier-statement-page.csv", data.entries.map((entry) => ({ activity: labels[entry.entryType] ?? entry.entryType, reference: entry.referenceNumber, payableChangeNaira: entry.amountMinor / 100, advanceChangeNaira: (entry.advanceAmountMinor ?? 0) / 100, journal: entry.journalEntryId ?? "" })))}>Export this page</Button>
     </>}
-  </div>;
+  </section>;
 }
 
 function SupplierPaymentDialog({ supplier, invoice, scope, banks, branches, onClose, onComplete }: {
@@ -136,15 +175,18 @@ export function SupplierAccounts({ suppliers, scope, banks, branches, canPay, in
 }) {
   const [supplierId, setSupplierId] = useState("");
   const [advanceSupplier, setAdvanceSupplier] = useState<string | null>(null);
+  const [selectedInvoice, setSelectedInvoice] = useState<SupplierInvoice | null>(null);
   const [refresh, setRefresh] = useState(0);
   const selected = suppliers.find((supplier) => supplier.id === supplierId);
-  const paying = suppliers.find((supplier) => supplier.id === (invoice?.supplierId ?? advanceSupplier));
-  function close() { setAdvanceSupplier(null); closeInvoice(); }
+  const activeInvoice = invoice ?? selectedInvoice;
+  const paying = suppliers.find((supplier) => supplier.id === (activeInvoice?.supplierId ?? advanceSupplier));
+  function close() { setAdvanceSupplier(null); setSelectedInvoice(null); closeInvoice(); }
   return <section className="rounded-xl border bg-white p-5">
     <h2 className="text-xl font-semibold">Supplier accounts &amp; statements</h2>
     <p className="text-sm text-[var(--muted)]">Payables and unused advances are separate. Filter history below; invoice payments support part payment.</p>
     <div className="mt-3 flex flex-wrap gap-3"><label className="min-w-0 flex-1 text-sm">Supplier<select aria-label="Supplier account" value={supplierId} onChange={(event) => setSupplierId(event.target.value)} className="mt-1 w-full rounded-lg border p-3"><option value="">Choose supplier</option>{suppliers.map((supplier) => <option key={supplier.id} value={supplier.id}>{supplier.supplierNumber} · {supplier.name}{supplier.active ? "" : " (inactive)"}</option>)}</select></label>{canPay && selected?.active && <Button className="self-end" onClick={() => setAdvanceSupplier(selected.id)}>Record advance</Button>}</div>
+    {selected && <SupplierPayables key={`payables-${JSON.stringify([selected.id, scope, refresh])}`} supplierId={selected.id} scope={scope} canPay={canPay} onPay={setSelectedInvoice} />}
     {selected && <SupplierStatement key={JSON.stringify([selected.id, scope, refresh])} supplierId={selected.id} scope={scope} />}
-    {paying && <SupplierPaymentDialog key={invoice?.id ?? `advance-${paying.id}`} supplier={paying} invoice={invoice ?? undefined} scope={scope} banks={banks} branches={branches} onClose={close} onComplete={() => { close(); setRefresh((value) => value + 1); onComplete(); }} />}
+    {paying && <SupplierPaymentDialog key={activeInvoice?.id ?? `advance-${paying.id}`} supplier={paying} invoice={activeInvoice ?? undefined} scope={scope} banks={banks} branches={branches} onClose={close} onComplete={() => { close(); setRefresh((value) => value + 1); onComplete(); }} />}
   </section>;
 }
