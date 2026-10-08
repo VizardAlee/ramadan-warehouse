@@ -2,7 +2,7 @@
 
 This roadmap extends the existing Firebase application and preserves historical users, stock entries, sales, journals and audit records. A requested capability is not marked complete merely because a screen or a partial workflow exists.
 
-### Posted-order corrections — 9 October 2026 (implementation; release pending)
+### Posted-order corrections — 9 October 2026 (validated; release blocked on scoped IAM approval)
 
 Returns now has an expandable full return/cancellation-and-reissue correction
 register, with original/proposed snapshots, reasons, permission-scoped review,
@@ -25,6 +25,18 @@ compilation, production build, secret scan and diff checks passed. All 224 live
 indexes are READY and 439/439 live query plans passed; no new index was needed.
 The guarded query-audit baseline has been refreshed. Deployment remains pending;
 no signed-in live financial posting or real-data migration was performed.
+
+Release checkpoint: implementation `e973764` is pushed. Firebase created
+`salesCorrections` as ACTIVE revision `salescorrections-00001-rar`, with
+APP_ENV=production and App Check enabled, but the deploy exited with an invoker
+IAM-policy error. Cloud Run reports `invokerIamDisabled=false`; the public probe
+returns HTTP 403 before callable authentication. No IAM override was applied.
+Rules and the new interface have not been deployed. App Hosting still serves
+`build-2026-10-08-008` at 100% traffic, not reconciling. Owner approval is required
+to disable Cloud Run invoker IAM checks for this new service only; Firebase Auth,
+App Check and permission/scope checks must remain enforced. Then verify callable
+availability, deploy rules/web and wait for explicit rollout completion. This is
+not a completed release. No real financial/stock records were modified.
 
 Scope remains partial: standalone monetary debit/credit notes, payment-only or
 serial/delivery amendments, partial correction plans and automated held-stock
