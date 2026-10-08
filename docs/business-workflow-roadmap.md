@@ -2,7 +2,7 @@
 
 This roadmap extends the existing Firebase application and preserves historical users, stock entries, sales, journals and audit records. A requested capability is not marked complete merely because a screen or a partial workflow exists.
 
-### Supplier goods returns and credit notes — 8 October 2026 (release in validation)
+### Supplier goods returns and credit notes — 8 October 2026 (release awaiting IAM approval)
 
 Purchasing now has **Returns & credit notes** on approved/settled supplier invoices.
 One product/batch from one original GRN can be fully or partially returned per note.
@@ -27,6 +27,18 @@ receipts without matching original stock evidence require reconciliation, not gu
 links. New supplier-return records and control locks are server-only. This release
 does not introduce multi-product atomic credit documents or a linked return-correction
 screen; those remain explicit follow-up work, not a reason to use generic stock reversal.
+
+Source `8ce2b83` passed 292 unit/interface tests, 54 targeted emulator/security/E2E
+checks, typecheck, lint, Functions compilation, production build, secret scan and
+diff checks. All 224 indexes are READY and 436/436 live query plans passed. The
+additive Firestore rules are deployed. The twelve existing affected Functions
+updated successfully and are ACTIVE. The new `postSupplierReturn` service is
+ACTIVE on revision `postsupplierreturn-00002-nin`, in production mode with App Check
+enabled, but its public invoker IAM policy could not be applied; an unauthenticated
+probe receives infrastructure HTML HTTP 403, not the callable's JSON auth response.
+Disabling its invoker IAM check requires explicit approval for this service only.
+The dependent web release is deliberately pending. No live financial/stock test
+postings or IAM-check changes were made during verification.
 
 ### Supplier advances and statements release — 8 October 2026
 
