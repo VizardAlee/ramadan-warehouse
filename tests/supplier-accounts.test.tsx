@@ -10,6 +10,13 @@ const supplier = { id: "supplier1", organizationId: "org", supplierNumber: "SUP-
 const invoice = { id: "invoice1", supplierId: supplier.id, supplierInvoiceNumber: "INV-1", outstandingAmountMinor: 10000, branchId: "branch1" } as SupplierInvoice;
 const props = { suppliers: [supplier], banks: [{ id: "bank1", bankName: "Bank", accountName: "Company", accountNumberLast4: "1234" }], branches: [{ id: "branch1", name: "Head Office" }], scope: { branchId: "branch1" }, canPay: true, invoice, closeInvoice: vi.fn(), onComplete: vi.fn() };
 describe("supplier account workflow", () => {
+  it("validates excess decimal places without crashing the payment dialog", () => {
+    render(<SupplierAccounts {...props} />);
+    fireEvent.change(screen.getByLabelText("Supplier payment amount"), { target: { value: "1.234" } });
+    expect(screen.getByText("Enter an amount with no more than two decimal places.")).toBeTruthy();
+    expect((screen.getByRole("button", { name: "Record payment" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(api.call).not.toHaveBeenCalled();
+  });
   it("keeps inactive supplier history accessible without offering a new advance", async () => {
     api.call.mockResolvedValue({ entries: [], nextCursor: null, openingPayableMinor: 0, closingPayableMinor: 0, openingAdvanceMinor: 0, closingAdvanceMinor: 0, scopeNote: "Consolidated" });
     render(<SupplierAccounts {...props} suppliers={[{ ...supplier, active: false }]} invoice={null} />);

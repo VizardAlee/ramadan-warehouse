@@ -78,7 +78,10 @@ function SupplierPaymentDialog({ supplier, invoice, scope, banks, branches, onCl
   const [uncertain, setUncertain] = useState(false);
   const [error, setError] = useState("");
   const pending = useRef<Record<string, unknown> | null>(null);
-  const amountMinor = nairaToKobo(Number(amount));
+  let amountMinor = 0;
+  let amountError = "";
+  try { amountMinor = nairaToKobo(Number(amount)); }
+  catch { amountError = "Enter an amount with no more than two decimal places."; }
   const paymentScope = invoice ? { branchId: invoice.branchId, warehouseId: invoice.warehouseId }
     : scope.warehouseId ? scope : { branchId };
   const scopeKey = paymentScope.branchId ? `branch:${paymentScope.branchId}` : `warehouse:${paymentScope.warehouseId}`;
@@ -115,6 +118,7 @@ function SupplierPaymentDialog({ supplier, invoice, scope, banks, branches, onCl
       {!paymentScope.warehouseId && <label className="block text-sm">Funding / recording store<select aria-label="Supplier payment store" disabled={Boolean(invoice)} value={branchId} onChange={(event) => setBranch(event.target.value)} className="mt-1 w-full rounded-lg border p-3"><option value="">Choose store</option>{branches.map((branch) => <option key={branch.id} value={branch.id}>{branch.name}</option>)}</select></label>}
       {invoice && <label className="block text-sm">Payment source<select aria-label="Payment source" value={source} onChange={(event) => setSource(event.target.value as typeof source)} className="mt-1 w-full rounded-lg border p-3"><option value="disbursement">New company payment</option><option value="advance_balance">Apply unused supplier advance</option></select><small className="block">Unused advance in this store: {formatNaira(availableAdvance)}. Applying it does not pay money twice.</small></label>}
       <label className="block text-sm">Amount (₦)<input aria-label="Supplier payment amount" type="number" min="0.01" step="0.01" value={amount} onChange={(event) => setAmount(event.target.value)} className="mt-1 w-full rounded-lg border p-3" /></label>
+      {amountError && <p role="alert" className="text-sm text-red-800">{amountError}</p>}
       {source === "disbursement" && <>
         <label className="block text-sm">Payment method<select aria-label="Supplier payment method" value={method} onChange={(event) => setMethod(event.target.value as typeof method)} className="mt-1 w-full rounded-lg border p-3"><option value="bank_transfer">Bank transfer</option><option value="card">Card / POS</option><option value="cash">Cash</option></select></label>
         {method !== "cash" && <label className="block text-sm">Company account paid from<select aria-label="Supplier funding account" value={bankAccountId} onChange={(event) => setBank(event.target.value)} className="mt-1 w-full rounded-lg border p-3"><option value="">Choose account</option>{banks.map((bank) => <option key={bank.id} value={bank.id}>{bank.bankName} · {bank.accountName} · ••••{bank.accountNumberLast4}</option>)}</select></label>}
