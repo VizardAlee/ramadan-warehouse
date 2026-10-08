@@ -147,6 +147,7 @@ export {
   createSaleReturn,
   approveSaleReturn,
 } from "./callable/sales-returns.js";
+export { salesCorrections } from "./callable/sales-corrections.js";
 export {
   saveSupplier,
   getProcurementWorkspace,

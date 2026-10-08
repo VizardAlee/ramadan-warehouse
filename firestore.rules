@@ -340,6 +340,13 @@ service cloud.firestore {
       allow read: if sameOrganization(resource.data) && salesScope(resource.data);
       allow create, update, delete: if false;
     }
+    match /saleCorrectionRequests/{documentId} {
+      allow read: if sameOrganization(resource.data) && salesScope(resource.data);
+      allow create, update, delete: if false;
+    }
+    match /saleCorrectionEvidence/{documentId} {
+      allow read, write: if false;
+    }
     match /aftersalesCases/{documentId} {
       allow read: if sameOrganization(resource.data) && salesScope(resource.data);
       allow create, update, delete: if false;

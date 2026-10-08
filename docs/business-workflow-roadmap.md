@@ -2,6 +2,36 @@
 
 This roadmap extends the existing Firebase application and preserves historical users, stock entries, sales, journals and audit records. A requested capability is not marked complete merely because a screen or a partial workflow exists.
 
+### Posted-order corrections — 9 October 2026 (implementation; release pending)
+
+Returns now has an expandable full return/cancellation-and-reissue correction
+register, with original/proposed snapshots, reasons, permission-scoped review,
+rejection history and bounded 25/50/100 cursor pages. Approval never posts stock
+or accounting. Completion verifies a full original reversal posted after approval,
+the matching replacement customer/items/quantities/prices/discount, balanced
+posted journals and unique transaction links. Existing return inspection,
+reservation cancellation and POS remain the only posting engines. Server-owned
+evidence locks and fingerprinted retries prevent duplicate linking. Original
+sale/journal/audit records are preserved; schema changes are additive.
+Orders already partially returned/cancelled before approval require an
+accountant-assisted correction; they cannot enter a fresh full-reissue plan.
+
+Validation: 297 unit/interface tests, 44 combined sales/security emulator cases,
+and a self-contained focused emulator rerun passed. The latter exercises prior
+return guards, invalid discounts, unauthorized review, changed-payload retries,
+duplicate requests, mismatched replacements, unbalanced journals and replay-safe
+completion. Typecheck, lint (including final changed-file checks), Functions
+compilation, production build, secret scan and diff checks passed. All 224 live
+indexes are READY and 439/439 live query plans passed; no new index was needed.
+The guarded query-audit baseline has been refreshed. Deployment remains pending;
+no signed-in live financial posting or real-data migration was performed.
+
+Scope remains partial: standalone monetary debit/credit notes, payment-only or
+serial/delivery amendments, partial correction plans and automated held-stock
+aftersales routing are not implemented by this screen. No fictitious returns
+should be used for paperwork changes. The user guide explains this boundary.
+Next dependency: serial evidence at collection and uncollected-stock reminders.
+
 ### Customer returns inspection and exchange difference — 8 October 2026 (deployed)
 
 Existing return callables now require explicit per-item inspection before goods

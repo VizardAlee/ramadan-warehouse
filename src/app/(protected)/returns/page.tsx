@@ -10,6 +10,7 @@ import { formatNaira } from "@/features/inventory/format";
 import { canSelfAuthorize, hasPermission } from "@/lib/permissions/roles";
 import type { Branch, SaleReturn } from "@/types/domain";
 import { ReturnFollowUp } from "@/features/returns/return-follow-up";
+import { SaleCorrections } from "@/features/returns/sale-corrections";
 import { CursorTablePagination } from "@/components/ui/table-pagination";
 
 interface ReturnWorkspace {
@@ -62,6 +63,7 @@ export default function ReturnsPage() {
   const [manualBranchId, setManualBranchId] = useState("");
   const [receiptNumber, setReceiptNumber] = useState("");
   const [workspace, setWorkspace] = useState<ReturnWorkspace | null>(null);
+  const [showCorrections, setShowCorrections] = useState(false);
   const [quantities, setQuantities] = useState<Record<string, number>>({});
   const [kind, setKind] = useState<"goods_return" | "reservation_cancellation">("goods_return");
   const [conditions, setConditions] = useState<
@@ -558,6 +560,8 @@ export default function ReturnsPage() {
         </div>
         <CursorTablePagination page={scopedPages.length} pageSize={limit} rowCount={pending.length} hasNextPage={Boolean(nextCursor)} loading={busy} onPrevious={() => setPages(scopedPages.slice(0, -1))} onNext={() => { if (nextCursor) { setPageBranchId(branchId); setPages([...scopedPages, nextCursor]); } }} onPageSizeChange={size => { setLimit(size); setPages([null]); }} itemLabel="returns" />
       </section>
+      <Button variant="secondary" onClick={() => setShowCorrections(value => !value)}>{showCorrections ? "Hide order corrections" : "Posted-order corrections"}</Button>
+      {showCorrections && <SaleCorrections branchId={branchId} source={workspace?.sale.branchId === branchId ? workspace : null} canCreate={canCreate} canApprove={canApprove} />}
     </div>
   );
 }

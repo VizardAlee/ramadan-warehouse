@@ -176,6 +176,8 @@ async function seed() {
         saleId: id,
         status: "submitted",
       });
+      await db.doc(`saleCorrectionRequests/${id}-correction`).set({ organizationId: "org-1", branchId, status: "submitted" });
+      await db.doc(`saleCorrectionEvidence/${id}-evidence`).set({ organizationId: "org-1", branchId });
       await db.doc(`aftersalesCases/${id}-service`).set({
         organizationId: "org-1",
         branchId,
@@ -724,6 +726,12 @@ describe("Firestore baseline rules", () => {
     await assertSucceeds(cashierDb.doc("salesReceipts/sale-1-receipt").get());
     await assertSucceeds(cashierDb.doc("posShifts/sale-1-shift").get());
     await assertSucceeds(cashierDb.doc("saleReturns/sale-1-return").get());
+    await assertSucceeds(cashierDb.doc("saleCorrectionRequests/sale-1-correction").get());
+    await assertFails(cashierDb.doc("saleCorrectionRequests/sale-2-correction").get());
+    await assertFails(adminDb.doc("saleCorrectionRequests/sale-1-correction").update({ status: "completed" }));
+    await assertFails(adminDb.doc("saleCorrectionRequests/forged").set({ organizationId: "org-1", branchId: "branch-1", status: "approved" }));
+    await assertFails(adminDb.doc("saleCorrectionEvidence/sale-1-evidence").get());
+    await assertFails(adminDb.doc("saleCorrectionEvidence/sale-1-evidence").delete());
     await assertSucceeds(cashierDb.doc("saleReturnItems/sale-1-return-item").get());
     await assertSucceeds(cashierDb.doc("salesCredits/sale-1-credit").get());
     await assertFails(cashierDb.doc("saleReturns/sale-2-return").get());

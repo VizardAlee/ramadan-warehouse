@@ -1,13 +1,13 @@
 {
   "lastLiveAudit": {
     "project": "ramadan-warehouse-staging",
-    "verifiedAt": "2026-10-08T22:49:29.323Z",
-    "queryShapes": 436,
+    "verifiedAt": "2026-10-08T23:26:39.917Z",
+    "queryShapes": 439,
     "unsupportedQueries": 0,
     "readyIndexes": 224,
     "singleFieldOverrides": 0
   },
-  "catalogSha256": "3163e1bdeaaacfc0df2fe6f648f5f42a5468fed664bff42b0f2fd53ecddbd998",
+  "catalogSha256": "78705e79369460019778c15e561bed60dba9a6b9ff56ac4e6387af961bd8bd5b",
   "sourceFingerprints": {
     "functions/src/accounting/daily-close.ts": "88916698e8112584523b1770eb98be7e052761b4982e6f572df1e6f7221d617a",
     "functions/src/audit/write-audit-log.ts": "db7b9594fb7312ca692836ceb529dfe7785c52b36b53dab59743d4619af311a7",
@@ -36,6 +36,7 @@
     "functions/src/callable/procurement.ts": "7040ef363b06dd2e7d7c699fff5aabb0aa4958ef2bff342a32eeb26a9905d877",
     "functions/src/callable/reset-organization.ts": "ef008e650d39213d23c35d3d801015dccad8ad7ea78edf9d62b6b5c230d53a5c",
     "functions/src/callable/reverse-inventory.ts": "216adc552c28ea5cdbba48c29af9980720d5b5689b7baf144f49e40ba0181ee3",
+    "functions/src/callable/sales-corrections.ts": "6a81ad6d02442729f5a390a4184739fd4f3f3a450b8951e51c543a09bcdd95ff",
     "functions/src/callable/sales-returns.ts": "395e26ee2f5c6a2c65ee41f8f46269f56ccfdc1df8bf66be4d6ea71f7024313c",
     "functions/src/callable/sales.ts": "68c386730c11465667fc65ae9f0601e7bc2cbbc39913b5382ede316774bd7931",
     "functions/src/callable/stock-counts.ts": "319e73fba41579383a5fd615a2f60e90e77c7bc86613d6446a07c5c040adc49d",
@@ -67,7 +68,7 @@
     "src/app/(protected)/products/categories/page.tsx": "825f82bca475cc5200fc2784bd8acf166ee06bbbe9eccee26aa7ef6bec1599f3",
     "src/app/(protected)/products/page.tsx": "b1ac15eb81c5306df10347d00f810ef398e1dc3592f7bdad4b1fcba7875e223f",
     "src/app/(protected)/reports/page.tsx": "edcbf23ba8d32a6ec7c8113bbfe82d2fb730fcc6b119c0e55f081d78dc5d60a3",
-    "src/app/(protected)/returns/page.tsx": "a57a75ea9052b1284bf30ea162f3abe743747f524abfac1f38cacecf182d04a9",
+    "src/app/(protected)/returns/page.tsx": "c635c76a18c36fb2746e452a2784387241939df0d1fbf4797fb255ea3a1a44b7",
     "src/features/administration/master-data-page.tsx": "3b226155476bc01f312f4d9d11b6387beab7aaf36ba95e2c5f12aa59f4d58d6d",
     "src/features/administration/roles-manager.tsx": "4f06f02fb0e8b1ce046a8d46805cf2176e8b789ecebe82d77ca307be0b6af572",
     "src/features/administration/use-organization-collection.ts": "cac18c626939062e3ee50048cf22a2db6f90193a096ad387a6c970c1df71ff16",
