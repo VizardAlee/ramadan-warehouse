@@ -3,7 +3,7 @@
 The catalog in `scripts/firestore-query-catalog.mjs` combines source-extracted
 literal queries with explicit dynamic filter matrices. It covers the current
 application, not hypothetical future functionality. The 8 October supplier-account
-checkpoint covers 430 query shapes, including current supplier payable aging,
+checkpoint covers 432 query shapes, including receiving history/stock evidence and current supplier payable aging,
 unpaid invoice pages/totals and dated supplier statement pages,
 separate payable/advance sums and opening balances across organization, store
 and historical warehouse scopes.
@@ -52,9 +52,10 @@ Reference: [Firestore Query Explain](https://firebase.google.com/docs/firestore/
 
 Deployment/readiness/final verification is recorded in the workflow roadmap.
 
-Supplier-account verification (8 October 2026): 430/430 live query plans passed
-with zero missing indexes after all 221 indexes reached READY. Fifteen additive
-statement indexes and six unpaid-invoice aging indexes were deployed; historical business data was not changed.
+Supplier-account verification (8 October 2026): 432/432 live query plans passed
+with zero missing indexes after all 222 indexes reached READY. Fifteen additive
+statement indexes, six unpaid-invoice aging indexes and one receipt-history index
+were deployed; historical business data was not changed.
 The guarded baseline was refreshed only after the successful live audit.
 
 Final verification (7 October 2026, 09:40 UTC): 371/371 live query plans passed;

@@ -20,8 +20,10 @@ export const saveSupplierInput = z.object({
 });
 
 export const procurementWorkspaceInput = z.object({
-  view: z.enum(["workspace", "supplier_account", "supplier_payables"]).default("workspace"),
+  view: z.enum(["workspace", "supplier_account", "supplier_payables", "purchase_receipts"]).default("workspace"),
   supplierId: id.optional(),
+  purchaseOrderId: id.optional(),
+  receiptId: id.optional(),
   from: z.string().date().optional(),
   through: z.string().date().optional(),
   cursor: id.optional(),
@@ -31,8 +33,10 @@ export const procurementWorkspaceInput = z.object({
 }).superRefine((value, context) => {
   if (value.branchId && value.warehouseId)
     context.addIssue({ code: "custom", path: ["branchId"], message: "Choose one operating location." });
-  if (value.view !== "workspace" && !value.supplierId)
+  if (["supplier_account", "supplier_payables"].includes(value.view) && !value.supplierId)
     context.addIssue({ code: "custom", path: ["supplierId"], message: "Select a supplier." });
+  if (value.view === "purchase_receipts" && !value.purchaseOrderId)
+    context.addIssue({ code: "custom", path: ["purchaseOrderId"], message: "Select a purchase order." });
   if (value.from && value.through && value.from > value.through)
     context.addIssue({ code: "custom", path: ["through"], message: "The end date must not precede the start date." });
 });

@@ -17,6 +17,8 @@ describe("supplier payment validation", () => {
   it("requires supplier identity and ordered statement dates", () => {
     expect(procurementWorkspaceInput.safeParse({ view: "supplier_account" }).success).toBe(false);
     expect(procurementWorkspaceInput.safeParse({ view: "supplier_payables" }).success).toBe(false);
+    expect(procurementWorkspaceInput.safeParse({ view: "purchase_receipts" }).success).toBe(false);
+    expect(procurementWorkspaceInput.safeParse({ view: "purchase_receipts", purchaseOrderId: "order" }).success).toBe(true);
     expect(procurementWorkspaceInput.safeParse({ view: "supplier_account", supplierId: "supplier", from: "2026-10-08", through: "2026-10-01" }).success).toBe(false);
   });
   it("validates invoice due dates and rejects duplicate billed items", () => {

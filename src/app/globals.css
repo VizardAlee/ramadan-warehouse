@@ -18,6 +18,7 @@
 }
 
 @media print {
+  @page { size: A4; margin: 12mm; }
   body:has([data-financial-statement]) * { visibility: hidden !important; }
   body:has([data-financial-statement]) [data-financial-statement],
   body:has([data-financial-statement]) [data-financial-statement] * { visibility: visible !important; }
@@ -43,7 +44,8 @@
     visibility: visible !important;
   }
 
-  body:has([data-print-document]) [data-sale-document-overlay] {
+  body:has([data-print-document]) [data-sale-document-overlay],
+  body:has([data-print-document]) [data-print-document-overlay] {
     position: static !important;
     overflow: visible !important;
     background: white !important;

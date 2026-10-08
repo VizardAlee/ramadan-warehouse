@@ -113,7 +113,26 @@ These are current balances, independent of the historical statement date range.
 Invoice creation captures the invoice date and an optional payment due date.
 The due date cannot precede issuance, and duplicate invoice lines are rejected.
 
+### Receiving history and goods-received notes
+
+Each purchase order opens bounded receiving history (25/50/100 rows). Open an
+entry to print/save its A4 goods-received note. A note covers one recorded handover,
+not the entire order; part deliveries therefore keep separate notes. It includes
+the purchase order, supplier, receiving store/location, quantity, receiving staff,
+supplier reference, notes and original ledger reference. Serial/batch evidence
+comes from the original incoming inventory entries, not today's serial status.
+
+Reprints are read-only: no stock, payable or journal is posted. New receipts retain
+a stable GRN reference and optional receiving notes; old receipts derive the same
+reference from their immutable stock transaction without being rewritten. Missing
+or inconsistent stock evidence blocks printing for reconciliation rather than
+inventing a received quantity. Receipt reads enforce the parent order's location
+and organization authorization. Company contact details on the note use current
+organization configuration; historical company letterhead is not reconstructed.
+For old receipts without staff/location name snapshots, names resolve from the
+current directory; original user/location identifiers remain in the receipt/ledger.
+
 Still pending in this workstream: supplier return/refund/credit
-settlement with stock and accounting linkage, and richer GRN printout. Existing
+settlement with stock and accounting linkage. Existing
 expenses, bank reconciliation, period close and draft financial statements are
 separate modules; this change does not replace them.

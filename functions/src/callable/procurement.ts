@@ -89,6 +89,68 @@ function procurementScopeFrom(
 function year() {
   return new Date().getUTCFullYear();
 }
+
+async function purchaseReceiptWorkspace(actor: Awaited<ReturnType<typeof requireAccess>>, input: ReturnType<typeof procurementWorkspaceInput.parse>) {
+  const order = await db.doc(`purchaseOrders/${input.purchaseOrderId!}`).get();
+  if (!order.exists || order.get("organizationId") !== actor.organizationId)
+    throw new HttpsError("permission-denied", "Purchase order is unavailable.");
+  const scope = procurementScopeFrom(order);
+  requireProcurementScope(actor, scope);
+  if ((input.branchId && input.branchId !== scope.branchId) || (input.warehouseId && input.warehouseId !== scope.warehouseId))
+    throw new HttpsError("permission-denied", "The order belongs to another recording store.");
+  const validReceipt = (receipt: FirebaseFirestore.DocumentSnapshot) => receipt.exists && receipt.get("organizationId") === actor.organizationId && receipt.get("purchaseOrderId") === order.id;
+  const row = (receipt: FirebaseFirestore.DocumentSnapshot, movement?: FirebaseFirestore.DocumentSnapshot) => ({
+    id: receipt.id,
+    receiptNumber: receipt.get("receiptNumber") ?? `GRN-${movement?.get("transactionNumber") ?? receipt.id}`,
+    productName: receipt.get("productName") ?? "Recorded goods",
+    quantity: receipt.get("quantity"), unitOfMeasure: receipt.get("unitOfMeasure") ?? "unit",
+    receivedAt: receipt.get("receivedAt")?.toDate?.().toISOString() ?? "",
+  });
+  if (input.receiptId) {
+    const receipt = await db.doc(`purchaseReceipts/${input.receiptId}`).get();
+    if (!validReceipt(receipt)) throw new HttpsError("permission-denied", "Receipt is unavailable for this order.");
+    if (!receipt.get("inventoryTransactionId") || !receipt.get("receivingLocationId"))
+      throw new HttpsError("failed-precondition", "This older receipt needs its stock ledger reference reconciled before printing.");
+    const [movement, organization, location, staff, item] = await db.getAll(
+      db.doc(`inventoryTransactions/${receipt.get("inventoryTransactionId")}`), db.doc(`organizations/${actor.organizationId}`),
+      db.doc(`inventoryLocations/${receipt.get("receivingLocationId")}`), db.doc(`users/${receipt.get("receivedBy")}`),
+      db.doc(`purchaseOrderItems/${receipt.get("purchaseOrderItemId")}`),
+    );
+    if (!movement!.exists || movement!.get("organizationId") !== actor.organizationId || movement!.get("status") !== "posted" || movement!.get("transactionType") !== "inventory_receipt" || movement!.get("referenceId") !== order.id || movement!.get("destinationLocationId") !== receipt.get("receivingLocationId") || receipt.get("receivingLocationId") !== order.get("receivingLocationId"))
+      throw new HttpsError("failed-precondition", "The receipt's posted stock movement needs reconciliation before printing.");
+    const entries = await db.collection("inventoryEntries").where("organizationId", "==", actor.organizationId)
+      .where("transactionId", "==", movement!.id).where("locationId", "==", receipt.get("receivingLocationId")).limit(5001).get();
+    if (entries.size > 5000 || entries.docs.some((entry) => entry.get("productId") !== receipt.get("productId") || Number(entry.get("quantityDelta")) <= 0) || entries.docs.reduce((sum, entry) => sum + Number(entry.get("quantityDelta")), 0) !== Number(receipt.get("quantity")))
+      throw new HttpsError("failed-precondition", "The receipt quantity and stock ledger need reconciliation before printing.");
+    const lotIds = [...new Set(entries.docs.map((entry) => entry.get("lotId")).filter((id): id is string => typeof id === "string"))];
+    const lot = lotIds.length === 1 ? await db.doc(`inventoryLots/${lotIds[0]!}`).get() : undefined;
+    return { document: {
+      ...row(receipt, movement), purchaseOrderNumber: order.get("purchaseOrderNumber"), supplierName: order.get("supplierName"),
+      receivingStore: order.get("operationalLocationName") ?? order.get("branchName") ?? order.get("warehouseName") ?? "Recorded store",
+      receivingLocationName: receipt.get("receivingLocationName") ?? (location!.get("organizationId") === actor.organizationId ? location!.get("name") : "Recorded stock location"),
+      receivedByName: receipt.get("receivedByName") ?? (staff!.get("organizationId") === actor.organizationId ? staff!.get("displayName") : null) ?? "Authorized receiving staff",
+      unitOfMeasure: receipt.get("unitOfMeasure") ?? (item!.get("purchaseOrderId") === order.id ? item!.get("unitOfMeasure") : null) ?? "unit",
+      inventoryReference: movement!.get("transactionNumber"), supplierReference: receipt.get("supplierReference") ?? null,
+      serialNumbers: entries.docs.map((entry) => entry.get("serialNumber")).filter((serial): serial is string => typeof serial === "string"),
+      lotNumber: receipt.get("lotNumber") ?? (lot?.get("organizationId") === actor.organizationId ? lot.get("lotNumber") : null) ?? null,
+      notes: receipt.get("notes") ?? null,
+      organization: { legalName: organization!.get("legalName") ?? organization!.get("name") ?? "Organization", tradingName: organization!.get("tradingName") ?? null,
+        address: organization!.get("address") ?? null, contactEmail: organization!.get("contactEmail") ?? null, phoneNumbers: organization!.get("phoneNumbers") ?? [] },
+    } };
+  }
+  let query = db.collection("purchaseReceipts").where("organizationId", "==", actor.organizationId).where("purchaseOrderId", "==", order.id)
+    .orderBy("receivedAt", "desc").orderBy(FieldPath.documentId(), "desc");
+  if (input.cursor) {
+    const cursor = await db.doc(`purchaseReceipts/${input.cursor}`).get();
+    if (!validReceipt(cursor)) throw new HttpsError("invalid-argument", "Restart receiving history after changing orders.");
+    query = query.startAfter(cursor);
+  }
+  const pageSize = Math.min(input.limit, 100), result = await query.limit(pageSize + 1).get(), receipts = result.docs.slice(0, pageSize);
+  const references = [...new Set(receipts.map((receipt) => receipt.get("inventoryTransactionId")).filter((id): id is string => typeof id === "string" && id.length > 0))];
+  const movements = references.length ? await db.getAll(...references.map((id) => db.doc(`inventoryTransactions/${id}`))) : [];
+  const byId = new Map(movements.filter((movement) => movement.get("organizationId") === actor.organizationId).map((movement) => [movement.id, movement]));
+  return { receipts: receipts.map((receipt) => row(receipt, byId.get(String(receipt.get("inventoryTransactionId"))))), nextCursor: result.size > pageSize ? receipts.at(-1)!.id : null };
+}
 function sequenceNumber(prefix: string, sequence: number) {
   return `${prefix}-${year()}-${String(sequence).padStart(6, "0")}`;
 }
@@ -335,6 +397,7 @@ export const getProcurementWorkspace = onCall(
     const input = parseInput(procurementWorkspaceInput, request.data);
     if (input.branchId) requireBranchScope(actor, input.branchId);
     if (input.warehouseId) requireWarehouseScope(actor, input.warehouseId);
+    if (input.view === "purchase_receipts") return purchaseReceiptWorkspace(actor, input);
     if (input.view === "supplier_account" || input.view === "supplier_payables") {
       requirePermission(actor, "payables.read");
       const organizationWide = ["system_administrator", "operations_administrator", "finance_officer", "auditor"].some((role) => hasRole(actor, role as Parameters<typeof hasRole>[1]));
@@ -1051,6 +1114,7 @@ export const receivePurchaseOrderItem = onCall(
           purchaseOrderId: purchaseOrder.id,
           purchaseOrderNumber: currentOrder.get("purchaseOrderNumber"),
           purchaseOrderItemId: item.id,
+          receiptNumber: `GRN-${inventoryResult.transactionNumber}`,
           supplierId: currentOrder.get("supplierId"),
           branchId: currentOrder.get("branchId"),
           warehouseId: currentOrder.get("warehouseId"),
@@ -1060,6 +1124,8 @@ export const receivePurchaseOrderItem = onCall(
           productId: target.get("productId"),
           sku: target.get("sku"),
           productName: target.get("productName"),
+          unitOfMeasure: target.get("unitOfMeasure"),
+          receivingLocationName: currentOrder.get("receivingLocationName"),
           quantity: input.quantity,
           unitCostMinor: target.get("unitCostMinor"),
           netAmountMinor: netReceived,
@@ -1067,6 +1133,9 @@ export const receivePurchaseOrderItem = onCall(
           inventoryTransactionId: inventoryResult.transactionId,
           receivedAt: Timestamp.fromDate(new Date(input.receivedAt)),
           receivedBy: actor.userId,
+          receivedByName: typeof request.auth?.token.name === "string" ? request.auth.token.name : undefined,
+          lotNumber: input.lot?.lotNumber,
+          notes: input.notes,
           createdAt: now,
         }),
       );
@@ -1088,6 +1157,8 @@ export const receivePurchaseOrderItem = onCall(
         sourceFunction: "receivePurchaseOrderItem",
         after: {
           purchaseOrderItemId: item.id,
+          receiptId: receipt.id,
+          receiptNumber: `GRN-${inventoryResult.transactionNumber}`,
           quantity: input.quantity,
           inventoryTransactionId: inventoryResult.transactionId,
         },

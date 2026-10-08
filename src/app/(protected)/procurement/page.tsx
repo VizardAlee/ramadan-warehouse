@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { SupplierAccounts } from "@/features/procurement/supplier-accounts";
+import { GoodsReceivedNotes } from "@/features/procurement/goods-received-note";
 import { Button } from "@/components/ui/button";
 import { callAdministration } from "@/features/administration/api";
 import { useAuth } from "@/features/auth/auth-context";
@@ -93,7 +94,7 @@ export default function ProcurementPage() {
   const [supplierId, setSupplierId] = useState("");
   const [lines, setLines] = useState<DraftLine[]>([blankLine()]);
   const [receiveValues, setReceiveValues] = useState<
-    Record<string, { quantity: string; serials: string; lotNumber: string }>
+    Record<string, { quantity: string; serials: string; lotNumber: string; supplierReference?: string; notes?: string }>
   >({});
   const [invoiceNumbers, setInvoiceNumbers] = useState<Record<string, string>>(
     {},
@@ -101,6 +102,7 @@ export default function ProcurementPage() {
   const [paymentInvoice, setPaymentInvoice] = useState<SupplierInvoice | null>(null);
   const [invoiceIssueDates, setInvoiceIssueDates] = useState<Record<string, string>>({});
   const [invoiceDueDates, setInvoiceDueDates] = useState<Record<string, string>>({});
+  const [receiptOrderId, setReceiptOrderId] = useState<string | null>(null);
   const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Lagos", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
   const can = (permission: Parameters<typeof hasPermission>[1]) =>
     Boolean(profile && hasPermission(profile, permission));
@@ -594,6 +596,7 @@ export default function ProcurementPage() {
       )}
 
       <section id="purchase-orders" className="scroll-mt-40 rounded-xl border bg-white p-5">
+        {receiptOrderId && <GoodsReceivedNotes key={receiptOrderId} purchaseOrderId={receiptOrderId} onClose={() => setReceiptOrderId(null)} />}
         <h2 className="text-xl font-semibold">Purchase orders</h2>
         <p className="text-sm text-[var(--muted)]">
           Submission freezes the commercial snapshot. An assigned manager may
@@ -619,6 +622,7 @@ export default function ProcurementPage() {
                   </p>
                 </div>
                 <div className="flex flex-wrap gap-2">
+                  <Button variant="outline" onClick={() => setReceiptOrderId(order.id)}>Receiving history / GRN</Button>
                   {order.status === "draft" && can("procurement.create") && (
                     <Button
                       disabled={busy}
@@ -737,6 +741,8 @@ export default function ProcurementPage() {
                                 className="w-full rounded-lg border bg-white p-2"
                               />
                             )}
+                            <label className="block text-xs font-medium">Supplier delivery reference (optional)<input value={draft.supplierReference ?? ""} maxLength={160} onChange={(event) => setReceiveValues({ ...receiveValues, [item.id]: { ...draft, supplierReference: event.target.value } })} className="mt-1 w-full rounded-lg border bg-white p-2" /></label>
+                            <label className="block text-xs font-medium">Receiving notes (optional)<textarea value={draft.notes ?? ""} maxLength={500} onChange={(event) => setReceiveValues({ ...receiveValues, [item.id]: { ...draft, notes: event.target.value } })} className="mt-1 w-full rounded-lg border bg-white p-2" /></label>
                             <Button
                               size="sm"
                               disabled={
@@ -756,6 +762,8 @@ export default function ProcurementPage() {
                                         purchaseOrderItemId: item.id,
                                         quantity: Number(draft.quantity),
                                         receivedAt: new Date().toISOString(),
+                                        supplierReference: draft.supplierReference || undefined,
+                                        notes: draft.notes || undefined,
                                         serialNumbers: draft.serials
                                           .split(/\r?\n|,/)
                                           .map((value) => value.trim())

@@ -1,13 +1,13 @@
 {
   "lastLiveAudit": {
     "project": "ramadan-warehouse-staging",
-    "verifiedAt": "2026-10-08T08:50:29.547Z",
-    "queryShapes": 430,
+    "verifiedAt": "2026-10-08T09:10:25.199Z",
+    "queryShapes": 432,
     "unsupportedQueries": 0,
-    "readyIndexes": 221,
+    "readyIndexes": 222,
     "singleFieldOverrides": 0
   },
-  "catalogSha256": "bdb31b6c4d7b4826d2ad8addbdaf3d7974b507127836d7f62e10ccca044ab93f",
+  "catalogSha256": "f80bd62b938908e6469e924919819eb6bd485fdef8393847ce00be6c5d5df395",
   "sourceFingerprints": {
     "functions/src/accounting/daily-close.ts": "88916698e8112584523b1770eb98be7e052761b4982e6f572df1e6f7221d617a",
     "functions/src/audit/write-audit-log.ts": "254809826e21fad67216e0dbf0f5bc8e644955907cdf4bfbe2160ba1afb5ee33",
@@ -33,7 +33,7 @@
     "functions/src/callable/manage-roles.ts": "cafd5c85fe810569b119c64e640e97cb93b450b3cc4d616a4e81b0a124d09a7d",
     "functions/src/callable/manage-users.ts": "4afaad46c8d64ffdc08fc49a419d608ee3a6cb0ff1b3ad20bb497ca166e27d7a",
     "functions/src/callable/operational-readiness.ts": "5710f7b794dc5560f44a60fa86e21dc96c9591066d6996ca0119ba7615e11279",
-    "functions/src/callable/procurement.ts": "fcf9b1b07bb4bbca7820113298cf646a636ca76ee5dd33d84f6a21244557c49a",
+    "functions/src/callable/procurement.ts": "3dc22a6a69a270eed1a757fa9a4adf97aea9cf17a14bd8bd41819ce62dc2bcdf",
     "functions/src/callable/reset-organization.ts": "ef008e650d39213d23c35d3d801015dccad8ad7ea78edf9d62b6b5c230d53a5c",
     "functions/src/callable/reverse-inventory.ts": "5a9902d73ce7d80d4f8a9a226beb45c620090d190348d1c628a6ed88dc54e297",
     "functions/src/callable/sales-returns.ts": "d2fb54e2abae1f6428ae457e4e2963d5d2860c6e74bd547550750025d28e67b2",
@@ -302,6 +302,7 @@
     "198f8d2a5c6be05f447396c3838a784e78df4af786126ab48ad39b608b7779e2",
     "fbd42a0b30966efe64a89990f19ebd3893a59de617d37ff0b5374fdf25c0c736",
     "fe4c61fa93d9212dc9e72ba06dc518317dc6ec28da9e0127e20cb3e1e0922e2d",
-    "2022fe076c199a1f850792b38948904e2c4c42a067180d3d4a3baa573b2556a8"
+    "2022fe076c199a1f850792b38948904e2c4c42a067180d3d4a3baa573b2556a8",
+    "a17e2b22b5643586a2bc023e7c3bd48f0cf18e71daa0024a6735f29a4d023417"
   ]
 }

@@ -240,7 +240,7 @@ describe.sequential("procurement callables", () => {
         .where("purchaseOrderId", "==", order.purchaseOrderId)
         .get()
     ).docs[0]!;
-    await call(headOfficeManager, "receivePurchaseOrderItem", {
+    const receipt = await call<{ receiptId: string }>(headOfficeManager, "receivePurchaseOrderItem", {
       purchaseOrderId: order.purchaseOrderId,
       purchaseOrderItemId: item.id,
       quantity: 2,
@@ -268,6 +268,48 @@ describe.sequential("procurement callables", () => {
       onHandQuantity: 2,
       availableQuantity: 2,
     });
+    const receiptsInput = { view: "purchase_receipts", purchaseOrderId: order.purchaseOrderId, limit: 1 };
+    const history = await call<{ receipts: { id: string; receiptNumber: string }[] }>(headOfficeManager, "getProcurementWorkspace", receiptsInput);
+    expect(history.receipts[0]!.id).toBe(receipt.receiptId);
+    const printed = await call<{ document: { receiptNumber: string; quantity: number; receivingStore: string; inventoryReference: string } }>(headOfficeManager, "getProcurementWorkspace", { ...receiptsInput, receiptId: receipt.receiptId });
+    expect(printed.document).toMatchObject({ quantity: 2, receivingStore: "Head Office" });
+    expect(printed.document.receiptNumber).toBe(`GRN-${printed.document.inventoryReference}`);
+    expect((await balance.ref.get()).get("onHandQuantity")).toBe(2);
+    // Legacy receipts derive their reference from the original immutable movement.
+    await adminDb.doc(`purchaseReceipts/${receipt.receiptId}`).update({ receiptNumber: FieldValue.delete(), unitOfMeasure: FieldValue.delete() });
+    const legacy = await call<{ document: { receiptNumber: string } }>(headOfficeManager, "getProcurementWorkspace", { ...receiptsInput, receiptId: receipt.receiptId });
+    expect(legacy.document.receiptNumber).toBe(printed.document.receiptNumber);
+    expect((await adminDb.doc(`purchaseReceipts/${receipt.receiptId}`).get()).get("receiptNumber")).toBeUndefined();
+    await expect(call(warehouseManager, "getProcurementWorkspace", receiptsInput)).rejects.toThrow();
+    await expect(call(headOfficeManager, "getProcurementWorkspace", { ...receiptsInput, receiptId: "unrelated-receipt" })).rejects.toMatchObject({ code: "functions/permission-denied" });
+    await expect(call(headOfficeManager, "getProcurementWorkspace", { ...receiptsInput, cursor: "unrelated-receipt" })).rejects.toMatchObject({ code: "functions/invalid-argument" });
+    await adminDb.doc(`purchaseReceipts/${receipt.receiptId}`).update({ quantity: 3 });
+    await expect(call(headOfficeManager, "getProcurementWorkspace", { ...receiptsInput, receiptId: receipt.receiptId })).rejects.toMatchObject({ code: "functions/failed-precondition" });
+    await adminDb.doc(`purchaseReceipts/${receipt.receiptId}`).update({ quantity: 2 });
+  });
+
+  it("prints serialized receiving evidence from the original ledger without moving stock again", async () => {
+    const serialProduct = "grn-serialized-product";
+    await adminDb.doc(`products/${serialProduct}`).set({ organizationId, name: "Serialized inverter", sku: "SERIAL-GRN", unitOfMeasure: "unit", trackingType: "serial", active: true, hasLedgerActivity: false });
+    await adminDb.doc(`productCosts/${serialProduct}`).set({ organizationId, productId: serialProduct, defaultUnitCostMinor: 10000, currency: "NGN" });
+    const supplier = await call<{ supplierId: string }>(administrator, "saveSupplier", { name: "Serial GRN supplier", phone: "07055556666", idempotencyKey: crypto.randomUUID() });
+    const order = await call<{ purchaseOrderId: string }>(headOfficeManager, "createPurchaseOrder", { supplierId: supplier.supplierId, branchId: headOfficeId, receivingLocationId: headOfficeLocationId, lines: [{ productId: serialProduct, quantity: 2, unitCostMinor: 10000 }], idempotencyKey: crypto.randomUUID() });
+    await call(headOfficeManager, "submitPurchaseOrder", { ...order, idempotencyKey: crypto.randomUUID() });
+    await call(headOfficeManager, "approvePurchaseOrder", { ...order, idempotencyKey: crypto.randomUUID() });
+    const items = await adminDb.collection("purchaseOrderItems").where("purchaseOrderId", "==", order.purchaseOrderId).get();
+    const receive = (serial: string) => call<{ receiptId: string }>(headOfficeManager, "receivePurchaseOrderItem", { ...order, purchaseOrderItemId: items.docs[0]!.id, quantity: 1, serialNumbers: [serial], receivedAt: new Date().toISOString(), notes: "Checked serial at receiving", idempotencyKey: crypto.randomUUID() });
+    const first = await receive("GRN-SERIAL-1"), second = await receive("GRN-SERIAL-2");
+    const page = await call<{ receipts: { id: string }[]; nextCursor: string | null }>(headOfficeManager, "getProcurementWorkspace", { view: "purchase_receipts", ...order, limit: 1 });
+    expect(page.receipts[0]!.id).toBe(second.receiptId);
+    const older = await call<{ receipts: { id: string }[] }>(headOfficeManager, "getProcurementWorkspace", { view: "purchase_receipts", ...order, limit: 1, cursor: page.nextCursor });
+    expect(older.receipts[0]!.id).toBe(first.receiptId);
+    const input = { view: "purchase_receipts", ...order, receiptId: first.receiptId };
+    const note = await call<{ document: { serialNumbers: string[]; notes: string } }>(headOfficeManager, "getProcurementWorkspace", input);
+    expect(note.document.serialNumbers).toEqual(["GRN-SERIAL-1"]);
+    expect(note.document.notes).toBe("Checked serial at receiving");
+    await call(headOfficeManager, "getProcurementWorkspace", input);
+    const balance = await adminDb.doc(`inventoryBalances/${balanceDocumentId(organizationId, serialProduct, headOfficeLocationId)}`).get();
+    expect(balance.get("onHandQuantity")).toBe(2);
   });
 
   it("matches approved purchasing, receipt, supplier invoice, AP, and payment without over-receipt", async () => {

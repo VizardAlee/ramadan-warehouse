@@ -101,6 +101,8 @@ export function queryCatalog() {
   for (const optional of subsets(["originWarehouseId", "destinationBranchId", "status", "sourceType"])) add("transfer register filters", "transfers", [org, ...eq(optional)], [["__name__", "ASCENDING"]]);
   for (const field of ["originWarehouseId", "destinationBranchId"]) for (const optional of subsets(["status", "sourceType"])) add("assigned transfer register", "transfers", [org, [field, "in"], ...eq(optional)], [["__name__", "ASCENDING"]]);
   for (const collection of ["purchaseOrders", "purchaseOrderItems", "supplierInvoices", "expenses"]) for (const scope of subsets(["branchId", "warehouseId"])) add("procurement/expense workspace", collection, [org, ...eq(scope)]);
+  add("purchase receipt history", "purchaseReceipts", [org, ["purchaseOrderId", "=="]], dateOrder("receivedAt"));
+  add("purchase receipt stock evidence", "inventoryEntries", [org, ["transactionId", "=="], ["locationId", "=="]]);
   for (const scope of [[], ["branchId"], ["warehouseId"]]) {
     const filters = [org, ["supplierId", "=="], ...eq(scope)];
     const unpaid = [...filters, ["status", "in"]];

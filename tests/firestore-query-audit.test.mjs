@@ -47,4 +47,8 @@ describe("cross-section Firestore index release guard", () => {
     for (const source of ["supplier unpaid invoice pages", "supplier unpaid totals", "supplier payable aging"])
       expect(catalog.filter((shape) => shape.sources.includes(source))).toHaveLength(3);
   });
+  it("covers receiving history and its original stock ledger evidence", () => {
+    expect(catalog.filter((shape) => shape.sources.includes("purchase receipt history"))).toHaveLength(1);
+    expect(catalog.filter((shape) => shape.sources.includes("purchase receipt stock evidence"))).toHaveLength(1);
+  });
 });
