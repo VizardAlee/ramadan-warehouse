@@ -58,6 +58,11 @@ statement indexes, six unpaid-invoice aging indexes and one receipt-history inde
 were deployed; historical business data was not changed.
 The guarded baseline was refreshed only after the successful live audit.
 
+Inventory replay hardening verification (8 October 2026, 12:49 UTC): the
+transaction-result fix does not change query shapes. A fresh planner-only audit
+passed all 432 shapes with zero missing indexes; all 222 indexes remained READY
+before refreshing the source fingerprint. No live business records were written.
+
 Final verification (7 October 2026, 09:40 UTC): 371/371 live query plans passed;
 zero unsupported queries, 194/194 indexes READY, zero single-field overrides.
 Seven new regression tests pass; the complete suite contains 240 passing tests.

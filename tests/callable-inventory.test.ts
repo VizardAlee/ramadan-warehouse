@@ -399,6 +399,30 @@ describe.sequential("inventory callables", () => {
     });
   });
 
+  it("concurrent duplicate stock receipts return one committed ledger reference", async () => {
+    const created = await call<{ productId: string }>(administrator, "saveProduct", product({ sku: `REPLAY-${crypto.randomUUID().slice(0, 8)}` }));
+    const payload = {
+      productId: created.productId, destinationLocationId: "location-a", quantity: 1,
+      unitCostMinor: 10_000, serialNumbers: [], effectiveAt: "2026-08-01T10:00:00.000Z",
+      reason: "Concurrent receipt replay regression", externalAccount: "supplier",
+      idempotencyKey: crypto.randomUUID(),
+    };
+    const results = await Promise.all([
+      call<{ transactionId: string; transactionNumber: string; posted: boolean }>(administrator, "postInventoryReceipt", payload),
+      call<{ transactionId: string; transactionNumber: string; posted: boolean }>(administrator, "postInventoryReceipt", payload),
+    ]);
+    expect(new Set(results.map((result) => result.transactionId)).size).toBe(1);
+    expect(new Set(results.map((result) => result.transactionNumber)).size).toBe(1);
+    expect(results.filter((result) => result.posted)).toHaveLength(1);
+    const movement = await adminDb.doc(`inventoryTransactions/${results[0]!.transactionId}`).get();
+    expect(movement.get("status")).toBe("posted");
+    const entries = await adminDb.collection("inventoryEntries").where("transactionId", "==", movement.id).get();
+    expect(entries.size).toBe(2);
+    expect(entries.docs.reduce((sum, entry) => sum + Number(entry.get("quantityDelta")), 0)).toBe(0);
+    const balances = await adminDb.collection("inventoryBalances").where("organizationId", "==", organizationId).where("productId", "==", created.productId).get();
+    expect(balances.docs[0]?.get("onHandQuantity")).toBe(1);
+  });
+
   it("calculates weighted average and prevents tracking migration after posting", async () => {
     await call(administrator, "postInventoryReceipt", {
       productId,

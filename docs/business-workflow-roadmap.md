@@ -66,6 +66,30 @@ Release the receipt backend before the dependent web interface. Signed-in live
 financial acceptance is not performed; no live business transactions were posted.
 Next integrity dependency: verify concurrent inventory replay references before
 integrating atomic supplier returns, credits and refunds.
+
+### Receiving history / GRN release — 8 October 2026
+
+Source `9c9ef02` is deployed. Backend deployment completed first:
+`getProcurementWorkspace` is ACTIVE on `getprocurementworkspace-00009-dop` and
+`receivePurchaseOrderItem` on `receivepurchaseorderitem-00007-zup`, both with
+App Check enabled. App Hosting `build-2026-10-08-005` is READY with 100% traffic,
+with neither build nor traffic reconciliation pending. Purchasing and the guide
+return HTTP 200; the workspace callable returns Firebase JSON UNAUTHENTICATED to
+an unauthenticated request. Signed-in business acceptance remains unperformed.
+
+The next regression reproduced a concurrent inventory replay returning an unused
+transaction ID and `posted: true`. The central engine now returns the committed
+transaction callback result, preserving the original reference and `posted: false`
+on a competing request/retry. This fix is not yet deployed. Its deterministic
+regression and all 280 unit/interface tests pass. Final emulator coverage passed
+16 inventory, four transfer, five procurement and 25 security cases (50 total).
+The first run caught an invalid new test fixture and a 120-second transfer-test
+timeout; the corrected inventory suite and transfer suite passed on a fresh
+emulator run with a 240-second per-test allowance. Typecheck, lint, production
+build, Functions build, secret scanning and the index guard passed. The fresh
+12:49 UTC live audit passed 432/432 query plans with all 222 indexes READY.
+No historical ledger or financial data is rewritten. Deploy only the ten
+existing callable consumers of the shared posting engine; no web change is needed.
 Supplier returns/refunds/credits and the broader remaining roadmap are not complete.
 
 ## Next five priorities — 7 October 2026 implementation checkpoint
@@ -73,7 +97,7 @@ Supplier returns/refunds/credits and the broader remaining roadmap are not compl
 | Priority | This implementation group | Remaining gate / dependency |
 | --- | --- | --- |
 | 1. Customer invoice repayments, advances and debt aging | Implemented, validated and deployed: additive invoice receivable projections, agreed due dates, explicit invoice repayment and bounded FIFO, arrangement advances/application, aging, existing-worker due reminders and customer UI/guide | All 200 indexes READY; 378/378 live query shapes verified on 8 October. Historical allocations are not guessed; advanced statements, direct POS advance tender and unused-advance refunds remain separate work |
-| 2. Supplier accounts | Existing PO/GRN/invoice/payment flow retained; supplier advances, partial invoice payments, advance application, dated statements and current payable aging/unpaid-invoice pages deployed. Receiving history and printable GRNs implemented, in validation | Supplier returns/refunds/credits remain. GRNs add one confirmed index; release waits for READY and final tests |
+| 2. Supplier accounts | Existing PO/GRN/invoice/payment flow retained; supplier advances, partial invoice payments, advance application, dated statements, payable aging/unpaid-invoice pages, receiving history and printable GRNs deployed | Supplier returns/refunds/credits remain. Shared inventory replay integrity hardening is the next dependency |
 | 3. Inspected customer returns and replacement differences | Existing returns, refund, exchange-credit and collection controls retained; tracked account-credit returns now reduce the original unpaid invoice | Next: separate inspection/disposition and linked replacement settlement in both directions |
 | 4. Accounting and reviewed tax | Existing ledger/statements and period locks retained; advances use liability 2210, separate from accrued expenses 2300 | Next: manual/reversal journals, internal funds transfers, accountant-reviewed classifications and effective-dated statutory configuration. No new tax rates activated |
 | 5. Commercial conversions, provider payables and budgets | Existing documents, aftersales and transfer costs retained | Next: issued quotation/proforma conversion, non-stock services/logistics provider settlement and budget-versus-actual |
@@ -124,7 +148,7 @@ repayment allocations were not rewritten or invented.
 | Daily physical stock and cash reconciliation | Stock counts, inventory-ledger reconciliation, POS opening/closing cash variance and bank reconciliation exist; a dated store daily close now records cash ledger evidence, physical counted cash, exceptions, retained revisions and audited sign-off | Bank reconciliation remains a separate control; company-wide cash must have a store allocation before inclusion in a store close |
 | Administrator-managed roles | Organization-specific role creation/editing, multiple role assignment, permission versioning and effective union authorization exist | Regression coverage for newly introduced permissions and deactivation across all modules |
 | User disable/delete | Administrators can make accounts inactive or suspended; Auth is disabled and sessions are revoked; Users now has a direct Disable action | Do not hard-delete users with historical activity. Add archival/anonymization only with an explicit retention policy |
-| Purchase order to payment | Draft/submitted/approved PO, goods receiving, supplier invoice approval, advances, part payments, advance allocation, dated statements and payable aging with audit and journals | Printable GRNs in validation; supplier returns/refunds/credits remain |
+| Purchase order to payment | Draft/submitted/approved PO, goods receiving, printable GRNs, supplier invoice approval, advances, part payments, advance allocation, dated statements and payable aging with audit and journals | Supplier returns/refunds/credits remain |
 | Logistics and outsourced services | Transfer costs and aftersales charges/payments exist | External provider payables, service-item costing, payment accounts, balanced journals and provider statements |
 | Retail and wholesale prices | Retail/store and optional wholesale price, customer default and POS line selection; server validation, retained version/effective-from snapshots, held/offline price level and manual override audit implemented and deployed | Signed-in live acceptance; scheduled future price lists and additional configurable levels remain extensions |
 | Product stock ledger/history | Immutable inventory entries and paginated product movement history exist | Human-readable running balance across reservations, collection and all future transaction types |
@@ -181,7 +205,7 @@ The client authorized all eight groups. Continue the existing modules in this de
 | 1. Daily reconciliation | Implemented, validated and deployed | Nigerian business date, all store-allocated cash journals, counted cash/variance, stock/shift exceptions, retained revisions, separate prepare/sign permissions, same authorized manager allowed, stale evidence rejected, historical sign-off preserved; signed-in live acceptance remains separate |
 | 2. Sales and customers | Retail/wholesale pricing, named arrangements, invoice/payment allocation, advances/application and debt aging/reminders implemented, validated and deployed | Arrangement-filtered statements, unused-advance refunds and direct POS advance tender; correction request and reversal workflow. Scheduled future price lists are not implemented |
 | 3. Inventory and returns | Partial: reservation/partial collection/cancellation already implemented | Serial evidence at collection; uncollected reminders; inspected return disposition; linked replacement sale and difference settlement in either direction |
-| 4. Suppliers | Existing PO/GRN/invoice/payment workflow retained; advances, partial payments, advance application, dated statements and payable aging deployed; receiving history/GRNs in validation | Supplier returns/refunds/credits remain |
+| 4. Suppliers | Existing PO/GRN/invoice/payment workflow retained; advances, partial payments, advance application, dated statements, payable aging, receiving history and printable GRNs deployed | Supplier returns/refunds/credits remain |
 | 5. Accounting and tax | Draft statements/full-history paging implemented | Authorized manual/reversal journals, internal funds transfer, statement classifications/opening balances and accountant sign-off; reviewed versioned Nigerian tax rules, liabilities and payments. Do not activate invented statutory rates |
 | 6. Services and logistics | Existing aftersales charges/payments retained | Non-stock service costing, technician/parts integration, outsourced provider payables and correct delivery fee/provider liability/retained income split |
 | 7. Documents and dashboard | Server dashboard sums/counts and collection-linked A4 waybill slice deployed | Issued/versioned quotation → proforma → invoice conversion; older collection-history paging; further profit/aging/product metrics and large-report jobs |

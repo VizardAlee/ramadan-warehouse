@@ -304,8 +304,7 @@ export async function postInventoryTransaction(
       .doc(uniquenessDocumentId(actor.organizationId, serial)),
   );
   const effectiveAt = Timestamp.fromDate(new Date(input.effectiveAt));
-  let transactionNumber = "";
-  await db.runTransaction(async (transaction) => {
+  return db.runTransaction(async (transaction) => {
     const baseReferences = [
       operation,
       productReference,
@@ -339,8 +338,11 @@ export async function postInventoryTransaction(
     const lotSnapshot = lotReference ? snapshots[cursor++] : undefined;
     const serialSnapshots = snapshots.slice(cursor);
     if (operationSnapshot?.exists) {
-      transactionNumber = String(operationSnapshot.get("transactionNumber"));
-      return;
+      return {
+        transactionId: String(operationSnapshot.get("transactionId")),
+        transactionNumber: String(operationSnapshot.get("transactionNumber")),
+        posted: false,
+      };
     }
     if (
       !product?.exists ||
@@ -464,7 +466,7 @@ export async function postInventoryTransaction(
         "Lot identity conflicts with another product or organization.",
       );
     const nextSequence = Number(counter?.get("value") ?? 0) + 1;
-    transactionNumber = `INV-${effectiveAt.toDate().getUTCFullYear()}-${String(nextSequence).padStart(6, "0")}`;
+    const transactionNumber = `INV-${effectiveAt.toDate().getUTCFullYear()}-${String(nextSequence).padStart(6, "0")}`;
     let movementValue = 0;
     let movementUnitCost =
       input.unitCostMinor ??
@@ -841,10 +843,10 @@ export async function postInventoryTransaction(
         quantity: input.quantity,
       },
     });
+    return {
+      transactionId: transactionReference.id,
+      transactionNumber,
+      posted: true,
+    };
   });
-  return {
-    transactionId: transactionReference.id,
-    transactionNumber,
-    posted: true,
-  };
 }
