@@ -150,7 +150,8 @@ export const saleReturnWorkspaceInput = z.object({
 export const listSaleReturnsInput = z.object({
   branchId: id,
   status: z.enum(["submitted", "approved"]).default("submitted"),
-  limit: z.number().int().min(1).max(200).default(100),
+  limit: z.number().int().min(1).max(100).default(25),
+  cursor: id.optional(),
 });
 
 export const createSaleReturnInput = z.object({
@@ -182,9 +183,29 @@ export const createSaleReturnInput = z.object({
 
 export const approveSaleReturnInput = z.object({
   returnId: id,
+  action: z.enum(["approve", "inspect", "refund_exchange_credit"]).default("approve"),
+  inspection: z.object({
+    notes: z.string().trim().min(5).max(1000),
+    lines: z.array(z.object({
+      returnItemId: id,
+      disposition: z.enum(["resellable", "damaged", "defective", "warranty", "repair", "scrap", "return_to_supplier"]),
+    })).min(1).max(50),
+  }).optional(),
+  refund: z.object({
+    amountMinor: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
+    method: z.enum(["cash", "card", "bank_transfer"]),
+    bankAccountId: id.optional(),
+    shiftId: id.optional(),
+    reason: z.string().trim().min(5).max(500),
+  }).optional(),
   bankAccountId: id.optional(),
   notes: z.string().trim().max(500).optional(),
   idempotencyKey: z.string().uuid(),
+}).superRefine((value, context) => {
+  if (value.action === "inspect" && !value.inspection)
+    context.addIssue({ code: "custom", path: ["inspection"], message: "Record each item's inspection result." });
+  if (value.action === "refund_exchange_credit" && (!value.refund || (value.refund.method === "cash" ? !value.refund.shiftId : !value.refund.bankAccountId)))
+    context.addIssue({ code: "custom", path: ["refund"], message: "Enter the refund and its funding account or open till." });
 });
 
 export const commitSaleInput = z.object({

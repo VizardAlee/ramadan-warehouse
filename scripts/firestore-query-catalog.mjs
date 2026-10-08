@@ -106,6 +106,8 @@ export function queryCatalog() {
   add("supplier return history", "supplierReturns", [org, ["supplierInvoiceId", "=="]], dateOrder("createdAt"));
   add("supplier return invoice products", "supplierInvoiceItems", [org, ["supplierInvoiceId", "=="]]);
   add("supplier return receipt ledger", "inventoryEntries", [["transactionId", "=="], ["locationId", "=="]]);
+  add("customer returns cursor pages", "saleReturns", [org, ...eq(["branchId", "status"])]);
+  add("customer return inspection items", "saleReturnItems", [["returnId", "=="]]);
   add("purchase receipt stock evidence", "inventoryEntries", [org, ["transactionId", "=="], ["locationId", "=="]]);
   for (const scope of [[], ["branchId"], ["warehouseId"]]) {
     const filters = [org, ["supplierId", "=="], ...eq(scope)];

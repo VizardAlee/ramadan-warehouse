@@ -164,6 +164,8 @@ export const reverseInventoryTransaction = onCall(
         throw new HttpsError("failed-precondition", "Supplier returns have linked credit notes and journals. A stock-only reversal is not allowed; record an authorized financial and stock correction.");
       if ((await transaction.get(db.doc(`supplierReturnReceiptLocks/${input.transactionId}`))).exists)
         throw new HttpsError("failed-precondition", "This receipt has supplier return credit notes. A stock-only reversal would invalidate their evidence.");
+      if (["sale_return", "sale_reservation_release"].includes(String(original.get("transactionType"))))
+        throw new HttpsError("failed-precondition", "A customer return or reservation cancellation requires a linked financial correction, not a stock-only reversal.");
       if (original.get("transactionType") === "stock_transfer_receipt")
         throw new HttpsError("failed-precondition", "Direct reversal would invalidate the branch acknowledgement. Ask an administrator to record a controlled return or stock adjustment.");
       if (original.get("transactionType") === "reversal")

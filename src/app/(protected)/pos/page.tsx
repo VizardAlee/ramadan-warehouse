@@ -2016,7 +2016,7 @@ export default function PosPage() {
                   className="mt-1 w-full rounded-lg border p-3"
                 >
                   <option value="">Select credit</option>
-                  {(workspace.salesCredits ?? []).map((credit) => (
+                  {(workspace.salesCredits ?? []).filter(credit => !credit.customerId || credit.customerId === customerId).map((credit) => (
                     <option key={credit.id} value={credit.id}>
                       {credit.creditNumber} ·{" "}
                       {formatNaira(credit.remainingAmountMinor)} remaining
@@ -2026,7 +2026,7 @@ export default function PosPage() {
                 <span className="mt-1 block text-xs font-normal text-[var(--muted)]">
                   Exchange credit comes from an approved return. It is applied first;
                   any unused balance remains available. If it is below the sale total,
-                  the difference is recorded as cash.
+                  the difference is recorded as cash. For other payment methods, use the payment-recording step in Awaiting action. For a cheaper replacement, refund the unused credit from Posted returns or keep it for later.
                 </span>
               </label>
             ) : paymentMethod !== "cash" ? (

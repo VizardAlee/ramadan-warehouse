@@ -2,6 +2,37 @@
 
 This roadmap extends the existing Firebase application and preserves historical users, stock entries, sales, journals and audit records. A requested capability is not marked complete merely because a screen or a partial workflow exists.
 
+### Customer returns inspection and exchange difference — 8 October 2026 (release validation)
+
+Existing return callables now require explicit per-item inspection before goods
+return approval. Resellable goods alone can replenish saleable stock; damaged,
+defective, warranty, repair, scrap and supplier-return dispositions remain recorded
+on the return and must be held separately. This is not an automated quarantine
+stock valuation or aftersales-case creation workflow. Reservation cancellation
+does not require goods inspection. Historical approved returns remain unchanged;
+older pending goods returns require inspection before posting.
+
+Replacement sales reference the original return and sale, and named-customer
+credits cannot be redeemed against a different customer. Existing split tender
+settles a higher replacement price. A cheaper replacement's unused exchange
+credit can be retained or refunded through the existing approved-return register,
+with an explicit company account or open store till. Refund, credit balance,
+till cash, balanced liability/cash journal and audit commit atomically. Retry
+fingerprints prevent duplicate or changed-payload execution. Closed accounting
+periods block posting. Generic stock-only reversal of customer returns is blocked.
+The register has bounded 25/50/100 cursor pages and the user guide covers the flow.
+
+Validation passed: 295 unit/interface tests, 18 sales emulator cases and 25
+Firestore security cases (43 combined), typecheck, lint, Functions compilation,
+production build, secret scan and diff checks. All 224 live indexes are READY;
+436/436 live query plans passed and the guarded baseline was refreshed. Deployment
+completion and signed-in live acceptance remain separate gates.
+
+Migration is additive; no historical stock, Auth, sale, journal or audit records
+are rewritten. Next priority: posted-order correction requests with linked stock
+and accounting reversals. Serial evidence/collection reminders and automated
+non-saleable-stock disposition remain separate inventory follow-up work.
+
 ### Supplier goods returns and credit notes — 8 October 2026 (deployed)
 
 Purchasing now has **Returns & credit notes** on approved/settled supplier invoices.
@@ -347,7 +378,7 @@ The client authorized all eight groups. Continue the existing modules in this de
 | --- | --- | --- |
 | 1. Daily reconciliation | Implemented, validated and deployed | Nigerian business date, all store-allocated cash journals, counted cash/variance, stock/shift exceptions, retained revisions, separate prepare/sign permissions, same authorized manager allowed, stale evidence rejected, historical sign-off preserved; signed-in live acceptance remains separate |
 | 2. Sales and customers | Retail/wholesale pricing, named arrangements, invoice/payment allocation, advances/application and debt aging/reminders implemented, validated and deployed | Arrangement-filtered statements, unused-advance refunds and direct POS advance tender; correction request and reversal workflow. Scheduled future price lists are not implemented |
-| 3. Inventory and returns | Partial: reservation/partial collection/cancellation already implemented | Serial evidence at collection; uncollected reminders; inspected return disposition; linked replacement sale and difference settlement in either direction |
+| 3. Inventory and returns | Reservation/partial collection/cancellation retained; inspected return disposition, linked replacement and difference settlement in both directions implemented and validated | Release verification; serial evidence at collection; uncollected reminders; automated held-stock disposition/aftersales routing |
 | 4. Suppliers | Existing PO/GRN/invoice/payment workflow retained; advances, partial payments, advance application, refunds, dated statements, payable aging, receiving history, printable GRNs and atomic original-GRN supplier returns/credit notes deployed | Multi-product credit documents and linked return correction/reversal screens remain; historical receipts without original stock evidence require reconciliation |
 | 5. Accounting and tax | Draft statements/full-history paging implemented | Authorized manual/reversal journals, internal funds transfer, statement classifications/opening balances and accountant sign-off; reviewed versioned Nigerian tax rules, liabilities and payments. Do not activate invented statutory rates |
 | 6. Services and logistics | Existing aftersales charges/payments retained | Non-stock service costing, technician/parts integration, outsourced provider payables and correct delivery fee/provider liability/retained income split |

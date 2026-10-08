@@ -1,4 +1,5 @@
 import { FieldValue, Timestamp } from "firebase-admin/firestore";
+import { createHash } from "node:crypto";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
 import { db } from "../admin.js";
 import { bankAccountSummary, resolveSettlementAccount } from "../accounting/settlement-account.js";
@@ -19,6 +20,7 @@ import {
   uniquenessDocumentId,
 } from "../inventory/calculations.js";
 import { assertBalancedJournal } from "../sales/calculations.js";
+import { followUpSaleReturn } from "../sales/return-follow-up.js";
 import { selectedArrangement, changeArrangementBalance } from "../sales/customer-arrangements.js";
 import { changeMoneyBalance, legacyDebt, reduceInvoice } from "../sales/receivables.js";
 import { correlationId, parseInput } from "../utils/callable.js";
@@ -170,19 +172,33 @@ export const listSaleReturns = onCall({ enforceAppCheck }, async (request) => {
   requirePermission(actor, "sales.returns.read");
   const input = parseInput(listSaleReturnsInput, request.data);
   requireBranchScope(actor, input.branchId);
-  const result = await db
+  let query = db
     .collection("saleReturns")
     .where("organizationId", "==", actor.organizationId)
     .where("branchId", "==", input.branchId)
-    .where("status", "==", input.status)
-    .limit(input.limit)
-    .get();
+    .where("status", "==", input.status);
+  if (input.cursor) {
+    const cursor = await db.doc(`saleReturns/${input.cursor}`).get();
+    if (!cursor.exists || cursor.get("organizationId") !== actor.organizationId || cursor.get("branchId") !== input.branchId || cursor.get("status") !== input.status)
+      throw new HttpsError("invalid-argument", "Start from the first returns page.");
+    query = query.startAfter(cursor);
+  }
+  const result = await query.limit(input.limit + 1).get();
+  const visible = result.docs.slice(0, input.limit);
+  const details = await Promise.all(visible.map(async (document) => {
+    const [items, credit] = await Promise.all([
+      db.collection("saleReturnItems").where("returnId", "==", document.id).limit(50).get(),
+      document.get("exchangeCreditId") ? db.doc(`salesCredits/${document.get("exchangeCreditId")}`).get() : Promise.resolve(null),
+    ]);
+    return { id: document.id, ...document.data(), items: items.docs.map(item => ({ id: item.id, ...item.data() })), exchangeCredit: credit?.exists ? { id: credit.id, remainingAmountMinor: credit.get("remainingAmountMinor"), status: credit.get("status"), lastRedeemedSaleId: credit.get("lastRedeemedSaleId") ?? null, lastRedeemedSaleNumber: credit.get("lastRedeemedSaleNumber") ?? null } : null };
+  }));
+  const shifts = await db.collection("posShifts").where("organizationId", "==", actor.organizationId).where("branchId", "==", input.branchId).where("status", "==", "open").limit(20).get();
   return {
+    moreAvailable: result.size > input.limit,
+    nextCursor: result.size > input.limit ? visible.at(-1)!.id : null,
+    openShifts: shifts.docs.map(shift => ({ id: shift.id, deviceName: shift.get("deviceName") })),
     bankAccounts: (await db.collection("bankAccounts").where("organizationId", "==", actor.organizationId).where("active", "==", true).limit(100).get()).docs.map(bankAccountSummary),
-    returns: result.docs.map((document) => ({
-      id: document.id,
-      ...document.data(),
-    })),
+    returns: details,
   };
 });
 
@@ -190,6 +206,7 @@ export const createSaleReturn = onCall({ enforceAppCheck }, async (request) => {
   const actor = await requireAccess(request);
   requirePermission(actor, "sales.returns.create");
   const input = parseInput(createSaleReturnInput, request.data);
+  const fingerprint = createHash("sha256").update(JSON.stringify(input)).digest("hex");
   requireBranchScope(actor, input.branchId);
   const sale = await db.doc(`sales/${input.saleId}`).get();
   if (
@@ -242,6 +259,8 @@ export const createSaleReturn = onCall({ enforceAppCheck }, async (request) => {
     );
     const previous = snapshots[0]!;
     if (previous.exists) {
+      if (previous.get("fingerprint") && previous.get("fingerprint") !== fingerprint)
+        throw new HttpsError("already-exists", "This retry reference belongs to a different return.");
       result = {
         returnId: String(previous.get("entityId")),
         returnNumber: String(previous.get("returnNumber")),
@@ -311,6 +330,7 @@ export const createSaleReturn = onCall({ enforceAppCheck }, async (request) => {
       customerAccountId: sale.get("customerAccountId") ?? "general",
       customerAccountName: sale.get("customerAccountName") ?? "General account",
       status: "submitted",
+      inspectionStatus: input.kind === "reservation_cancellation" ? "not_required" : "required",
       kind: input.kind,
       resolution: input.resolution,
       refundShiftId: input.refundShiftId ?? null,
@@ -338,7 +358,9 @@ export const createSaleReturn = onCall({ enforceAppCheck }, async (request) => {
         sku: line.item.get("sku"),
         productName: line.item.get("productName"),
         quantity: line.input.quantity,
-        condition: input.kind === "reservation_cancellation" ? "non_restockable" : line.input.condition,
+        condition: "non_restockable",
+        requestedCondition: line.input.condition,
+        inspectionStatus: input.kind === "reservation_cancellation" ? "not_required" : "required",
         unitPriceMinor: line.item.get("unitPriceMinor"),
         vatRateBasisPoints: line.item.get("vatRateBasisPoints"),
         unitCostMinor: line.item.get("unitCostMinor"),
@@ -352,6 +374,7 @@ export const createSaleReturn = onCall({ enforceAppCheck }, async (request) => {
     transaction.create(operation, {
       organizationId: actor.organizationId,
       action: "createSaleReturn",
+      fingerprint,
       entityId: returnRecord.id,
       returnNumber,
       status: "completed",
@@ -383,6 +406,14 @@ export const approveSaleReturn = onCall(
     const actor = await requireAccess(request);
     requirePermission(actor, "sales.returns.approve");
     const input = parseInput(approveSaleReturnInput, request.data);
+    if (input.action !== "approve") {
+      try { return await followUpSaleReturn(actor, input); }
+      catch (cause) {
+        if (cause instanceof HttpsError && ["failed-precondition", "invalid-argument", "already-exists"].includes(cause.code))
+          throw new HttpsError(cause.code, cause.message, { code: "SALE_RETURN_ACTION_REQUIRED", userMessage: cause.message });
+        throw cause;
+      }
+    }
     const returnRef = db.doc(`saleReturns/${input.returnId}`);
     const initial = await returnRef.get();
     if (
@@ -487,6 +518,8 @@ export const approveSaleReturn = onCall(
       const counters = snapshots.slice(cursor, (cursor += counterRefs.length));
       const balances = snapshots.slice(cursor, (cursor += balanceRefs.length));
       if (previous.exists) {
+        if (previous.get("entityId") !== input.returnId)
+          throw new HttpsError("already-exists", "This retry reference belongs to another return.");
         result = {
           returnId: input.returnId,
           approved: false,
@@ -502,6 +535,8 @@ export const approveSaleReturn = onCall(
           "failed-precondition",
           "Only a submitted return can be approved.",
         );
+      if (!cancellation && (current.get("inspectionStatus") !== "completed" || current.get("inspectionVersion") !== initial.get("inspectionVersion") || returnItemsQuery.docs.some(line => line.get("inspectionStatus") !== "completed")))
+        throw new HttpsError("failed-precondition", "Inspect every returned item before posting. Only items confirmed resellable will return to available stock.");
       if (current.get("createdBy") === actor.userId && !canSelfAuthorize(actor))
         throw new HttpsError(
           "permission-denied",
@@ -589,6 +624,7 @@ export const approveSaleReturn = onCall(
           (sum, line) => sum + Number(line.line.get("costAmountMinor")),
           0,
         );
+      const hasRestock = lines.some(line => line.line.get("condition") === "restockable");
       if (current.get("bankAccountId") && input.bankAccountId && current.get("bankAccountId") !== input.bankAccountId)
         throw new HttpsError("invalid-argument", "The refund account must match the submitted return.");
       const settlement = resolution === "card" || resolution === "bank_transfer"
@@ -621,7 +657,7 @@ export const approveSaleReturn = onCall(
         value: journalSequence,
         updatedAt: now,
       });
-      if (restockCost > 0 || cancellation)
+      if (hasRestock || cancellation)
         transaction.set(
           inventoryCounter,
           {
@@ -641,7 +677,7 @@ export const approveSaleReturn = onCall(
         approvalNotes: input.notes ?? null,
         journalEntryId: journal.id,
         inventoryTransactionId:
-          restockCost > 0 || cancellation ? inventoryTransaction.id : null,
+          hasRestock || cancellation ? inventoryTransaction.id : null,
         updatedAt: now,
       });
       for (const [index, line] of lines.entries()) {
@@ -734,7 +770,7 @@ export const approveSaleReturn = onCall(
         const remaining = Number(originalSale.get("totalQuantity")) - cancelledQuantity - collected;
         transaction.update(saleRef, { cancelledQuantity, collectionStatus: remaining > 0 ? (collected > 0 ? "partially_collected" : "awaiting_collection") : (collected > 0 ? "collected" : "cancelled"), updatedAt: now });
       }
-      if (restockCost > 0 || cancellation)
+      if (hasRestock || cancellation)
         transaction.create(inventoryTransaction, {
           organizationId: actor.organizationId,
           transactionNumber: inventoryNumber,
@@ -760,6 +796,7 @@ export const approveSaleReturn = onCall(
           returnId: returnRef.id,
           saleId: current.get("saleId"),
           creditNumber: `EXC-${String(current.get("returnNumber")).replace(/^RTN-/, "")}`,
+          customerId: current.get("customerId") ?? null,
           originalAmountMinor: gross,
           remainingAmountMinor: gross,
           status: "active",
@@ -912,6 +949,7 @@ export const approveSaleReturn = onCall(
           resolution,
           grossAmountMinor: gross,
           restockCostMinor: restockCost,
+          inspectionStatus: current.get("inspectionStatus") ?? "not_required",
           bankAccountId: settlement?.bankAccountId ?? null,
           ledgerAccountCode: refundAccount.code,
         },

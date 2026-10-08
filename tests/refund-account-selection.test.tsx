@@ -32,7 +32,7 @@ describe("refund funding account", () => {
   });
   it("requires account selection before approving an earlier bank refund", async () => {
     api.call.mockImplementation(async (name: string) => name === "listSaleReturns" ? {
-      returns: [{ id: "r1", returnNumber: "RTN-1", resolution: "bank_transfer", grossAmountMinor: 10000, createdBy: "admin" }],
+      returns: [{ id: "r1", status: "submitted", inspectionStatus: "completed", returnNumber: "RTN-1", resolution: "bank_transfer", grossAmountMinor: 10000, createdBy: "admin" }],
       bankAccounts: [{ id: "bank1", bankName: "Test Bank", accountName: "Payments", accountNumberLast4: "1234" }],
     } : { approved: true, creditId: null });
     render(<ReturnsPage />);

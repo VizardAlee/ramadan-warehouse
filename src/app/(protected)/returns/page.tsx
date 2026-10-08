@@ -9,6 +9,8 @@ import { useAuth } from "@/features/auth/auth-context";
 import { formatNaira } from "@/features/inventory/format";
 import { canSelfAuthorize, hasPermission } from "@/lib/permissions/roles";
 import type { Branch, SaleReturn } from "@/types/domain";
+import { ReturnFollowUp } from "@/features/returns/return-follow-up";
+import { CursorTablePagination } from "@/components/ui/table-pagination";
 
 interface ReturnWorkspace {
   bankAccounts: Array<{ id: string; bankName: string; accountName: string; accountNumberLast4: string }>;
@@ -72,6 +74,12 @@ export default function ReturnsPage() {
   const [legacyRefundAccounts, setLegacyRefundAccounts] = useState<Record<string, string>>({});
   const [reason, setReason] = useState("");
   const [pending, setPending] = useState<SaleReturn[]>([]);
+  const [status, setStatus] = useState<"submitted" | "approved">("submitted");
+  const [limit, setLimit] = useState(25);
+  const [pages, setPages] = useState<Array<string | null>>([null]);
+  const [pageBranchId, setPageBranchId] = useState("");
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [openShifts, setOpenShifts] = useState<Array<{ id: string; deviceName: string }>>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -89,6 +97,8 @@ export default function ReturnsPage() {
     manualBranchId ||
     activeBranches[0]?.id ||
     "";
+  const scopedPages = pageBranchId === branchId ? pages : [null];
+  const cursor = scopedPages.at(-1);
   const canCreate = Boolean(
     profile && hasPermission(profile, "sales.returns.create"),
   );
@@ -101,27 +111,29 @@ export default function ReturnsPage() {
     if (!branchId || !profile) return;
     try {
       const result = await callAdministration<
-        { branchId: string; status: "submitted" },
-        { returns: SaleReturn[]; bankAccounts: ReturnWorkspace["bankAccounts"] }
-      >("listSaleReturns", { branchId, status: "submitted" });
+        object,
+        { returns: SaleReturn[]; bankAccounts: ReturnWorkspace["bankAccounts"]; nextCursor: string | null; openShifts: typeof openShifts }
+      >("listSaleReturns", { branchId, status, limit, cursor: cursor || undefined });
       setPending(result.returns);
       setBankAccounts(result.bankAccounts ?? []);
-    } catch {
-      setPending([]);
+      setNextCursor(result.nextCursor); setOpenShifts(result.openShifts ?? []);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Returns could not be loaded.");
     }
   }
   useEffect(() => {
+    let active = true;
     const timeout = window.setTimeout(() => {
       if (!branchId || !profile) return;
       void callAdministration<
-        { branchId: string; status: "submitted" },
-        { returns: SaleReturn[]; bankAccounts: ReturnWorkspace["bankAccounts"] }
-      >("listSaleReturns", { branchId, status: "submitted" })
-        .then((result) => { setPending(result.returns); setBankAccounts(result.bankAccounts ?? []); })
-        .catch(() => setPending([]));
+        object,
+        { returns: SaleReturn[]; bankAccounts: ReturnWorkspace["bankAccounts"]; nextCursor: string | null; openShifts: typeof openShifts }
+      >("listSaleReturns", { branchId, status, limit, cursor: cursor || undefined })
+        .then((result) => { if (active) { setPending(result.returns); setBankAccounts(result.bankAccounts ?? []); setNextCursor(result.nextCursor); setOpenShifts(result.openShifts ?? []); } })
+        .catch((cause) => { if (active) { setPending([]); setError(cause instanceof Error ? cause.message : "Returns could not be loaded."); } });
     }, 0);
-    return () => window.clearTimeout(timeout);
-  }, [branchId, profile]);
+    return () => { active = false; window.clearTimeout(timeout); };
+  }, [branchId, profile, status, limit, cursor]);
 
   async function findSale() {
     if (!branchId || !receiptNumber.trim()) return;
@@ -259,8 +271,7 @@ export default function ReturnsPage() {
             Returns, refunds &amp; exchanges
           </h1>
           <p className="text-[var(--muted)]">
-            Start from the original receipt. Submission records the request; an
-            authorized branch manager may approve and post the correction.
+            Find the original receipt, inspect the goods, then approve the refund or exchange. Only items confirmed resellable go back into saleable stock.
           </p>
         </div>
         {!contextBranchId && !assignedBranchId && (
@@ -379,7 +390,7 @@ export default function ReturnsPage() {
                   />
                 </label>
                 {kind === "goods_return" && <label className="text-sm">
-                  Condition
+                  Initial condition (inspection still required)
                   <select
                     value={conditions[item.id] ?? "restockable"}
                     onChange={(event) =>
@@ -488,7 +499,7 @@ export default function ReturnsPage() {
         <div className="flex items-center justify-between gap-3">
           <div>
             <h2 className="flex items-center gap-2 text-xl font-semibold">
-              <ShieldCheck className="size-5" /> Awaiting approval
+              <ShieldCheck className="size-5" /> {status === "submitted" ? "Inspection & approval" : "Posted returns & exchange balances"}
             </h2>
             <p className="text-sm text-[var(--muted)]">
               Managers may approve their own branch return. Every decision is
@@ -499,11 +510,12 @@ export default function ReturnsPage() {
             Refresh
           </Button>
         </div>
+        <label className="mt-3 block text-sm">Show<select value={status} onChange={e => { setStatus(e.target.value as typeof status); setPages([null]); setPending([]); }} className="ml-2 rounded-lg border p-2"><option value="submitted">Awaiting inspection / approval</option><option value="approved">Posted returns and exchange credits</option></select></label>
         <div className="mt-4 space-y-3">
           {pending.map((record) => (
             <article
               key={record.id}
-              className="flex flex-col justify-between gap-3 rounded-xl border p-4 sm:flex-row sm:items-center"
+              className="flex flex-wrap justify-between gap-3 rounded-xl border p-4"
             >
               <div>
                 <strong>{record.returnNumber}</strong>
@@ -515,6 +527,7 @@ export default function ReturnsPage() {
                   {formatNaira(record.grossAmountMinor)} ·{" "}
                   {record.resolution.replaceAll("_", " ")}
                 </p>
+                {record.kind !== "reservation_cancellation" && <p className="mt-1 text-sm">{record.inspectionStatus === "completed" ? "Inspection recorded" : record.status === "approved" ? "Historical posted return — unchanged" : "Inspection required before approval"}</p>}
                 {["card", "bank_transfer"].includes(record.resolution) && <label className="mt-2 block text-sm">Refund from company account
                   <select disabled={Boolean(record.bankAccountId)} value={record.bankAccountId || legacyRefundAccounts[record.id] || ""} onChange={(event) => setLegacyRefundAccounts((current) => ({ ...current, [record.id]: event.target.value }))} className="mt-1 w-full rounded-lg border p-3">
                     <option value="">Select funding account for this earlier return</option>
@@ -522,26 +535,28 @@ export default function ReturnsPage() {
                   </select>
                 </label>}
               </div>
-              {canApprove &&
+              {record.status === "submitted" && canApprove &&
               (record.createdBy !== user?.uid || canApproveOwnWork) ? (
-                <Button disabled={busy || (record.kind === "reservation_cancellation" && (!profile || !hasPermission(profile, "sales.stock.release"))) || (["card", "bank_transfer"].includes(record.resolution) && !record.bankAccountId && !legacyRefundAccounts[record.id])} onClick={() => void approve(record)}>
+                <Button disabled={busy || (record.kind !== "reservation_cancellation" && record.inspectionStatus !== "completed") || (record.kind === "reservation_cancellation" && (!profile || !hasPermission(profile, "sales.stock.release"))) || (["card", "bank_transfer"].includes(record.resolution) && !record.bankAccountId && !legacyRefundAccounts[record.id])} onClick={() => void approve(record)}>
                   <CheckCircle2 className="mr-2 size-4" /> Approve and post
                 </Button>
               ) : (
-                <span className="text-xs text-amber-800">
+                record.status === "submitted" && <span className="text-xs text-amber-800">
                   {record.createdBy === user?.uid
                     ? "This role requires another approver"
                     : "Approval permission required"}
                 </span>
               )}
+              {canApprove && <ReturnFollowUp record={record} accounts={bankAccounts} shifts={openShifts} onComplete={() => void refreshPending()} />}
             </article>
           ))}
           {pending.length === 0 && (
             <p className="rounded-lg bg-slate-50 p-6 text-center text-sm text-[var(--muted)]">
-              No submitted returns are waiting at this branch.
+              No {status === "submitted" ? "pending" : "posted"} returns on this page.
             </p>
           )}
         </div>
+        <CursorTablePagination page={scopedPages.length} pageSize={limit} rowCount={pending.length} hasNextPage={Boolean(nextCursor)} loading={busy} onPrevious={() => setPages(scopedPages.slice(0, -1))} onNext={() => { if (nextCursor) { setPageBranchId(branchId); setPages([...scopedPages, nextCursor]); } }} onPageSizeChange={size => { setLimit(size); setPages([null]); }} itemLabel="returns" />
       </section>
     </div>
   );

@@ -22,6 +22,7 @@ export interface PosCustomer {
   availableCreditMinor: number;
 }
 export interface PosSalesCredit {
+  customerId?: string | null;
   id: string;
   creditNumber: string;
   remainingAmountMinor: number;

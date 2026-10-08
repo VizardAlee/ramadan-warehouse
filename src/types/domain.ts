@@ -242,6 +242,10 @@ export interface Customer {
 }
 
 export interface SaleReturn {
+  inspectionStatus?: "required" | "completed" | "not_required";
+  inspectionNotes?: string;
+  items?: Array<{ id: string; productName: string; quantity: number; disposition?: string }>;
+  exchangeCredit?: { id: string; remainingAmountMinor: number; status: string; lastRedeemedSaleId?: string | null; lastRedeemedSaleNumber?: string | null } | null;
   kind?: "goods_return" | "reservation_cancellation";
   bankAccountId?: string | null;
   id: string;

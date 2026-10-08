@@ -42,7 +42,7 @@ export function toUserFacingError(error: unknown, fallback = "The operation coul
       ? details.code
       : undefined;
   return new UserFacingError(
-    (["STOCK_TRANSFER_ACTION_REQUIRED", "SUPPLIER_RETURN_ACTION_REQUIRED"].includes(operationCode ?? "") && details && "userMessage" in details && typeof details.userMessage === "string" ? details.userMessage : undefined) ??
+    (["STOCK_TRANSFER_ACTION_REQUIRED", "SUPPLIER_RETURN_ACTION_REQUIRED", "SALE_RETURN_ACTION_REQUIRED"].includes(operationCode ?? "") && details && "userMessage" in details && typeof details.userMessage === "string" ? details.userMessage : undefined) ??
     (operationCode && messages[operationCode]) ??
       (code ? messages[code] : undefined) ??
       fallback,

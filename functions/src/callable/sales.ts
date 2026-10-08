@@ -506,6 +506,7 @@ export const getPosWorkspace = onCall(
         creditNumber: credit.get("creditNumber"),
         remainingAmountMinor: Number(credit.get("remainingAmountMinor") ?? 0),
         returnId: credit.get("returnId"),
+        customerId: credit.get("customerId") ?? null,
       })),
       bankAccounts: bankAccounts.docs.map(bankAccountSummary),
       pendingOrders: pendingOrders.docs
@@ -1486,6 +1487,8 @@ async function postPosSale(
         const credit = salesCreditSnapshots[index]!;
         if (!credit.exists || credit.get("organizationId") !== actor.organizationId || credit.get("branchId") !== input.branchId || credit.get("status") !== "active" || Number(credit.get("remainingAmountMinor") ?? 0) < payment.amountMinor)
           throw new HttpsError("failed-precondition", "The selected exchange credit is unavailable or insufficient.", { code: "EXCHANGE_CREDIT_UNAVAILABLE" });
+        if (credit.get("customerId") && credit.get("customerId") !== input.customerId)
+          throw new HttpsError("failed-precondition", "Select the original customer to use their exchange credit.");
       });
       const settlementAccounts = input.payments.map((payment, index) => {
         if (payment.method === "cash")
@@ -1678,6 +1681,8 @@ async function postPosSale(
         deviceId: input.deviceId,
         saleNumber,
         receiptNumber,
+        exchangeReturnIds: input.payments.flatMap((payment, index) => payment.method === "exchange_credit" ? [salesCreditSnapshots[index]!.get("returnId")] : []),
+        exchangeOriginalSaleIds: input.payments.flatMap((payment, index) => payment.method === "exchange_credit" ? [salesCreditSnapshots[index]!.get("saleId")] : []),
         provisionalReceiptReference: input.provisionalReceiptReference,
         status: "completed",
         collectionStatus: deferCollection ? "awaiting_collection" : "collected",
@@ -1913,6 +1918,7 @@ async function postPosSale(
           method: payment.method,
           amountMinor: payment.amountMinor,
           reference: payment.reference,
+          ...(payment.method === "exchange_credit" ? { returnId: salesCreditSnapshots[index]!.get("returnId"), originalSaleId: salesCreditSnapshots[index]!.get("saleId") } : {}),
           bankAccountId: settlement.bankAccountId,
           bankName: settlement.bankName,
           bankAccountName: settlement.bankAccountName,
@@ -1935,6 +1941,7 @@ async function postPosSale(
           remainingAmountMinor: remaining,
           status: remaining === 0 ? "redeemed" : "active",
           lastRedeemedSaleId: sale.id,
+          lastRedeemedSaleNumber: saleNumber,
           updatedAt: now,
           updatedBy: actor.userId,
         });
