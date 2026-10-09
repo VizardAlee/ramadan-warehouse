@@ -470,6 +470,8 @@ async function executeInventoryPosting<State = undefined>(
     )
       throw new HttpsError("failed-precondition", "Product is unavailable.");
     const trackingType = String(product.get("trackingType"));
+    if (product.get("itemKind") === "service")
+      throw new HttpsError("failed-precondition", "Services cannot be received, counted or moved as physical stock.");
     if (
       trackingType === "serial" &&
       serials.normalized.length !== input.quantity

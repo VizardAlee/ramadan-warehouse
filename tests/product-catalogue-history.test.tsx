@@ -16,6 +16,17 @@ vi.mock("@/features/administration/use-organization-collection", () => ({
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
 
 describe("product catalogue history", () => {
+  it("creates a catalogue service with no physical tracking or inventory unit cost", async () => {
+    api.call.mockResolvedValue({ productId: "service", saved: true });
+    render(<ProductsPage />);
+    fireEvent.click(screen.getByRole("button", { name: "Create product" }));
+    fireEvent.change(screen.getByLabelText(/Catalogue item type/), { target: { value: "service" } });
+    fireEvent.change(screen.getByLabelText(/^Name/), { target: { value: "Installation service" } });
+    expect((screen.getByLabelText("Tracking") as HTMLSelectElement).disabled).toBe(true);
+    expect((screen.getByLabelText("Default unit cost (₦)") as HTMLInputElement).disabled).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "Save securely" }));
+    await waitFor(() => expect(api.call).toHaveBeenCalledWith("saveProduct", expect.objectContaining({ itemKind: "service", name: "Installation service", trackingType: "quantity", defaultUnitCostMinor: 0, minimumStockLevel: 0, reorderLevel: 0 })));
+  });
   it("expands a short history in place before opening the full detail", async () => {
     api.call.mockResolvedValue({ rows: [] });
     render(<ProductsPage />);

@@ -1,5 +1,7 @@
 import { FieldValue, Timestamp } from "firebase-admin/firestore";
 import { createHash } from "node:crypto";
+import { calculateSaleLine } from "../sales/calculations.js";
+import { serviceChargeVat, serviceReceiptVat } from "../services/billing.js";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
 import { db } from "../admin.js";
 import { operationalEvidence, operationalEvidenceInput } from "../sales/operational-evidence.js";
@@ -64,20 +66,27 @@ export const getAftersalesWorkspace = onCall(
     let query: FirebaseFirestore.Query = db.collection("aftersalesCases")
       .where("organizationId", "==", actor.organizationId);
     if (input.branchId) query = query.where("branchId", "==", input.branchId);
-    const [cases, customers, products, bankAccounts, sales, suppliers] = await Promise.all([
+    const [cases, customers, products, bankAccounts, sales, suppliers, servicePrices] = await Promise.all([
       query.limit(input.limit).get(),
       db.collection("customers").where("organizationId", "==", actor.organizationId).limit(500).get(),
       db.collection("products").where("organizationId", "==", actor.organizationId).limit(500).get(),
       db.collection("bankAccounts").where("organizationId", "==", actor.organizationId).where("active", "==", true).limit(100).get(),
       db.collection("sales").where("organizationId", "==", actor.organizationId).limit(200).get(),
       hasServerPermission(actor, "suppliers.read") ? db.collection("suppliers").where("organizationId", "==", actor.organizationId).where("active", "==", true).limit(500).get() : null,
+      db.collection("productSalesPrices").where("organizationId", "==", actor.organizationId).where("active", "==", true).limit(500).get(),
     ]);
     return {
       cases: (selectedCase ? [selectedCase] : cases.docs)
         .filter((item) => organizationWide || actor.branchIds.includes(String(item.get("branchId"))))
         .map((item) => ({ id: item.id, ...item.data() })),
       customers: customers.docs.filter((item) => item.get("active") === true).map((item) => ({ id: item.id, name: item.get("name"), customerNumber: item.get("customerNumber") })),
-      products: products.docs.filter((item) => item.get("active") === true).map((item) => ({ id: item.id, name: item.get("name"), sku: item.get("sku") })),
+      products: products.docs.filter((item) => item.get("active") === true && item.get("itemKind") !== "service").map((item) => ({ id: item.id, name: item.get("name"), sku: item.get("sku") })),
+      serviceItems: products.docs.filter(item => item.get("active") === true && item.get("itemKind") === "service").flatMap(item => {
+        const price = servicePrices.docs.find(price => price.id === item.id || price.get("productId") === item.id);
+        if (!price) return [];
+        const calculation = calculateSaleLine({ quantity: 1, unitPriceMinor: Number(price.get("basePriceMinor")), vatRateBasisPoints: Number(price.get("vatRateBasisPoints")), unitCostMinor: 0 });
+        return [{ id: item.id, name: item.get("name"), sku: item.get("sku"), grossAmountMinor: calculation.grossAmountMinor }];
+      }),
       bankAccounts: bankAccounts.docs.map(bankAccountSummary),
       suppliers: suppliers?.docs.map(item => ({ id: item.id, name: item.get("name") })) ?? [],
       sales: sales.docs
@@ -99,18 +108,20 @@ export const createAftersalesCase = onCall(
     const branch = db.doc(`branches/${input.branchId}`);
     const customer = db.doc(`customers/${input.customerId}`);
     const product = db.doc(`products/${input.productId ?? "no-product"}`);
+    const serviceItem = db.doc(`products/${input.serviceItemId ?? "no-service"}`);
+    const servicePrice = db.doc(`productSalesPrices/${input.serviceItemId ?? "no-service"}`);
     const sale = db.doc(`sales/${input.saleId ?? "no-sale"}`);
     let result = { caseId: caseRef.id, created: true };
     await db.runTransaction(async (transaction) => {
-      const [previous, branchSnapshot, customerSnapshot, productSnapshot, saleSnapshot] =
-        await transaction.getAll(operation, branch, customer, product, sale);
+      const [previous, branchSnapshot, customerSnapshot, productSnapshot, saleSnapshot, serviceSnapshot, servicePriceSnapshot] =
+        await transaction.getAll(operation, branch, customer, product, sale, serviceItem, servicePrice);
       if (previous!.exists) {
         checkRetry(previous!, input);
         const original = await transaction.get(db.doc(`aftersalesCases/${String(previous!.get("entityId"))}`));
         if (!original.exists || original.get("organizationId") !== actor.organizationId || original.get("branchId") !== input.branchId)
           throw new HttpsError("not-found", "Original service request not found.");
         if (!previous!.get("requestFingerprint") &&
-          ["customerId", "saleId", "productId", "serialNumber", "serviceType", "requestType", "complaint", "notes"].some(field =>
+          ["customerId", "saleId", "productId", "serviceItemId", "serialNumber", "serviceType", "requestType", "complaint", "notes"].some(field =>
             (original.get(field) ?? null) !== ((input as Record<string, unknown>)[field] ?? null)))
           throw new HttpsError("invalid-argument", "Retry the original service request without changing its details.");
         result = { caseId: String(previous!.get("entityId")), created: false };
@@ -120,8 +131,18 @@ export const createAftersalesCase = onCall(
         throw new HttpsError("failed-precondition", "The selected store is unavailable.");
       if (!customerSnapshot!.exists || customerSnapshot!.get("organizationId") !== actor.organizationId || customerSnapshot!.get("active") !== true)
         throw new HttpsError("failed-precondition", "Select an active customer from this organization.");
-      if (input.productId && (!productSnapshot!.exists || productSnapshot!.get("organizationId") !== actor.organizationId))
+      if (input.productId && (!productSnapshot!.exists || productSnapshot!.get("organizationId") !== actor.organizationId || productSnapshot!.get("itemKind") === "service"))
         throw new HttpsError("failed-precondition", "The selected product is unavailable.");
+      let serviceCatalog: Record<string, unknown> | null = null;
+      if (input.serviceItemId) {
+        if (!serviceSnapshot!.exists || serviceSnapshot!.get("organizationId") !== actor.organizationId || serviceSnapshot!.get("active") !== true || serviceSnapshot!.get("itemKind") !== "service" ||
+          !servicePriceSnapshot!.exists || servicePriceSnapshot!.get("organizationId") !== actor.organizationId || servicePriceSnapshot!.get("active") !== true)
+          throw new HttpsError("failed-precondition", "Select an active service with a configured catalogue price.");
+        const basePriceMinor = Number(servicePriceSnapshot!.get("basePriceMinor"));
+        const vatRateBasisPoints = Number(servicePriceSnapshot!.get("vatRateBasisPoints"));
+        const calculation = calculateSaleLine({ quantity: 1, unitPriceMinor: basePriceMinor, vatRateBasisPoints, unitCostMinor: 0 });
+        serviceCatalog = { itemId: input.serviceItemId, name: serviceSnapshot!.get("name"), sku: serviceSnapshot!.get("sku"), basePriceMinor, vatRateBasisPoints, priceVersion: servicePriceSnapshot!.get("version"), grossAmountMinor: calculation.grossAmountMinor };
+      }
       if (input.saleId && (!saleSnapshot!.exists || saleSnapshot!.get("organizationId") !== actor.organizationId || saleSnapshot!.get("branchId") !== input.branchId || (saleSnapshot!.get("customerId") && saleSnapshot!.get("customerId") !== input.customerId)))
         throw new HttpsError("failed-precondition", "The sale does not match this store and customer.");
       const now = FieldValue.serverTimestamp();
@@ -135,6 +156,8 @@ export const createAftersalesCase = onCall(
         saleNumber: input.saleId ? saleSnapshot!.get("saleNumber") : null,
         productId: input.productId ?? null,
         productName: input.productId ? productSnapshot!.get("name") : null,
+        serviceItemId: input.serviceItemId ?? null,
+        serviceCatalog,
         serialNumber: input.serialNumber ?? null,
         serviceType: input.serviceType,
         requestType: input.requestType,
@@ -153,7 +176,7 @@ export const createAftersalesCase = onCall(
         entityId: caseRef.id,
         correlationId: correlationId(),
         sourceFunction: "createAftersalesCase",
-        after: { branchId: input.branchId, customerId: input.customerId, saleId: input.saleId ?? null, productId: input.productId ?? null, serviceType: input.serviceType, requestType: input.requestType, status: "open" },
+        after: { branchId: input.branchId, customerId: input.customerId, saleId: input.saleId ?? null, productId: input.productId ?? null, serviceCatalog, serviceType: input.serviceType, requestType: input.requestType, status: "open" },
       });
     });
     return result;
@@ -267,6 +290,7 @@ export const setAftersalesCharge = onCall(
       const now = FieldValue.serverTimestamp();
       transaction.update(caseRef, {
         chargeAmountMinor: input.chargeAmountMinor,
+        ...(current!.get("serviceCatalog") ? { serviceBillingVersion: 2, chargeVatMinor: serviceChargeVat(input.chargeAmountMinor, Number(current!.get("serviceCatalog").vatRateBasisPoints)), recognizedVatMinor: 0 } : {}),
         amountPaidMinor: 0,
         outstandingAmountMinor: input.chargeAmountMinor,
         chargeStatus: input.chargeAmountMinor === 0 ? "complimentary" : "due",
@@ -329,10 +353,15 @@ export const recordAftersalesPayment = onCall(
       const sequence = Number(counterSnapshot!.get("value") ?? 0) + 1;
       const journalNumber = `JRN-${effectiveAt.toDate().getUTCFullYear()}-${String(sequence).padStart(6, "0")}`;
       const now = FieldValue.serverTimestamp();
+      if (current!.get("serviceBillingVersion") === 2 && Number(current!.get("recognizedVatMinor")) !== serviceReceiptVat(0, Number(current!.get("amountPaidMinor") ?? 0), Number(current!.get("chargeAmountMinor")), Number(current!.get("chargeVatMinor"))))
+        throw new HttpsError("failed-precondition", "Service receipt tax allocation requires reconciliation before another payment.");
+      const vatMinor = current!.get("serviceBillingVersion") === 2
+        ? serviceReceiptVat(Number(current!.get("amountPaidMinor") ?? 0), input.amountMinor, Number(current!.get("chargeAmountMinor")), Number(current!.get("chargeVatMinor"))) : 0;
       const accountLines = [
         { code: settlement.accountCode, name: settlement.accountName, debitMinor: input.amountMinor, creditMinor: 0 },
-        { code: "4100", name: "Aftersales service income", debitMinor: 0, creditMinor: input.amountMinor },
-      ];
+        { code: "4100", name: "Aftersales service income", debitMinor: 0, creditMinor: input.amountMinor - vatMinor },
+        { code: "2100", name: "VAT payable", debitMinor: 0, creditMinor: vatMinor },
+      ].filter(line => line.debitMinor > 0 || line.creditMinor > 0);
       transaction.set(journalCounter, { organizationId: actor.organizationId, kind: "journalEntry", value: sequence, updatedAt: now });
       transaction.create(journal, {
         organizationId: actor.organizationId,
@@ -373,6 +402,7 @@ export const recordAftersalesPayment = onCall(
       const nextOutstanding = outstanding - input.amountMinor;
       transaction.update(caseRef, {
         amountPaidMinor: Number(current!.get("amountPaidMinor") ?? 0) + input.amountMinor,
+        ...(current!.get("serviceBillingVersion") === 2 ? { recognizedVatMinor: Number(current!.get("recognizedVatMinor") ?? 0) + vatMinor } : {}),
         outstandingAmountMinor: nextOutstanding,
         chargeStatus: nextOutstanding === 0 ? "paid" : "partially_paid",
         updatedAt: now,
@@ -384,6 +414,7 @@ export const recordAftersalesPayment = onCall(
         customerId: current!.get("customerId"),
         method: input.method,
         amountMinor: input.amountMinor,
+        ...(current!.get("serviceBillingVersion") === 2 ? { serviceBillingVersion: 2, netAmountMinor: input.amountMinor - vatMinor, vatAmountMinor: vatMinor, serviceCatalog: current!.get("serviceCatalog") } : {}),
         reference: input.reference ?? null,
         bankAccountId: settlement.bankAccountId ?? null,
         bankName: settlement.bankName ?? null,

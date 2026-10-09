@@ -230,6 +230,11 @@ export const saveProduct = onCall({ enforceAppCheck }, async (request) => {
       );
     if (owner.exists && owner.get("productId") !== productId)
       throw new HttpsError("already-exists", "SKU is already in use.");
+    const itemKind = input.itemKind ?? (current.exists ? current.get("itemKind") ?? "stock" : "stock");
+    if (current.exists && itemKind !== (current.get("itemKind") ?? "stock"))
+      throw new HttpsError("failed-precondition", "Stock goods and services cannot be converted into each other. Create a separate catalogue item to preserve history.");
+    if (itemKind === "service" && (input.trackingType !== "quantity" || (input.defaultUnitCostMinor ?? 0) !== 0 || (input.minimumStockLevel ?? 0) !== 0 || (input.reorderLevel ?? 0) !== 0))
+      throw new HttpsError("invalid-argument", "Services do not carry stock, serials, reorder levels or inventory unit costs. Record actual service costs through linked expenses.");
     if (
       categoryReference &&
       (inlineCategoryOwner?.exists || input.categoryId) &&
@@ -299,6 +304,7 @@ export const saveProduct = onCall({ enforceAppCheck }, async (request) => {
         : undefined;
     const data = clean({
       ...input,
+      itemKind,
       sku: effectiveSku,
       normalizedSku,
       categoryId: categoryReference?.id,
@@ -364,12 +370,14 @@ export const saveProduct = onCall({ enforceAppCheck }, async (request) => {
         ? {
             sku: current.get("sku"),
             trackingType: current.get("trackingType"),
+            itemKind: current.get("itemKind") ?? "stock",
             active: current.get("active"),
           }
         : undefined,
       after: {
         sku: effectiveSku,
         trackingType: input.trackingType,
+        itemKind,
         active: input.active,
       },
     });

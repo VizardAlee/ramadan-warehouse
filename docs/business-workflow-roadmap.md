@@ -1,6 +1,35 @@
 # Business workflow expansion (24 September 2026 baseline)
 
-## Aftersales staff ownership — 10 October 2026 (implementation validation)
+## Non-stock service catalogue / case pricing — 10 October 2026 (validated, release pending)
+
+Extends Products with an immutable stock/service classification. Omitted kind on
+historical goods means stock; old-client edits preserve an existing service kind.
+Services use the existing catalogue and configured selling prices, never a second
+customer, product or service identity. Inventory posting rejects service items;
+goods procurement and physical POS do not offer them. Catalogue service selection
+on an aftersales case snapshots its name, SKU, configured base price, VAT rate and
+price version. Staff confirm the VAT-inclusive charge/complimentary decision with
+a reason. Version-2 service receipts allocate that configured VAT cumulatively
+over part payments, with balanced bank/cash, service-income and VAT journals.
+Legacy cases/receipts keep their existing recognition unchanged. No statutory
+rate is invented or activated; fixture rates are emulator-only. No physical
+stock/reservation/release is generated for service billing. POS mixed-service
+invoices, accrual/refunds, service parts and quotation/proforma conversion remain
+subsequent dependency work; this slice does not claim them complete.
+Validation: 399 unit/interface cases across 103 files and 18 final targeted
+cases pass. Inventory/aftersales callable checks pass 31 cases (four Storage
+skips); sales checks pass 30 cases (one Storage skip), covering ordinary and
+controlled-order flows, partial collection, credit, advances, returns and
+corrections. The final ordinary-line service guard regression passes, as do all
+12 simplified-transfer cases and 26 security-rule cases (one Storage-only skip).
+The guard checks every order line, not only manually priced goods. Production
+build, Functions compilation, final typecheck/lint and secret scan pass. The matching read-only live
+planner proof passes 455/455 query shapes with zero missing indexes; independent
+metadata confirms 226 READY indexes. Historical records are not migrated or
+rewritten. The release must update all shared inventory-posting consumers, not
+only the catalogue UI, before services may be created by live users.
+
+## Aftersales staff ownership — 10 October 2026 (deployed)
 
 The existing updateAftersalesCase operation supports independently assigning,
 reassigning or removing an existing HR employee by staff ID and reason. It reuses
@@ -22,6 +51,14 @@ production build, secret scan and diff checks pass; the unchanged rules passed
 All 454 live query shapes pass with zero missing indexes and the reviewed source
 baseline is refreshed. Deployment scope: updateAftersalesCase and App Hosting.
 No IAM change, live business test posting or historical rewrite is required.
+Source 238581a is pushed and deployed. updateAftersalesCase printed Successful
+update / Deploy complete and is ACTIVE as updateaftersalescase-00006-gac at 100%
+traffic without reconciliation, retaining production mode, App Check and original
+runtime identity. Its unauthenticated probe returns HTTP 401. App Hosting printed
+Rollout complete / Deploy complete; build-2026-10-09-025 is READY and rollout
+SUCCEEDED, with 100% traffic and no reconciliation. Aftersales and Guide return
+HTTP 200; all eleven served aftersales scripts load and contain staff-ID,
+assignment and saved-retry controls. No live business postings were used.
 
 ## Aftersales action retry safety — 10 October 2026 (deployed)
 
@@ -139,7 +176,8 @@ and payment-due-date controls. No live business records were posted.
 Recent deployed sections below supersede the historical 7 October checkpoint;
 they do not establish that all eight workstreams are complete. Continue without
 routine approval pauses. Provider cost settlement and older collection-history
-paging are deployed. Finish aftersales retry safety, then non-stock service items and the
+paging, aftersales retry safety and staff ownership are deployed. Continue
+non-stock service billing and the
 delivery fee/provider liability/retained-income split. Issued quotation/proforma
 conversion must reuse existing customer/POS/invoice primitives. Follow with
 remaining dashboard/report scalability and HR/payroll expansion. Department and

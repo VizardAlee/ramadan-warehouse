@@ -3,7 +3,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { ChevronDown, Plus, Search } from "lucide-react";
 import Link from "next/link";
 import { Fragment, useMemo, useState } from "react";
-import { useForm } from "react-hook-form";
+import { useForm, useWatch } from "react-hook-form";
 import { z } from "zod";
 import { Button } from "@/components/ui/button";
 import { AppDialog } from "@/components/ui/app-dialog";
@@ -32,6 +32,7 @@ import {
 } from "@/types/domain";
 
 const schema = z.object({
+  itemKind: z.enum(["stock", "service"]),
   name: z.string().min(2),
   sku: z
     .string()
@@ -81,6 +82,7 @@ const schema = z.object({
 type Values = z.input<typeof schema>;
 type ParsedValues = z.output<typeof schema>;
 const defaults: Values = {
+  itemKind: "stock",
   name: "",
   sku: "",
   categoryName: "",
@@ -130,6 +132,7 @@ export default function ProductsPage() {
     resolver: zodResolver(schema),
     defaultValues: defaults,
   });
+  const serviceItem = useWatch({ control: form.control, name: "itemKind" }) === "service";
   const filtered = useMemo(
     () =>
       products.data.filter(
@@ -158,6 +161,7 @@ export default function ProductsPage() {
     form.reset(
       product
         ? {
+            itemKind: product.itemKind ?? "stock",
             name: product.name,
             sku: product.sku,
             categoryName:
@@ -215,13 +219,14 @@ export default function ProductsPage() {
         { productId: string; saved: boolean }
       >("saveProduct", {
         ...clean,
+        ...(values.itemKind === "service" ? { trackingType: "quantity", minimumStockLevel: 0, reorderLevel: 0 } : {}),
         ...(existingCategory
           ? { categoryId: existingCategory.id }
           : categoryName
             ? { categoryName }
             : {}),
         ...(editing ? { id: editing.id } : {}),
-        ...(defaultUnitCostNaira !== undefined
+        ...(values.itemKind === "service" ? { defaultUnitCostMinor: 0 } : defaultUnitCostNaira !== undefined
           ? { defaultUnitCostMinor: nairaToKobo(defaultUnitCostNaira) }
           : {}),
         idempotencyKey: crypto.randomUUID(),
@@ -344,7 +349,7 @@ export default function ProductsPage() {
                     data-primary="true"
                     className="px-4 py-3"
                   >
-                    {canReadInventory ? <button
+                    {product.itemKind === "service" ? <Link href="/aftersales" className="font-semibold text-[var(--brand)] underline">{product.name}</Link> : canReadInventory ? <button
                       type="button"
                       aria-expanded={expandedProductId === product.id}
                       aria-controls={`product-history-preview-${product.id}`}
@@ -359,7 +364,7 @@ export default function ProductsPage() {
                     {product.sku}
                   </td>
                   <td data-label="Tracking" className="px-4 capitalize">
-                    {product.trackingType}
+                    {product.itemKind === "service" ? "Service (no stock)" : product.trackingType}
                   </td>
                   <td data-label="Unit" className="px-4">
                     {product.unitOfMeasure}
@@ -475,7 +480,7 @@ export default function ProductsPage() {
                 Tracking
                 <select
                   {...form.register("trackingType")}
-                  disabled={Boolean(editing?.hasLedgerActivity)}
+                  disabled={serviceItem || Boolean(editing?.hasLedgerActivity)}
                   className="mt-1 w-full rounded-lg border p-2.5"
                 >
                   {productTrackingTypes.map((type) => (
@@ -483,6 +488,7 @@ export default function ProductsPage() {
                   ))}
                 </select>
               </label>
+              <label className="text-sm">Catalogue item type<select {...form.register("itemKind")} disabled={Boolean(editing)} className="mt-1 w-full rounded-lg border p-2.5"><option value="stock">Stocked goods</option><option value="service">Service — no physical stock</option></select><span className="mt-1 block text-xs text-[var(--muted)]">Services use aftersales cases and linked costs. Item type cannot be changed after creation.</span></label>
               <label className="text-sm">
                 Brand
                 <input
@@ -516,6 +522,7 @@ export default function ProductsPage() {
                     setValueAs: (value) =>
                       value === "" ? undefined : Number(value),
                   })}
+                  disabled={serviceItem}
                   className="mt-1 w-full rounded-lg border p-2.5"
                 />
               </label>
@@ -573,6 +580,7 @@ export default function ProductsPage() {
                 <input
                   type="number"
                   {...form.register("minimumStockLevel")}
+                  disabled={serviceItem}
                   className="mt-1 w-full rounded-lg border p-2.5"
                 />
               </label>
@@ -581,6 +589,7 @@ export default function ProductsPage() {
                 <input
                   type="number"
                   {...form.register("reorderLevel")}
+                  disabled={serviceItem}
                   className="mt-1 w-full rounded-lg border p-2.5"
                 />
               </label>

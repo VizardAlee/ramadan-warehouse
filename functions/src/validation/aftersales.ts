@@ -14,6 +14,7 @@ export const createAftersalesCaseInput = z.object({
   customerId: id,
   saleId: id.optional(),
   productId: id.optional(),
+  serviceItemId: id.optional(),
   serialNumber: text.max(160).optional(),
   serviceType: z.enum(["warranty", "non_warranty"]),
   requestType: z.enum(["installation", "warranty", "repair", "replacement", "inspection", "maintenance", "technical_support"]),

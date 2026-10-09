@@ -105,6 +105,14 @@ beforeAll(async () => {
 afterAll(async () => h?.cleanup());
 
 describe.sequential("simple manager stock transfers", () => {
+  it("does not accept a non-stock service as transferable physical goods", async () => {
+    const serviceId = "simple-non-stock-service";
+    await h.db.doc(`products/${serviceId}`).set({ organizationId: h.organizationId, name: "Installation", sku: serviceId, itemKind: "service", trackingType: "quantity", active: true });
+    await expect(create(1, { items: [{ productId: serviceId, quantity: 1 }] }, h.manager))
+      .rejects.toMatchObject({ code: "functions/failed-precondition" });
+    expect((await h.db.collection("inventoryEntries").where("productId", "==", serviceId).get()).empty).toBe(true);
+  });
+
   it("finishes in three tasks without logistics records or extra staff", async () => {
     const before = await balance(h.originLocationId);
     const id = await create(20, {}, h.manager);

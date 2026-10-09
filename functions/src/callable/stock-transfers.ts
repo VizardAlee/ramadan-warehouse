@@ -473,7 +473,7 @@ export const stockTransfers = onCall({ enforceAppCheck }, async (request) => {
         if (
           !product.exists ||
           product.get("organizationId") !== actor.organizationId ||
-          product.get("active") !== true
+          product.get("active") !== true || product.get("itemKind") === "service"
         )
           fail("A selected product is no longer available.");
         if ((product.get("trackingType") === "batch") !== Boolean(line.lotId))
@@ -811,7 +811,7 @@ async function changeStock(
     if (
       !product!.exists ||
       product!.get("organizationId") !== actor.organizationId ||
-      product!.get("trackingType") !== line.trackingType
+      product!.get("trackingType") !== line.trackingType || product!.get("itemKind") === "service"
     )
       fail("Product tracking changed; ask the administrator to review it.");
     for (const stock of [balance!, target!, quarantine!]) {

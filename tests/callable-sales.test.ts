@@ -327,6 +327,25 @@ describe.sequential("sales callables", () => {
     ).resolves.toMatchObject({ saved: true });
   });
 
+  it("rejects non-stock services before entering the physical sales workflow", async () => {
+    const serviceId = "non-stock-sales-regression";
+    await adminDb.doc(`products/${serviceId}`).set({ organizationId, name: "Installation", sku: serviceId, itemKind: "service", trackingType: "quantity", unit: "service", active: true });
+    await adminDb.doc(`productSalesPrices/${serviceId}`).set({ organizationId, productId: serviceId, basePriceMinor: 10_000, vatRateBasisPoints: 0, version: 1, active: true });
+    const deviceId = crypto.randomUUID();
+    const shift = await call<{ shiftId: string }>(branchManager, "openPosShift", {
+      branchId, deviceId, deviceName: "Service guard", openingCashMinor: 0,
+      idempotencyKey: crypto.randomUUID(), operatingContext: { type: "branch", id: branchId },
+    });
+    for (const name of ["createPosSaleOrder", "commitPosSale"]) {
+      await expect(call(branchManager, name, {
+        branchId, deviceId, shiftId: shift.shiftId, recordedAt: new Date().toISOString(), offline: false,
+        lines: [{ productId: serviceId, quantity: 1 }], payments: [{ method: "cash", amountMinor: 10_000 }],
+        idempotencyKey: crypto.randomUUID(), operatingContext: { type: "branch", id: branchId },
+      })).rejects.toMatchObject({ code: "functions/failed-precondition" });
+    }
+    expect((await adminDb.collection("inventoryEntries").where("productId", "==", serviceId).get()).empty).toBe(true);
+  });
+
   it("posts a paid sale, inventory issue, VAT, receipt, and balanced journal once", async () => {
     const deviceId = crypto.randomUUID();
     const opened = await call<{ shiftId: string; opened: boolean }>(

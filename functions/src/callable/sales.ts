@@ -450,6 +450,7 @@ export const getPosWorkspace = onCall(
         .filter(
           (product) =>
             product.get("active") === true &&
+            product.get("itemKind") !== "service" &&
             ["quantity", "serial"].includes(product.get("trackingType")),
         )
         .flatMap((product) => {
@@ -1019,6 +1020,7 @@ export const createPosSaleOrder = onCall(
       const snapshots = await transaction.getAll(
         operation, branch, shift, counter, customer,
         ...centralPriceReferences, ...branchPriceReferences,
+        ...input.lines.map(line => db.doc(`products/${line.productId}`)),
       );
       const [previousOperation, branchSnapshot, shiftSnapshot, counterSnapshot, customerSnapshot] = snapshots;
       if (previousOperation!.exists) {
@@ -1030,6 +1032,11 @@ export const createPosSaleOrder = onCall(
         };
         return;
       }
+      input.lines.forEach((_, index) => {
+        const product = snapshots[5 + pricedLines.length * 2 + index]!;
+        if (!product.exists || product.get("organizationId") !== actor.organizationId || product.get("active") !== true || product.get("itemKind") === "service")
+          throw new HttpsError("failed-precondition", "Select active physical goods for POS; catalogue services use Aftersales.");
+      });
       pricedLines.forEach((line, index) => {
         const central = snapshots[5 + index]!;
         const override = snapshots[5 + pricedLines.length + index]!;
@@ -1579,6 +1586,8 @@ async function postPosSale(
           product.get("active") !== true
         )
           throw new HttpsError("failed-precondition", "A sale product is unavailable.");
+        if (product.get("itemKind") === "service")
+          throw new HttpsError("failed-precondition", "Use the controlled service workflow for non-stock service items.");
         if (!["quantity", "serial"].includes(product.get("trackingType")))
           throw new HttpsError(
             "failed-precondition",

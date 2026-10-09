@@ -735,6 +735,7 @@ export interface ProductCategory {
 }
 export interface Product {
   id: string;
+  itemKind?: "stock" | "service";
   organizationId: string;
   name: string;
   sku: string;

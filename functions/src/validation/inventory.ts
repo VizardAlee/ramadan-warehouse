@@ -25,6 +25,7 @@ export const categoryInput = z.object({
 });
 export const productInput = z.object({
   id: id.optional(),
+  itemKind: z.enum(["stock", "service"]).optional(),
   name: z.string().trim().min(2).max(180),
   sku: z.preprocess(
     (value) =>

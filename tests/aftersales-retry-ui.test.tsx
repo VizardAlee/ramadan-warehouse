@@ -12,6 +12,19 @@ vi.mock("@/features/returns/held-return-disposition", () => ({ HeldReturnDisposi
 const workspace = { cases: [{ id: "case", branchId: "store", customerName: "Amina", serviceType: "non_warranty", requestType: "repair", complaint: "Repair cable", status: "open", chargeStatus: "due", chargeAmountMinor: 2000, outstandingAmountMinor: 2000 }], customers: [], products: [], sales: [], suppliers: [], bankAccounts: [] };
 afterEach(() => { cleanup(); sessionStorage.clear(); vi.resetAllMocks(); state.auth.operatingContext.id = "store"; });
 describe("service action retries", () => {
+  it("uses the case's saved service quotation total and requires a charge reason", async () => {
+    const catalogCase = { ...workspace, cases: [{ ...workspace.cases[0], chargeStatus: "not_quoted", serviceCatalog: { name: "Installation", grossAmountMinor: 10750, vatRateBasisPoints: 750, priceVersion: 1 } }] };
+    state.call.mockImplementation(name => Promise.resolve(name === "getAftersalesWorkspace" ? catalogCase : { recorded: true }));
+    render(<AftersalesPage />);
+    const amount = await screen.findByLabelText("Service charge (₦)");
+    expect((amount as HTMLInputElement).value).toBe("107.50");
+    fireEvent.change(screen.getByLabelText("Charge / complimentary reason"), { target: { value: "Original service price agreed" } });
+    const button = screen.getByRole("button", { name: "Set charge" });
+    await waitFor(() => expect((button.closest("fieldset") as HTMLFieldSetElement).disabled).toBe(false));
+    fireEvent.click(button);
+    await screen.findByText("Service charge recorded.");
+    expect(state.call.mock.calls.find(call => call[0] === "setAftersalesCharge")![1]).toMatchObject({ chargeAmountMinor: 10750, reason: "Original service price agreed" });
+  });
   it("assigns an existing HR employee without changing the service status or financial instructions", async () => {
     state.call.mockImplementation(name => Promise.resolve(name === "getAftersalesWorkspace" ? workspace : { updated: true }));
     render(<AftersalesPage />);

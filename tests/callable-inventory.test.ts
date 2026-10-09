@@ -135,6 +135,22 @@ beforeAll(async () => {
 afterAll(async () => Promise.all(apps.map((app) => deleteApp(app))));
 
 describe.sequential("inventory callables", () => {
+  it("keeps non-stock services out of inventory and preserves legacy goods classification", async () => {
+    const payload = product({ name: "Installation service", sku: "SERVICE-INSTALL", itemKind: "service", defaultUnitCostMinor: 0 });
+    const service = await call<{ productId: string }>(administrator, "saveProduct", payload);
+    const ref = adminDb.doc(`products/${service.productId}`);
+    expect((await ref.get()).get("itemKind")).toBe("service");
+    const legacyClientEdit = product({ ...payload, id: service.productId, idempotencyKey: crypto.randomUUID() });
+    delete legacyClientEdit.itemKind;
+    await call(administrator, "saveProduct", legacyClientEdit);
+    expect((await ref.get()).get("itemKind")).toBe("service");
+    await expect(call(administrator, "saveProduct", { ...payload, id: service.productId, itemKind: "stock", idempotencyKey: crypto.randomUUID() })).rejects.toMatchObject({ code: "functions/failed-precondition" });
+    for (const invalid of [{ trackingType: "serial" }, { defaultUnitCostMinor: 100 }, { reorderLevel: 1 }])
+      await expect(call(administrator, "saveProduct", { ...payload, ...invalid, sku: crypto.randomUUID().slice(0, 8), idempotencyKey: crypto.randomUUID() })).rejects.toMatchObject({ code: "functions/invalid-argument" });
+    const count = (await adminDb.collection("inventoryEntries").count().get()).data().count;
+    await expect(call(administrator, "postOpeningStock", { productId: service.productId, destinationLocationId: "location-a", quantity: 1, unitCostMinor: 0, effectiveAt: new Date().toISOString(), reason: "A service has no physical stock", externalAccount: "migration", idempotencyKey: crypto.randomUUID() })).rejects.toMatchObject({ code: "functions/failed-precondition" });
+    expect((await adminDb.collection("inventoryEntries").count().get()).data().count).toBe(count);
+  });
   it("enforces case-insensitive organization SKU uniqueness and role authorization", async () => {
     const created = await call<{ productId: string }>(
       administrator,

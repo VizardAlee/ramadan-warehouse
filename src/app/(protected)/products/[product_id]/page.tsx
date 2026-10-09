@@ -111,7 +111,7 @@ export default function ProductDetailPage() {
             {summary.product.unitOfMeasure}
           </p>
         </div>
-        {profile && hasPermission(profile, "inventory.opening_stock") && (
+        {summary.product.itemKind !== "service" && profile && hasPermission(profile, "inventory.opening_stock") && (
           <Link
             href={`/inventory/opening-stock?productId=${encodeURIComponent(summary.product.id)}`}
             className="inline-flex min-h-11 items-center justify-center rounded-lg bg-[var(--brand)] px-4 text-sm font-semibold text-white hover:bg-[var(--brand-dark)]"

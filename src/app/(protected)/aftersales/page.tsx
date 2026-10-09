@@ -33,11 +33,14 @@ interface Case extends HeldReturnCase {
   outstandingAmountMinor?: number;
   assignedStaff?: { employeeId: string; staffId: string; name: string } | null;
   assignmentReason?: string;
+  serviceCatalog?: { name: string; grossAmountMinor: number; vatRateBasisPoints: number; priceVersion: number } | null;
+  chargeVatMinor?: number;
 }
 interface Workspace {
   cases: Case[];
   customers: Array<{ id: string; name: string; customerNumber: string }>;
   products: Array<{ id: string; name: string; sku: string }>;
+  serviceItems?: Array<{ id: string; name: string; sku: string; grossAmountMinor: number }>;
   bankAccounts: Array<{ id: string; bankName: string; accountName: string; accountNumberLast4: string }>;
   suppliers: Array<{ id: string; name: string }>;
   sales: Array<{ id: string; saleNumber: string; branchId: string; customerId: string | null }>;
@@ -84,7 +87,7 @@ function AftersalesWorkspace() {
     return () => window.clearTimeout(timer);
   }, [storageKey]);
   const [draft, setDraft] = useState({
-    customerId: "", saleId: "", productId: "", serialNumber: "",
+    customerId: "", saleId: "", productId: "", serviceItemId: "", serialNumber: "",
     serviceType: "warranty" as "warranty" | "non_warranty",
     requestType: "warranty", complaint: "", notes: "",
   });
@@ -134,7 +137,7 @@ function AftersalesWorkspace() {
       sessionStorage.removeItem(storageKey); setPending(null);
       setMessage(success);
       setCaseDrafts({});
-      if (instruction.name === "createAftersalesCase") setDraft(current => ({ ...current, customerId: "", saleId: "", productId: "", serialNumber: "", complaint: "", notes: "" }));
+      if (instruction.name === "createAftersalesCase") setDraft(current => ({ ...current, customerId: "", saleId: "", productId: "", serviceItemId: "", serialNumber: "", complaint: "", notes: "" }));
       await load();
     } catch (cause) {
       const diagnostic = cause as { diagnosticCode?: string; code?: string };
@@ -172,6 +175,7 @@ function AftersalesWorkspace() {
           {!branchId && <p className="mt-2 text-sm text-amber-800">Select a store in the location switcher before creating a case.</p>}
           <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             <label className="text-sm font-medium">Customer<select value={draft.customerId} onChange={(event) => setDraft({ ...draft, customerId: event.target.value })} className="mt-1 w-full rounded-lg border p-3"><option value="">Select customer</option>{workspace?.customers.map((customer) => <option key={customer.id} value={customer.id}>{customer.name} · {customer.customerNumber}</option>)}</select></label>
+            <label className="text-sm font-medium">Catalogue service (optional)<select value={draft.serviceItemId} onChange={event => setDraft({ ...draft, serviceItemId: event.target.value })} className="mt-1 w-full rounded-lg border p-3"><option value="">Custom service / existing warranty</option>{workspace?.serviceItems?.map(item => <option key={item.id} value={item.id}>{item.name} · {formatNaira(item.grossAmountMinor)} including configured VAT</option>)}</select><span className="mt-1 block text-xs text-[var(--muted)]">The case keeps this service price version. Staff still confirm the charge or complimentary reason.</span></label>
             <label className="text-sm font-medium">Product (optional)<select value={draft.productId} onChange={(event) => setDraft({ ...draft, productId: event.target.value })} className="mt-1 w-full rounded-lg border p-3"><option value="">Service only</option>{workspace?.products.map((product) => <option key={product.id} value={product.id}>{product.name} · {product.sku}</option>)}</select></label>
             <label className="text-sm font-medium">Related sale (optional)<select value={draft.saleId} onChange={(event) => setDraft({ ...draft, saleId: event.target.value })} className="mt-1 w-full rounded-lg border p-3"><option value="">No linked sale</option>{workspace?.sales.filter((sale) => sale.branchId === branchId && (!sale.customerId || sale.customerId === draft.customerId)).map((sale) => <option key={sale.id} value={sale.id}>{sale.saleNumber}</option>)}</select></label>
             <label className="text-sm font-medium">Serial number (optional)<input value={draft.serialNumber} onChange={(event) => setDraft({ ...draft, serialNumber: event.target.value })} className="mt-1 w-full rounded-lg border p-3" /></label>
@@ -184,6 +188,7 @@ function AftersalesWorkspace() {
             customerId: draft.customerId,
             saleId: draft.saleId || undefined,
             productId: draft.productId || undefined,
+            serviceItemId: draft.serviceItemId || undefined,
             serialNumber: draft.serialNumber || undefined,
             serviceType: draft.serviceType,
             requestType: draft.requestType,
@@ -196,7 +201,7 @@ function AftersalesWorkspace() {
       <section className="space-y-3">
         <h2 className="text-xl font-semibold">Service cases</h2>
         {workspace?.cases.map((item) => {
-          const form = caseDrafts[item.id] ?? { status: "", resolution: "", chargeNaira: "", chargeReason: "", paymentNaira: "", method: "cash" as const, bankAccountId: "", reference: "", staffId: item.assignedStaff?.staffId ?? "", assignmentReason: "" };
+          const form = caseDrafts[item.id] ?? { status: "", resolution: "", chargeNaira: item.serviceCatalog && item.serviceType === "non_warranty" ? (item.serviceCatalog.grossAmountMinor / 100).toFixed(2) : "", chargeReason: "", paymentNaira: "", method: "cash" as const, bankAccountId: "", reference: "", staffId: item.assignedStaff?.staffId ?? "", assignmentReason: "" };
           const set = (changes: Partial<typeof form>) => setCaseDrafts({ ...caseDrafts, [item.id]: { ...form, ...changes } });
           const chargeMinor = minorOrNaN(form.chargeNaira);
           const paymentMinor = minorOrNaN(form.paymentNaira);
@@ -208,6 +213,9 @@ function AftersalesWorkspace() {
                   <p className="text-sm text-[var(--muted)]">{item.productName || "Service only"} · {item.serviceType.replaceAll("_", " ")} · {item.saleNumber || "No linked sale"} {item.serialNumber && `· Serial ${item.serialNumber}`}</p>
                   {item.returnNumber && <p className="mt-2 text-sm">From inspected return {item.returnNumber} · {(item.quantity ?? 0) - (item.heldDisposedQuantity ?? 0)} unit(s) still held {item.contactPhone && `· ${item.contactPhone}`}<br />Completing service does not restock goods or issue a refund. <Link href="/aftersales" className="underline">View all service cases</Link></p>}
                   <p className="mt-2 text-sm">{item.complaint}</p>
+                  {item.serviceCatalog && <p className="mt-2 text-sm"><strong>Service:</strong> {item.serviceCatalog.name} · catalogue {formatNaira(item.serviceCatalog.grossAmountMinor)} incl. VAT · price version {item.serviceCatalog.priceVersion}. No physical stock is reserved or released.</p>}
+                  {item.chargeVatMinor !== undefined && <p className="text-sm text-[var(--muted)]">Confirmed charge includes {formatNaira(item.chargeVatMinor)} configured VAT; part payments allocate it without duplicating income.</p>}
+                  {item.serviceCatalog && item.chargeStatus === "not_quoted" && <p className="text-sm text-[var(--muted)]">Enter the total service charge including configured VAT, or zero for complimentary work, with a reason. Changing catalogue prices later will not alter this case.</p>}
                   {can("expenses.create") && can("expenses.read") && <Link className="mt-3 inline-block text-sm font-semibold underline" href={`/expenses?caseId=${encodeURIComponent(item.id)}&branchId=${encodeURIComponent(item.branchId)}`}>Record outsourced service / logistics cost</Link>}
                   {item.resolution && <p className="mt-1 text-sm"><strong>Resolution:</strong> {item.resolution}</p>}
                   <p className="mt-2 text-sm"><strong>Assigned staff:</strong> {item.assignedStaff ? `${item.assignedStaff.name} · ${item.assignedStaff.staffId}` : "Not assigned"}</p>

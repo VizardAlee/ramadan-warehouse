@@ -565,7 +565,7 @@ export const getProcurementWorkspace = onCall(
           name: document.get("name"),
           code: document.get("code"),
         })),
-      products: products.docs.map((document) => ({
+      products: products.docs.filter(document => document.get("itemKind") !== "service").map((document) => ({
         id: document.id,
         name: document.get("name"),
         sku: document.get("sku"),
@@ -671,7 +671,7 @@ export const createPurchaseOrder = onCall(
       const calculated = input.lines.map((line, index) => {
         const product = productSnapshots[index]!;
         if (
-          !product.exists ||
+          !product.exists || product.get("itemKind") === "service" ||
           product.get("organizationId") !== actor.organizationId ||
           product.get("active") !== true
         )

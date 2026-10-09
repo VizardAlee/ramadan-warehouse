@@ -488,4 +488,35 @@ describe.sequential("aftersales and ledger-derived reports", () => {
     const balance = await call<{ balanced: boolean }>("generateFinancialStatement", { ...period, reportType: "balance_sheet" });
     expect(balance.balanced).toBe(true);
   }, 120_000);
+  it("bills catalogue services with immutable configured VAT and balanced partial receipts without physical stock", async () => {
+    const service = await call<{ productId: string }>("saveProduct", { name: "Installation labour", sku: "LABOUR-CATALOGUE", itemKind: "service", trackingType: "quantity", unitOfMeasure: "job", active: true, defaultUnitCostMinor: 0, idempotencyKey: crypto.randomUUID() });
+    const rate = { productId: service.productId, basePriceMinor: 10000, vatRateBasisPoints: 750, active: true, idempotencyKey: crypto.randomUUID() };
+    await call("saveProductSalesPrice", rate);
+    const work = await call<{ products: Array<{ id: string }>; serviceItems: Array<{ id: string; grossAmountMinor: number }> }>("getAftersalesWorkspace", { branchId });
+    expect(work.products.some(product => product.id === service.productId)).toBe(false);
+    expect(work.serviceItems.find(product => product.id === service.productId)?.grossAmountMinor).toBe(10750);
+    const created = await call<{ caseId: string }>("createAftersalesCase", { branchId, customerId, serviceItemId: service.productId, serviceType: "non_warranty", requestType: "installation", complaint: "Install the customer's inverter", idempotencyKey: crypto.randomUUID() });
+    await call("saveProductSalesPrice", { ...rate, basePriceMinor: 15000, vatRateBasisPoints: 0, idempotencyKey: crypto.randomUUID() });
+    await call("setAftersalesCharge", { caseId: created.caseId, chargeAmountMinor: 10750, reason: "Agreed original catalogue charge including VAT", idempotencyKey: crypto.randomUUID() });
+    const before = (await adminDb.collection("inventoryEntries").count().get()).data().count;
+    const receipts = [];
+    for (const amountMinor of [1455, 9295]) {
+      const payload = { caseId: created.caseId, method: "bank_transfer", bankAccountId, amountMinor, reference: "Service instalment", idempotencyKey: crypto.randomUUID() };
+      const paid = await call<{ paymentId: string }>("recordAftersalesPayment", payload);
+      expect(await call("recordAftersalesPayment", payload)).toMatchObject({ paymentId: paid.paymentId, recorded: false });
+      receipts.push((await adminDb.doc(`aftersalesPayments/${paid.paymentId}`).get()).data()!);
+      const journal = await adminDb.doc(`journalEntries/${receipts.at(-1)!.journalEntryId}`).get();
+      expect(journal.get("totalDebitMinor")).toBe(amountMinor);
+      expect(journal.get("totalCreditMinor")).toBe(amountMinor);
+      const lines = (await adminDb.collection("journalLines").where("journalEntryId", "==", journal.id).get()).docs;
+      expect(lines.reduce((sum, line) => sum + line.get("debitMinor") - line.get("creditMinor"), 0)).toBe(0);
+      expect(lines.find(line => line.get("accountCode") === "2100")?.get("creditMinor")).toBe(receipts.at(-1)!.vatAmountMinor);
+    }
+    expect(receipts.reduce((sum, payment) => sum + payment.vatAmountMinor, 0)).toBe(750);
+    expect(receipts.reduce((sum, payment) => sum + payment.netAmountMinor, 0)).toBe(10000);
+    const saved = await adminDb.doc(`aftersalesCases/${created.caseId}`).get();
+    expect(saved.data()).toMatchObject({ serviceBillingVersion: 2, chargeVatMinor: 750, recognizedVatMinor: 750, amountPaidMinor: 10750, outstandingAmountMinor: 0, serviceCatalog: { basePriceMinor: 10000, vatRateBasisPoints: 750 } });
+    expect((await adminDb.collection("inventoryEntries").count().get()).data().count).toBe(before);
+    await expect(call("createAftersalesCase", { branchId, customerId, serviceItemId: productId, serviceType: "warranty", requestType: "repair", complaint: "Physical product is not a service", idempotencyKey: crypto.randomUUID() })).rejects.toMatchObject({ code: "functions/failed-precondition" });
+  });
 });

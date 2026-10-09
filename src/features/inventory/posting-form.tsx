@@ -163,11 +163,11 @@ export function PostingForm({
     if (
       mode === "opening" &&
       !form.getValues("productId") &&
-      products.data.filter((item) => item.active).length === 1
+      products.data.filter((item) => item.active && item.itemKind !== "service").length === 1
     )
       form.setValue(
         "productId",
-        products.data.find((item) => item.active)?.id ?? "",
+        products.data.find((item) => item.active && item.itemKind !== "service")?.id ?? "",
       );
     if (mode !== "opening" || form.getValues("destinationLocationId")) return;
     const onlyLocation = openingDestinationOptions.length === 1
@@ -384,7 +384,7 @@ export function PostingForm({
           >
             <option value="">Select product…</option>
             {products.data
-              .filter((item) => item.active)
+              .filter((item) => item.active && item.itemKind !== "service")
               .map((item) => (
                 <option key={item.id} value={item.id}>
                   {item.sku} — {item.name}
