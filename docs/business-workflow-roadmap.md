@@ -2,7 +2,7 @@
 
 This roadmap extends the existing Firebase application and preserves historical users, stock entries, sales, journals and audit records. A requested capability is not marked complete merely because a screen or a partial workflow exists.
 
-### Private collection photos — 9 October 2026 (implementation; release pending)
+### Private collection photos — 9 October 2026 (deployed)
 
 The existing POS collection queue accepts optional JPEG/PNG evidence (five per
 collection, 2 MB each), with device camera capture where the browser supports it.
@@ -32,8 +32,23 @@ The live planner audit passed 440/440 query shapes; all 224 indexes are READY an
 the guarded source baseline is refreshed. No index or IAM changes are required.
 All 26 Firestore/Storage security tests passed, including denial of direct photo
 metadata/object access to administrators, managers and cashiers (47 combined
-sales/security tests, none skipped). Release remains pending explicit deployment
-completion and live verification.
+sales/security tests, none skipped).
+
+Release verified at 08:40 UTC: implementation `0204875` is pushed; Firebase
+explicitly completed both endpoint updates and the App Hosting rollout. Both
+Functions are ACTIVE, `APP_ENV=production`, App Check enabled, with their existing
+invoker-IAM-disabled settings unchanged. Ready revisions are
+`confirmpossaleorder-00016-fey` and `getsaledocument-00011-qec`. The existing
+runtime project role already contains the necessary Storage object permissions;
+no IAM grant or Storage-rules relaxation was made.
+
+App Hosting `build-2026-10-09-003` is READY at 100% traffic, not reconciling.
+POS and guide return HTTP 200; all 12 served POS script bundles load, and the
+combined scripts contain photo upload, product selection and secure-view actions.
+Both endpoints reject unauthenticated photo requests with Firebase JSON HTTP 401
+UNAUTHENTICATED. This proves reachability/rejection, not a signed-in live upload
+or collection. Authorized posting and photo-integrity behavior were exercised in
+the emulator; no real financial or stock records were posted for verification.
 
 ### Collection follow-up — 9 October 2026 (deployed)
 
