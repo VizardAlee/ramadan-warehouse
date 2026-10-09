@@ -47,8 +47,18 @@ permission. No client may supply callbacks or ledger-calculated values.
 - The calling workflow must enforce organization/location permissions, original
   document eligibility, period locks, balanced journals, tax snapshots and its own
   business limits. This extension does not provide those controls automatically.
-- One invocation still posts one product/lot. Looping invocations is not an atomic
-  multi-line return or journal. There is no supplier goods-return UI yet.
+- One ordinary invocation still posts one product/lot. Looping independently committed invocations is not an atomic
+  multi-line return or journal. Supplier returns reuse this integration.
+- `postInventoryTransactionGroup` extends the same engine for 1–10 distinct
+  products / lots and at most 50 serials. It stages writes until every line and
+  linked financial preparation succeeds, then flushes one Firestore transaction.
+  Distinct products prevent stale balance projections; inventory sequences have
+  per-line offsets within the shared locked counter. A document-level operation
+  fingerprints both stock and complete commercial instructions. Partial replay
+  of lines originally posted independently is rejected, never adopted silently.
+  Its group extension must aggregate shared payable/customer/journal projections
+  and reset attempt-local state on every retry. It is a trusted internal API, not
+  a callable permission bypass. No historical stock entries are rewritten.
 
 ## Known limits
 

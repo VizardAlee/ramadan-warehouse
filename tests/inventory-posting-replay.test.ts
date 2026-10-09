@@ -8,7 +8,7 @@ vi.mock("../functions/src/admin.js", () => ({
     runTransaction: mocks.runTransaction,
   },
 }));
-import { postInventoryTransaction } from "../functions/src/inventory/post-inventory-transaction";
+import { postInventoryTransaction, postInventoryTransactionGroup, type PostingRequest } from "../functions/src/inventory/post-inventory-transaction";
 
 const actor = { organizationId: "replay-org", userId: "replay-user" } as AccessProfile;
 const input = {
@@ -28,6 +28,21 @@ beforeEach(() => {
 });
 
 describe("inventory posting replay references", () => {
+  it.each(["duplicate products", "duplicate line keys", "duplicate serials", "too many lines", "too many serials", "invalid document reference", "missing commercial fingerprint"])("rejects unsafe grouped documents before a transaction: %s", async kind => {
+    const second = { ...input, productId: "second-product", idempotencyKey: "second-line" };
+    let inputs: PostingRequest[] = [input, second];
+    let document = { idempotencyKey: "document-key", requestFingerprint: "a".repeat(64) };
+    if (kind === "duplicate products") inputs = [input, { ...second, productId: input.productId }];
+    if (kind === "duplicate line keys") inputs = [input, { ...second, idempotencyKey: input.idempotencyKey }];
+    if (kind === "duplicate serials") inputs = [{ ...input, serialNumbers: ["SERIAL-1"] }, { ...second, serialNumbers: [" serial-1 "] }];
+    if (kind === "too many lines") inputs = Array.from({ length: 11 }, (_, index) => ({ ...input, productId: `product-${index}`, idempotencyKey: `line-${index}` }));
+    if (kind === "too many serials") inputs = [{ ...input, serialNumbers: Array.from({ length: 51 }, (_, index) => `serial-${index}`) }];
+    if (kind === "invalid document reference") document = { ...document, idempotencyKey: "bad/reference" };
+    if (kind === "missing commercial fingerprint") document = { ...document, requestFingerprint: "" };
+    await expect(postInventoryTransactionGroup(actor, document, inputs, { prepare: vi.fn(), apply: vi.fn() })).rejects.toMatchObject({ code: "invalid-argument" });
+    expect(mocks.runTransaction).not.toHaveBeenCalled();
+  });
+
   it("returns the original posted reference on an ordinary retry", async () => {
     mocks.get.mockResolvedValue(posted);
     await expect(postInventoryTransaction(actor, input)).resolves.toEqual({

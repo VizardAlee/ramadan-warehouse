@@ -1,7 +1,7 @@
 {
   "lastLiveAudit": {
     "project": "ramadan-warehouse-staging",
-    "verifiedAt": "2026-10-09T16:25:41.534Z",
+    "verifiedAt": "2026-10-09T16:50:07.912Z",
     "queryShapes": 442,
     "unsupportedQueries": 0,
     "readyIndexes": 224,
@@ -33,7 +33,7 @@
     "functions/src/callable/manage-roles.ts": "cafd5c85fe810569b119c64e640e97cb93b450b3cc4d616a4e81b0a124d09a7d",
     "functions/src/callable/manage-users.ts": "4afaad46c8d64ffdc08fc49a419d608ee3a6cb0ff1b3ad20bb497ca166e27d7a",
     "functions/src/callable/operational-readiness.ts": "5710f7b794dc5560f44a60fa86e21dc96c9591066d6996ca0119ba7615e11279",
-    "functions/src/callable/procurement.ts": "e3e83c19bfcaa8b2b1d2aae903af9bc3d51ee306165635987c2caa4ed6295552",
+    "functions/src/callable/procurement.ts": "89b6dc8e956b8900066b84eb4226d58eb131902adaa1217c579b649d4cfcd262",
     "functions/src/callable/reset-organization.ts": "ef008e650d39213d23c35d3d801015dccad8ad7ea78edf9d62b6b5c230d53a5c",
     "functions/src/callable/reverse-inventory.ts": "8c95b039d7985210fbc7e41330cdd9286dc4dd384730eb19f6ad3996979048e9",
     "functions/src/callable/sales-corrections.ts": "6a81ad6d02442729f5a390a4184739fd4f3f3a450b8951e51c543a09bcdd95ff",
@@ -43,7 +43,7 @@
     "functions/src/callable/stock-transfers.ts": "53ca1615e1a291f797688d0a2cf2fec6c3543e3d07da4c75c483d9dc5f026953",
     "functions/src/callable/transfers.ts": "40f6059886b760b10f6dcec2f08ad3b53070db51b384454d8eb96fe58de59497",
     "functions/src/inventory/held-supplier-credit.ts": "76a07b0fd445ca88aa847c50439ec2dce45c1684bf36691215c45f5db5dff43f",
-    "functions/src/inventory/post-inventory-transaction.ts": "0b9bb5147cdbf5760b4944d6978fe3c88d9d544bc1e68191442ef1aa0e972142",
+    "functions/src/inventory/post-inventory-transaction.ts": "f3afd9df2aa2b9c625aeb6a6f2fbb91397b763665480b93d44d829ce60168ca0",
     "functions/src/jobs/delivery-jobs.ts": "5d7386985e3543c933950a8c722d40b6c37e0817c27a059fdf107a8408271484",
     "functions/src/notifications/collection-reminders.ts": "6f8f3b36d50a2eb7e645c509d57a2f74f2bc8c74207ba1c78e5beb58a527496f",
     "functions/src/notifications/debt-reminders.ts": "c69fa232df0f3d3ad39cb47685ad0bd169c513f59bfc23e27ce160081efff70f",

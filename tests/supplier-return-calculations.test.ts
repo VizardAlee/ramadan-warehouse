@@ -1,8 +1,21 @@
 import { describe, expect, it } from "vitest";
 import { supplierReturnAmounts } from "../functions/src/inventory/supplier-return-calculations";
-import { postSupplierReturnInput } from "../functions/src/validation/procurement";
+import { postSupplierReturnInput, postSupplierCreditDocumentInput } from "../functions/src/validation/procurement";
 const base = { quantity: 3, netMinor: 300, vatMinor: 23, returnedQuantity: 0, returnedNetMinor: 0, returnedVatMinor: 0, returnQuantity: 1, outstandingMinor: 50, movementValueMinor: 95 };
 describe("supplier-return invoice snapshots", () => {
+  it("bounds multi-product documents and rejects duplicate products, receipts and retry references", () => {
+    const line = { supplierInvoiceItemId: "line", receiptId: "receipt", quantity: 1, idempotencyKey: crypto.randomUUID() };
+    const input = { supplierInvoiceId: "invoice", returnedAt: new Date().toISOString(), creditNoteReference: "CN-MULTI", reason: "Supplier approved both", idempotencyKey: crypto.randomUUID(), lines: [line] };
+    expect(postSupplierCreditDocumentInput.parse(input).lines[0]!.serialNumbers).toEqual([]);
+    for (const field of ["supplierInvoiceItemId", "receiptId", "idempotencyKey"] as const) {
+      const other = { supplierInvoiceItemId: "second", receiptId: "second-receipt", quantity: 1, idempotencyKey: crypto.randomUUID(), [field]: line[field] };
+      expect(postSupplierCreditDocumentInput.safeParse({ ...input, lines: [line, other] }).success).toBe(false);
+    }
+    expect(postSupplierCreditDocumentInput.safeParse({ ...input, lines: [] }).success).toBe(false);
+    expect(postSupplierCreditDocumentInput.safeParse({ ...input, lines: Array.from({ length: 11 }, (_, index) => ({ ...line, supplierInvoiceItemId: `line-${index}`, receiptId: `receipt-${index}`, idempotencyKey: crypto.randomUUID() })) }).success).toBe(false);
+    expect(postSupplierCreditDocumentInput.safeParse({ ...input, lines: [{ ...line, quantity: 0 }] }).success).toBe(false);
+  });
+
   it("reduces debt first, creates surplus credit and preserves valuation variance", () => {
     expect(supplierReturnAmounts(base)).toMatchObject({ netMinor: 100, vatMinor: 8, grossMinor: 108, payableReductionMinor: 50, supplierCreditMinor: 58, valuationVarianceMinor: 5 });
   });

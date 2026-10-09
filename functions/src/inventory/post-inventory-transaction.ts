@@ -5,6 +5,7 @@ import {
   type Transaction,
 } from "firebase-admin/firestore";
 import { HttpsError } from "firebase-functions/v2/https";
+import { createHash } from "node:crypto";
 import { db } from "../admin.js";
 import {
   hasRole,
@@ -112,6 +113,83 @@ export interface InventoryPostingContext {
 export interface InventoryPostingExtension<State> {
   prepare(reader: Pick<Transaction, "get" | "getAll">, context: InventoryPostingContext): Promise<State>;
   apply(writer: Pick<Transaction, "create" | "set" | "update">, state: State, context: InventoryPostingContext): undefined;
+}
+
+export interface InventoryGroupExtension<State> {
+  prepare(reader: Pick<Transaction, "get" | "getAll">, movements: readonly InventoryPostingContext[]): Promise<State>;
+  apply(writer: Pick<Transaction, "create" | "set" | "update">, state: State, movements: readonly InventoryPostingContext[]): undefined;
+}
+
+/** Stable semantic fingerprint; optional undefined fields are equivalent to absent fields. */
+function postingFingerprint(value: unknown): string {
+  const canonical = (item: unknown): unknown => Array.isArray(item) ? item.map(canonical)
+    : item !== null && typeof item === "object" ? Object.fromEntries(Object.entries(item)
+      .filter(([, field]) => field !== undefined).sort(([a], [b]) => a.localeCompare(b))
+      .map(([key, field]) => [key, canonical(field)])) : item;
+  return createHash("sha256").update(JSON.stringify(canonical(value))).digest("hex");
+}
+
+/**
+ * Trusted server-only multi-product posting, sharing the existing stock engine.
+ * All stock validation and linked financial reads finish before any writes reach
+ * Firestore. Distinct products avoid stale read/modify/write balance projections.
+ * Business callables must authorize scope on every request, including retries.
+ */
+export async function postInventoryTransactionGroup<State>(
+  actor: AccessProfile,
+  document: { idempotencyKey: string; requestFingerprint: string },
+  inputs: readonly PostingRequest[],
+  extension: InventoryGroupExtension<State>,
+) {
+  const groupKey = document.idempotencyKey;
+  const serials = inputs.flatMap(input => input.serialNumbers.map(normalizeInventoryIdentifier));
+  if (!groupKey || groupKey.includes("/") || groupKey.length > 128 || inputs.length < 1 || inputs.length > 10
+    || !/^[a-f0-9]{64}$/.test(document.requestFingerprint)
+    || new Set(inputs.map(input => input.productId)).size !== inputs.length
+    || new Set(inputs.map(input => input.idempotencyKey)).size !== inputs.length
+    || serials.length > 50 || new Set(serials).size !== serials.length)
+    throw new HttpsError("invalid-argument", "Use 1–10 distinct products, distinct retry references and at most 50 serials per document.");
+  const operation = db.doc(`idempotencyKeys/${actor.organizationId}_inventoryPostGroup_${groupKey}`);
+  // Includes the caller's complete commercial payload, not just stock fields.
+  const fingerprint = postingFingerprint({ inputs, requestFingerprint: document.requestFingerprint });
+  return db.runTransaction(async transaction => {
+    const previous = await transaction.get(operation);
+    if (previous.exists) {
+      if (previous.get("fingerprint") !== fingerprint)
+        throw new HttpsError("already-exists", "This document retry reference belongs to different stock instructions.");
+      const movements = previous.get("movements") as Array<{ transactionId: string; transactionNumber: string }>;
+      return { posted: false, movements };
+    }
+    const writes: Array<() => unknown> = [];
+    const deferred = new Proxy(transaction, {
+      get(target, key) {
+        if (["create", "set", "update", "delete"].includes(String(key)))
+          return (...args: unknown[]) => {
+            writes.push(() => Reflect.apply(Reflect.get(target, key), target, args));
+            return deferred;
+          };
+        const member = Reflect.get(target, key);
+        return typeof member === "function" ? member.bind(target) : member;
+      },
+    });
+    const contexts: InventoryPostingContext[] = [];
+    const movements: Array<{ transactionId: string; transactionNumber: string }> = [];
+    for (const [index, input] of inputs.entries()) {
+      const result = await executeInventoryPosting(actor, input, {
+        async prepare(_reader, context) { contexts.push(context); return undefined; },
+        apply() { return undefined; },
+      }, { transaction: deferred, sequenceOffset: index });
+      if (!result.posted)
+        throw new HttpsError("failed-precondition", "A document line was previously posted separately. Reconcile its original reference before continuing.");
+      movements.push({ transactionId: result.transactionId, transactionNumber: result.transactionNumber });
+    }
+    const state = await extension.prepare({ get: transaction.get.bind(transaction), getAll: transaction.getAll.bind(transaction) }, contexts);
+    extension.apply({ create: deferred.create.bind(deferred), set: deferred.set.bind(deferred), update: deferred.update.bind(deferred) }, state, contexts);
+    deferred.create(operation, { organizationId: actor.organizationId, action: "inventoryPostGroup", fingerprint,
+      movements, status: "completed", createdAt: FieldValue.serverTimestamp(), createdBy: actor.userId });
+    for (const write of writes) write();
+    return { posted: true, movements };
+  });
 }
 
 function clean(values: Record<string, unknown>) {
@@ -260,11 +338,20 @@ export async function postInventoryTransaction<State = undefined>(
   transactionNumber: string;
   posted: boolean;
 }> {
+  return executeInventoryPosting(actor, input, extension);
+}
+
+async function executeInventoryPosting<State = undefined>(
+  actor: AccessProfile,
+  input: PostingRequest,
+  extension?: InventoryPostingExtension<State>,
+  group?: { transaction: Transaction; sequenceOffset: number },
+): Promise<{ transactionId: string; transactionNumber: string; posted: boolean }> {
   const operation = db
     .collection("idempotencyKeys")
     .doc(`${actor.organizationId}_inventoryPost_${input.idempotencyKey}`);
-  const previous = await operation.get();
-  if (previous.exists)
+  const previous = group ? undefined : await operation.get();
+  if (previous?.exists)
     return {
       transactionId: previous.get("transactionId") as string,
       transactionNumber: previous.get("transactionNumber") as string,
@@ -336,7 +423,7 @@ export async function postInventoryTransaction<State = undefined>(
       .doc(uniquenessDocumentId(actor.organizationId, serial)),
   );
   const effectiveAt = Timestamp.fromDate(new Date(input.effectiveAt));
-  return db.runTransaction(async (transaction) => {
+  const execute = async (transaction: Transaction) => {
     const baseReferences = [
       operation,
       productReference,
@@ -501,7 +588,7 @@ export async function postInventoryTransaction<State = undefined>(
         "failed-precondition",
         "Lot identity conflicts with another product or organization.",
       );
-    const nextSequence = Number(counter?.get("value") ?? 0) + 1;
+    const nextSequence = Number(counter?.get("value") ?? 0) + 1 + (group?.sequenceOffset ?? 0);
     const transactionNumber = `INV-${effectiveAt.toDate().getUTCFullYear()}-${String(nextSequence).padStart(6, "0")}`;
     let movementValue = 0;
     let movementUnitCost =
@@ -908,5 +995,6 @@ export async function postInventoryTransaction<State = undefined>(
       transactionNumber,
       posted: true,
     };
-  });
+  };
+  return group ? execute(group.transaction) : db.runTransaction(execute);
 }

@@ -129,6 +129,25 @@ export const postSupplierReturnInput = z.object({
   idempotencyKey: z.string().uuid(),
 });
 
+export const postSupplierCreditDocumentInput = z.object({
+  supplierInvoiceId: id,
+  returnedAt: z.string().datetime(), reason: z.string().trim().min(5).max(500),
+  creditNoteReference: z.string().trim().min(2).max(160),
+  idempotencyKey: z.string().uuid(),
+  lines: z.array(z.object({
+    supplierInvoiceItemId: id, receiptId: id,
+    quantity: z.number().int().positive().max(5_000),
+    serialNumbers: z.array(z.string().trim().min(1).max(160)).max(50).default([]),
+    idempotencyKey: z.string().uuid(),
+  })).min(1).max(10),
+}).superRefine((value, context) => {
+  for (const field of ["supplierInvoiceItemId", "receiptId", "idempotencyKey"] as const)
+    if (new Set(value.lines.map(line => line[field])).size !== value.lines.length)
+      context.addIssue({ code: "custom", path: ["lines"], message: "Use each invoice product, receipt and retry reference only once per document." });
+  if (value.lines.reduce((sum, line) => sum + line.serialNumbers.length, 0) > 50)
+    context.addIssue({ code: "custom", path: ["lines"], message: "Use at most 50 serial numbers per credit document." });
+});
+
 export const recordSupplierPaymentInput = z.object({
   supplierId: id,
   purpose: z.enum(["payment", "advance", "advance_refund"]).default("payment"),

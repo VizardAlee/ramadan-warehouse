@@ -268,6 +268,66 @@ describe.sequential("procurement callables", () => {
     const movementId = (await adminDb.doc(`purchaseReceipts/${receipt.receiptId}`).get()).get("inventoryTransactionId");
     await expect(call(administrator, "reverseInventoryTransaction", { transactionId: movementId, reason: "Cannot reverse credited purchase", idempotencyKey: crypto.randomUUID() })).rejects.toThrow();
   });
+  it("posts a multi-product credit note all-or-nothing, with shared payable/advance projections and concurrent replay", async () => {
+    const supplier = await call<{ supplierId: string }>(administrator, "saveSupplier", { name: "Multi-product credit supplier", phone: "07055556666", idempotencyKey: crypto.randomUUID() });
+    const products = ["multi-credit-a", "multi-credit-b"];
+    for (const id of products) {
+      await adminDb.doc(`products/${id}`).set({ organizationId, name: id, sku: id, unitOfMeasure: "unit", trackingType: "quantity", active: true, hasLedgerActivity: false });
+      await adminDb.doc(`productCosts/${id}`).set({ organizationId, productId: id, defaultUnitCostMinor: 10000, currency: "NGN" });
+    }
+    const order = await call<{ purchaseOrderId: string }>(headOfficeManager, "createPurchaseOrder", { supplierId: supplier.supplierId,
+      branchId: headOfficeId, receivingLocationId: headOfficeLocationId,
+      lines: products.map(productId => ({ productId, quantity: 3, unitCostMinor: 10000, vatRateBasisPoints: 750 })), idempotencyKey: crypto.randomUUID() });
+    await call(headOfficeManager, "submitPurchaseOrder", { ...order, idempotencyKey: crypto.randomUUID() });
+    await call(headOfficeManager, "approvePurchaseOrder", { ...order, idempotencyKey: crypto.randomUUID() });
+    const items = (await adminDb.collection("purchaseOrderItems").where("purchaseOrderId", "==", order.purchaseOrderId).get()).docs;
+    const receipts: Record<string, string> = {};
+    for (const item of items) {
+      const receipt = await call<{ receiptId: string }>(headOfficeManager, "receivePurchaseOrderItem", { ...order, purchaseOrderItemId: item.id,
+        quantity: 3, receivedAt: new Date().toISOString(), serialNumbers: [], idempotencyKey: crypto.randomUUID() });
+      receipts[item.id] = receipt.receiptId;
+    }
+    const invoice = await call<{ supplierInvoiceId: string }>(headOfficeManager, "submitSupplierInvoice", { ...order, supplierInvoiceNumber: "MULTI-CREDIT-INV",
+      invoiceDate: new Date().toISOString().slice(0, 10), lines: items.map(item => ({ purchaseOrderItemId: item.id, quantity: 2 })), idempotencyKey: crypto.randomUUID() });
+    await call(headOfficeManager, "approveSupplierInvoice", { ...invoice, idempotencyKey: crypto.randomUUID() });
+    await call(headOfficeManager, "recordSupplierPayment", { supplierId: supplier.supplierId, branchId: headOfficeId, method: "cash",
+      allocations: [{ ...invoice, amountMinor: 40000 }], paidAt: new Date().toISOString(), idempotencyKey: crypto.randomUUID() });
+    const lines = (await adminDb.collection("supplierInvoiceItems").where("supplierInvoiceId", "==", invoice.supplierInvoiceId).get()).docs;
+    const payload = { ...invoice, returnedAt: new Date().toISOString(), reason: "Two products accepted for supplier credit", creditNoteReference: "MULTI-CN-1", idempotencyKey: crypto.randomUUID(),
+      lines: lines.map(line => ({ supplierInvoiceItemId: line.id, receiptId: receipts[line.get("purchaseOrderItemId")]!, quantity: 1, serialNumbers: [], idempotencyKey: crypto.randomUUID() })) };
+    const stockRefs = products.map(id => adminDb.doc(`inventoryBalances/${balanceDocumentId(organizationId, id, headOfficeLocationId)}`));
+    const originals = (await adminDb.getAll(...stockRefs)).map(snapshot => snapshot.data());
+    const invoiceRef = adminDb.doc(`supplierInvoices/${invoice.supplierInvoiceId}`), supplierRef = adminDb.doc(`suppliers/${supplier.supplierId}`);
+    const invoiceBefore = (await invoiceRef.get()).data(), supplierBefore = (await supplierRef.get()).data();
+    // The last line has sufficient physical stock but exceeds its invoiced quantity.
+    await expect(call(headOfficeManager, "postSupplierReturn", { ...payload, lines: [payload.lines[0], { ...payload.lines[1], quantity: 3 }] })).rejects.toMatchObject({ code: "functions/failed-precondition" });
+    expect((await adminDb.getAll(...stockRefs)).map(snapshot => snapshot.data())).toEqual(originals);
+    expect((await invoiceRef.get()).data()).toEqual(invoiceBefore);
+    expect((await supplierRef.get()).data()).toEqual(supplierBefore);
+    expect((await adminDb.collection("supplierReturns").where("supplierInvoiceId", "==", invoice.supplierInvoiceId).get()).empty).toBe(true);
+    await expect(call(warehouseManager, "postSupplierReturn", payload)).rejects.toMatchObject({ code: "functions/permission-denied" });
+    await expect(call(headOfficeManager, "postSupplierReturn", { ...payload, heldHandoverId: "already-issued-goods" })).rejects.toMatchObject({ code: "functions/invalid-argument" });
+    type Result = { documentId: string; posted: boolean; returns: Array<{ returnId: string; journalEntryId: string; inventoryTransactionId: string }> };
+    const results = await Promise.all([call<Result>(headOfficeManager, "postSupplierReturn", payload), call<Result>(headOfficeManager, "postSupplierReturn", payload)]);
+    expect(results.filter(result => result.posted)).toHaveLength(1);
+    expect(results[0]!.returns.map(result => result.returnId)).toEqual(results[1]!.returns.map(result => result.returnId));
+    expect(results[0]!.documentId).toBe(payload.idempotencyKey);
+    expect((await invoiceRef.get()).data()).toMatchObject({ outstandingAmountMinor: 0, creditedAmountMinor: 3000, status: "paid" });
+    expect((await supplierRef.get()).data()).toMatchObject({ outstandingBalanceMinor: 0, advanceBalanceMinor: 18500, advanceBalancesByLocation: { [`branch:${headOfficeId}`]: 18500 } });
+    expect((await adminDb.getAll(...stockRefs)).map(snapshot => snapshot.get("onHandQuantity"))).toEqual([2, 2]);
+    const returns = await adminDb.getAll(...results[0]!.returns.map(result => adminDb.doc(`supplierReturns/${result.returnId}`)));
+    expect(returns.every(record => record.get("creditDocumentId") === payload.idempotencyKey)).toBe(true);
+    expect(new Set(returns.map(record => record.get("returnNumber"))).size).toBe(2);
+    expect(returns.reduce((sum, record) => sum + record.get("grossAmountMinor"), 0)).toBe(21500);
+    const journals = await adminDb.getAll(...results[0]!.returns.map(result => adminDb.doc(`journalEntries/${result.journalEntryId}`)));
+    expect(journals.every(journal => journal.get("totalDebitMinor") === journal.get("totalCreditMinor"))).toBe(true);
+    expect(new Set(journals.map(journal => journal.get("journalNumber"))).size).toBe(2);
+    expect((await call<Result>(headOfficeManager, "postSupplierReturn", payload)).posted).toBe(false);
+    await expect(call(headOfficeManager, "postSupplierReturn", { ...payload, reason: "Changed commercial instructions" })).rejects.toMatchObject({ code: "functions/already-exists" });
+    await expect(call(headOfficeManager, "postSupplierReturn", { ...payload, idempotencyKey: crypto.randomUUID(), lines: payload.lines.map(line => ({ ...line, idempotencyKey: crypto.randomUUID() })) })).rejects.toMatchObject({ code: "functions/already-exists" });
+    expect((await adminDb.getAll(...stockRefs)).map(snapshot => snapshot.get("onHandQuantity"))).toEqual([2, 2]);
+  });
+
   it("atomically returns goods, credits unpaid invoices, creates surplus credit and prevents duplicate or stock-only reversals", async () => {
     const supplier = await call<{ supplierId: string }>(administrator, "saveSupplier", { name: "Goods-return supplier", phone: "07077778888", idempotencyKey: crypto.randomUUID() });
     const returnProduct = "supplier-return-product";

@@ -1,5 +1,29 @@
 # Business workflow expansion (24 September 2026 baseline)
 
+## Multi-product supplier credit notes — 9 October 2026 (implementation)
+
+Extends the existing supplier-return callable, original-GRN validation, inventory
+posting engine and credit/advance accounting. Users may collect up to 10 distinct
+invoice products (one original receipt / batch each, 50 serials total) under one
+supplier credit-note reference. All lines, journals, payable reductions, surplus
+credits, original receipt/invoice projections and audit commit atomically. Shared
+payable/advance and journal counters are calculated cumulatively, reset on every
+transaction retry. Full commercial and stock fingerprints protect exact retries;
+partly pre-posted independent lines are rejected. Existing single-product and
+held-handover credit remain supported; held goods cannot be issued a second time
+through this document. Existing history/photo references remain per line, with an
+additive creditDocumentId. No collection migration, extra permission or IAM change.
+Validation passed 347 unit/interface tests, inventory/sales/accounting/security
+coverage and all 10 procurement emulator cases (437 distinct tests across the
+validated suites), typecheck, lint, Functions compilation, production build,
+secret scan and diff checks. The broader run passed 89/90; the new unique return-
+reference assertion exposed the older compiled function. Rebuilding and rerunning
+all 10 procurement cases passed. New return numbers use the retry UUID rather
+than the common organization prefix; historical references remain unchanged.
+Live planner audit passed 442/442 with all 224 indexes READY; no new indexes.
+Release underway. Next: linked supplier credit corrections/reversals,
+with current settlement and original stock evidence checked, not history edits.
+
 ## Customer arrangement credit/advance statements — 9 October 2026 (deployed)
 
 Extends the existing customer-history callable and full-history page. A separate

@@ -5,11 +5,43 @@ import { SupplierReturns } from "@/features/procurement/supplier-returns";
 const api = vi.hoisted(() => ({ call: vi.fn() }));
 vi.mock("@/features/administration/api", () => ({ callAdministration: api.call }));
 afterEach(() => { cleanup(); vi.resetAllMocks(); });
-const history = { invoiceNumber: "SUP-INV-001", lines: [{ id: "line-1", productName: "Solar panel", quantity: 3, returnedQuantity: 0 }], returns: [], nextCursor: null };
+const history = { invoiceNumber: "SUP-INV-001", lines: [{ id: "line-1", productId: "panel", productName: "Solar panel", quantity: 3, returnedQuantity: 0 }], returns: [], nextCursor: null };
 function reads(_name: string, input: { view: string }) {
   return Promise.resolve(input.view === "supplier_return_receipts" ? { receipts: [{ id: "receipt-1", receiptNumber: "GRN-001", quantity: 3, returnedQuantity: 0, receivedAt: "2026-10-08T09:00:00Z" }], nextCursor: null } : history);
 }
 describe("supplier return dialog", () => {
+  it("collects products into one atomic credit document and retries the complete unchanged payload", async () => {
+    let attempts = 0;
+    api.call.mockImplementation((name: string, input: { view: string; supplierInvoiceItemId?: string }) => {
+      if (name === "postSupplierReturn") return ++attempts === 1 ? Promise.reject(new Error("Connection lost")) : Promise.resolve({ creditNoteReference: "MULTI-CN", returns: [{}, {}] });
+      if (input.view === "supplier_returns") return Promise.resolve({ ...history, lines: [...history.lines, { id: "line-2", productId: "battery", productName: "Battery", quantity: 3, returnedQuantity: 0 }] });
+      return Promise.resolve({ receipts: [{ id: input.supplierInvoiceItemId === "line-1" ? "receipt-1" : "receipt-2", receiptNumber: input.supplierInvoiceItemId === "line-1" ? "GRN-001" : "GRN-002", quantity: 3, returnedQuantity: 0 }], nextCursor: null });
+    });
+    const complete = vi.fn();
+    render(<SupplierReturns invoiceId="invoice-1" canPost onClose={vi.fn()} onComplete={complete} />);
+    await screen.findByRole("option", { name: /Solar panel/ });
+    for (const [line, receipt, grn] of [["line-1", "receipt-1", "GRN-001"], ["line-2", "receipt-2", "GRN-002"]]) {
+      fireEvent.change(screen.getByLabelText("Invoice product"), { target: { value: line } });
+      await screen.findByRole("option", { name: new RegExp(grn!) });
+      fireEvent.change(screen.getByLabelText("Original goods-received note"), { target: { value: receipt } });
+      fireEvent.click(screen.getByRole("button", { name: "Add product to credit note" }));
+    }
+    expect(screen.getByRole("region", { name: "Credit note products" })).toBeTruthy();
+    fireEvent.change(screen.getByLabelText("Supplier credit-note reference"), { target: { value: "MULTI-CN" } });
+    fireEvent.change(screen.getByLabelText("Reason for return"), { target: { value: "Supplier accepted both products" } });
+    fireEvent.click(screen.getByRole("checkbox"));
+    fireEvent.click(screen.getByRole("button", { name: "Post return & credit note" }));
+    await screen.findByRole("button", { name: "Retry same return" });
+    expect((screen.getByRole("button", { name: "Remove Battery" }).closest("fieldset") as HTMLFieldSetElement).disabled).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "Retry same return" }));
+    await screen.findByText(/recorded for 2 products/);
+    const posts = api.call.mock.calls.filter(([name]) => name === "postSupplierReturn");
+    expect(posts).toHaveLength(2); expect(posts[0]![1]).toEqual(posts[1]![1]);
+    expect(posts[0]![1].lines).toHaveLength(2);
+    expect(posts[0]![1].lines.map((line: { receiptId: string }) => line.receiptId)).toEqual(["receipt-1", "receipt-2"]);
+    expect(complete).toHaveBeenCalledOnce();
+  });
+
   it("links held credit to the existing handover, restricts product/quantity and preserves its exact serial", async () => {
     api.call.mockImplementation((name: string, input: { view: string }) => name === "postSupplierReturn" ? Promise.resolve({ returnNumber: "SRT-HELD" }) : input.view === "supplier_returns" ? Promise.resolve({ ...history, lines: [{ ...history.lines[0], productId: "panel" }, { id: "other", productId: "other", productName: "Other product", quantity: 3, returnedQuantity: 0 }] }) : reads(name, input));
     render(<SupplierReturns invoiceId="invoice-1" canPost heldHandover={{ id: "handover-1", remaining: 1, productId: "panel", serialNumber: "SERIAL-1" }} onClose={vi.fn()} onComplete={vi.fn()} />);

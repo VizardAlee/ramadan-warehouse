@@ -831,6 +831,85 @@ describe.sequential("inventory callables", () => {
     expect(broken.discrepancyCount).toBeGreaterThan(0);
   });
 
+  it("posts multi-product documents atomically, with rollback, exact replay and unique sequences", async () => {
+    if (!getAdminApps().some((app) => app.name === "[DEFAULT]")) initializeAdminApp({ projectId });
+    const { postInventoryTransactionGroup } = await import("../functions/src/inventory/post-inventory-transaction");
+    const { db: postingDb } = await import("../functions/src/admin");
+    const actor: AccessProfile = { userId: administrator.auth.currentUser!.uid, organizationId,
+      roleId: "system_administrator", branchIds: [], warehouseIds: [], authorizationVersion: 1 };
+    const ids: string[] = [];
+    for (const index of [1, 2]) {
+      const created = await call<{ productId: string }>(administrator, "saveProduct", product({ sku: `GROUP-${index}`, name: `Grouped stock ${index}` }));
+      ids.push(created.productId);
+      await call(administrator, "postOpeningStock", { productId: created.productId, destinationLocationId: "location-b",
+        quantity: 8, unitCostMinor: 100, externalAccount: "migration", serialNumbers: [], effectiveAt: new Date().toISOString(),
+        reason: "Grouped opening fixture", idempotencyKey: crypto.randomUUID() });
+    }
+    const inputs: PostingRequest[] = ids.map(id => ({ transactionType: "supplier_return", productId: id, quantity: 2,
+      sourceLocationId: "location-b", externalAccount: "supplier:group-fixture", serialNumbers: [], effectiveAt: new Date().toISOString(),
+      reason: "Grouped supplier credit regression", idempotencyKey: crypto.randomUUID(), correlationId: "group-regression", sourceFunction: "group-test" }));
+    const balances = ids.map(id => postingDb.doc(`inventoryBalances/${balanceDocumentId(organizationId, id, "location-b")}`));
+    const originals = await postingDb.getAll(...balances);
+    const counter = postingDb.doc(`inventoryCounters/${organizationId}_transactions`);
+    const originalCounter = (await counter.get()).data();
+    const financial = postingDb.doc("supplierReturnTestControls/group-integration");
+    await financial.set({ remainingMinor: 1600 });
+    let prepared = 0;
+    const extension = (failure?: "prepare" | "apply") => ({
+      async prepare(reader: Pick<FirebaseFirestore.Transaction, "get" | "getAll">, movements: readonly { movementValueMinor: number }[]) {
+        prepared++;
+        expect("create" in reader).toBe(false);
+        const current = await reader.get(financial);
+        if (failure === "prepare") throw new Error("Grouped financial validation failed");
+        return { remainingMinor: Number(current.get("remainingMinor")) - movements.reduce((sum, movement) => sum + movement.movementValueMinor, 0) };
+      },
+      apply(writer: Pick<FirebaseFirestore.Transaction, "create" | "set" | "update">, state: { remainingMinor: number }, movements: readonly { transactionId: string; movementValueMinor: number }[]) {
+        expect("get" in writer).toBe(false);
+        writer.update(financial, state);
+        writer.create(postingDb.doc(`supplierGroupTestJournals/${movements[0]!.transactionId}`), {
+          movements: movements.map(movement => movement.transactionId), totalDebitMinor: 400, totalCreditMinor: 400 });
+        if (failure === "apply") throw new Error("Grouped financial posting failed");
+        return undefined;
+      },
+    });
+    const document = () => ({ idempotencyKey: crypto.randomUUID(), requestFingerprint: "a".repeat(64) });
+    for (const failure of ["prepare", "apply"] as const) {
+      const request = document();
+      await expect(postInventoryTransactionGroup(actor, request, inputs, extension(failure))).rejects.toThrow("Grouped financial");
+      expect((await postingDb.getAll(...balances)).map(snapshot => snapshot.data())).toEqual(originals.map(snapshot => snapshot.data()));
+      expect((await counter.get()).data()).toEqual(originalCounter);
+      expect((await financial.get()).get("remainingMinor")).toBe(1600);
+      expect((await postingDb.doc(`idempotencyKeys/${organizationId}_inventoryPostGroup_${request.idempotencyKey}`).get()).exists).toBe(false);
+    }
+    const beforeStockFailure = prepared;
+    await expect(postInventoryTransactionGroup(actor, document(), [inputs[0]!, { ...inputs[1]!, quantity: 99 }], extension())).rejects.toMatchObject({ code: "failed-precondition" });
+    expect(prepared).toBe(beforeStockFailure);
+    expect((await postingDb.getAll(...balances)).map(snapshot => snapshot.data())).toEqual(originals.map(snapshot => snapshot.data()));
+    const request = document();
+    const results = await Promise.all([postInventoryTransactionGroup(actor, request, inputs, extension()), postInventoryTransactionGroup(actor, request, inputs, extension())]);
+    expect(results.filter(result => result.posted)).toHaveLength(1);
+    expect(results[0]!.movements).toEqual(results[1]!.movements);
+    expect(new Set(results[0]!.movements.map(movement => movement.transactionNumber)).size).toBe(2);
+    expect((await counter.get()).get("value")).toBe(Number(originalCounter!.value) + 2);
+    expect((await postingDb.getAll(...balances)).map(snapshot => snapshot.get("onHandQuantity"))).toEqual([6, 6]);
+    expect((await financial.get()).get("remainingMinor")).toBe(1200);
+    const beforeReplay = prepared;
+    expect((await postInventoryTransactionGroup(actor, request, inputs, extension())).posted).toBe(false);
+    expect(prepared).toBe(beforeReplay);
+    await expect(postInventoryTransactionGroup(actor, request, [inputs[0]!, { ...inputs[1]!, quantity: 1 }], extension())).rejects.toMatchObject({ code: "already-exists" });
+    await expect(postInventoryTransactionGroup(actor, { ...request, requestFingerprint: "b".repeat(64) }, inputs, extension())).rejects.toMatchObject({ code: "already-exists" });
+    const mixed = [{ ...inputs[0]!, idempotencyKey: crypto.randomUUID() }, inputs[1]!];
+    await expect(postInventoryTransactionGroup(actor, document(), mixed, extension())).rejects.toMatchObject({ code: "failed-precondition" });
+    expect((await postingDb.getAll(...balances)).map(snapshot => snapshot.get("onHandQuantity"))).toEqual([6, 6]);
+    const journal = await postingDb.doc(`supplierGroupTestJournals/${results[0]!.movements[0]!.transactionId}`).get();
+    expect(journal.get("totalDebitMinor")).toBe(journal.get("totalCreditMinor"));
+    for (const movement of results[0]!.movements) {
+      const entries = await postingDb.collection("inventoryEntries").where("transactionId", "==", movement.transactionId).get();
+      expect(entries.size).toBe(2);
+      expect(entries.docs.reduce((sum, entry) => sum + Number(entry.get("quantityDelta")), 0)).toBe(0);
+    }
+  });
+
   it("commits linked stock and financial writes atomically, including failure and concurrent retries", async () => {
     if (!getAdminApps().some((app) => app.name === "[DEFAULT]")) initializeAdminApp({ projectId });
     const { postInventoryTransaction } = await import("../functions/src/inventory/post-inventory-transaction");
