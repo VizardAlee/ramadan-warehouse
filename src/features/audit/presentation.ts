@@ -15,6 +15,7 @@ function sentence(value: string) {
 }
 
 const specialActions: Readonly<Record<string, string>> = {
+  "banking.funds_transferred": "Recorded a completed transfer between company accounts",
   "organization.bootstrap": "Set up the organization",
   "custom_claim.updated": "Updated a user's access",
   "branch_request.changes_requested": "Requested changes to a branch request",

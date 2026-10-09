@@ -1,5 +1,31 @@
 # Business workflow expansion (24 September 2026 baseline)
 
+## Internal company-account transfers — 9 October 2026 (implementation)
+
+Extends Banking and extracts the existing procurement journal writer rather than
+creating another ledger. Authorized finance users record an already-completed
+transfer with two active company accounts, store, date, bank reference and reason.
+An explicit banking.transfer permission is available to administrators and finance
+roles; restricted custom-role bases do not inherit it. Both opposite money-ledger
+lines, journal, exact retry fingerprint and audit post in one transaction. Account
+opening-balance settings are not edited; transfers are not income or expenses and
+do not initiate bank payments. Closed/prepared months, shared ledger codes,
+foreign/inactive accounts, future dates and unsafe money values are rejected.
+Uncertain requests lock their complete payload and survive reload in the same tab.
+Existing bank reconciliation and supplier accounting retain the shared ledger.
+No new collection, client-write rule, tax rate or historical migration. Guide
+updated. Validation passed 354 unit/interface tests, 12 procurement emulator
+cases and 35 banking/accounting/security cases (47 distinct emulator/security
+passes; one Storage-emulator-only case skipped), typecheck, lint, Functions compilation, production
+build, secret scan and diff checks. New assertions verify zero net cash movement
+and no income/expense from an internal transfer. The first full unit run hit the
+expected stale query-source baseline guard; after the live audit passed 443/443
+with all 224 indexes READY, its guarded baseline was refreshed and the full suite
+passed. An initial UI lint check required asynchronous session-storage hydration;
+that was fixed and relevant tests, lint, typecheck and build rerun. Deployment
+pending; no release claim yet.
+Next: authorized manual/reversal journals, then reviewed statutory tax rules.
+
 ## Linked supplier-return corrections — 9 October 2026 (deployed)
 
 Extends postSupplierReturn and extracts the existing stock-reversal engine for

@@ -40,6 +40,54 @@ beforeAll(async () => {
 afterAll(async () => Promise.all(apps.map((app) => deleteApp(app))));
 
 describe.sequential("bank reconciliation callables", () => {
+  it("atomically posts both transfer sides, preserves account configuration and safely replays concurrent requests", async () => {
+    for (const [id, ledgerAccountCode] of [["transfer-from", "1032"], ["transfer-to", "1033"]])
+      await adminDb.doc(`bankAccounts/${id}`).set({ organizationId, active: true, bankName: "Test Bank", accountName: id, ledgerAccountCode, openingBalanceMinor: 500000 });
+    await adminDb.doc("branches/transfer-store").set({ organizationId, status: "active", name: "Head Office" });
+    const input = { sourceBankAccountId: "transfer-from", destinationBankAccountId: "transfer-to", branchId: "transfer-store",
+      amountMinor: 200000, transferredAt: "2026-10-09T09:00:00Z", reference: "BANK-TRANSFER-1", reason: "Move completed reserve transfer", confirmedCompleted: true, idempotencyKey: crypto.randomUUID() };
+    const [first, replay] = await Promise.all([call<{ journalEntryId: string; journalNumber: string }>(financeOfficer, "recordCompanyFundsTransfer", input), call(financeOfficer, "recordCompanyFundsTransfer", input)]);
+    expect(replay).toEqual(first);
+    const journal = await adminDb.doc(`journalEntries/${first.journalEntryId}`).get();
+    expect(journal.data()).toMatchObject({ journalType: "internal_funds_transfer", totalDebitMinor: 200000, totalCreditMinor: 200000, branchId: "transfer-store", details: { sourceBankAccountId: "transfer-from", destinationBankAccountId: "transfer-to" } });
+    const lines = await adminDb.collection("journalLines").where("journalEntryId", "==", first.journalEntryId).get();
+    expect(lines.size).toBe(2);
+    expect(lines.docs.map(line => [line.get("accountCode"), line.get("debitMinor"), line.get("creditMinor")]).sort()).toEqual([["1032", 0, 200000], ["1033", 200000, 0]]);
+    expect((await adminDb.doc("bankAccounts/transfer-from").get()).get("openingBalanceMinor")).toBe(500000);
+    expect((await adminDb.collection("auditLogs").where("entityId", "==", first.journalEntryId).get()).size).toBe(1);
+    const reportInput = { fromDate: "2026-10-09", toDate: "2026-10-09", branchId: "transfer-store" };
+    await expect(call(financeOfficer, "generateFinancialStatement", { ...reportInput, reportType: "cash_flow" })).resolves.toMatchObject({ netCashMovementMinor: 0 });
+    await expect(call(financeOfficer, "generateFinancialStatement", { ...reportInput, reportType: "income_statement" })).resolves.toMatchObject({ incomeMinor: 0, expenseMinor: 0, profitMinor: 0 });
+    await expect(call(financeOfficer, "recordCompanyFundsTransfer", { ...input, amountMinor: 200001 })).rejects.toMatchObject({ code: "functions/failed-precondition" });
+    await adminDb.doc("bankAccounts/transfer-from").update({ active: false });
+    // A confirmed historic result is still retrievable after account deactivation.
+    await expect(call(financeOfficer, "recordCompanyFundsTransfer", input)).resolves.toEqual(first);
+  });
+
+  it("rejects unauthorized roles, foreign/inactive accounts, shared ledger codes and locked months without posting", async () => {
+    const restricted = await createActor("bank-restricted@example.test", "finance_officer");
+    await adminDb.doc(`users/${restricted.auth.currentUser!.uid}`).update({ directRoleIds: [], customRoleIds: ["restricted"], effectivePermissions: ["banking.read"] });
+    const base = { sourceBankAccountId: "transfer-from", destinationBankAccountId: "transfer-to", branchId: "transfer-store", amountMinor: 1000,
+      transferredAt: "2026-10-09T09:00:00Z", reference: "BANK-TRANSFER-2", reason: "Move reserve funds", confirmedCompleted: true };
+    const post = (change = {}) => call(financeOfficer, "recordCompanyFundsTransfer", { ...base, ...change, idempotencyKey: crypto.randomUUID() });
+    await expect(call(restricted, "recordCompanyFundsTransfer", { ...base, idempotencyKey: crypto.randomUUID() })).rejects.toMatchObject({ code: "functions/permission-denied" });
+    const count = (await adminDb.collection("journalEntries").where("journalType", "==", "internal_funds_transfer").get()).size;
+    await expect(post()).rejects.toMatchObject({ code: "functions/failed-precondition" }); // inactive source
+    await adminDb.doc("bankAccounts/transfer-from").update({ active: true });
+    await adminDb.doc("bankAccounts/transfer-to").update({ organizationId: "other-org" });
+    await expect(post()).rejects.toMatchObject({ code: "functions/failed-precondition" });
+    await adminDb.doc("bankAccounts/transfer-to").update({ organizationId, ledgerAccountCode: "1032" });
+    await expect(post()).rejects.toMatchObject({ code: "functions/failed-precondition" });
+    await adminDb.doc("bankAccounts/transfer-to").update({ ledgerAccountCode: "1033" });
+    const { uniquenessDocumentId } = await import("../functions/src/inventory/calculations");
+    const period = adminDb.doc(`accountingPeriods/${uniquenessDocumentId(organizationId, "2026-10")}`);
+    await period.set({ organizationId, periodKey: "2026-10", status: "prepared" });
+    await expect(post()).rejects.toMatchObject({ code: "functions/failed-precondition" });
+    await period.delete();
+    await expect(post({ transferredAt: "2099-01-01T00:00:00Z" })).rejects.toMatchObject({ code: "functions/invalid-argument" });
+    expect((await adminDb.collection("journalEntries").where("journalType", "==", "internal_funds_transfer").get()).size).toBe(count);
+  });
+
   it("imports, matches, independently closes, and freezes reconciled evidence", async () => {
     const account = await call<{ bankAccountId: string }>(financeOfficer, "saveBankAccount", { bankName: "Access Bank", accountName: "ABR operating account", accountNumberLast4: "4321", ledgerAccountCode: "1030", openingBalanceMinor: 100_000, openingDate: "2026-08-01", active: true });
     const row = { transactionDate: "2026-08-02", description: "Supplier bank payment", reference: "PAY-001", externalId: "ACCESS-0001", amountMinor: -20_000 };

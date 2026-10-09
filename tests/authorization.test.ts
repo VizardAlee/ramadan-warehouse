@@ -1,9 +1,18 @@
 import { describe, expect, it } from "vitest";
 import { applyOperatingContext, assertAssignableRole, assertAssignableRoles, assertAssignmentScope, canAssignRole, hasServerPermission, type AccessProfile } from "../functions/src/auth/authorize";
 import { buildRoleAssignment } from "../functions/src/auth/custom-roles";
+import { hasPermission } from "../src/lib/permissions/roles";
 
 const actor = (roleId: AccessProfile["roleId"]): AccessProfile => ({ userId: "actor", organizationId: "org", roleId, branchIds: ["b1"], warehouseIds: ["w1"], authorizationVersion: 1 });
 describe("server authorization controls", () => {
+  it("grants funds transfer only to authorized finance roles, not restricted custom bases", () => {
+    expect(hasServerPermission({ ...actor("finance_officer"), directRoleIds: ["finance_officer"], effectivePermissions: [] }, "banking.transfer")).toBe(true);
+    expect(hasServerPermission({ ...actor("finance_officer"), directRoleIds: [], effectivePermissions: ["banking.read"] }, "banking.transfer")).toBe(false);
+    expect(hasServerPermission(actor("sales_cashier"), "banking.transfer")).toBe(false);
+    expect(hasServerPermission({ ...actor("branch_manager"), roleIds: ["branch_manager", "finance_officer"] }, "banking.transfer")).toBe(true);
+    expect(hasPermission({ status: "active", roleId: "finance_officer", directRoleIds: ["finance_officer"], effectivePermissions: [] }, "banking.transfer")).toBe(true);
+    expect(hasPermission({ status: "active", roleId: "finance_officer", directRoleIds: [], effectivePermissions: ["banking.read"] }, "banking.transfer")).toBe(false);
+  });
   it("adds daily close to direct manager roles but not restricted custom-role bases", () => {
     expect(hasServerPermission({ ...actor("branch_manager"), directRoleIds: ["branch_manager"], effectivePermissions: [] }, "daily.close.approve")).toBe(true);
     expect(hasServerPermission({ ...actor("branch_manager"), directRoleIds: [], effectivePermissions: [] }, "daily.close.approve")).toBe(false);

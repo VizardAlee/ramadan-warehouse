@@ -130,6 +130,7 @@ export const permissionIds = [
   "expenses.pay",
   "banking.read",
   "banking.manage",
+  "banking.transfer",
   "banking.reconcile",
   "banking.approve",
   "accounting.close.read",

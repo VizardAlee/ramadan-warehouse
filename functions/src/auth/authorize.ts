@@ -122,6 +122,7 @@ export type Permission =
   | "expenses.pay"
   | "banking.read"
   | "banking.manage"
+  | "banking.transfer"
   | "banking.reconcile"
   | "banking.approve"
   | "accounting.close.read"
@@ -133,6 +134,7 @@ export type Permission =
 
 const rolePermissions: Readonly<Record<RoleId, readonly Permission[]>> = {
   system_administrator: [
+    "banking.transfer",
     "daily.close.read", "daily.close.prepare", "daily.close.approve",
     "organization.manage",
     "branch.manage",
@@ -466,6 +468,7 @@ const rolePermissions: Readonly<Record<RoleId, readonly Permission[]>> = {
     "reports.transfers.read",
   ],
   finance_officer: [
+    "banking.transfer",
     "daily.close.read", "daily.close.prepare", "daily.close.approve",
     "products.read",
     "inventory.read",
@@ -863,7 +866,7 @@ export function hasServerPermission(
   if (hasRole(actor, "system_administrator")) return true;
   // Additive capability for existing directly assigned built-in manager roles.
   // Custom-role bases must not gain a permission their administrator omitted.
-  if ((permission === "sales.stock.release" || permission.startsWith("daily.close.")) && actor.directRoleIds?.some((roleId) => rolePermissions[roleId].includes(permission))) return true;
+  if ((permission === "sales.stock.release" || permission === "banking.transfer" || permission.startsWith("daily.close.")) && actor.directRoleIds?.some((roleId) => rolePermissions[roleId].includes(permission))) return true;
   if (actor.effectivePermissions) return actor.effectivePermissions.includes(permission);
   return accessRoleIds(actor).some((roleId) =>
     rolePermissions[roleId].includes(permission),

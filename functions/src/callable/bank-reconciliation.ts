@@ -2,10 +2,14 @@ import { createHash } from "node:crypto";
 import { FieldValue, Timestamp } from "firebase-admin/firestore";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
 import { db } from "../admin.js";
+import { accountingPeriodReference, assertAccountingPeriodOpen } from "../accounting/period-lock.js";
+import { resolveSettlementAccount } from "../accounting/settlement-account.js";
+import { writeJournal } from "../accounting/write-journal.js";
 import { writeAuditLog } from "../audit/write-audit-log.js";
 import {
   canSelfAuthorize,
   requireAccess,
+  requireBranchScope,
   requirePermission,
 } from "../auth/authorize.js";
 import { enforceAppCheck } from "../config.js";
@@ -15,11 +19,67 @@ import {
   bankMatchInput,
   bankUnmatchInput,
   bankWorkspaceInput,
+  companyFundsTransferInput,
   completeBankReconciliationInput,
   importBankStatementInput,
   prepareBankReconciliationInput,
   saveBankAccountInput,
 } from "../validation/bank-reconciliation.js";
+
+// Records money already moved by authorized staff; this does not initiate a bank payment.
+export const recordCompanyFundsTransfer = onCall({ enforceAppCheck }, async (request) => {
+  const actor = await requireAccess(request);
+  requirePermission(actor, "banking.transfer");
+  const input = parseInput(companyFundsTransferInput, request.data);
+  requireBranchScope(actor, input.branchId);
+  const effectiveAt = Timestamp.fromDate(new Date(input.transferredAt));
+  if (effectiveAt.toMillis() > Date.now() + 300_000)
+    throw new HttpsError("invalid-argument", "The transfer date cannot be in the future.");
+  const fingerprint = createHash("sha256").update(JSON.stringify(input)).digest("hex");
+  const operation = db.doc(`idempotencyOperations/${uniquenessDocumentId(actor.organizationId, "recordCompanyFundsTransfer", input.idempotencyKey)}`);
+  const journal = db.collection("journalEntries").doc();
+  const counter = db.doc(`journalCounters/${uniquenessDocumentId(actor.organizationId, "general")}`);
+  const referenceNumber = `FTR-${input.idempotencyKey.replaceAll("-", "").slice(0, 16).toUpperCase()}`;
+  return db.runTransaction(async transaction => {
+    const previous = await transaction.get(operation);
+    if (previous.exists) {
+      if (previous.get("organizationId") !== actor.organizationId || previous.get("fingerprint") !== fingerprint)
+        throw new HttpsError("failed-precondition", "This retry key belongs to a different transfer. Retry the original instructions.");
+      return { journalEntryId: String(previous.get("journalEntryId")), journalNumber: String(previous.get("journalNumber")), referenceNumber, posted: true };
+    }
+    const [source, destination, period, sequence, branch] = await Promise.all([
+      db.doc(`bankAccounts/${input.sourceBankAccountId}`), db.doc(`bankAccounts/${input.destinationBankAccountId}`),
+      accountingPeriodReference(actor.organizationId, effectiveAt), counter, db.doc(`branches/${input.branchId}`),
+    ].map(reference => transaction.get(reference)));
+    if (!source || !destination || !period || !sequence || !branch)
+      throw new HttpsError("internal", "The transfer could not read its required evidence.");
+    if (!branch.exists || branch.get("organizationId") !== actor.organizationId || branch.get("status") === "inactive")
+      throw new HttpsError("failed-precondition", "Select an active store for the transfer record.");
+    assertAccountingPeriodOpen(period);
+    const from = resolveSettlementAccount(actor.organizationId, "bank_transfer", source.id, source);
+    const to = resolveSettlementAccount(actor.organizationId, "bank_transfer", destination.id, destination);
+    if (!/^10\d{2}$/.test(from.accountCode) || !/^10\d{2}$/.test(to.accountCode) || from.accountCode === to.accountCode)
+      throw new HttpsError("failed-precondition", "The company accounts must have distinct configured money-ledger codes.");
+    const journalNumber = writeJournal(transaction, actor, {
+      journal, journalCounter: counter, journalCounterValue: Number(sequence.get("value") ?? 0) + 1,
+      journalType: "internal_funds_transfer", referenceType: "companyFundsTransfer", referenceId: journal.id,
+      referenceNumber, description: `Company funds transfer · ${input.reference}`, branchId: input.branchId, effectiveAt,
+      details: { sourceBankAccountId: source.id, destinationBankAccountId: destination.id, sourceAccountName: from.accountName,
+        destinationAccountName: to.accountName, amountMinor: input.amountMinor, bankReference: input.reference, reason: input.reason,
+        confirmedCompleted: true },
+      lines: [ { accountCode: to.accountCode, accountName: to.accountName, debitMinor: input.amountMinor, creditMinor: 0 },
+        { accountCode: from.accountCode, accountName: from.accountName, debitMinor: 0, creditMinor: input.amountMinor } ],
+    });
+    transaction.create(operation, { organizationId: actor.organizationId, fingerprint, journalEntryId: journal.id, journalNumber,
+      referenceNumber, actorUserId: actor.userId, createdAt: FieldValue.serverTimestamp() });
+    writeAuditLog(transaction, actor, { action: "banking.funds_transferred", entityType: "journalEntry", entityId: journal.id,
+      correlationId: correlationId(), sourceFunction: "recordCompanyFundsTransfer", reason: input.reason,
+      after: { referenceNumber, journalNumber, sourceBankAccountId: source.id, destinationBankAccountId: destination.id,
+        sourceAccountName: from.accountName, destinationAccountName: to.accountName,
+        branchId: input.branchId, amountMinor: input.amountMinor, bankReference: input.reference } });
+    return { journalEntryId: journal.id, journalNumber, referenceNumber, posted: true };
+  });
+});
 
 function dateTimestamp(value: string) {
   return Timestamp.fromDate(new Date(`${value}T00:00:00.000Z`));

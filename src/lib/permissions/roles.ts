@@ -250,6 +250,7 @@ const permissionsByRole: Readonly<Record<RoleId, readonly PermissionId[]>> = {
     "reports.transfers.read",
   ],
   finance_officer: [
+    "banking.transfer",
     "daily.close.read", "daily.close.prepare", "daily.close.approve",
     "report.read",
     "cost.create",
@@ -340,7 +341,7 @@ export function hasPermission(
   if (profile.status !== "active") return false;
   const assignedRoles = roleIdsForProfile(profile);
   if (assignedRoles.includes("system_administrator")) return true;
-  if (permission === "sales.stock.release" || permission.startsWith("daily.close.")) {
+  if (permission === "sales.stock.release" || permission === "banking.transfer" || permission.startsWith("daily.close.")) {
     const direct = profile.directRoleIds ?? (profile.customRoleIds?.length ? [] : assignedRoles);
     if (permissionsForRoles(direct).has(permission)) return true;
   }

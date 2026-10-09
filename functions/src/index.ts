@@ -169,6 +169,7 @@ export {
 } from "./callable/expenses.js";
 export {
   getBankReconciliationWorkspace,
+  recordCompanyFundsTransfer,
   saveBankAccount,
   importBankStatement,
   matchBankTransaction,

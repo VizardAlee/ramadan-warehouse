@@ -2,6 +2,21 @@ import { z } from "zod";
 
 const date = z.string().date();
 
+const accountId = z.string().trim().min(1).max(180).refine(value => !value.includes("/"), "Invalid account reference.");
+export const companyFundsTransferInput = z.object({
+  sourceBankAccountId: accountId,
+  destinationBankAccountId: accountId,
+  branchId: accountId,
+  amountMinor: z.number().int().positive().safe(),
+  transferredAt: z.string().datetime(),
+  reference: z.string().trim().min(2).max(160),
+  reason: z.string().trim().min(5).max(500),
+  confirmedCompleted: z.literal(true),
+  idempotencyKey: z.string().uuid(),
+}).refine(value => value.sourceBankAccountId !== value.destinationBankAccountId, {
+  path: ["destinationBankAccountId"], message: "Select two different company accounts.",
+});
+
 export const bankWorkspaceInput = z.object({
   bankAccountId: z.string().trim().min(1).max(180).optional(),
 });

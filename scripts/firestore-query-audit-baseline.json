@@ -1,7 +1,7 @@
 {
   "lastLiveAudit": {
     "project": "ramadan-warehouse-staging",
-    "verifiedAt": "2026-10-09T17:38:48.727Z",
+    "verifiedAt": "2026-10-09T18:01:58.083Z",
     "queryShapes": 443,
     "unsupportedQueries": 0,
     "readyIndexes": 224,
@@ -10,12 +10,13 @@
   "catalogSha256": "956fc6aa202d7e04eb5f7bc8a0c36895d1220a37774dc696817e1394f620b567",
   "sourceFingerprints": {
     "functions/src/accounting/daily-close.ts": "88916698e8112584523b1770eb98be7e052761b4982e6f572df1e6f7221d617a",
+    "functions/src/accounting/write-journal.ts": "8cb28fb0138117d9d0f92f96b4ef2bddd0fe90aa10f03a6fdafee9494b08bf7b",
     "functions/src/audit/write-audit-log.ts": "db7b9594fb7312ca692836ceb529dfe7785c52b36b53dab59743d4619af311a7",
-    "functions/src/auth/authorize.ts": "bcedf4b712dd3fc65f57ff8fd991fcd08336752a266169a4949e802a9df48201",
+    "functions/src/auth/authorize.ts": "0c5e18f52dde24481a8a1c9faadd690e0f1c238ec0ae92ef8c5f7a128d233423",
     "functions/src/auth/custom-roles.ts": "f35e0e79877655caf11f0c4e97d747b4c40477911a8755028ef5a096295fc146",
     "functions/src/callable/accounting-close.ts": "8e632a28435541fc2d062b974a48ff81eab3a1164eb73614e297c49344b11c66",
     "functions/src/callable/aftersales.ts": "5a12c88fa74e44070688e2a80415a43d5c5a39b3275be3a06ccc845bfa5ce2af",
-    "functions/src/callable/bank-reconciliation.ts": "3790604aee461212782d9bc138e8d3b7e029050d82853259c7e8ba5bec8e5b78",
+    "functions/src/callable/bank-reconciliation.ts": "0c6e4307093d15732a4aa8ba25ed8a8e058466c38d8e0a67a635e10fd6badf1e",
     "functions/src/callable/bootstrap-organization.ts": "b16a45cd7dea7f2070f4de7839514552c0dcb0fc34baeb08e5184a5c4abdadb4",
     "functions/src/callable/branch-requests.ts": "8db116b13014504b3e16557c5a5adbcdc1793cfd0351f97aef5ce76262707021",
     "functions/src/callable/csv-imports.ts": "1c74231c0ff969b8eaf68306b5c8feed1e8256f71fe2d5677f37d79f8d01c771",
@@ -33,7 +34,7 @@
     "functions/src/callable/manage-roles.ts": "cafd5c85fe810569b119c64e640e97cb93b450b3cc4d616a4e81b0a124d09a7d",
     "functions/src/callable/manage-users.ts": "4afaad46c8d64ffdc08fc49a419d608ee3a6cb0ff1b3ad20bb497ca166e27d7a",
     "functions/src/callable/operational-readiness.ts": "5710f7b794dc5560f44a60fa86e21dc96c9591066d6996ca0119ba7615e11279",
-    "functions/src/callable/procurement.ts": "1db57930ffa07bb79846970d9330a386c6c815cf3d351d57a55d8d4779b3be73",
+    "functions/src/callable/procurement.ts": "369f58027ce8a60204c8f432c000f486af6b03d069e6c30ef9d10f8cc21ff95d",
     "functions/src/callable/reset-organization.ts": "ef008e650d39213d23c35d3d801015dccad8ad7ea78edf9d62b6b5c230d53a5c",
     "functions/src/callable/sales-corrections.ts": "6a81ad6d02442729f5a390a4184739fd4f3f3a450b8951e51c543a09bcdd95ff",
     "functions/src/callable/sales-returns.ts": "554ea6865dde83ad7f589ef27324a1904f5fba9e45dd0bf260b777981679b3c8",

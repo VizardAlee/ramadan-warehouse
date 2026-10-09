@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { CompanyFundsTransfer } from "@/features/banking/company-funds-transfer";
 import { callAdministration } from "@/features/administration/api";
 import { useAuth } from "@/features/auth/auth-context";
 import { formatNaira, nairaToKobo } from "@/features/inventory/format";
@@ -90,7 +91,7 @@ function parseStatementRows(value: string) {
 }
 
 export default function BankingPage() {
-  const { user, profile } = useAuth();
+  const { user, profile, operatingContext } = useAuth();
   const can = (permission: Parameters<typeof hasPermission>[1]) =>
     Boolean(profile && hasPermission(profile, permission));
   const canApproveOwnWork = Boolean(profile && canSelfAuthorize(profile));
@@ -195,7 +196,7 @@ export default function BankingPage() {
           <p className="text-xs font-semibold uppercase tracking-[.16em] text-[var(--brand)]">
             Statement to ledger
           </p>
-          <h1 className="text-3xl font-semibold">Bank reconciliation</h1>
+          <h1 className="text-3xl font-semibold">Company accounts & reconciliation</h1>
           <p className="text-[var(--muted)]">
             Import the statement, match every deposit and withdrawal to this
             bank account&apos;s ledger, then complete the reconciled period. Managers and
@@ -228,6 +229,7 @@ export default function BankingPage() {
         </div>
       )}
 
+      {can("banking.transfer") && <CompanyFundsTransfer key={`${profile.organizationId}:${profile.uid}`} accounts={workspace?.accounts ?? []} branchId={operatingContext?.type === "branch" ? operatingContext.id : profile.branchIds.length === 1 ? profile.branchIds[0] : undefined} ownerKey={`${profile.organizationId}:${profile.uid}`} onComplete={() => void load(selectedAccountId)} />}
       {can("banking.manage") && (
         <details
           open={!workspace?.accounts.length}
