@@ -7,6 +7,7 @@ import { bankAccountSummary, resolveSettlementAccount } from "../accounting/sett
 import { writeAuditLog } from "../audit/write-audit-log.js";
 import {
   hasRole,
+  hasServerPermission,
   requireAccess,
   requireBranchScope,
   requirePermission,
@@ -56,12 +57,13 @@ export const getAftersalesWorkspace = onCall(
     let query: FirebaseFirestore.Query = db.collection("aftersalesCases")
       .where("organizationId", "==", actor.organizationId);
     if (input.branchId) query = query.where("branchId", "==", input.branchId);
-    const [cases, customers, products, bankAccounts, sales] = await Promise.all([
+    const [cases, customers, products, bankAccounts, sales, suppliers] = await Promise.all([
       query.limit(input.limit).get(),
       db.collection("customers").where("organizationId", "==", actor.organizationId).limit(500).get(),
       db.collection("products").where("organizationId", "==", actor.organizationId).limit(500).get(),
       db.collection("bankAccounts").where("organizationId", "==", actor.organizationId).where("active", "==", true).limit(100).get(),
       db.collection("sales").where("organizationId", "==", actor.organizationId).limit(200).get(),
+      hasServerPermission(actor, "suppliers.read") ? db.collection("suppliers").where("organizationId", "==", actor.organizationId).where("active", "==", true).limit(500).get() : null,
     ]);
     return {
       cases: (selectedCase ? [selectedCase] : cases.docs)
@@ -70,6 +72,7 @@ export const getAftersalesWorkspace = onCall(
       customers: customers.docs.filter((item) => item.get("active") === true).map((item) => ({ id: item.id, name: item.get("name"), customerNumber: item.get("customerNumber") })),
       products: products.docs.filter((item) => item.get("active") === true).map((item) => ({ id: item.id, name: item.get("name"), sku: item.get("sku") })),
       bankAccounts: bankAccounts.docs.map(bankAccountSummary),
+      suppliers: suppliers?.docs.map(item => ({ id: item.id, name: item.get("name") })) ?? [],
       sales: sales.docs
         .filter((sale) => organizationWide || actor.branchIds.includes(String(sale.get("branchId"))))
         .map((sale) => ({ id: sale.id, saleNumber: sale.get("saleNumber"), branchId: sale.get("branchId"), customerId: sale.get("customerId") ?? null })),

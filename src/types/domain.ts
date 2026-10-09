@@ -764,6 +764,9 @@ export const inventoryTransactionTypes = [
   "sale_reservation",
   "sale_reservation_release",
   "customer_collection",
+  "held_return_restock",
+  "held_return_scrap",
+  "held_return_supplier_handover",
   "write_off",
   "reversal",
 ] as const;
@@ -802,6 +805,7 @@ export interface InventoryEntry {
   externalAccount?: string;
   quantityDelta: number;
   reservedQuantityDelta?: number;
+  heldQuantityDelta?: number;
   unitCostMinor: number;
   valueDeltaMinor: number;
   currency: "NGN";

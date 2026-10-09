@@ -1,5 +1,27 @@
 # Business workflow expansion (24 September 2026 baseline)
 
+## Controlled held-return disposition — 9 October 2026 (validated; rollout pending)
+
+Extends the existing approved return → aftersales link, without migrating or
+rewriting history. Completed/cancelled linked cases offer partial restock,
+scrap or physical supplier handover. Restock requires explicit inspection and
+posts original-cost inventory/COGS restoration atomically. Other outcomes
+record custody without reducing saleable stock or expensing goods twice.
+Exact serial ownership, cumulative quantities/costs, retry fingerprints,
+period locks, scope/permissions and linked audit events are enforced server-side.
+Stock-only reversal is blocked to preserve case and financial integrity.
+Recent case history is bounded to 20; full evidence remains append-only.
+Supplier handover deliberately does not invent a supplier financial credit.
+Validation: 323 unit/interface tests, 12 aftersales/financial and 22 existing
+POS/sales emulator cases, and 27 Firestore/Storage security cases passed.
+Partial original-cost penny allocation, exact serial ownership, concurrent
+disposition, retry fingerprints, closed accounting periods, reservation
+preservation, stock-only reversal denial and forged history are covered.
+Report assertions include non-cash COGS restoration without cash/VAT changes.
+Typecheck, lint, Functions compilation, production build, secret/diff checks
+passed. Live index audit: 441/441 query shapes passed, all 224 indexes READY.
+Next: link actual supplier credit-note/replacement settlement to held handovers.
+
 ## Inspected returns to aftersales — 9 October 2026 (deployed)
 
 Approved warranty/repair returns can explicitly create a linked existing-system

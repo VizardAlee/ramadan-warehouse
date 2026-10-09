@@ -11,6 +11,7 @@ import { normalizeInventoryIdentifier, uniquenessDocumentId } from "../inventory
 import { assertBalancedJournal } from "./calculations.js";
 import { correlationId } from "../utils/callable.js";
 import { approveSaleReturnInput } from "../validation/sales.js";
+import { disposeHeldReturn } from "./return-disposition.js";
 
 export async function followUpSaleReturn(actor: Awaited<ReturnType<typeof requireAccess>>, input: z.infer<typeof approveSaleReturnInput>) {
   const returnRef = db.doc(`saleReturns/${input.returnId}`);
@@ -28,6 +29,11 @@ export async function followUpSaleReturn(actor: Awaited<ReturnType<typeof requir
       return previous.get("result");
     }
     const now = FieldValue.serverTimestamp();
+    if (input.action === "dispose_held") {
+      const result = await disposeHeldReturn(tx, actor, record, input.disposition!, cid);
+      tx.create(op, { organizationId: actor.organizationId, fingerprint, result, createdAt: now, createdBy: actor.userId });
+      return result;
+    }
     if (input.action === "route_aftersales") {
       requirePermission(actor, "sales.returns.create");
       const request = input.aftersales!;

@@ -186,7 +186,16 @@ export const createSaleReturnInput = z.object({
 
 export const approveSaleReturnInput = z.object({
   returnId: id,
-  action: z.enum(["approve", "inspect", "refund_exchange_credit", "route_aftersales"]).default("approve"),
+  action: z.enum(["approve", "inspect", "refund_exchange_credit", "route_aftersales", "dispose_held"]).default("approve"),
+  disposition: z.object({
+    caseId: id.refine(value => !value.includes("/")),
+    outcome: z.enum(["restock", "scrap", "supplier_handover"]),
+    quantity: z.number().int().min(1).max(100000),
+    reason: z.string().trim().min(5).max(1000),
+    confirmedResellable: z.boolean().optional(),
+    supplierId: id.refine(value => !value.includes("/")).optional(),
+    handoverReference: z.string().trim().min(3).max(160).optional(),
+  }).optional(),
   aftersales: z.object({
     returnItemId: id,
     serialNumber: z.string().trim().min(1).max(160).optional(),
@@ -212,6 +221,8 @@ export const approveSaleReturnInput = z.object({
   notes: z.string().trim().max(500).optional(),
   idempotencyKey: z.string().uuid(),
 }).superRefine((value, context) => {
+  if (value.action === "dispose_held" && (!value.disposition || (value.disposition.outcome === "restock" && !value.disposition.confirmedResellable) || (value.disposition.outcome === "supplier_handover" && (!value.disposition.supplierId || !value.disposition.handoverReference))))
+    context.addIssue({ code: "custom", path: ["disposition"], message: "Select the held goods, confirm safe restocking or identify the supplier handover." });
   if (value.action === "route_aftersales" && !value.aftersales)
     context.addIssue({ code: "custom", path: ["aftersales"], message: "Select the inspected return item and describe the service request." });
   if (value.action === "inspect" && !value.inspection)

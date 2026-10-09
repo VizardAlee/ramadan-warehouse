@@ -28,6 +28,9 @@ const movementTitles: Record<string, string> = {
   discrepancy_resolution: "Stock discrepancy resolved",
   branch_sale: "Sold to customer",
   supplier_return: "Returned to supplier",
+  held_return_restock: "Repaired return restored to stock",
+  held_return_scrap: "Held returned goods scrapped",
+  held_return_supplier_handover: "Held returned goods handed to supplier",
   sale_reservation: "Reserved for customer",
   sale_reservation_release: "Customer reservation cancelled",
   customer_collection: "Collected by customer",
@@ -63,11 +66,15 @@ export function summarizeInventoryMovements(
     const outgoing = physical.filter((line) => line.quantityDelta < 0);
     const incomingQuantity = incoming.reduce((sum, line) => sum + line.quantityDelta, 0);
     const outgoingQuantity = outgoing.reduce((sum, line) => sum - line.quantityDelta, 0);
-    const quantity = Math.max(incomingQuantity, outgoingQuantity, ...lines.map((line) => Math.max(Math.abs(line.quantityDelta), Math.abs(line.reservedQuantityDelta ?? 0))));
+    const quantity = Math.max(incomingQuantity, outgoingQuantity, ...lines.map((line) => Math.max(Math.abs(line.quantityDelta), Math.abs(line.reservedQuantityDelta ?? 0), Math.abs(line.heldQuantityDelta ?? 0))));
     const destination = incoming[0] && inventoryLocationLabel(incoming[0], locations);
     const source = outgoing[0] && inventoryLocationLabel(outgoing[0], locations);
     const place = destination ?? source ?? (physical[0] ? inventoryLocationLabel(physical[0], locations) : "Stock location");
-    const movement = first.transactionType === "sale_reservation"
+    const movement = String(first.transactionType) === "held_return_scrap"
+      ? `${quantity} held returned goods scrapped. Saleable stock and expense were not reduced again.`
+      : String(first.transactionType) === "held_return_supplier_handover"
+      ? `${quantity} held returned goods handed to the supplier. No supplier credit or refund has been posted by this handover.`
+      : first.transactionType === "sale_reservation"
       ? `${quantity} reserved at ${place}. Still physically here, but unavailable for another sale.`
       : first.transactionType === "sale_reservation_release"
         ? `${quantity} released for sale again at ${place}. Physical stock did not change because these goods were never collected.`

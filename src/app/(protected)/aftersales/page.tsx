@@ -10,8 +10,9 @@ import { useAuth } from "@/features/auth/auth-context";
 import { formatNaira, nairaToKobo } from "@/features/inventory/format";
 import { hasPermission } from "@/lib/permissions/roles";
 import { OperationalPhotos } from "@/features/pos/operational-photos";
+import { HeldReturnDisposition, type HeldReturnCase } from "@/features/returns/held-return-disposition";
 
-interface Case {
+interface Case extends HeldReturnCase {
   id: string;
   branchId: string;
   customerName: string;
@@ -36,6 +37,7 @@ interface Workspace {
   customers: Array<{ id: string; name: string; customerNumber: string }>;
   products: Array<{ id: string; name: string; sku: string }>;
   bankAccounts: Array<{ id: string; bankName: string; accountName: string; accountNumberLast4: string }>;
+  suppliers: Array<{ id: string; name: string }>;
   sales: Array<{ id: string; saleNumber: string; branchId: string; customerId: string | null }>;
 }
 const transitions: Record<string, Array<{ value: string; label: string }>> = {
@@ -163,13 +165,14 @@ function AftersalesWorkspace() {
                 <div>
                   <strong>{item.customerName} · {item.requestType.replaceAll("_", " ")}</strong>
                   <p className="text-sm text-[var(--muted)]">{item.productName || "Service only"} · {item.serviceType.replaceAll("_", " ")} · {item.saleNumber || "No linked sale"} {item.serialNumber && `· Serial ${item.serialNumber}`}</p>
-                  {item.returnNumber && <p className="mt-2 text-sm">From inspected return {item.returnNumber} · {item.quantity} unit(s) {item.contactPhone && `· ${item.contactPhone}`}<br />Stock remains held. Completing this service does not restock goods or issue a refund. <Link href="/aftersales" className="underline">View all service cases</Link></p>}
+                  {item.returnNumber && <p className="mt-2 text-sm">From inspected return {item.returnNumber} · {(item.quantity ?? 0) - (item.heldDisposedQuantity ?? 0)} unit(s) still held {item.contactPhone && `· ${item.contactPhone}`}<br />Completing service does not restock goods or issue a refund. <Link href="/aftersales" className="underline">View all service cases</Link></p>}
                   <p className="mt-2 text-sm">{item.complaint}</p>
                   {item.resolution && <p className="mt-1 text-sm"><strong>Resolution:</strong> {item.resolution}</p>}
                 </div>
                 <div className="text-right text-sm"><span className="rounded-full bg-slate-100 px-3 py-1 capitalize">{item.status.replaceAll("_", " ")}</span><p className="mt-2 capitalize">{item.chargeStatus.replaceAll("_", " ")}</p>{item.chargeAmountMinor !== undefined && <p>{formatNaira(item.amountPaidMinor ?? 0)} paid / {formatNaira(item.chargeAmountMinor)}</p>}</div>
               </div>
               <OperationalPhotos kind="aftersales" recordId={item.id} stage={item.status === "open" ? "intake" : ["diagnosed", "in_service"].includes(item.status) ? "diagnosis" : "handover"} serials={item.serialNumber ? [item.serialNumber] : []} canUpload={item.status !== "cancelled" && can(item.status === "open" ? "sales.returns.create" : "sales.returns.approve")} />
+              <HeldReturnDisposition record={item} suppliers={workspace.suppliers ?? []} canDispose={can("sales.returns.approve") && can("inventory.adjust")} canHandover={can("procurement.receive") && can("suppliers.read")} canReadHistory={can("inventory.read")} onComplete={() => void load()} />
               {can("sales.returns.approve") && !["completed", "cancelled"].includes(item.status) && (
                 <div className="mt-4 grid gap-3 border-t pt-4 md:grid-cols-[minmax(0,12rem)_minmax(0,1fr)_auto]">
                   <select aria-label="Next service status" value={form.status} onChange={(event) => set({ status: event.target.value })} className="rounded-lg border p-3"><option value="">Next status</option>{(transitions[item.status] ?? []).map((step) => <option key={step.value} value={step.value}>{step.label}</option>)}</select>

@@ -6,7 +6,7 @@ import { getAuth as getAdminAuth } from "firebase-admin/auth";
 import { FieldValue, Timestamp, getFirestore } from "firebase-admin/firestore";
 import { getStorage } from "firebase-admin/storage";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { uniquenessDocumentId } from "../functions/src/inventory/calculations";
+import { balanceDocumentId, uniquenessDocumentId } from "../functions/src/inventory/calculations";
 
 const projectId = "demo-ramadan-warehouse";
 const adminApp = getAdminApps().find((app) => app.name === "aftersales-financial-tests") ?? initializeAdminApp({ projectId }, "aftersales-financial-tests");
@@ -53,6 +53,66 @@ beforeAll(async () => {
 afterAll(async () => Promise.all(apps.map((app) => deleteApp(app))));
 
 describe.sequential("aftersales and ledger-derived reports", () => {
+  it("disposes held quantity returns atomically with partial cost allocation, no duplicate expense and safe retries", async () => {
+    const returnId = "disposition-return", itemId = "disposition-item", locationId = "disposition-location";
+    await adminDb.doc(`inventoryLocations/${locationId}`).set({ organizationId, branchId, type: "branch", status: "active", name: "Head Office stock" });
+    await adminDb.doc(`saleReturns/${returnId}`).set({ organizationId, branchId, saleId: "disposition-sale", customerId, status: "approved", inspectionStatus: "completed" });
+    await adminDb.doc(`saleReturnItems/${itemId}`).set({ organizationId, branchId, returnId, saleId: "disposition-sale", productId, productName: "Test Product", quantity: 3, serialNumbers: [], disposition: "repair", condition: "non_restockable", inspectionStatus: "completed", costAmountMinor: 100 });
+    const routed = await call<{ caseId: string }>("approveSaleReturn", { returnId, action: "route_aftersales", aftersales: { returnItemId: itemId, complaint: "Repair and inspect all three units" }, idempotencyKey: crypto.randomUUID() });
+    const payload = { returnId, action: "dispose_held", disposition: { caseId: routed.caseId, outcome: "restock", quantity: 1, reason: "Repaired and tested safe for resale", confirmedResellable: true }, idempotencyKey: crypto.randomUUID() };
+    await expect(call("approveSaleReturn", payload)).rejects.toMatchObject({ code: "functions/failed-precondition" });
+    await adminDb.doc(`aftersalesCases/${routed.caseId}`).update({ status: "completed" });
+    await expect(call("approveSaleReturn", { ...payload, disposition: { ...payload.disposition, confirmedResellable: false } })).rejects.toMatchObject({ code: "functions/invalid-argument" });
+    const balanceRef = adminDb.doc(`inventoryBalances/${balanceDocumentId(organizationId, productId, locationId)}`);
+    await balanceRef.set({ organizationId, branchId, productId, locationId, onHandQuantity: 5, reservedQuantity: 2, availableQuantity: 3, totalValueMinor: 500, version: 1 });
+    const first = await call<{ transactionId: string; journalEntryId: string }>("approveSaleReturn", payload);
+    expect(await call("approveSaleReturn", payload)).toMatchObject(first);
+    await expect(call("approveSaleReturn", { ...payload, disposition: { ...payload.disposition, quantity: 2 } })).rejects.toMatchObject({ code: "functions/already-exists" });
+    expect((await balanceRef.get()).data()).toMatchObject({ onHandQuantity: 6, reservedQuantity: 2, availableQuantity: 4, totalValueMinor: 533 });
+    const journal = await adminDb.doc(`journalEntries/${first.journalEntryId}`).get();
+    expect(journal.data()).toMatchObject({ totalDebitMinor: 33, totalCreditMinor: 33, referenceId: first.transactionId });
+    const stock = await adminDb.collection("inventoryEntries").where("transactionId", "==", first.transactionId).get();
+    expect(stock.docs.reduce((sum, doc) => sum + doc.get("quantityDelta"), 0)).toBe(0);
+    expect(stock.docs.reduce((sum, doc) => sum + doc.get("valueDeltaMinor"), 0)).toBe(0);
+    await expect(call("reverseInventoryTransaction", { transactionId: first.transactionId, reason: "Cannot bypass linked disposition", idempotencyKey: crypto.randomUUID() })).rejects.toMatchObject({ code: "functions/failed-precondition" });
+    const journalCount = (await adminDb.collection("journalEntries").count().get()).data().count;
+    const scrap = await call<{ transactionId: string }>("approveSaleReturn", { ...payload, disposition: { ...payload.disposition, outcome: "scrap", quantity: 1 }, idempotencyKey: crypto.randomUUID() });
+    expect((await adminDb.collection("inventoryEntries").where("transactionId", "==", scrap.transactionId).get()).docs[0]!.data()).toMatchObject({ quantityDelta: 0, heldQuantityDelta: -1, valueDeltaMinor: 0, heldOriginalCostMinor: 34 });
+    await adminDb.doc("suppliers/disposition-supplier").set({ organizationId, name: "Warranty supplier", active: true });
+    const handover = { ...payload, disposition: { ...payload.disposition, outcome: "supplier_handover", supplierId: "disposition-supplier", handoverReference: "HANDOVER-001", quantity: 1 }, idempotencyKey: crypto.randomUUID() };
+    await adminDb.doc("suppliers/disposition-supplier").update({ organizationId: "other-org" });
+    await expect(call("approveSaleReturn", handover)).rejects.toMatchObject({ code: "functions/failed-precondition" });
+    await adminDb.doc("suppliers/disposition-supplier").update({ organizationId });
+    const handed = await call<{ transactionId: string }>("approveSaleReturn", handover);
+    expect((await adminDb.doc(`inventoryTransactions/${handed.transactionId}`).get()).data()).toMatchObject({ supplierSettlementStatus: "not_recorded", originalCostMinor: 33, supplierId: "disposition-supplier", journalEntryId: null });
+    expect((await adminDb.collection("journalEntries").count().get()).data().count).toBe(journalCount);
+    expect((await balanceRef.get()).data()).toMatchObject({ onHandQuantity: 6, totalValueMinor: 533 });
+    expect((await adminDb.doc(`saleReturnItems/${itemId}`).get()).data()).toMatchObject({ heldDisposedQuantity: 3, heldDisposedCostMinor: 100 });
+    await expect(call("approveSaleReturn", { ...handover, idempotencyKey: crypto.randomUUID() })).rejects.toMatchObject({ code: "functions/failed-precondition" });
+    expect((await adminDb.doc(`aftersalesCases/${routed.caseId}`).get()).get("recentDispositions")).toHaveLength(3);
+  }, 300_000);
+  it("allows only one exact serial disposition under concurrent requests and enforces accounting locks", async () => {
+    const returnId = "serial-disposition-return", itemId = "serial-disposition-item", serialNumber = "DISPOSE-SN-1";
+    await adminDb.doc(`saleReturns/${returnId}`).set({ organizationId, branchId, saleId: "serial-disposition-sale", customerId, status: "approved", inspectionStatus: "completed" });
+    await adminDb.doc(`saleReturnItems/${itemId}`).set({ organizationId, branchId, returnId, saleId: "serial-disposition-sale", productId, productName: "Test Product", quantity: 1, serialNumbers: [serialNumber], disposition: "warranty", condition: "non_restockable", inspectionStatus: "completed", costAmountMinor: 125 });
+    const serial = adminDb.doc(`serializedItems/${uniquenessDocumentId(organizationId, serialNumber)}`);
+    await serial.set({ organizationId, branchId, productId, saleId: "serial-disposition-sale", lastSaleReturnId: returnId, status: "returned_held", active: false, currentUnitCostMinor: 125 });
+    const routed = await call<{ caseId: string }>("approveSaleReturn", { returnId, action: "route_aftersales", aftersales: { returnItemId: itemId, serialNumber, complaint: "Inspect serial before returning to stock" }, idempotencyKey: crypto.randomUUID() });
+    await adminDb.doc(`aftersalesCases/${routed.caseId}`).update({ status: "cancelled" });
+    const payload = { returnId, action: "dispose_held", disposition: { caseId: routed.caseId, outcome: "restock", quantity: 1, reason: "Inspected resellable serial unit", confirmedResellable: true }, idempotencyKey: crypto.randomUUID() };
+    await serial.update({ lastSaleReturnId: "wrong-return" });
+    await expect(call("approveSaleReturn", payload)).rejects.toMatchObject({ code: "functions/failed-precondition" });
+    await serial.update({ lastSaleReturnId: returnId });
+    const periodId = uniquenessDocumentId(organizationId, new Date().toISOString().slice(0, 7));
+    await adminDb.doc(`accountingPeriods/${periodId}`).set({ organizationId, status: "closed" });
+    await expect(call("approveSaleReturn", payload)).rejects.toMatchObject({ code: "functions/failed-precondition" });
+    await adminDb.doc(`accountingPeriods/${periodId}`).delete();
+    const results = await Promise.allSettled([call("approveSaleReturn", payload), call("approveSaleReturn", { ...payload, idempotencyKey: crypto.randomUUID() })]);
+    expect(results.filter(result => result.status === "fulfilled")).toHaveLength(1);
+    expect((await serial.get()).data()).toMatchObject({ status: "at_branch", active: true, currentLocationId: "disposition-location" });
+    expect((await serial.get()).get("saleId")).toBeUndefined();
+    expect((await adminDb.doc(`saleReturnItems/${itemId}`).get()).data()).toMatchObject({ heldDisposedQuantity: 1, heldDisposedCostMinor: 125 });
+  }, 300_000);
   it("routes only exact held serials and denies access from another store", async () => {
     const returnId = "serial-service-return", returnItemId = "serial-service-item", serialNumber = "SERVICE-UNIT-1";
     await adminDb.doc(`saleReturns/${returnId}`).set({ organizationId, branchId, saleId: "serial-sale", customerId, customerName: "Test Customer", status: "approved", inspectionStatus: "completed" });
@@ -239,7 +299,9 @@ describe.sequential("aftersales and ledger-derived reports", () => {
     const trial = await call<{ totalDebitMinor: number; totalCreditMinor: number }>("generateFinancialStatement", { ...period, reportType: "trial_balance" });
     expect(trial.totalDebitMinor).toBe(trial.totalCreditMinor);
     const income = await call<{ profitMinor: number }>("generateFinancialStatement", { ...period, reportType: "income_statement" });
-    expect(income.profitMinor).toBe(20_000);
+    // Service income plus the two original-cost COGS restorations above.
+    // Neither restocking journal moves cash or creates taxable sales revenue.
+    expect(income.profitMinor).toBe(20_000 + 33 + 125);
     const balance = await call<{ balanced: boolean }>("generateFinancialStatement", { ...period, reportType: "balance_sheet" });
     expect(balance.balanced).toBe(true);
     const cashFlow = await call<{ netCashMovementMinor: number }>("generateFinancialStatement", { ...period, reportType: "cash_flow" });
