@@ -14,4 +14,12 @@ describe("service record validation", () => {
     expect(recordAftersalesPaymentInput.safeParse({ ...input, method: "bank_transfer" }).success).toBe(false);
     expect(recordAftersalesPaymentInput.safeParse({ ...input, amountMinor: Number.MAX_SAFE_INTEGER + 1 }).success).toBe(false);
   });
+  it("normalizes an HR staff code and requires an explicit assignment reason", () => {
+    const input = { caseId: "case", action: "assign_staff", staffId: "tech-01", reason: "Assigned for inverter repair", idempotencyKey: crypto.randomUUID() };
+    expect(updateAftersalesCaseInput.parse(input)).toMatchObject({ staffId: "TECH-01" });
+    expect(updateAftersalesCaseInput.safeParse({ ...input, staffId: null }).success).toBe(true);
+    expect(updateAftersalesCaseInput.safeParse({ ...input, staffId: "nested/employee" }).success).toBe(false);
+    expect(updateAftersalesCaseInput.safeParse({ ...input, reason: "" }).success).toBe(false);
+    expect(updateAftersalesCaseInput.safeParse({ ...input, monthlySalaryMinor: 10000 }).success).toBe(false);
+  });
 });

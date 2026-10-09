@@ -177,10 +177,38 @@ export const updateAftersalesCase = onCall(
       if (previous!.exists) {
         checkRetry(previous!, input);
         if (previous!.get("entityId") !== input.caseId || (!previous!.get("requestFingerprint") &&
-          (current!.get("status") !== input.status || current!.get("resolution") !== input.resolution ||
+          ("action" in input || current!.get("status") !== input.status || current!.get("resolution") !== input.resolution ||
             (input.notes !== undefined && current!.get("notes") !== input.notes))))
           throw new HttpsError("invalid-argument", "The original status request differs from these instructions. Review case history.");
         result = { caseId: input.caseId, updated: false };
+        return;
+      }
+      if ("action" in input) {
+        if (["completed", "cancelled"].includes(String(current!.get("status"))))
+          throw new HttpsError("failed-precondition", "Closed service cases cannot be reassigned.");
+        let assignedStaff: { employeeId: string; staffId: string; name: string } | null = null;
+        if (input.staffId) {
+          // Reuse HR's unique staff-code mapping; never create a second employee identity.
+          const mapping = await transaction.get(db.doc(`employeeStaffIds/${actor.organizationId}_${encodeURIComponent(input.staffId)}`));
+          const employeeId = mapping.exists && mapping.get("organizationId") === actor.organizationId ? mapping.get("employeeId") : null;
+          if (typeof employeeId !== "string" || !employeeId || employeeId.includes("/") || [".", ".."].includes(employeeId))
+            throw new HttpsError("failed-precondition", "Enter an active employee's HR staff ID for this store.");
+          const employee = await transaction.get(db.doc(`employees/${employeeId}`));
+          if (!employee.exists || employee.get("organizationId") !== actor.organizationId || employee.get("staffId") !== input.staffId ||
+            employee.get("status") !== "active" || (employee.get("branchId") && employee.get("branchId") !== current!.get("branchId")) ||
+            typeof employee.get("fullName") !== "string" || !employee.get("fullName").trim())
+            throw new HttpsError("failed-precondition", "Enter an active employee's HR staff ID for this store.");
+          assignedStaff = { employeeId, staffId: input.staffId, name: employee.get("fullName") };
+        }
+        const now = FieldValue.serverTimestamp();
+        transaction.update(caseRef, { assignedStaff, assignmentReason: input.reason, assignedAt: now, assignedBy: actor.userId, updatedAt: now, updatedBy: actor.userId });
+        transaction.create(operation, { organizationId: actor.organizationId, action: "updateAftersalesCase", entityId: caseRef.id, requestFingerprint: fingerprint(input), status: "completed", createdAt: now, createdBy: actor.userId });
+        writeAuditLog(transaction, actor, {
+          action: "aftersales_case.staff_assigned", entityType: "aftersalesCase", entityId: caseRef.id,
+          correlationId: correlationId(), sourceFunction: "updateAftersalesCase", reason: input.reason,
+          before: { assignedStaff: current!.get("assignedStaff") ?? null },
+          after: { assignedStaff, branchId: current!.get("branchId"), customerName: current!.get("customerName") ?? null },
+        });
         return;
       }
       const oldStatus = String(current!.get("status"));

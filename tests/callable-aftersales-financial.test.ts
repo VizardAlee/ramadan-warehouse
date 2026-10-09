@@ -53,6 +53,50 @@ beforeAll(async () => {
 afterAll(async () => Promise.all(apps.map((app) => deleteApp(app))));
 
 describe.sequential("aftersales and ledger-derived reports", () => {
+  it("assigns existing employees without app accounts and audits reassignment without stock or financial changes", async () => {
+    const created = await call<{ caseId: string }>("createAftersalesCase", { branchId, customerId, serviceType: "warranty", requestType: "repair", complaint: "Inspect inverter for warranty repair", idempotencyKey: crypto.randomUUID() });
+    const employeeId = "service-technician";
+    const employee = adminDb.doc(`employees/${employeeId}`);
+    const mapping = adminDb.doc(`employeeStaffIds/${organizationId}_TECH-01`);
+    await employee.set({ organizationId, staffId: "TECH-01", fullName: "Amina Technician", branchId, status: "active", userId: null, phone: "private-phone", monthlySalaryMinor: 9999 });
+    await mapping.set({ organizationId, employeeId });
+    for (const [name, roleId, assignedBranch] of [["cashier", "sales_cashier", branchId], ["other-manager", "branch_manager", "unassigned-service-store"]]) {
+      const account = await adminAuth.createUser({ email: `${name}-assignment@example.test`, password: "Password!234567" });
+      await adminDb.doc(`users/${account.uid}`).set({ uid: account.uid, organizationId, roleId, branchIds: [assignedBranch], warehouseIds: [], status: "active", authDisabled: false, authorizationVersion: 1 });
+      const unauthorized = client(`${name}-assignment`);
+      await signInWithEmailAndPassword(unauthorized.auth, `${name}-assignment@example.test`, "Password!234567");
+      await expect(httpsCallable(unauthorized.functions, "updateAftersalesCase")({ caseId: created.caseId, action: "assign_staff", staffId: "TECH-01", reason: "Unauthorized assignment attempt", idempotencyKey: crypto.randomUUID() })).rejects.toMatchObject({ code: "functions/permission-denied" });
+    }
+    const beforeStock = (await adminDb.collection("inventoryEntries").count().get()).data().count;
+    const beforeJournals = (await adminDb.collection("journalEntries").count().get()).data().count;
+    const input = { caseId: created.caseId, action: "assign_staff", staffId: "tech-01", reason: "Assign experienced repair technician", idempotencyKey: crypto.randomUUID() };
+    expect(await call("updateAftersalesCase", input)).toMatchObject({ updated: true });
+    expect(await call("updateAftersalesCase", input)).toMatchObject({ updated: false });
+    await expect(call("updateAftersalesCase", { ...input, staffId: null })).rejects.toMatchObject({ code: "functions/invalid-argument" });
+    const saved = await adminDb.doc(`aftersalesCases/${created.caseId}`).get();
+    expect(saved.get("assignedStaff")).toEqual({ employeeId, staffId: "TECH-01", name: "Amina Technician" });
+    expect(saved.get("status")).toBe("open");
+    const fresh = () => ({ ...input, idempotencyKey: crypto.randomUUID() });
+    for (const changes of [{ status: "inactive" }, { status: "on_leave" }, { status: "active", organizationId: "foreign-org" }, { organizationId, status: "active", branchId: "foreign-store" }]) {
+      await employee.update(changes);
+      await expect(call("updateAftersalesCase", fresh())).rejects.toMatchObject({ code: "functions/failed-precondition" });
+    }
+    await employee.update({ organizationId, status: "active", branchId: null });
+    expect(await call("updateAftersalesCase", fresh())).toMatchObject({ updated: true });
+    const history = await adminDb.collection("auditLogs").where("entityId", "==", created.caseId).get();
+    const events = history.docs.filter(doc => doc.get("action") === "aftersales_case.staff_assigned");
+    expect(events).toHaveLength(2);
+    expect(events[0]!.get("after").assignedStaff).toEqual({ employeeId, staffId: "TECH-01", name: "Amina Technician" });
+    expect(events[0]!.get("reason")).toBe(input.reason);
+    const unassign = { ...fresh(), staffId: null, reason: "Return case to unassigned service queue" };
+    await call("updateAftersalesCase", unassign);
+    expect((await saved.ref.get()).get("assignedStaff")).toBeNull();
+    await saved.ref.update({ status: "completed" });
+    await expect(call("updateAftersalesCase", fresh())).rejects.toMatchObject({ code: "functions/failed-precondition" });
+    expect((await adminDb.collection("journalEntries").count().get()).data().count).toBe(beforeJournals);
+    expect((await adminDb.collection("inventoryEntries").count().get()).data().count).toBe(beforeStock);
+    expect((await employee.get()).get("userId")).toBeNull();
+  });
   it("receives partial supplier replacements at original cost with shared credit limits and safe concurrent retries", async () => {
     const returnId = "replacement-return", itemId = "replacement-item", caseId = "replacement-case", handoverId = "replacement-handover", locationId = "replacement-location", product = "replacement-product";
     const base = { organizationId, branchId, productId: product, saleId: "replacement-sale" };

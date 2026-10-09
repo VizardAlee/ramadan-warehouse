@@ -22,13 +22,24 @@ export const createAftersalesCaseInput = z.object({
   idempotencyKey: z.string().uuid(),
 });
 
-export const updateAftersalesCaseInput = z.object({
+const changeAftersalesStatusInput = z.object({
   caseId: id,
   status: z.enum(["diagnosed", "in_service", "awaiting_collection", "completed", "cancelled"]),
   resolution: text.min(5).max(1_000),
   notes: text.max(1_000).optional(),
   idempotencyKey: z.string().uuid(),
 });
+
+export const updateAftersalesCaseInput = z.union([
+  z.object({
+    caseId: id,
+    action: z.literal("assign_staff"),
+    staffId: z.string().trim().min(2).max(40).regex(/^[A-Za-z0-9-]+$/).transform(value => value.toUpperCase()).nullable(),
+    reason: text.min(5).max(500),
+    idempotencyKey: z.string().uuid(),
+  }).strict(),
+  changeAftersalesStatusInput,
+]);
 
 export const setAftersalesChargeInput = z.object({
   caseId: id,

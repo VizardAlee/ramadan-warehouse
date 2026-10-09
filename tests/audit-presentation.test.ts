@@ -14,6 +14,7 @@ describe("plain-language audit presentation", () => {
     expect(auditActionTitle("user.created")).toBe("Created a user");
     expect(auditActionTitle("sales_order.payment_confirmed_inventory_released")).toBe("Confirmed payment and released sale stock");
     expect(auditActionTitle("user.invitation_reissued")).toBe("Sent a new user invitation");
+    expect(auditActionTitle("aftersales_case.staff_assigned")).toBe("Assigned or changed the staff responsible for service");
     expect(auditActionTitle("somethingNewHappened")).toBe("Recorded something new happened");
   });
 

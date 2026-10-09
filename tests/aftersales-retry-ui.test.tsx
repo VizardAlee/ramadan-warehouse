@@ -12,6 +12,17 @@ vi.mock("@/features/returns/held-return-disposition", () => ({ HeldReturnDisposi
 const workspace = { cases: [{ id: "case", branchId: "store", customerName: "Amina", serviceType: "non_warranty", requestType: "repair", complaint: "Repair cable", status: "open", chargeStatus: "due", chargeAmountMinor: 2000, outstandingAmountMinor: 2000 }], customers: [], products: [], sales: [], suppliers: [], bankAccounts: [] };
 afterEach(() => { cleanup(); sessionStorage.clear(); vi.resetAllMocks(); state.auth.operatingContext.id = "store"; });
 describe("service action retries", () => {
+  it("assigns an existing HR employee without changing the service status or financial instructions", async () => {
+    state.call.mockImplementation(name => Promise.resolve(name === "getAftersalesWorkspace" ? workspace : { updated: true }));
+    render(<AftersalesPage />);
+    fireEvent.change(await screen.findByLabelText("HR staff ID"), { target: { value: "TECH-01" } });
+    fireEvent.change(screen.getByLabelText("Assignment reason"), { target: { value: "Repair assigned to specialist" } });
+    const button = screen.getByRole("button", { name: "Save staff assignment" });
+    await waitFor(() => expect((button.closest("fieldset") as HTMLFieldSetElement).disabled).toBe(false));
+    fireEvent.click(button);
+    await screen.findByText("Service staff assignment saved and audited.");
+    expect(state.call.mock.calls.find(call => call[0] === "updateAftersalesCase")![1]).toEqual({ caseId: "case", action: "assign_staff", staffId: "TECH-01", reason: "Repair assigned to specialist", idempotencyKey: expect.any(String) });
+  });
   it("preserves the exact payment after interruption, reload and access denial", async () => {
     state.call.mockImplementation(name => name === "getAftersalesWorkspace" ? Promise.resolve(workspace) : Promise.reject(new Error("Connection interrupted")));
     const view = render(<AftersalesPage />);

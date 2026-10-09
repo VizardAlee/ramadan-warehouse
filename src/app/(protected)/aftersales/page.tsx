@@ -31,6 +31,8 @@ interface Case extends HeldReturnCase {
   chargeAmountMinor?: number;
   amountPaidMinor?: number;
   outstandingAmountMinor?: number;
+  assignedStaff?: { employeeId: string; staffId: string; name: string } | null;
+  assignmentReason?: string;
 }
 interface Workspace {
   cases: Case[];
@@ -95,6 +97,8 @@ function AftersalesWorkspace() {
     method: "cash" | "card" | "bank_transfer";
     bankAccountId: string;
     reference: string;
+    staffId: string;
+    assignmentReason: string;
   }>>({});
   const branchId = operatingContext?.type === "branch" ? operatingContext.id : "";
 
@@ -192,7 +196,7 @@ function AftersalesWorkspace() {
       <section className="space-y-3">
         <h2 className="text-xl font-semibold">Service cases</h2>
         {workspace?.cases.map((item) => {
-          const form = caseDrafts[item.id] ?? { status: "", resolution: "", chargeNaira: "", chargeReason: "", paymentNaira: "", method: "cash" as const, bankAccountId: "", reference: "" };
+          const form = caseDrafts[item.id] ?? { status: "", resolution: "", chargeNaira: "", chargeReason: "", paymentNaira: "", method: "cash" as const, bankAccountId: "", reference: "", staffId: item.assignedStaff?.staffId ?? "", assignmentReason: "" };
           const set = (changes: Partial<typeof form>) => setCaseDrafts({ ...caseDrafts, [item.id]: { ...form, ...changes } });
           const chargeMinor = minorOrNaN(form.chargeNaira);
           const paymentMinor = minorOrNaN(form.paymentNaira);
@@ -206,11 +210,22 @@ function AftersalesWorkspace() {
                   <p className="mt-2 text-sm">{item.complaint}</p>
                   {can("expenses.create") && can("expenses.read") && <Link className="mt-3 inline-block text-sm font-semibold underline" href={`/expenses?caseId=${encodeURIComponent(item.id)}&branchId=${encodeURIComponent(item.branchId)}`}>Record outsourced service / logistics cost</Link>}
                   {item.resolution && <p className="mt-1 text-sm"><strong>Resolution:</strong> {item.resolution}</p>}
+                  <p className="mt-2 text-sm"><strong>Assigned staff:</strong> {item.assignedStaff ? `${item.assignedStaff.name} · ${item.assignedStaff.staffId}` : "Not assigned"}</p>
+                  {item.assignmentReason && <p className="text-sm text-[var(--muted)]">Assignment: {item.assignmentReason}</p>}
                 </div>
                 <div className="text-right text-sm"><span className="rounded-full bg-slate-100 px-3 py-1 capitalize">{item.status.replaceAll("_", " ")}</span><p className="mt-2 capitalize">{item.chargeStatus.replaceAll("_", " ")}</p>{item.chargeAmountMinor !== undefined && <p>{formatNaira(item.amountPaidMinor ?? 0)} paid / {formatNaira(item.chargeAmountMinor)}</p>}</div>
               </div>
               <OperationalPhotos kind="aftersales" recordId={item.id} stage={item.status === "open" ? "intake" : ["diagnosed", "in_service"].includes(item.status) ? "diagnosis" : "handover"} serials={item.serialNumber ? [item.serialNumber] : []} canUpload={item.status !== "cancelled" && can(item.status === "open" ? "sales.returns.create" : "sales.returns.approve")} />
               <HeldReturnDisposition record={item} suppliers={workspace.suppliers ?? []} canDispose={can("sales.returns.approve") && can("inventory.adjust")} canHandover={can("procurement.receive") && can("suppliers.read")} canReadHistory={can("inventory.read")} canReadSettlement={can("procurement.read") && can("payables.read")} canSettle={can("procurement.receive") && can("payables.approve") && can("sales.returns.approve")} canReceiveReplacement={can("procurement.receive") && can("inventory.receive") && can("sales.returns.approve")} onComplete={() => void load()} />
+              {can("sales.returns.approve") && !["completed", "cancelled"].includes(item.status) && <details className="mt-4 rounded-lg border p-3">
+                <summary className="cursor-pointer text-sm font-semibold">Assign / change service staff</summary>
+                <p className="mt-2 text-sm text-[var(--muted)]">Use the employee&apos;s staff ID from HR. They need not have an app account. Only active staff in this store, or organization-wide staff, can be assigned. Leave the ID blank to remove the assignment.</p>
+                <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-[minmax(0,10rem)_minmax(0,1fr)_auto]">
+                  <label className="text-sm">HR staff ID<input maxLength={40} value={form.staffId} onChange={event => set({ staffId: event.target.value })} className="mt-1 w-full rounded-lg border p-3" /></label>
+                  <label className="text-sm">Assignment reason<input maxLength={500} value={form.assignmentReason} onChange={event => set({ assignmentReason: event.target.value })} className="mt-1 w-full rounded-lg border p-3" /></label>
+                  <Button className="self-end" disabled={busy || form.assignmentReason.trim().length < 5 || (form.staffId.trim() !== "" && !/^[A-Za-z0-9-]{2,40}$/.test(form.staffId.trim())) || (!item.assignedStaff && !form.staffId.trim())} onClick={() => void run("updateAftersalesCase", { caseId: item.id, action: "assign_staff", staffId: form.staffId.trim() || null, reason: form.assignmentReason, idempotencyKey: crypto.randomUUID() }, "Service staff assignment saved and audited.")}>Save staff assignment</Button>
+                </div>
+              </details>}
               {can("sales.returns.approve") && !["completed", "cancelled"].includes(item.status) && (
                 <div className="mt-4 grid gap-3 border-t pt-4 md:grid-cols-[minmax(0,12rem)_minmax(0,1fr)_auto]">
                   <select aria-label="Next service status" value={form.status} onChange={(event) => set({ status: event.target.value })} className="rounded-lg border p-3"><option value="">Next status</option>{(transitions[item.status] ?? []).map((step) => <option key={step.value} value={step.value}>{step.label}</option>)}</select>

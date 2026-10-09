@@ -1,6 +1,29 @@
 # Business workflow expansion (24 September 2026 baseline)
 
-## Aftersales action retry safety — 10 October 2026 (release validation)
+## Aftersales staff ownership — 10 October 2026 (implementation validation)
+
+The existing updateAftersalesCase operation supports independently assigning,
+reassigning or removing an existing HR employee by staff ID and reason. It reuses
+HR's unique employee mapping, accepts employees without app accounts, validates
+organization, active status and store assignment inside the transaction, and
+captures the minimum employee identity snapshot in the case and append-only audit.
+Salary/contact fields are not copied or exposed. Closed cases reject reassignment.
+The existing per-user saved-instructions retry protection covers assignment too.
+No stock, payments, salary terms or accounting entries are changed. Historical
+cases remain unassigned until explicitly updated; no destructive migration.
+This implements staff ownership, not service catalogue billing, parts consumption
+or accrual/refunds. Nine targeted UI/schema/audit tests and three focused emulator
+cases pass, including employees with no login, inactive/on-leave/foreign employee
+denials, wrong-store and missing-permission denials, exact replay, changed replay,
+unassignment and closed-case rejection without stock/journal effects. The full
+suite passes 395 tests across 102 files. Typecheck, lint, Functions compilation,
+production build, secret scan and diff checks pass; the unchanged rules passed
+26 cases with one Storage skip in the immediately preceding retry release.
+All 454 live query shapes pass with zero missing indexes and the reviewed source
+baseline is refreshed. Deployment scope: updateAftersalesCase and App Hosting.
+No IAM change, live business test posting or historical rewrite is required.
+
+## Aftersales action retry safety — 10 October 2026 (deployed)
 
 Before expanding non-stock services, existing case creation, status changes,
 charge decisions and service receipts now retain exact uncertain instructions in
@@ -22,8 +45,18 @@ The full suite passes 393 cases across 102 files. Typecheck, lint, Functions
 compilation, production build, secret scan and diff checks pass. Rules checks pass
 26 cases with one Storage-only skip. The matching live planner audit passes all
 454 query shapes without missing indexes; its source baseline is refreshed.
-No business data migration or IAM change is planned. Deployment follows these
-checks; this paragraph alone is not release-completion evidence.
+Source 1621f0e is pushed and deployed. The five existing callables printed
+Successful update / Deploy complete and are ACTIVE at 100% traffic without
+reconciliation: getaftersalesworkspace-00010-xez, createaftersalescase-00005-jub,
+updateaftersalescase-00005-fab, setaftersalescharge-00005-heb and
+recordaftersalespayment-00005-cuq. Production mode, App Check and the original
+runtime identity remain intact; all five unauthenticated probes return HTTP 401.
+App Hosting printed Rollout complete / Deploy complete; build-2026-10-09-024 is
+READY and rollout SUCCEEDED at 100% traffic without reconciliation. Aftersales,
+Guide, POS and the manifest return HTTP 200; all eleven aftersales scripts load
+and include the saved-service-instructions retry control. No live business
+records were posted and no IAM change or migration was made. Auth-barrier/public
+probes are not signed-in business acceptance; emulator business proof is separate.
 
 ## Older collection history — 9 October 2026 (deployed)
 
