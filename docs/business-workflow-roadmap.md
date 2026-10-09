@@ -1,6 +1,27 @@
 # Business workflow expansion (24 September 2026 baseline)
 
-## Customer unused-advance refunds — 9 October 2026 (implementation)
+## Atomic sales-order confirmation — 9 October 2026 (implementation)
+
+Safety dependency before direct POS advance tender. Final confirmation now reads
+the accepted order and posts its completion, sale, stock/reservation, journal,
+notification and audit within the same Firestore transaction. A concurrent
+rejection cannot leave a rejected order with posted inventory/accounting. New
+checkout operations fingerprint all sale instructions and the linked order;
+new sales retain the order ID. Existing pre-change posting recovery is retained
+without rewriting old transactions. No new collections, permissions or indexes.
+Regression checks cover completion-write failure rollback, exact retry,
+changed-instruction replay denial and confirmation-versus-rejection races for
+immediate collection and reservations. Final validation passed 330 unit/interface
+tests, all 59 emulator sales/accounting/Firestore/Storage security cases,
+typecheck, lint, Functions compilation, production build, secret scan and diff
+checks. The initial emulator run used an earlier compiled function for the final
+legacy-reference assertion; rebuilding and the clean sequential full rerun
+passed. Live planner audit passed 441/441 with all 224 indexes READY; unchanged
+query catalog, guarded source baseline refreshed after readiness verification.
+Release in progress; not yet deployed. POS advance tender remains next,
+followed by arrangement statements.
+
+## Customer unused-advance refunds — 9 October 2026 (deployed)
 
 Extends existing customer payments, arrangements, advance balances and journals;
 no second customer-account module. Authorized customer-payment/return-approval
@@ -27,7 +48,18 @@ audit passed 441/441, all 224 indexes READY, existing query shapes unchanged;
 the guarded source baseline was refreshed only after this verification. Final
 validation passed 330 unit/interface tests and 57 emulator/security cases (387
 distinct tests), typecheck, lint, Functions compilation, production build, secret
-scan and diff checks. Release is in progress; not yet deployed.
+scan and diff checks.
+
+Release proof for source `ac6a9e3`: Firebase explicitly completed
+`recordCustomerPayment`, revision `recordcustomerpayment-00009-xef` ACTIVE,
+production mode, App Check enabled, 100% traffic and reconciling false. Runtime
+service account and existing invoker settings unchanged; unauthenticated calls
+return Firebase HTTP 401. App Hosting `build-2026-10-09-012` is READY, rollout
+SUCCEEDED, 100% traffic and reconciling false. Customers, Guide, POS, Returns and
+all 16 referenced JavaScript assets return 200; refund and reference controls
+are present. Initial deployment attempts failed before upload on intermittent
+Google API connection checks; retries completed without permission changes.
+Authorized financial behavior was tested in emulators, not real business records.
 
 ## Linked supplier replacement receipts — 9 October 2026 (deployed)
 

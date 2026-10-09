@@ -1304,6 +1304,7 @@ async function postPosSale(
   allowWorkflowShift = false,
   workflowCreditAuthorization?: { authorizedBy: string; customerId: string; amountMinor: number },
   deferCollection = false,
+  workflowOrder?: { id: string; confirmationIdempotencyKey: string },
 ) {
   requirePermission(actor, "sales.create");
   if (
@@ -1377,6 +1378,7 @@ async function postPosSale(
     );
     const cid = correlationId();
     const serialFingerprint = input.lines.some(line => line.serialNumbers?.length) ? createHash("sha256").update(JSON.stringify({ input, deferCollection })).digest("hex") : null;
+    const postingFingerprint = createHash("sha256").update(JSON.stringify({ input, deferCollection, salesOrderId: workflowOrder?.id ?? null })).digest("hex");
     let result = { saleId: sale.id, saleNumber: "", receiptNumber: "", posted: true };
     await db.runTransaction(async (transaction) => {
       const snapshots = await transaction.getAll(
@@ -1414,9 +1416,22 @@ async function postPosSale(
       const centralPrices = snapshots.slice(cursor, (cursor += input.lines.length));
       const branchPrices = snapshots.slice(cursor, (cursor += input.lines.length));
       const balances = snapshots.slice(cursor, (cursor += input.lines.length));
+      const orderSnapshot = workflowOrder
+        ? await transaction.get(db.doc(`salesOrders/${workflowOrder.id}`)) : null;
+      if (orderSnapshot && (!orderSnapshot.exists ||
+        orderSnapshot.get("organizationId") !== actor.organizationId ||
+        orderSnapshot.get("branchId") !== input.branchId))
+        throw new HttpsError("not-found", "Sales order not found.");
       if (previousOperation.exists) {
+        if (previousOperation.get("postingFingerprint") && previousOperation.get("postingFingerprint") !== postingFingerprint)
+          throw new HttpsError("invalid-argument", "This checkout reference belongs to different sale instructions. Retry the original sale.");
         if (previousOperation.get("serialFingerprint") && previousOperation.get("serialFingerprint") !== serialFingerprint)
           throw new HttpsError("invalid-argument", "Retry the original serialized sale without changing its details.");
+        if (orderSnapshot && !previousOperation.get("postingFingerprint")) {
+          const created = orderSnapshot.get("createdAt"), posted = previousOperation.get("createdAt");
+          if (!(created instanceof Timestamp) || !(posted instanceof Timestamp) || created.toMillis() > posted.toMillis())
+            throw new HttpsError("failed-precondition", "This historical checkout reference cannot belong to this order. Review the original receipt.");
+        }
         result = {
           saleId: String(previousOperation.get("entityId")),
           saleNumber: String(previousOperation.get("saleNumber")),
@@ -1425,6 +1440,12 @@ async function postPosSale(
         };
         return;
       }
+      // Read the workflow control inside the posting transaction, so rejection
+      // and confirmation cannot both commit against the same accepted order.
+      if (orderSnapshot && orderSnapshot.get("status") !== "payment_accepted")
+        throw new HttpsError("failed-precondition", "This order is no longer awaiting payment confirmation. Refresh the workflow queue.");
+      if (orderSnapshot && JSON.stringify(parseInput(commitSaleInput, orderSnapshot.get("payload"))) !== JSON.stringify(input))
+        throw new HttpsError("aborted", "The accepted order changed. Refresh before confirming it.");
       const saleSerials = await readSaleSerials(transaction, { organizationId: actor.organizationId, locationId: location.id, saleId: sale.id }, input.lines.map((line, index) => ({ ...line, trackingType: String(products[index]!.get("trackingType")) })), deferCollection ? "reserve" : "sell");
       if (input.offline && saleSerials.some(line => line.length))
         throw new HttpsError("failed-precondition", "Serialized sales require an online ownership check. Quantity-tracked offline POS remains available.");
@@ -1699,6 +1720,7 @@ async function postPosSale(
         deviceId: input.deviceId,
         saleNumber,
         receiptNumber,
+        salesOrderId: workflowOrder?.id,
         exchangeReturnIds: input.payments.flatMap((payment, index) => payment.method === "exchange_credit" ? [salesCreditSnapshots[index]!.get("returnId")] : []),
         exchangeOriginalSaleIds: input.payments.flatMap((payment, index) => payment.method === "exchange_credit" ? [salesCreditSnapshots[index]!.get("saleId")] : []),
         provisionalReceiptReference: input.provisionalReceiptReference,
@@ -2074,6 +2096,7 @@ async function postPosSale(
         organizationId: actor.organizationId,
         action: "commitPosSale",
         serialFingerprint,
+        postingFingerprint,
         entityId: sale.id,
         saleNumber,
         receiptNumber,
@@ -2081,6 +2104,29 @@ async function postPosSale(
         createdAt: now,
         createdBy: actor.userId,
       });
+      if (orderSnapshot && workflowOrder) {
+        const collectionStatus = deferCollection ? "awaiting_collection" : "collected";
+        transaction.update(orderSnapshot.ref, {
+          status: "completed", saleId: sale.id, saleNumber, receiptNumber,
+          paymentConfirmedAt: now, paymentConfirmedBy: actor.userId,
+          collectionStatus,
+          inventoryReleasedAt: deferCollection ? null : now,
+          inventoryReleasedBy: deferCollection ? null : actor.userId,
+          confirmationIdempotencyKey: workflowOrder.confirmationIdempotencyKey,
+          completedAt: now, updatedAt: now, updatedBy: actor.userId,
+        });
+        writeInAppEvent(transaction, {
+          organizationId: actor.organizationId, entityId: orderSnapshot.id,
+          eventType: "sales_order.completed", branchId: input.branchId,
+          referenceNumber: String(orderSnapshot.get("orderNumber")), actorUserId: actor.userId,
+        });
+        writeAuditLog(transaction, actor, {
+          action: deferCollection ? "sales_order.payment_confirmed_stock_reserved" : "sales_order.payment_confirmed_inventory_released",
+          entityType: "salesOrder", entityId: orderSnapshot.id, correlationId: cid,
+          sourceFunction: "confirmPosSaleOrder",
+          after: { branchId: input.branchId, orderNumber: orderSnapshot.get("orderNumber"), saleId: sale.id, saleNumber, receiptNumber },
+        });
+      }
       writeAuditLog(transaction, actor, {
         action: "sale.completed",
         entityType: "sale",
@@ -2167,7 +2213,9 @@ export const confirmPosSaleOrder = onCall(
             customerId: String(current.get("creditAuthorizedCustomerId")),
             amountMinor: Number(current.get("creditAuthorizedAmountMinor")) }
         : undefined;
-    const saleResult = await postPosSale(actor, payload, true, workflowCreditAuthorization, input.deferCollection);
+    const saleResult = await postPosSale(actor, payload, true, workflowCreditAuthorization, input.deferCollection, { id: order.id, confirmationIdempotencyKey: input.idempotencyKey });
+    // Compatibility recovery for a sale posted before atomic order completion
+    // was introduced. New postings have already completed this order atomically.
     await db.runTransaction(async (transaction) => {
       const snapshots = await transaction.getAll(order, db.doc(`sales/${saleResult.saleId}`));
       const latest = snapshots[0]!;

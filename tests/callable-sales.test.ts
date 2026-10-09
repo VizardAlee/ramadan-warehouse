@@ -748,6 +748,85 @@ describe.sequential("sales callables", () => {
     ).resolves.toMatchObject({ closed: true });
   });
 
+  it("rolls back sale posting if atomic workflow completion cannot commit, and safely retries", async () => {
+    const deviceId = crypto.randomUUID();
+    const shift = await call<{ shiftId: string }>(branchManager, "openPosShift", { branchId, deviceId, deviceName: "Atomic confirmation", openingCashMinor: 0, idempotencyKey: crypto.randomUUID() });
+    const checkout = { branchId, shiftId: shift.shiftId, deviceId, recordedAt: new Date().toISOString(), offline: false,
+      lines: [{ productId, quantity: 1 }], payments: [{ method: "cash", amountMinor: 12900 }], idempotencyKey: crypto.randomUUID() };
+    const order = await call<{ orderId: string }>(branchManager, "createPosSaleOrder", checkout);
+    await call(branchManager, "acceptPosSaleOrderPayment", { orderId: order.orderId, shiftId: shift.shiftId, deviceId, idempotencyKey: crypto.randomUUID() });
+    const balance = adminDb.doc(`inventoryBalances/${balanceDocumentId(organizationId, productId, locationId)}`);
+    const before = (await balance.get()).data();
+    const event = adminDb.doc(`notificationEvents/sales_order_completed_${order.orderId}`);
+    // Force the final create to fail: the whole stock/journal/order transaction
+    // must roll back, rather than leaving a financially posted accepted order.
+    await event.create({ organizationId, testConflict: true });
+    const confirm = { orderId: order.orderId, idempotencyKey: crypto.randomUUID() };
+    await expect(call(branchManager, "confirmPosSaleOrder", confirm)).rejects.toBeDefined();
+    expect((await adminDb.doc(`salesOrders/${order.orderId}`).get()).get("status")).toBe("payment_accepted");
+    expect((await balance.get()).data()).toEqual(before);
+    expect((await adminDb.doc(`posShifts/${shift.shiftId}`).get()).get("saleCount")).toBe(0);
+    expect((await adminDb.doc(`idempotencyKeys/${organizationId}_commitPosSale_${checkout.idempotencyKey}`).get()).exists).toBe(false);
+    await event.delete();
+    const completed = await call<{ saleId: string }>(branchManager, "confirmPosSaleOrder", confirm);
+    expect((await adminDb.doc(`sales/${completed.saleId}`).get()).get("salesOrderId")).toBe(order.orderId);
+    expect((await adminDb.doc(`salesOrders/${order.orderId}`).get()).data()).toMatchObject({ status: "completed", saleId: completed.saleId, confirmationIdempotencyKey: confirm.idempotencyKey });
+    expect((await balance.get()).get("onHandQuantity")).toBe(Number(before!.onHandQuantity) - 1);
+    expect((await event.get()).get("eventType")).toBe("sales_order.completed");
+    expect(await call(branchManager, "confirmPosSaleOrder", confirm)).toMatchObject({ posted: false, saleId: completed.saleId });
+    await expect(call(branchManager, "commitPosSale", { ...checkout, payments: [{ method: "cash", amountMinor: 25800 }], lines: [{ productId, quantity: 2 }] })).rejects.toMatchObject({ code: "functions/invalid-argument" });
+    const operation = adminDb.doc(`idempotencyKeys/${organizationId}_commitPosSale_${checkout.idempotencyKey}`);
+    // Emulate an older successfully posted checkout whose separate order
+    // completion failed. Retrying must link it, without posting a second sale.
+    await operation.update({ postingFingerprint: FieldValue.delete() });
+    await adminDb.doc(`salesOrders/${order.orderId}`).update({ status: "payment_accepted" });
+    await event.delete();
+    expect(await call(branchManager, "confirmPosSaleOrder", confirm)).toMatchObject({ posted: false, saleId: completed.saleId });
+    expect((await adminDb.doc(`posShifts/${shift.shiftId}`).get()).get("saleCount")).toBe(1);
+    expect((await adminDb.doc(`salesOrders/${order.orderId}`).get()).get("status")).toBe("completed");
+    const clonedOrder = adminDb.collection("salesOrders").doc();
+    await clonedOrder.set({ ...(await adminDb.doc(`salesOrders/${order.orderId}`).get()).data(), status: "payment_accepted", createdAt: FieldValue.serverTimestamp() });
+    await expect(call(branchManager, "confirmPosSaleOrder", { orderId: clonedOrder.id, idempotencyKey: crypto.randomUUID() })).rejects.toMatchObject({ code: "functions/failed-precondition" });
+    expect((await clonedOrder.get()).get("status")).toBe("payment_accepted");
+    expect((await adminDb.doc(`posShifts/${shift.shiftId}`).get()).get("saleCount")).toBe(1);
+  });
+
+  it("allows only rejection or confirmation to win a concurrent accepted-order race", async () => {
+    const deviceId = crypto.randomUUID();
+    const shift = await call<{ shiftId: string }>(branchManager, "openPosShift", { branchId, deviceId, deviceName: "Concurrent confirmation", openingCashMinor: 0, idempotencyKey: crypto.randomUUID() });
+    const balance = adminDb.doc(`inventoryBalances/${balanceDocumentId(organizationId, productId, locationId)}`);
+    for (let round = 0; round < 3; round++) {
+      const checkout = { branchId, shiftId: shift.shiftId, deviceId, recordedAt: new Date().toISOString(), offline: false,
+        lines: [{ productId, quantity: 1 }], payments: [{ method: "cash", amountMinor: 12900 }], idempotencyKey: crypto.randomUUID() };
+      const order = await call<{ orderId: string }>(branchManager, "createPosSaleOrder", checkout);
+      await call(branchManager, "acceptPosSaleOrderPayment", { orderId: order.orderId, shiftId: shift.shiftId, deviceId, idempotencyKey: crypto.randomUUID() });
+      const before = await balance.get();
+      await Promise.allSettled([
+        call(branchManager, "confirmPosSaleOrder", { orderId: order.orderId, idempotencyKey: crypto.randomUUID(), deferCollection: round === 1 }),
+        call(administrator, "confirmPosSaleOrder", { orderId: order.orderId, idempotencyKey: crypto.randomUUID(), deferCollection: round === 1 }),
+        call(branchManager, "rejectPosSaleOrder", { orderId: order.orderId, reason: "Customer cancelled while payment was reviewed", idempotencyKey: crypto.randomUUID() }),
+      ]);
+      const current = await adminDb.doc(`salesOrders/${order.orderId}`).get();
+      const op = await adminDb.doc(`idempotencyKeys/${organizationId}_commitPosSale_${checkout.idempotencyKey}`).get();
+      const after = await balance.get();
+      expect(["completed", "rejected"]).toContain(current.get("status"));
+      if (current.get("status") === "rejected") {
+        expect(op.exists).toBe(false);
+        expect(after.data()).toEqual(before.data());
+        expect((await adminDb.doc(`notificationEvents/sales_order_completed_${order.orderId}`).get()).exists).toBe(false);
+      } else {
+        expect(op.get("entityId")).toBe(current.get("saleId"));
+        const sale = await adminDb.doc(`sales/${current.get("saleId")}`).get();
+        expect(sale.get("salesOrderId")).toBe(order.orderId);
+        const journal = await adminDb.doc(`journalEntries/${sale.get("journalEntryId")}`).get();
+        expect(journal.get("totalDebitMinor")).toBe(journal.get("totalCreditMinor"));
+        expect(after.get("onHandQuantity")).toBe(Number(before.get("onHandQuantity")) - (round === 1 ? 0 : 1));
+        expect(after.get("reservedQuantity")).toBe(Number(before.get("reservedQuantity")) + (round === 1 ? 1 : 0));
+        await expect(call(branchManager, "rejectPosSaleOrder", { orderId: order.orderId, reason: "Cannot reject a posted sale", idempotencyKey: crypto.randomUUID() })).rejects.toMatchObject({ code: "functions/failed-precondition" });
+      }
+    }
+  });
+
   it("posts an audited discount with partial customer credit, enforces the limit, and records repayment", async () => {
     const saved = await call<{ customerId: string; customerNumber: string }>(
       branchManager,
