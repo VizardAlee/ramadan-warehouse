@@ -1,4 +1,5 @@
 import { FieldValue, Timestamp } from "firebase-admin/firestore";
+import { createHash } from "node:crypto";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
 import { db } from "../admin.js";
 import { operationalEvidence, operationalEvidenceInput } from "../sales/operational-evidence.js";
@@ -29,6 +30,12 @@ const permittedTransitions: Record<string, string[]> = {
   in_service: ["awaiting_collection", "cancelled"],
   awaiting_collection: ["completed"],
 };
+
+const fingerprint = (input: unknown) => createHash("sha256").update(JSON.stringify(input)).digest("hex");
+function checkRetry(previous: FirebaseFirestore.DocumentSnapshot, input: unknown) {
+  if (previous.get("requestFingerprint") && previous.get("requestFingerprint") !== fingerprint(input))
+    throw new HttpsError("invalid-argument", "This request reference belongs to different service instructions. Retry the saved original request.");
+}
 
 export const getAftersalesWorkspace = onCall(
   { enforceAppCheck },
@@ -98,6 +105,14 @@ export const createAftersalesCase = onCall(
       const [previous, branchSnapshot, customerSnapshot, productSnapshot, saleSnapshot] =
         await transaction.getAll(operation, branch, customer, product, sale);
       if (previous!.exists) {
+        checkRetry(previous!, input);
+        const original = await transaction.get(db.doc(`aftersalesCases/${String(previous!.get("entityId"))}`));
+        if (!original.exists || original.get("organizationId") !== actor.organizationId || original.get("branchId") !== input.branchId)
+          throw new HttpsError("not-found", "Original service request not found.");
+        if (!previous!.get("requestFingerprint") &&
+          ["customerId", "saleId", "productId", "serialNumber", "serviceType", "requestType", "complaint", "notes"].some(field =>
+            (original.get(field) ?? null) !== ((input as Record<string, unknown>)[field] ?? null)))
+          throw new HttpsError("invalid-argument", "Retry the original service request without changing its details.");
         result = { caseId: String(previous!.get("entityId")), created: false };
         return;
       }
@@ -131,7 +146,7 @@ export const createAftersalesCase = onCall(
         createdBy: actor.userId,
         updatedAt: now,
       });
-      transaction.create(operation, { organizationId: actor.organizationId, action: "createAftersalesCase", entityId: caseRef.id, status: "completed", createdAt: now, createdBy: actor.userId });
+      transaction.create(operation, { organizationId: actor.organizationId, action: "createAftersalesCase", entityId: caseRef.id, requestFingerprint: fingerprint(input), status: "completed", createdAt: now, createdBy: actor.userId });
       writeAuditLog(transaction, actor, {
         action: "aftersales_case.created",
         entityType: "aftersalesCase",
@@ -156,13 +171,18 @@ export const updateAftersalesCase = onCall(
     let result = { caseId: input.caseId, updated: true };
     await db.runTransaction(async (transaction) => {
       const [previous, current] = await transaction.getAll(operation, caseRef);
-      if (previous!.exists) {
-        result = { caseId: input.caseId, updated: false };
-        return;
-      }
       if (!current!.exists || current!.get("organizationId") !== actor.organizationId)
         throw new HttpsError("not-found", "Aftersales case not found.");
       requireBranchScope(actor, String(current!.get("branchId")));
+      if (previous!.exists) {
+        checkRetry(previous!, input);
+        if (previous!.get("entityId") !== input.caseId || (!previous!.get("requestFingerprint") &&
+          (current!.get("status") !== input.status || current!.get("resolution") !== input.resolution ||
+            (input.notes !== undefined && current!.get("notes") !== input.notes))))
+          throw new HttpsError("invalid-argument", "The original status request differs from these instructions. Review case history.");
+        result = { caseId: input.caseId, updated: false };
+        return;
+      }
       const oldStatus = String(current!.get("status"));
       if (!permittedTransitions[oldStatus]?.includes(input.status))
         throw new HttpsError("failed-precondition", "This aftersales status change is not permitted.");
@@ -177,7 +197,7 @@ export const updateAftersalesCase = onCall(
         updatedBy: actor.userId,
         ...(input.status === "completed" ? { completedAt: now } : {}),
       });
-      transaction.create(operation, { organizationId: actor.organizationId, action: "updateAftersalesCase", entityId: caseRef.id, status: "completed", createdAt: now, createdBy: actor.userId });
+      transaction.create(operation, { organizationId: actor.organizationId, action: "updateAftersalesCase", entityId: caseRef.id, requestFingerprint: fingerprint(input), status: "completed", createdAt: now, createdBy: actor.userId });
       writeAuditLog(transaction, actor, {
         action: "aftersales_case.status_changed",
         entityType: "aftersalesCase",
@@ -203,13 +223,17 @@ export const setAftersalesCharge = onCall(
     let result = { caseId: input.caseId, recorded: true };
     await db.runTransaction(async (transaction) => {
       const [previous, current] = await transaction.getAll(operation, caseRef);
-      if (previous!.exists) {
-        result = { caseId: input.caseId, recorded: false };
-        return;
-      }
       if (!current!.exists || current!.get("organizationId") !== actor.organizationId)
         throw new HttpsError("not-found", "Aftersales case not found.");
       requireBranchScope(actor, String(current!.get("branchId")));
+      if (previous!.exists) {
+        checkRetry(previous!, input);
+        if (previous!.get("entityId") !== input.caseId || (!previous!.get("requestFingerprint") &&
+          (current!.get("chargeAmountMinor") !== input.chargeAmountMinor || current!.get("chargeReason") !== input.reason)))
+          throw new HttpsError("invalid-argument", "Retry the original service charge without changing its details.");
+        result = { caseId: input.caseId, recorded: false };
+        return;
+      }
       if (["completed", "cancelled"].includes(String(current!.get("status"))) || current!.get("chargeStatus") !== "not_quoted")
         throw new HttpsError("failed-precondition", "The service charge is already set or the case is closed.");
       const now = FieldValue.serverTimestamp();
@@ -223,7 +247,7 @@ export const setAftersalesCharge = onCall(
         chargeSetBy: actor.userId,
         updatedAt: now,
       });
-      transaction.create(operation, { organizationId: actor.organizationId, action: "setAftersalesCharge", entityId: caseRef.id, status: "completed", createdAt: now, createdBy: actor.userId });
+      transaction.create(operation, { organizationId: actor.organizationId, action: "setAftersalesCharge", entityId: caseRef.id, requestFingerprint: fingerprint(input), status: "completed", createdAt: now, createdBy: actor.userId });
       writeAuditLog(transaction, actor, {
         action: "aftersales_case.charge_set",
         entityType: "aftersalesCase",
@@ -255,14 +279,21 @@ export const recordAftersalesPayment = onCall(
     await db.runTransaction(async (transaction) => {
       const [previous, current, accountSnapshot, counterSnapshot, periodSnapshot] =
         await transaction.getAll(operation, caseRef, bankAccount, journalCounter, period);
+      if (!current!.exists || current!.get("organizationId") !== actor.organizationId)
+        throw new HttpsError("not-found", "Aftersales case not found.");
+      requireBranchScope(actor, String(current!.get("branchId")));
       if (previous!.exists) {
+        checkRetry(previous!, input);
+        const original = await transaction.get(db.doc(`aftersalesPayments/${String(previous!.get("entityId"))}`));
+        if (!original.exists || original.get("organizationId") !== actor.organizationId || original.get("branchId") !== current!.get("branchId") ||
+          original.get("caseId") !== input.caseId ||
+          ["method", "amountMinor", "bankAccountId", "reference"].some(field =>
+            (original.get(field) ?? null) !== (field === "bankAccountId" && input.method === "cash" ? null : (input as Record<string, unknown>)[field] ?? null)))
+          throw new HttpsError("invalid-argument", "Retry the original service payment without changing its amount or account.");
         result = { paymentId: String(previous!.get("entityId")), recorded: false };
         return;
       }
       assertAccountingPeriodOpen(periodSnapshot!);
-      if (!current!.exists || current!.get("organizationId") !== actor.organizationId)
-        throw new HttpsError("not-found", "Aftersales case not found.");
-      requireBranchScope(actor, String(current!.get("branchId")));
       const outstanding = Number(current!.get("outstandingAmountMinor") ?? 0);
       if (current!.get("chargeStatus") === "not_quoted" || input.amountMinor > outstanding || outstanding <= 0 || current!.get("status") === "cancelled")
         throw new HttpsError("failed-precondition", "The service has no payable balance for this amount.");
@@ -335,7 +366,7 @@ export const recordAftersalesPayment = onCall(
         recordedAt: now,
         recordedBy: actor.userId,
       });
-      transaction.create(operation, { organizationId: actor.organizationId, action: "recordAftersalesPayment", entityId: payment.id, status: "completed", createdAt: now, createdBy: actor.userId });
+      transaction.create(operation, { organizationId: actor.organizationId, action: "recordAftersalesPayment", entityId: payment.id, requestFingerprint: fingerprint(input), status: "completed", createdAt: now, createdBy: actor.userId });
       writeAuditLog(transaction, actor, {
         action: "aftersales_case.payment_recorded",
         entityType: "aftersalesCase",

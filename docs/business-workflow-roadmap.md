@@ -1,6 +1,31 @@
 # Business workflow expansion (24 September 2026 baseline)
 
-## Older collection history — 9 October 2026 (release validation)
+## Aftersales action retry safety — 10 October 2026 (release validation)
+
+Before expanding non-stock services, existing case creation, status changes,
+charge decisions and service receipts now retain exact uncertain instructions in
+per-user/per-organization browser-tab storage, including across reload. Concurrent
+and new actions are blocked while the saved result is unknown. A denied retry
+does not discard earlier uncertainty. Corrupt browser recovery data fails closed
+with a persistent explanation. Successful mutations clear used payment drafts;
+two-decimal amounts use the existing minor-unit converter, not raw float equality.
+New trusted operation fingerprints reject changed payloads; legacy creation,
+charge/status and payment retries are checked against their existing evidence.
+Every replay rechecks current case/store access, even if the original request
+already committed. This does not rewrite old receipts or change the existing
+service cash-receipt revenue treatment. It is not the non-stock POS catalogue,
+service accrual/refund, technician/parts or commercial-document conversion slice.
+Four targeted UI/validation cases pass. The broader aftersales/statement emulator
+suite passes ten cases with four Storage-only skips; the final focused emulator
+checks pass both warranty/payment cases against the last compatibility refinement.
+The full suite passes 393 cases across 102 files. Typecheck, lint, Functions
+compilation, production build, secret scan and diff checks pass. Rules checks pass
+26 cases with one Storage-only skip. The matching live planner audit passes all
+454 query shapes without missing indexes; its source baseline is refreshed.
+No business data migration or IAM change is planned. Deployment follows these
+checks; this paragraph alone is not release-completion evidence.
+
+## Older collection history — 9 October 2026 (deployed)
 
 The existing official invoice reader now pages physical handovers in stable
 timestamp/document-ID order, with 25/50/100 choices and Newer / Older controls.
@@ -23,6 +48,16 @@ The live planner audit passes all 454 query shapes with zero missing indexes;
 independent metadata confirms 226 READY indexes. The reviewed catalog/source
 fingerprints are refreshed only from that matching successful proof. Deployment
 scope is getSaleDocument and App Hosting; no rule or IAM change is needed.
+Source 6c972bb is pushed and deployed. getSaleDocument printed Successful update
+and Deploy complete, is ACTIVE as getsaledocument-00013-paw at 100% traffic
+without reconciliation, retaining production mode, App Check and original runtime
+identity. Its unauthenticated probe returns Firebase HTTP 401. App Hosting printed
+Rollout complete / Deploy complete; build-2026-10-09-023 is READY and rollout
+SUCCEEDED, with 100% traffic and no reconciliation. POS, Guide, Returns and the
+manifest return HTTP 200. All twelve served POS scripts load; collection page
+size, Older/Newer controls and cursor request fields are present in live assets.
+No live business postings were used. Signed-in live acceptance remains separate
+from emulator business proof and public-route/Auth-barrier probes.
 
 ## Outsourced service / logistics bills — 9 October 2026 (deployed)
 
@@ -66,12 +101,12 @@ complete / Deploy complete; build-2026-10-09-022 is READY, rollout SUCCEEDED,
 return HTTP 200; all eleven expense scripts load with the retry, cost purpose
 and payment-due-date controls. No live business records were posted.
 
-## Remaining dependency queue — 9 October 2026
+## Remaining dependency queue — 10 October 2026
 
 Recent deployed sections below supersede the historical 7 October checkpoint;
 they do not establish that all eight workstreams are complete. Continue without
-routine approval pauses. Provider cost settlement now extends Expenses; next
-finish older collection-history paging, then non-stock service items and the
+routine approval pauses. Provider cost settlement and older collection-history
+paging are deployed. Finish aftersales retry safety, then non-stock service items and the
 delivery fee/provider liability/retained-income split. Issued quotation/proforma
 conversion must reuse existing customer/POS/invoice primitives. Follow with
 remaining dashboard/report scalability and HR/payroll expansion. Department and

@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-const id = z.string().trim().min(1).max(128);
+const id = z.string().trim().min(1).max(128).refine(value => !value.includes("/") && value !== "." && value !== "..", "Invalid record identifier.");
 const text = z.string().trim();
 
 export const aftersalesWorkspaceInput = z.object({

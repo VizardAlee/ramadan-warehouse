@@ -1,7 +1,7 @@
 {
   "lastLiveAudit": {
     "project": "ramadan-warehouse-staging",
-    "verifiedAt": "2026-10-09T22:52:03.995Z",
+    "verifiedAt": "2026-10-09T23:04:28.491Z",
     "queryShapes": 454,
     "unsupportedQueries": 0,
     "readyIndexes": 226,
@@ -16,7 +16,7 @@
     "functions/src/auth/custom-roles.ts": "f35e0e79877655caf11f0c4e97d747b4c40477911a8755028ef5a096295fc146",
     "functions/src/callable/accounting-close.ts": "8e632a28435541fc2d062b974a48ff81eab3a1164eb73614e297c49344b11c66",
     "functions/src/callable/accounting-journals.ts": "71f32baf30638c76a8cc58fd48541a9baf5726ba14a0c547a5727201da4470ea",
-    "functions/src/callable/aftersales.ts": "5a12c88fa74e44070688e2a80415a43d5c5a39b3275be3a06ccc845bfa5ce2af",
+    "functions/src/callable/aftersales.ts": "116b334610f0958043ac8156b09c41405f43247fc04761340ed8f3a89097c2f2",
     "functions/src/callable/bank-reconciliation.ts": "0c6e4307093d15732a4aa8ba25ed8a8e058466c38d8e0a67a635e10fd6badf1e",
     "functions/src/callable/bootstrap-organization.ts": "b16a45cd7dea7f2070f4de7839514552c0dcb0fc34baeb08e5184a5c4abdadb4",
     "functions/src/callable/branch-requests.ts": "8db116b13014504b3e16557c5a5adbcdc1793cfd0351f97aef5ce76262707021",
