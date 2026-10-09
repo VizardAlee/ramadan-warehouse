@@ -440,6 +440,35 @@ describe.sequential("sales callables", () => {
     expect(officialDocument.payments).toHaveLength(1);
     expect(officialDocument.items[0]).not.toHaveProperty("unitCostMinor");
     expect(officialDocument.items[0]).not.toHaveProperty("costAmountMinor");
+    // Historical read fixtures only: tied timestamps must not lose or repeat handovers.
+    const historicalIds = Array.from({ length: 30 }, (_, index) => `history-${posted.saleId}-${String(index).padStart(2, "0")}`);
+    const historyBatch = adminDb.batch();
+    for (const historyId of historicalIds) historyBatch.set(adminDb.doc(`saleCollections/${historyId}`), {
+      organizationId, branchId, saleId: posted.saleId, collectedAt: Timestamp.fromDate(new Date("2020-01-01T12:00:00Z")),
+      collector: "Historical collector", releasedBy: "historical-staff", totalQuantity: 1,
+      lines: [{ saleItemId: officialDocument.items[0]!.id, productName: "Historical product", quantity: 1 }],
+    });
+    await historyBatch.commit();
+    type CollectionPage = { collections: Array<{ id: string }>; collectionsNextCursorId: string | null };
+    const firstPage = await call<CollectionPage>(branchManager, "getSaleDocument", { saleId: posted.saleId });
+    expect(firstPage.collections).toHaveLength(25);
+    expect(firstPage.collectionsNextCursorId).toBeTruthy();
+    const secondPage = await call<CollectionPage>(branchManager, "getSaleDocument", { saleId: posted.saleId, collectionCursorId: firstPage.collectionsNextCursorId });
+    expect(secondPage.collectionsNextCursorId).toBeNull();
+    const allHistory = [...firstPage.collections, ...secondPage.collections].map(row => row.id);
+    expect(new Set(allHistory).size).toBe(allHistory.length);
+    expect(historicalIds.every(id => allHistory.includes(id))).toBe(true);
+    const foreignCursor = adminDb.doc(`saleCollections/foreign-${posted.saleId}`);
+    await foreignCursor.set({ organizationId, branchId, saleId: "different-sale", collectedAt: Timestamp.now() });
+    await expect(call(branchManager, "getSaleDocument", { saleId: posted.saleId, collectionCursorId: foreignCursor.id })).rejects.toMatchObject({ code: "functions/invalid-argument" });
+    await foreignCursor.update({ saleId: posted.saleId, organizationId: "another-organization" });
+    await expect(call(branchManager, "getSaleDocument", { saleId: posted.saleId, collectionCursorId: foreignCursor.id })).rejects.toMatchObject({ code: "functions/invalid-argument" });
+    await foreignCursor.update({ organizationId, branchId: "another-store" });
+    await expect(call(branchManager, "getSaleDocument", { saleId: posted.saleId, collectionCursorId: foreignCursor.id })).rejects.toMatchObject({ code: "functions/invalid-argument" });
+    const cleanupHistory = adminDb.batch();
+    historicalIds.forEach(id => cleanupHistory.delete(adminDb.doc(`saleCollections/${id}`)));
+    cleanupHistory.delete(foreignCursor);
+    await cleanupHistory.commit();
     await expect(
       call(cashier, "getSaleDocument", { saleId: posted.saleId }),
     ).resolves.toMatchObject({

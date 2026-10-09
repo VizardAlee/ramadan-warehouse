@@ -1,6 +1,30 @@
 # Business workflow expansion (24 September 2026 baseline)
 
-## Outsourced service / logistics bills — 9 October 2026 (release validation)
+## Older collection history — 9 October 2026 (release validation)
+
+The existing official invoice reader now pages physical handovers in stable
+timestamp/document-ID order, with 25/50/100 choices and Newer / Older controls.
+Each historical handover retains its actual-quantity waybill and private photo
+links; the paid invoice is not misrepresented as a physical release. Cursor
+ownership is checked against the invoice, organization and store before query
+execution. Inconsistent collection evidence fails closed. Failed page loads
+preserve the visible page, and a mismatched invoice/store response is rejected.
+Old clients retain the 25-record default. This changes no reservation, stock,
+payment, journal or historical record and requires no data migration.
+The guide explains paging and reprinting. Seven targeted validation/interface
+cases pass, and the refreshed full suite passes 389 cases across 100 files.
+Sales emulator checks pass 29 cases (one Storage-photo skip), including tied
+timestamps without missing/duplicate handovers and foreign invoice, organization
+and store cursor denials. Final typecheck, lint, Functions compilation, production
+build, secret scan and diff checks pass. Security checks pass 26 cases with one
+Storage-only skip. These emulator proofs do not imply signed-in live business
+acceptance; no live business records are used for release tests.
+The live planner audit passes all 454 query shapes with zero missing indexes;
+independent metadata confirms 226 READY indexes. The reviewed catalog/source
+fingerprints are refreshed only from that matching successful proof. Deployment
+scope is getSaleDocument and App Hosting; no rule or IAM change is needed.
+
+## Outsourced service / logistics bills — 9 October 2026 (deployed)
 
 Extends the existing Expenses register, approval, payable and partial payment
 workflow rather than creating a separate provider ledger. Aftersales cases and
@@ -31,16 +55,25 @@ denials. Firestore security checks pass 26 cases with one Storage-only skip.
 Final typecheck, lint, Functions compilation, production build, secret scan and
 diff checks pass. The fresh planner audit passes 454/454 shapes, no missing
 indexes; independent metadata confirms all 226 indexes READY. No new index or
-rule definition and no data migration is required. Deployment scope is the
-four expense mutation Functions and App Hosting; no IAM change is planned.
+rule definition and no data migration is required. Source 00f789f is pushed.
+All five expense Functions printed Successful update / Deploy complete and are
+ACTIVE at 100% traffic: createexpense-00007-gej, submitexpense-00007-bey,
+approveexpense-00007-xob, recordexpensepayment-00007-wex and
+getexpenseworkspace-00007-jep. Production mode, App Check and original runtime
+identity are preserved; no IAM setting changed. App Hosting printed Rollout
+complete / Deploy complete; build-2026-10-09-022 is READY, rollout SUCCEEDED,
+100% traffic and no reconciliation. Expenses, Aftersales, POS, Guide and Banking
+return HTTP 200; all eleven expense scripts load with the retry, cost purpose
+and payment-due-date controls. No live business records were posted.
 
 ## Remaining dependency queue — 9 October 2026
 
 Recent deployed sections below supersede the historical 7 October checkpoint;
 they do not establish that all eight workstreams are complete. Continue without
-routine approval pauses through non-stock service items/costs and outsourced
-provider settlement, then issued quotation/proforma conversion using existing
-customer/POS/invoice primitives. Follow with older collection-history paging,
+routine approval pauses. Provider cost settlement now extends Expenses; next
+finish older collection-history paging, then non-stock service items and the
+delivery fee/provider liability/retained-income split. Issued quotation/proforma
+conversion must reuse existing customer/POS/invoice primitives. Follow with
 remaining dashboard/report scalability and HR/payroll expansion. Department and
 multi-month budgets are extensions to the deployed monthly targets. Company tax
 assessment/payment/filing activation still needs reviewed legal/tax-profile facts;

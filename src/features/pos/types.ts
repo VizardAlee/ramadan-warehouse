@@ -180,6 +180,7 @@ export interface QueuedPosSale {
 }
 
 export interface SaleDocument {
+  collectionsNextCursorId?: string | null;
   collections?: Array<{
     evidenceIds?: string[];
     id: string; referenceNumber?: string; waybillNumber?: string; collector: string; collectedAt: string | null;

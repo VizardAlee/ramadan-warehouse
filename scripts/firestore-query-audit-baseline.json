@@ -1,13 +1,13 @@
 {
   "lastLiveAudit": {
     "project": "ramadan-warehouse-staging",
-    "verifiedAt": "2026-10-09T22:31:48.420Z",
+    "verifiedAt": "2026-10-09T22:52:03.995Z",
     "queryShapes": 454,
     "unsupportedQueries": 0,
     "readyIndexes": 226,
     "singleFieldOverrides": 0
   },
-  "catalogSha256": "2c6486e216b2632676490c1c3092c38a4f4366dda310ab2140ca1ec32c0fdd31",
+  "catalogSha256": "9deda11f40376656c9c890e94144cff7d3e522ab92a32eb1475adde0e6919c99",
   "sourceFingerprints": {
     "functions/src/accounting/daily-close.ts": "88916698e8112584523b1770eb98be7e052761b4982e6f572df1e6f7221d617a",
     "functions/src/accounting/write-journal.ts": "0b43994685249fa5a7e39ec19cf8744768e11896a27c4b196b6a26423a334dd8",
@@ -40,7 +40,7 @@
     "functions/src/callable/reset-organization.ts": "ef008e650d39213d23c35d3d801015dccad8ad7ea78edf9d62b6b5c230d53a5c",
     "functions/src/callable/sales-corrections.ts": "6a81ad6d02442729f5a390a4184739fd4f3f3a450b8951e51c543a09bcdd95ff",
     "functions/src/callable/sales-returns.ts": "554ea6865dde83ad7f589ef27324a1904f5fba9e45dd0bf260b777981679b3c8",
-    "functions/src/callable/sales.ts": "761ab9859ec2466584391919f8d4da861407c736929cc3edec0615832d00053a",
+    "functions/src/callable/sales.ts": "42531a3dd4bbe82a649520ff233042c4901d5656da4594347fbd8a72e24307dd",
     "functions/src/callable/stock-counts.ts": "319e73fba41579383a5fd615a2f60e90e77c7bc86613d6446a07c5c040adc49d",
     "functions/src/callable/stock-transfers.ts": "53ca1615e1a291f797688d0a2cf2fec6c3543e3d07da4c75c483d9dc5f026953",
     "functions/src/callable/tax-rule-administration.ts": "0cf2adcf160160bcd0a15b2d23f6e98053e2a0b472ef7a761185b532926b9034",

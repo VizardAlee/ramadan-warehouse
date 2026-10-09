@@ -3,7 +3,7 @@
 import { Printer, X } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { AppDialog } from "@/components/ui/app-dialog";
 import { formatNaira } from "@/features/inventory/format";
@@ -12,6 +12,7 @@ import { CollectionWaybill } from "./collection-waybill";
 import { CollectionPhotoViewer } from "./collection-photos";
 import { useAuth } from "@/features/auth/auth-context";
 import { hasPermission } from "@/lib/permissions/roles";
+import { callAdministration } from "@/features/administration/api";
 
 function label(value: string) {
   return value.replaceAll("_", " ");
@@ -24,9 +25,38 @@ export function SaleDocumentDialog({
   document: SaleDocument;
   onClose: () => void;
 }) {
+  return <SaleDocumentContent key={`${document.sale.id}:${document.official}:${document.collections?.map(row => row.id).join(",")}`} document={document} onClose={onClose} />;
+}
+
+function SaleDocumentContent({ document, onClose }: { document: SaleDocument; onClose: () => void }) {
   const { profile } = useAuth();
   const [waybillId, setWaybillId] = useState<string | null>(null);
-  const selectedCollection = document.official ? document.collections?.find((collection) => collection.id === waybillId) : undefined;
+  const [page, setPage] = useState(document);
+  const [cursors, setCursors] = useState<Array<string | undefined>>([undefined]);
+  const [pageNumber, setPageNumber] = useState(0);
+  const [limit, setLimit] = useState(25);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const flight = useRef(false);
+  const mounted = useRef(true);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
+  async function loadCollectionPage(cursor: string | undefined, target: number, size = limit) {
+    if (flight.current || !document.official) return;
+    flight.current = true; setBusy(true); setError(null);
+    try {
+      const result = await callAdministration<object, SaleDocument>("getSaleDocument", {
+        saleId: document.sale.id, collectionLimit: size, ...(cursor ? { collectionCursorId: cursor } : {}),
+      });
+      if (!result.official || result.sale.id !== document.sale.id || result.branch.id !== document.branch.id)
+        throw new Error("This collection page does not belong to this invoice.");
+      if (!mounted.current) return;
+      setPage(result); setPageNumber(target); setLimit(size); setWaybillId(null);
+      setCursors(previous => [...previous.slice(0, target), cursor]);
+    } catch (cause) {
+      if (mounted.current) setError(cause instanceof Error ? cause.message : "Collection history could not be loaded. Try again.");
+    } finally { flight.current = false; if (mounted.current) setBusy(false); }
+  }
+  const selectedCollection = document.official ? page.collections?.find((collection) => collection.id === waybillId) : undefined;
   if (selectedCollection) return <CollectionWaybill document={document} collection={selectedCollection} onBack={() => setWaybillId(null)} onClose={onClose} />;
   const issuedAt = document.sale.recordedAt
     ? new Date(document.sale.recordedAt).toLocaleString("en-NG", {
@@ -104,7 +134,14 @@ export function SaleDocumentDialog({
           <section className="rounded-xl border p-4 text-sm">
             <p className="font-semibold">Collection: {label(document.sale.collectionStatus ?? "collected")}</p>
             {document.items.map((item) => <p key={item.id}>{item.productName}: sold {item.quantity}, collected {item.collectedQuantity ?? item.quantity}, cancelled {item.cancelledQuantity ?? 0}, awaiting collection {item.quantity - (item.collectedQuantity ?? item.quantity) - (item.cancelledQuantity ?? 0)}</p>)}
-            {document.collections?.map((collection) => <div key={collection.id} className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t pt-3"><p>{collection.collectedAt ? new Date(collection.collectedAt).toLocaleString("en-NG") : "—"} · {collection.totalQuantity} collected by {collection.collector} · {collection.releasedByName || "Authorized staff"}</p>{document.official && <Button type="button" variant="outline" size="sm" data-no-print onClick={() => setWaybillId(collection.id)}>View waybill</Button>}{document.official && <CollectionPhotoViewer saleId={document.sale.id} evidenceIds={collection.evidenceIds ?? []} />}</div>)}
+            {page.collections?.map((collection) => <div key={collection.id} className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t pt-3"><p>{collection.collectedAt ? new Date(collection.collectedAt).toLocaleString("en-NG") : "—"} · {collection.totalQuantity} collected by {collection.collector} · {collection.releasedByName || "Authorized staff"}</p>{document.official && <Button type="button" variant="outline" size="sm" data-no-print onClick={() => setWaybillId(collection.id)}>View waybill</Button>}{document.official && <CollectionPhotoViewer saleId={document.sale.id} evidenceIds={collection.evidenceIds ?? []} />}</div>)}
+            {document.official && <div className="mt-3 flex flex-wrap items-center gap-3 border-t pt-3" data-no-print>
+              <label>Collections per page <select aria-label="Collections per page" className="rounded border p-2" value={limit} disabled={busy} onChange={event => void loadCollectionPage(undefined, 0, Number(event.target.value))}>{[25, 50, 100].map(size => <option key={size} value={size}>{size}</option>)}</select></label>
+              <span aria-live="polite">{busy ? "Loading collection history…" : `Page ${pageNumber + 1} · ${page.collections?.length ?? 0} handovers`}</span>
+              <Button type="button" variant="outline" size="sm" disabled={busy || pageNumber === 0} onClick={() => void loadCollectionPage(cursors[pageNumber - 1], pageNumber - 1)}>Newer collections</Button>
+              <Button type="button" variant="outline" size="sm" disabled={busy || !page.collectionsNextCursorId} onClick={() => void loadCollectionPage(page.collectionsNextCursorId ?? undefined, pageNumber + 1)}>Older collections</Button>
+              {error && <p role="alert" className="w-full text-red-700">{error}</p>}
+            </div>}
           </section>
           <section className="grid gap-4 sm:grid-cols-2">
             <div className="rounded-xl border p-4">

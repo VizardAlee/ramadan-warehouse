@@ -30,7 +30,9 @@ export const posWorkspaceInput = z.object({
 });
 
 export const saleDocumentInput = z.object({
-  saleId: id,
+  saleId: id.refine(value => !value.includes("/") && value !== "." && value !== ".."),
+  collectionCursorId: id.refine(value => !value.includes("/") && value !== "." && value !== "..").optional(),
+  collectionLimit: z.union([z.literal(25), z.literal(50), z.literal(100)]).default(25),
 });
 
 export const listCollectionsInput = z.object({

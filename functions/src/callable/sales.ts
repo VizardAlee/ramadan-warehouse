@@ -581,13 +581,23 @@ export const getSaleDocument = onCall(
     if (!sale.exists || sale.get("organizationId") !== actor.organizationId)
       throw new HttpsError("not-found", "Sale document not found.");
     requireBranchScope(actor, String(sale.get("branchId")));
+    let collectionQuery = db.collection("saleCollections").where("saleId", "==", sale.id)
+      .orderBy("collectedAt", "desc").orderBy(FieldPath.documentId(), "desc");
+    if (input.collectionCursorId) {
+      const cursor = await db.doc(`saleCollections/${input.collectionCursorId}`).get();
+      if (!cursor.exists || cursor.get("organizationId") !== actor.organizationId ||
+        cursor.get("branchId") !== sale.get("branchId") || cursor.get("saleId") !== sale.id ||
+        !(cursor.get("collectedAt") instanceof Timestamp))
+        throw new HttpsError("invalid-argument", "This collection page is unavailable for this invoice.");
+      collectionQuery = collectionQuery.startAfter(cursor.get("collectedAt"), cursor.id);
+    }
     const [receipt, items, payments, organization, branch, collections] = await Promise.all([
       db.collection("salesReceipts").where("saleId", "==", sale.id).limit(2).get(),
       db.collection("saleItems").where("saleId", "==", sale.id).limit(100).get(),
       db.collection("salePayments").where("saleId", "==", sale.id).limit(20).get(),
       db.doc(`organizations/${actor.organizationId}`).get(),
       db.doc(`branches/${String(sale.get("branchId"))}`).get(),
-      db.collection("saleCollections").where("saleId", "==", sale.id).orderBy("collectedAt", "desc").limit(25).get(),
+      collectionQuery.limit(input.collectionLimit + 1).get(),
     ]);
     const officialReceipt = receipt.docs[0];
     if (!officialReceipt)
@@ -602,7 +612,9 @@ export const getSaleDocument = onCall(
       !payments.docs.every(belongsToSale)
     )
       throw new HttpsError("data-loss", "Sale document evidence is inconsistent.");
-    const saleCollections = collections.docs.filter(belongsToSale);
+    if (!collections.docs.every(belongsToSale))
+      throw new HttpsError("data-loss", "Collection evidence is inconsistent with this invoice.");
+    const saleCollections = collections.docs.slice(0, input.collectionLimit);
     const staffIds = [...new Set(saleCollections.map((record) => String(record.get("releasedBy"))))];
     const staff = staffIds.length ? await db.getAll(...staffIds.map((id) => db.doc(`users/${id}`))) : [];
     const staffNames = new Map(staff.filter((record) => record.exists && record.get("organizationId") === actor.organizationId)
@@ -616,6 +628,7 @@ export const getSaleDocument = onCall(
     const itemById = new Map(items.docs.map((item) => [item.id, item]));
     return {
       official: true,
+      collectionsNextCursorId: collections.size > input.collectionLimit ? saleCollections.at(-1)!.id : null,
       collections: saleCollections.map((record) => ({
         id: record.id, referenceNumber: record.get("referenceNumber") ?? record.id,
         waybillNumber: `WB-${movementById.get(String(record.get("inventoryTransactionId"))) ?? record.id}`,

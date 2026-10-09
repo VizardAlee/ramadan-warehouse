@@ -1,9 +1,11 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { SaleDocumentDialog } from "@/features/pos/sale-document";
 import type { SaleDocument } from "@/features/pos/types";
 const access = vi.hoisted(() => ({ mayRecordCosts: false }));
+const api = vi.hoisted(() => vi.fn());
+vi.mock("@/features/administration/api", () => ({ callAdministration: api }));
 vi.mock("@/features/auth/auth-context", () => ({ useAuth: () => ({ profile: { organizationId: "org" } }) }));
 vi.mock("@/lib/permissions/roles", () => ({ hasPermission: () => access.mayRecordCosts }));
 
@@ -16,9 +18,32 @@ const document: SaleDocument = {
   payments: [{ id: "p1", method: "cash", amountMinor: 100000, reference: null, status: "confirmed" }],
   collections: [{ id: "collection1", waybillNumber: "WB-INV-2026-000021", referenceNumber: "SAL-HQ-1", collector: "Amina Musa", collectedAt: "2026-10-07T11:00:00.000Z", releasedBy: "staff1", releasedByName: "Usman", totalQuantity: 6, notes: "Four units remain reserved", lines: [{ saleItemId: "item1", productName: "Solar panel", sku: "PANEL", quantity: 6, unitOfMeasure: "unit" }] }],
 };
-afterEach(() => { cleanup(); vi.restoreAllMocks(); access.mayRecordCosts = false; });
+afterEach(() => { cleanup(); vi.restoreAllMocks(); api.mockReset(); access.mayRecordCosts = false; });
 
 describe("collection waybill", () => {
+  it("pages older handovers and prints their actual quantities without changing the invoice", async () => {
+    const older = { ...document.collections![0]!, id: "old", collector: "Older collector", totalQuantity: 2,
+      lines: [{ productName: "Solar panel", quantity: 2, unitOfMeasure: "unit" }] };
+    api.mockResolvedValueOnce({ ...document, collections: [older], collectionsNextCursorId: null })
+      .mockResolvedValueOnce({ ...document, collectionsNextCursorId: "collection1" });
+    render(<SaleDocumentDialog document={{ ...document, collectionsNextCursorId: "collection1" }} onClose={() => {}} />);
+    fireEvent.click(screen.getByRole("button", { name: "Older collections" }));
+    await waitFor(() => expect(screen.getByText(/2 collected by Older collector/)).toBeTruthy());
+    expect(api).toHaveBeenLastCalledWith("getSaleDocument", { saleId: "sale1", collectionLimit: 25, collectionCursorId: "collection1" });
+    fireEvent.click(screen.getByRole("button", { name: "View waybill" }));
+    expect(screen.getByRole("dialog", { name: "Collection waybill" }).textContent).toContain("2 unit");
+    fireEvent.click(screen.getByRole("button", { name: "Back to invoice" }));
+    fireEvent.click(screen.getByRole("button", { name: "Newer collections" }));
+    await waitFor(() => expect(screen.getByText(/6 collected by Amina Musa/)).toBeTruthy());
+    expect(api).toHaveBeenLastCalledWith("getSaleDocument", { saleId: "sale1", collectionLimit: 25 });
+  });
+  it("keeps the current page after a failed or mismatched history response", async () => {
+    api.mockResolvedValue({ ...document, sale: { ...document.sale, id: "other-sale" } });
+    render(<SaleDocumentDialog document={{ ...document, collectionsNextCursorId: "collection1" }} onClose={() => {}} />);
+    fireEvent.click(screen.getByRole("button", { name: "Older collections" }));
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("does not belong"));
+    expect(screen.getByText(/6 collected by Amina Musa/)).toBeTruthy();
+  });
   it("links authorized provider costs to the actual sale and never to an offline provisional invoice", () => {
     access.mayRecordCosts = true;
     const view = render(<SaleDocumentDialog document={document} onClose={() => {}} />);
