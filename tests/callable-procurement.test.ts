@@ -268,6 +268,42 @@ describe.sequential("procurement callables", () => {
     const movementId = (await adminDb.doc(`purchaseReceipts/${receipt.receiptId}`).get()).get("inventoryTransactionId");
     await expect(call(administrator, "reverseInventoryTransaction", { transactionId: movementId, reason: "Cannot reverse credited purchase", idempotencyKey: crypto.randomUUID() })).rejects.toThrow();
   });
+  it.each(["serial", "batch"])("restores %s stock and exact original value through a linked supplier correction", async trackingType => {
+    const supplier = await call<{ supplierId: string }>(administrator, "saveSupplier", { name: `${trackingType} correction supplier`, phone: "07055557777", idempotencyKey: crypto.randomUUID() });
+    const product = `supplier-correction-${trackingType}`, serialNumbers = trackingType === "serial" ? ["CORRECT-A", "CORRECT-B", "CORRECT-C"] : [];
+    await adminDb.doc(`products/${product}`).set({ organizationId, name: product, sku: product, unitOfMeasure: "unit", trackingType, active: true });
+    const order = await call<{ purchaseOrderId: string }>(headOfficeManager, "createPurchaseOrder", { supplierId: supplier.supplierId, branchId: headOfficeId, receivingLocationId: headOfficeLocationId,
+      lines: [{ productId: product, quantity: 3, unitCostMinor: 10001, vatRateBasisPoints: 750 }], idempotencyKey: crypto.randomUUID() });
+    await call(headOfficeManager, "submitPurchaseOrder", { ...order, idempotencyKey: crypto.randomUUID() });
+    await call(headOfficeManager, "approvePurchaseOrder", { ...order, idempotencyKey: crypto.randomUUID() });
+    const item = (await adminDb.collection("purchaseOrderItems").where("purchaseOrderId", "==", order.purchaseOrderId).get()).docs[0]!;
+    const receipt = await call<{ receiptId: string }>(headOfficeManager, "receivePurchaseOrderItem", { ...order, purchaseOrderItemId: item.id, quantity: 3, receivedAt: new Date().toISOString(), serialNumbers,
+      ...(trackingType === "batch" ? { lot: { lotNumber: "CORRECTION-BATCH" } } : {}), idempotencyKey: crypto.randomUUID() });
+    const invoice = await call<{ supplierInvoiceId: string }>(headOfficeManager, "submitSupplierInvoice", { ...order, supplierInvoiceNumber: `CORRECTION-${trackingType}`, invoiceDate: new Date().toISOString().slice(0, 10), lines: [{ purchaseOrderItemId: item.id, quantity: 3 }], idempotencyKey: crypto.randomUUID() });
+    await call(headOfficeManager, "approveSupplierInvoice", { ...invoice, idempotencyKey: crypto.randomUUID() });
+    const line = (await adminDb.collection("supplierInvoiceItems").where("supplierInvoiceId", "==", invoice.supplierInvoiceId).get()).docs[0]!;
+    const returned = await call<{ returnId: string; inventoryTransactionId: string }>(headOfficeManager, "postSupplierReturn", { ...invoice, supplierInvoiceItemId: line.id, receiptId: receipt.receiptId, quantity: 2, serialNumbers: serialNumbers.slice(0, 2), creditNoteReference: `CORRECTION-CN-${trackingType}`, reason: "Original goods accepted for supplier credit", returnedAt: new Date().toISOString(), idempotencyKey: crypto.randomUUID() });
+    const correction = { action: "reverse_return", returnId: returned.returnId, reason: "Supplier rescinded credit and physically returned the goods", goodsBackInStore: true, reversedAt: new Date().toISOString(), idempotencyKey: crypto.randomUUID() };
+    const positions = await adminDb.collection("inventoryBalances").where("organizationId", "==", organizationId).where("productId", "==", product).get();
+    const before = positions.docs[0]!;
+    expect(before.get("onHandQuantity")).toBe(1);
+    // A later movement or corrupted linkage must reject before any financial change.
+    await before.ref.update({ lastTransactionId: "later-movement" });
+    await expect(call(headOfficeManager, "postSupplierReturn", correction)).rejects.toMatchObject({ code: "functions/failed-precondition" });
+    expect((await adminDb.doc(`supplierReturns/${returned.returnId}`).get()).get("status")).toBe("posted");
+    await before.ref.update({ lastTransactionId: returned.inventoryTransactionId });
+    await call(headOfficeManager, "postSupplierReturn", correction);
+    expect((await before.ref.get()).data()).toMatchObject({ onHandQuantity: 3, availableQuantity: 3, totalValueMinor: 30003 });
+    expect((await line.ref.get()).data()).toMatchObject({ returnedQuantity: 0, returnedNetMinor: 0, returnedVatMinor: 0 });
+    expect((await adminDb.doc(`supplierInvoices/${invoice.supplierInvoiceId}`).get()).get("outstandingAmountMinor")).toBe(32253);
+    if (trackingType === "serial") {
+      const serials = await adminDb.collection("serializedItems").where("productId", "==", product).get();
+      expect(serials.docs.every(serial => serial.get("active") && serial.get("currentLocationId") === headOfficeLocationId)).toBe(true);
+    } else {
+      expect((await adminDb.doc(`inventoryLots/${before.get("lotId")}`).get()).get("remainingQuantity")).toBe(3);
+    }
+  });
+
   it("posts a multi-product credit note all-or-nothing, with shared payable/advance projections and concurrent replay", async () => {
     const supplier = await call<{ supplierId: string }>(administrator, "saveSupplier", { name: "Multi-product credit supplier", phone: "07055556666", idempotencyKey: crypto.randomUUID() });
     const products = ["multi-credit-a", "multi-credit-b"];
@@ -326,6 +362,39 @@ describe.sequential("procurement callables", () => {
     await expect(call(headOfficeManager, "postSupplierReturn", { ...payload, reason: "Changed commercial instructions" })).rejects.toMatchObject({ code: "functions/already-exists" });
     await expect(call(headOfficeManager, "postSupplierReturn", { ...payload, idempotencyKey: crypto.randomUUID(), lines: payload.lines.map(line => ({ ...line, idempotencyKey: crypto.randomUUID() })) })).rejects.toMatchObject({ code: "functions/already-exists" });
     expect((await adminDb.getAll(...stockRefs)).map(snapshot => snapshot.get("onHandQuantity"))).toEqual([2, 2]);
+    const returned = returns[0]!, originalJournal = journals[0]!;
+    const correction = { action: "reverse_return", returnId: returned.id, reason: "Wrong product on supplier credit note", goodsBackInStore: true,
+      reversedAt: new Date().toISOString(), idempotencyKey: crypto.randomUUID() };
+    const beforeCorrection = (await adminDb.getAll(invoiceRef, supplierRef, ...stockRefs)).map(snapshot => snapshot.data());
+    await expect(call(headOfficeManager, "postSupplierReturn", { ...correction, goodsBackInStore: false })).rejects.toMatchObject({ code: "functions/invalid-argument" });
+    await expect(call(warehouseManager, "postSupplierReturn", correction)).rejects.toMatchObject({ code: "functions/permission-denied" });
+    const periodKey = correction.reversedAt.slice(0, 7), periodRef = adminDb.doc(`accountingPeriods/${uniquenessDocumentId(organizationId, periodKey)}`);
+    await periodRef.set({ organizationId, periodKey, status: "closed" });
+    try { await expect(call(headOfficeManager, "postSupplierReturn", correction)).rejects.toMatchObject({ code: "functions/failed-precondition" }); }
+    finally { await periodRef.delete(); }
+    expect((await adminDb.getAll(invoiceRef, supplierRef, ...stockRefs)).map(snapshot => snapshot.data())).toEqual(beforeCorrection);
+    // A credit already consumed/refunded must never be removed a second time.
+    await supplierRef.update({ advanceBalanceMinor: 0, advanceBalancesByLocation: { [`branch:${headOfficeId}`]: 0 } });
+    await expect(call(headOfficeManager, "postSupplierReturn", correction)).rejects.toMatchObject({ code: "functions/failed-precondition" });
+    await supplierRef.update({ advanceBalanceMinor: 18500, advanceBalancesByLocation: { [`branch:${headOfficeId}`]: 18500 } });
+    type CorrectionResult = { reversed: boolean; inventoryTransactionId: string; journalEntryId: string; journalNumber: string };
+    const corrections = await Promise.all([call<CorrectionResult>(headOfficeManager, "postSupplierReturn", correction), call<CorrectionResult>(headOfficeManager, "postSupplierReturn", correction)]);
+    expect(corrections.filter(value => value.reversed)).toHaveLength(1);
+    expect(corrections[0]!.inventoryTransactionId).toBe(corrections[1]!.inventoryTransactionId);
+    expect(corrections[0]!.journalEntryId).toBe(corrections[1]!.journalEntryId);
+    const reversedRecord = await returned.ref.get();
+    expect(reversedRecord.data()).toMatchObject({ status: "reversed", grossAmountMinor: returned.get("grossAmountMinor"), reversalJournalEntryId: corrections[0]!.journalEntryId });
+    expect((await originalJournal.ref.get()).data()).toEqual(originalJournal.data());
+    expect((await adminDb.doc(`journalEntries/${corrections[0]!.journalEntryId}`).get()).data()).toMatchObject({ totalDebitMinor: originalJournal.get("totalCreditMinor"), totalCreditMinor: originalJournal.get("totalDebitMinor"), reversalOfJournalEntryId: originalJournal.id });
+    expect((await supplierRef.get()).data()).toMatchObject({ outstandingBalanceMinor: returned.get("payableReductionMinor"), advanceBalanceMinor: 18500 - returned.get("supplierCreditMinor") });
+    expect((await invoiceRef.get()).data()).toMatchObject({ outstandingAmountMinor: returned.get("payableReductionMinor"), creditedAmountMinor: 3000 - returned.get("payableReductionMinor") });
+    expect((await adminDb.getAll(...stockRefs)).map(snapshot => snapshot.get("onHandQuantity")).sort()).toEqual([2, 3]);
+    expect((await adminDb.doc(`supplierReturns/${returns[1]!.id}`).get()).get("status")).toBe("posted");
+    expect((await call<CorrectionResult>(headOfficeManager, "postSupplierReturn", correction)).reversed).toBe(false);
+    await expect(call(headOfficeManager, "postSupplierReturn", { ...correction, reason: "Changed correction instructions" })).rejects.toMatchObject({ code: "functions/already-exists" });
+    await expect(call(headOfficeManager, "postSupplierReturn", { ...correction, idempotencyKey: crypto.randomUUID() })).rejects.toMatchObject({ code: "functions/already-exists" });
+    const correctedHistory = await call<{ returns: Array<{ id: string; status: string; reversalJournalNumber: string }> }>(headOfficeManager, "getProcurementWorkspace", { view: "supplier_returns", ...invoice, limit: 25 });
+    expect(correctedHistory.returns.find(record => record.id === returned.id)).toMatchObject({ status: "reversed", reversalJournalNumber: corrections[0]!.journalNumber });
   });
 
   it("atomically returns goods, credits unpaid invoices, creates surplus credit and prevents duplicate or stock-only reversals", async () => {

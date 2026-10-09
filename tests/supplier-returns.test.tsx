@@ -10,6 +10,38 @@ function reads(_name: string, input: { view: string }) {
   return Promise.resolve(input.view === "supplier_return_receipts" ? { receipts: [{ id: "receipt-1", receiptNumber: "GRN-001", quantity: 3, returnedQuantity: 0, receivedAt: "2026-10-08T09:00:00Z" }], nextCursor: null } : history);
 }
 describe("supplier return dialog", () => {
+  it("requires physical goods back and safely retries the exact linked correction", async () => {
+    let attempts = 0;
+    api.call.mockImplementation((name: string) => name === "postSupplierReturn" ? ++attempts === 1 ? Promise.reject(new Error("Connection lost")) : Promise.resolve({ journalNumber: "JRN-REV-1" }) : Promise.resolve({ ...history, returns: [{ id: "return-1", returnNumber: "SRT-1", productName: "Solar panel", quantity: 1, grossAmountMinor: 10000, payableReductionMinor: 7000, supplierCreditMinor: 3000, status: "posted" }] }));
+    const complete = vi.fn();
+    render(<SupplierReturns invoiceId="invoice-1" canPost canReverse onClose={vi.fn()} onComplete={complete} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Correct return" }));
+    fireEvent.change(screen.getByLabelText("Reason for correction"), { target: { value: "Wrong product in credit note" } });
+    expect((screen.getByRole("button", { name: "Reverse stock & credit" }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByLabelText("All goods in this return are physically back in the original store."));
+    fireEvent.click(screen.getByRole("button", { name: "Reverse stock & credit" }));
+    await screen.findByRole("button", { name: "Retry same correction" });
+    expect((screen.getByRole("button", { name: "Cancel correction" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: "Close" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.queryByRole("button", { name: "Post return & credit note" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Retry same correction" }));
+    await screen.findByText(/reversal journal JRN-REV-1/);
+    const posts = api.call.mock.calls.filter(([name]) => name === "postSupplierReturn");
+    expect(posts).toHaveLength(2); expect(posts[0]![1]).toEqual(posts[1]![1]);
+    expect(posts[0]![1]).toMatchObject({ action: "reverse_return", returnId: "return-1", goodsBackInStore: true });
+    expect(complete).toHaveBeenCalledOnce();
+  });
+
+  it("shows reversed history but never offers stock restoration for held custody credits", async () => {
+    api.call.mockResolvedValue({ ...history, returns: [
+      { id: "held", returnNumber: "SRT-HELD", productName: "Panel", quantity: 1, heldHandover: true, status: "posted", grossAmountMinor: 10000 },
+      { id: "reversed", returnNumber: "SRT-REV", productName: "Panel", quantity: 1, status: "reversed", grossAmountMinor: 10000, reversalJournalNumber: "JRN-1", reversalReason: "Incorrect original quantity" },
+    ] });
+    render(<SupplierReturns invoiceId="invoice-1" canPost canReverse onClose={vi.fn()} onComplete={vi.fn()} />);
+    await screen.findByText(/Incorrect original quantity/);
+    expect(screen.queryByRole("button", { name: "Correct return" })).toBeNull();
+  });
+
   it("collects products into one atomic credit document and retries the complete unchanged payload", async () => {
     let attempts = 0;
     api.call.mockImplementation((name: string, input: { view: string; supplierInvoiceItemId?: string }) => {

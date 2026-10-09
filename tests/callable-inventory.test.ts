@@ -749,15 +749,18 @@ describe.sequential("inventory callables", () => {
         idempotencyKey: crypto.randomUUID(),
       },
     );
+    const reversalKey = crypto.randomUUID();
     const reversed = await call<{ transactionId: string }>(
       administrator,
       "reverseInventoryTransaction",
       {
         transactionId: adjustment.transactionId,
         reason: "Correction evidence was invalidated",
-        idempotencyKey: crypto.randomUUID(),
+        idempotencyKey: reversalKey,
       },
     );
+    expect(await call(administrator, "reverseInventoryTransaction", { transactionId: adjustment.transactionId, reason: "Correction evidence was invalidated", idempotencyKey: reversalKey })).toMatchObject({ transactionId: reversed.transactionId, reversed: false });
+    await expect(call(administrator, "reverseInventoryTransaction", { transactionId: adjustment.transactionId, reason: "Different reason must not silently replay", idempotencyKey: reversalKey })).rejects.toMatchObject({ code: "functions/already-exists" });
     const reversalEntries = await adminDb
       .collection("inventoryEntries")
       .where("transactionId", "==", reversed.transactionId)

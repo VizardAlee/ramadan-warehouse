@@ -148,6 +148,15 @@ export const postSupplierCreditDocumentInput = z.object({
     context.addIssue({ code: "custom", path: ["lines"], message: "Use at most 50 serial numbers per credit document." });
 });
 
+export const reverseSupplierReturnInput = z.object({
+  action: z.literal("reverse_return"),
+  returnId: id.refine(value => !value.includes("/"), "Invalid return reference."),
+  reason: z.string().trim().min(5).max(500),
+  reversedAt: z.string().datetime(),
+  goodsBackInStore: z.literal(true),
+  idempotencyKey: z.string().uuid(),
+});
+
 export const recordSupplierPaymentInput = z.object({
   supplierId: id,
   purpose: z.enum(["payment", "advance", "advance_refund"]).default("payment"),

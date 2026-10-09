@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, configure, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import ReportsPage from "@/app/(protected)/reports/page";
 import RequestReportsPage from "@/app/(protected)/requests/reports/page";
@@ -17,6 +17,9 @@ vi.mock("@/features/auth/auth-context", () => ({
 }));
 
 beforeEach(() => {
+  // Reports debounce requests; CI may run alongside CPU-heavy Firebase emulators.
+  // Keep assertions intact while allowing the asynchronous screen to settle.
+  configure({ asyncUtilTimeout: 5000 });
   api.call.mockReset();
   api.call.mockImplementation(async (name: string, filters: Record<string, string>) => {
     if (name === "generateFinancialStatement")
@@ -29,6 +32,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  configure({ asyncUtilTimeout: 1000 });
   vi.clearAllMocks();
 });
 

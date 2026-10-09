@@ -862,7 +862,7 @@ export default function ProcurementPage() {
 
       {can("payables.read") && workspace && <SupplierAccounts suppliers={workspace.suppliers} banks={workspace.bankAccounts} branches={workspace.branches} scope={contextScope} canPay={can("payables.pay")} invoice={paymentInvoice} closeInvoice={() => setPaymentInvoice(null)} onComplete={() => { setMessage("Supplier transaction recorded with its accounting and audit entries."); void load(); }} />}
 
-      {returnInvoiceId && <SupplierReturns invoiceId={returnInvoiceId} canPost={can("procurement.receive") && can("payables.approve")} onClose={() => setReturnInvoiceId(null)} onComplete={() => { void load(); }} />}
+      {returnInvoiceId && <SupplierReturns invoiceId={returnInvoiceId} canPost={can("procurement.receive") && can("payables.approve")} canReverse={can("procurement.receive") && can("payables.approve") && can("inventory.reverse")} onClose={() => setReturnInvoiceId(null)} onComplete={() => { void load(); }} />}
 
       {can("payables.read") && (
         <section className="rounded-xl border bg-white p-5">

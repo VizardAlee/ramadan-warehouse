@@ -1,5 +1,34 @@
 # Business workflow expansion (24 September 2026 baseline)
 
+## Linked supplier-return corrections — 9 October 2026 (implementation)
+
+Extends postSupplierReturn and extracts the existing stock-reversal engine for
+trusted atomic integration; ordinary stock-only financial reversals stay denied.
+Authorized receiving/payables/reversal users can correct one original product
+line after confirming the goods are physically back at its original store. Stock,
+serial/batch custody, invoice debt, unused same-store supplier credit, original
+receipt/invoice projections, opposite balanced journal and audit commit together.
+Original return values, journals, payments and history remain intact. Return
+history distinguishes reversed credit and links reversal references. Concurrent
+exact retries return the original stock/journal IDs; changed requests are rejected.
+Later movements, consumed/refunded credit, closed periods, incomplete evidence
+and held-handover credits cannot bypass reconciliation. No new collection, tax
+rate, direct-client write rule or IAM relaxation. User guide updated.
+
+Validation: 349 unit/interface cases and 92 distinct emulator/security cases
+across sales, inventory, procurement, accounting close and rules. The broad
+emulator run passed 89/92; new cases exposed missing test supplier contacts and
+an undefined optional scope in the new audit payload. Both were corrected and
+all 12 procurement cases passed against rebuilt Functions. Serial restoration
+also fixes the older shared reversal cache's lost document reference. Typecheck,
+lint, Functions compilation, production build, secret scan and diff checks pass.
+Live planner audit passes 443/443, with all 224 indexes READY and no new indexes.
+Report UI checks retain their assertions with a bounded five-second asynchronous
+wait for debounced rendering under shared emulator/CI load. Deployment pending.
+Next dependency: authorized manual /
+reversal journals and internal company-account transfers, reusing the ledger and
+period controls; reviewed statutory tax configuration follows those foundations.
+
 ## Multi-product supplier credit notes — 9 October 2026 (deployed)
 
 Extends the existing supplier-return callable, original-GRN validation, inventory

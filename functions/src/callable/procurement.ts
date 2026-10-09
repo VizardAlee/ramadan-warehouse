@@ -24,6 +24,7 @@ import {
 } from "../inventory/calculations.js";
 import { postInventoryTransaction, postInventoryTransactionGroup, type InventoryPostingContext, type InventoryPostingExtension, type PostingRequest } from "../inventory/post-inventory-transaction.js";
 import { postSupplierStockOrHeldCredit } from "../inventory/held-supplier-credit.js";
+import { reverseInventoryPosting } from "../inventory/reverse-inventory-posting.js";
 import { supplierReturnAmounts } from "../inventory/supplier-return-calculations.js";
 import { operationalEvidence, operationalEvidenceInput } from "../sales/operational-evidence.js";
 import { assertBalancedJournal } from "../sales/calculations.js";
@@ -39,6 +40,7 @@ import {
   supplierInvoiceActionInput,
   postSupplierReturnInput,
   postSupplierCreditDocumentInput,
+  reverseSupplierReturnInput,
 } from "../validation/procurement.js";
 
 const accountNames: Readonly<Record<string, string>> = {
@@ -429,7 +431,10 @@ async function supplierReturnWorkspace(actor: Awaited<ReturnType<typeof requireA
   const history = await query.limit(limit + 1).get();
   return { invoiceNumber: invoice.get("supplierInvoiceNumber"), outstandingAmountMinor: invoice.get("outstandingAmountMinor"),
     lines: lines.docs.map((line) => ({ id: line.id, productId: line.get("productId"), productName: line.get("productName"), quantity: line.get("quantity"), returnedQuantity: line.get("returnedQuantity") ?? 0 })),
-    returns: history.docs.slice(0, limit).map((record) => ({ id: record.id, returnNumber: record.get("returnNumber"), creditNoteReference: record.get("creditNoteReference"), productName: record.get("productName"), quantity: record.get("quantity"), grossAmountMinor: record.get("grossAmountMinor"), payableReductionMinor: record.get("payableReductionMinor"), supplierCreditMinor: record.get("supplierCreditMinor"), inventoryTransactionNumber: record.get("inventoryTransactionNumber"), journalNumber: record.get("journalNumber"), returnedAt: record.get("effectiveAt")?.toDate?.().toISOString() ?? "", reason: record.get("reason"), serialized: Boolean(record.get("serialNumbers")?.length) })),
+    returns: history.docs.slice(0, limit).map((record) => ({ id: record.id, returnNumber: record.get("returnNumber"), creditNoteReference: record.get("creditNoteReference"), productName: record.get("productName"), quantity: record.get("quantity"), grossAmountMinor: record.get("grossAmountMinor"), payableReductionMinor: record.get("payableReductionMinor"), supplierCreditMinor: record.get("supplierCreditMinor"), inventoryTransactionNumber: record.get("inventoryTransactionNumber"), journalNumber: record.get("journalNumber"), returnedAt: record.get("effectiveAt")?.toDate?.().toISOString() ?? "", reason: record.get("reason"), serialized: Boolean(record.get("serialNumbers")?.length),
+      status: record.get("status") ?? "posted", heldHandover: Boolean(record.get("heldHandoverId")),
+      reversalJournalNumber: record.get("reversalJournalNumber") ?? "", reversalInventoryTransactionId: record.get("reversalInventoryTransactionId") ?? "",
+      reversalReason: record.get("reversalReason") ?? "", reversedAt: record.get("reversedAt")?.toDate?.().toISOString() ?? "" })),
     nextCursor: history.size > limit ? history.docs[limit - 1]!.id : null };
 }
 
@@ -1599,6 +1604,7 @@ export const postSupplierReturn = onCall({ enforceAppCheck, timeoutSeconds: 120 
   requirePermission(actor, "procurement.receive");
   requirePermission(actor, "payables.approve");
   try {
+    if (request.data?.action === "reverse_return") return reverseSupplierReturn(actor, parseInput(reverseSupplierReturnInput, request.data));
     if (Array.isArray(request.data?.lines)) {
       const input = parseInput(postSupplierCreditDocumentInput, request.data);
       if (request.data.heldHandoverId) throw new HttpsError("invalid-argument", "Settle already-handed-over goods separately; do not issue them again in a stock credit document.");
@@ -1644,6 +1650,121 @@ export const postSupplierReturn = onCall({ enforceAppCheck, timeoutSeconds: 120 
 
 interface SupplierReturnShared {
   current?: { outstanding: number; credited: number; balance: number; advance: number; advances: Record<string, number>; counter: number };
+}
+
+async function reverseSupplierReturn(actor: Awaited<ReturnType<typeof requireAccess>>, input: ReturnType<typeof reverseSupplierReturnInput.parse>) {
+  requirePermission(actor, "inventory.reverse");
+  const returned = db.doc(`supplierReturns/${input.returnId}`), initial = await returned.get();
+  if (!initial.exists || initial.get("organizationId") !== actor.organizationId) throw new HttpsError("not-found", "Supplier return not found.");
+  const scope = procurementScopeFrom(initial);
+  requireProcurementScope(actor, scope);
+  if (initial.get("heldHandoverId")) throw new HttpsError("failed-precondition", "This credit settled an earlier custody handover. It cannot be reversed by restoring stock; reconcile its supplier settlement separately.");
+  const effectiveAt = Timestamp.fromDate(new Date(input.reversedAt));
+  const originalTime = initial.get("effectiveAt")?.toMillis?.();
+  if (!Number.isFinite(originalTime) || effectiveAt.toMillis() > Date.now() + 300_000 || effectiveAt.toMillis() < originalTime)
+    throw new HttpsError("invalid-argument", "The correction must follow the return and cannot be in the future.");
+  const fingerprint = createHash("sha256").update(JSON.stringify(input)).digest("hex");
+  const result = async (reversed: boolean, transactionId: string) => {
+    const record = await returned.get();
+    if (record.get("reversalFingerprint") !== fingerprint || record.get("reversalInventoryTransactionId") !== transactionId)
+      throw new HttpsError("already-exists", "This return has another correction. Review its history before retrying.");
+    return { returnId: record.id, reversed, inventoryTransactionId: transactionId, journalEntryId: record.get("reversalJournalEntryId"), journalNumber: record.get("reversalJournalNumber") };
+  };
+  if (initial.get("status") === "reversed" && initial.get("reversalFingerprint") !== fingerprint)
+    throw new HttpsError("already-exists", "This supplier return was already corrected.");
+  const invoiceRef = db.doc(`supplierInvoices/${initial.get("supplierInvoiceId")}`), lineRef = db.doc(`supplierInvoiceItems/${initial.get("supplierInvoiceItemId")}`);
+  const receiptRef = db.doc(`purchaseReceipts/${initial.get("receiptId")}`), itemRef = db.doc(`purchaseOrderItems/${initial.get("purchaseOrderItemId")}`);
+  const supplierRef = db.doc(`suppliers/${initial.get("supplierId")}`), locationRef = db.doc(`inventoryLocations/${initial.get("sourceLocationId")}`);
+  const originalJournalRef = db.doc(`journalEntries/${initial.get("journalEntryId")}`);
+  const originalLines = db.collection("journalLines").where("journalEntryId", "==", originalJournalRef.id).limit(101);
+  const journalRef = db.collection("journalEntries").doc(), journalCounter = db.doc(`journalCounters/${uniquenessDocumentId(actor.organizationId, "general")}`);
+  const periodRef = accountingPeriodReference(actor.organizationId, effectiveAt);
+  const posted = await reverseInventoryPosting(actor, { transactionId: String(initial.get("inventoryTransactionId")), reason: input.reason, idempotencyKey: input.idempotencyKey }, {
+    effectiveAt, sourceFunction: "reverseSupplierReturn",
+    async prepare(reader, movement) {
+      const [record, invoice, line, receipt, item, supplier, originalJournal, counter, period, location] = await reader.getAll(returned, invoiceRef, lineRef, receiptRef, itemRef, supplierRef, originalJournalRef, journalCounter, periodRef, locationRef);
+      if ([record, invoice, line, receipt, item, supplier, originalJournal, location].some(document => !document?.exists || document.get("organizationId") !== actor.organizationId))
+        throw new HttpsError("failed-precondition", "Original stock, purchase or accounting evidence needs reconciliation.");
+      requireProcurementScope(actor, procurementScopeFrom(invoice!));
+      if (record!.get("status") !== "posted" || record!.get("heldHandoverId") || record!.get("inventoryTransactionId") !== movement.original.id
+        || record!.get("supplierInvoiceId") !== invoiceRef.id || record!.get("supplierInvoiceItemId") !== lineRef.id || record!.get("receiptId") !== receiptRef.id
+        || record!.get("purchaseOrderItemId") !== itemRef.id || record!.get("supplierId") !== supplierRef.id || record!.get("sourceLocationId") !== locationRef.id
+        || record!.get("journalEntryId") !== originalJournalRef.id || movement.original.get("status") !== "posted"
+        || !["approved", "partially_paid", "paid"].includes(String(invoice!.get("status")))
+        || invoice!.get("supplierId") !== supplierRef.id || line!.get("supplierInvoiceId") !== invoiceRef.id
+        || [line!, receipt!, item!].some(document => document.get("productId") !== record!.get("productId"))
+        || line!.get("purchaseOrderItemId") !== itemRef.id || receipt!.get("purchaseOrderItemId") !== itemRef.id
+        || receipt!.get("purchaseOrderId") !== invoice!.get("purchaseOrderId") || item!.get("purchaseOrderId") !== invoice!.get("purchaseOrderId")
+        || receipt!.get("supplierId") !== supplierRef.id || receipt!.get("receivingLocationId") !== locationRef.id
+        || originalJournal!.get("status") !== "posted" || originalJournal!.get("referenceId") !== record!.id || originalJournal!.get("referenceType") !== "supplierReturn"
+        || movement.original.get("referenceId") !== record!.id || movement.original.get("sourceLocationId") !== locationRef.id || location!.get("status") !== "active"
+        || (scope.branchId ?? null) !== (invoice!.get("branchId") ?? null) || (scope.warehouseId ?? null) !== (invoice!.get("warehouseId") ?? null)
+        || (record!.get("serialNumbers")?.length ?? 0) > 50)
+        throw new HttpsError("failed-precondition", "This correction requires the original posted stock return, invoice, journal and recording store.");
+      assertAccountingPeriodOpen(period!);
+      const quantity = supplierMoney(record!.get("quantity")), net = supplierMoney(record!.get("netAmountMinor")), vat = supplierMoney(record!.get("vatAmountMinor"));
+      const gross = supplierMoney(record!.get("grossAmountMinor")), debt = supplierMoney(record!.get("payableReductionMinor")), credit = supplierMoney(record!.get("supplierCreditMinor"));
+      const value = supplierMoney(record!.get("inventoryValueMinor"));
+      const physical = movement.entries.filter(entry => entry.get("locationId") === locationRef.id);
+      if (!quantity || !gross || gross !== net + vat || gross !== debt + credit || movement.entries.some(entry => entry.get("organizationId") !== actor.organizationId || entry.get("productId") !== record!.get("productId") || entry.get("locationId") && entry.get("locationId") !== locationRef.id)
+        || physical.reduce((sum, entry) => sum + Number(entry.get("quantityDelta")), 0) !== -quantity
+        || physical.reduce((sum, entry) => sum + Number(entry.get("valueDeltaMinor")), 0) !== -value
+        || movement.entries.reduce((sum, entry) => sum + Number(entry.get("quantityDelta")), 0) !== 0
+        || movement.entries.reduce((sum, entry) => sum + Number(entry.get("valueDeltaMinor")), 0) !== 0)
+        throw new HttpsError("failed-precondition", "Original return quantities and ledger values need reconciliation.");
+      const returnedQuantity = supplierMoney(line!.get("returnedQuantity")) - quantity;
+      const returnedNet = supplierMoney(line!.get("returnedNetMinor")) - net, returnedVat = supplierMoney(line!.get("returnedVatMinor")) - vat;
+      try {
+        const check = supplierReturnAmounts({ quantity: line!.get("quantity"), netMinor: line!.get("netAmountMinor"), vatMinor: line!.get("vatAmountMinor"),
+          returnedQuantity, returnedNetMinor: returnedNet, returnedVatMinor: returnedVat, returnQuantity: quantity, outstandingMinor: 0, movementValueMinor: value });
+        if (check.netMinor !== net || check.vatMinor !== vat) throw new Error("Rounding mismatch");
+      } catch { throw new HttpsError("failed-precondition", "Later returns or historical rounding prevent this direct correction. Reconcile the linked credit documents first."); }
+      const receiptReturned = supplierMoney(receipt!.get("returnedQuantity")) - quantity, itemReturned = supplierMoney(item!.get("returnedQuantity")) - quantity;
+      const invoiceCredited = supplierMoney(invoice!.get("creditedAmountMinor")) - debt;
+      const invoiceOutstanding = supplierMoney(supplierMoney(invoice!.get("outstandingAmountMinor")) + debt);
+      const balance = supplierMoney(supplierMoney(supplier!.get("outstandingBalanceMinor")) + debt);
+      const advances = { ...(supplier!.get("advanceBalancesByLocation") ?? {}) } as Record<string, number>;
+      const advanceBefore = supplierMoney(supplier!.get("advanceBalanceMinor")), scopeKey = scope.branchId ? `branch:${scope.branchId}` : `warehouse:${scope.warehouseId}`;
+      if (receiptReturned < 0 || itemReturned < 0 || invoiceCredited < 0 || invoiceOutstanding > supplierMoney(invoice!.get("grossAmountMinor")) - invoiceCredited
+        || Object.values(advances).reduce((sum, amount) => sum + supplierMoney(amount), 0) !== advanceBefore || advanceBefore < credit || supplierMoney(advances[scopeKey]) < credit)
+        throw new HttpsError("failed-precondition", "Supplier credit has been used or refunded, or purchase balances need reconciliation. Restore the available credit before reversing this return.");
+      advances[scopeKey] = supplierMoney(advances[scopeKey]) - credit;
+      const snapshots = await reader.get(originalLines);
+      if (snapshots.empty || snapshots.size > 100 || snapshots.docs.some(entry => entry.get("organizationId") !== actor.organizationId))
+        throw new HttpsError("failed-precondition", "Original journal lines need reconciliation.");
+      const lines = snapshots.docs.map(entry => ({ accountCode: String(entry.get("accountCode")), accountName: String(entry.get("accountName") ?? entry.get("accountCode")), debitMinor: supplierMoney(entry.get("creditMinor")), creditMinor: supplierMoney(entry.get("debitMinor")) }));
+      assertBalancedJournal(lines);
+      if (lines.reduce((sum, entry) => sum + entry.debitMinor, 0) !== originalJournal!.get("totalCreditMinor") || lines.reduce((sum, entry) => sum + entry.creditMinor, 0) !== originalJournal!.get("totalDebitMinor"))
+        throw new HttpsError("failed-precondition", "Original journal totals need reconciliation.");
+      return { quantity, debt, credit, gross, returnedQuantity, returnedNet, returnedVat, receiptReturned, itemReturned, invoiceCredited, invoiceOutstanding,
+        balance, advanceBefore, nextAdvance: advanceBefore - credit, advances, lines, counter: Number(counter!.get("value") ?? 0) + 1,
+        status: invoiceOutstanding === 0 ? "paid" : invoiceOutstanding === supplierMoney(invoice!.get("grossAmountMinor")) - invoiceCredited ? "approved" : "partially_paid" };
+    },
+    apply(writer, state, movement) {
+      const now = FieldValue.serverTimestamp(), referenceNumber = `SRC-${input.idempotencyKey.replaceAll("-", "").slice(0, 16).toUpperCase()}`;
+      const journalNumber = writeJournal(writer, actor, { journal: journalRef, journalCounter, journalCounterValue: state.counter, journalType: "supplier_return_reversal",
+        referenceType: "supplierReturnReversal", referenceId: returned.id, referenceNumber, description: `Correction of ${initial.get("returnNumber")}: ${input.reason}`, ...scope, effectiveAt, lines: state.lines });
+      writer.set(journalRef, { reversalOfJournalEntryId: originalJournalRef.id, inventoryTransactionId: movement.transactionId }, { merge: true });
+      writer.set(db.doc(`inventoryTransactions/${movement.transactionId}`), { referenceType: "supplier_return_reversal", referenceId: returned.id, referenceNumber, journalEntryId: journalRef.id }, { merge: true });
+      writer.update(returned, { status: "reversed", reversalFingerprint: fingerprint, reversalInventoryTransactionId: movement.transactionId,
+        reversalJournalEntryId: journalRef.id, reversalJournalNumber: journalNumber, reversalReason: input.reason, reversedAt: effectiveAt, reversedBy: actor.userId, updatedAt: now });
+      writer.update(lineRef, { returnedQuantity: state.returnedQuantity, returnedNetMinor: state.returnedNet, returnedVatMinor: state.returnedVat, updatedAt: now });
+      writer.update(receiptRef, { returnedQuantity: state.receiptReturned, updatedAt: now });
+      writer.update(itemRef, { returnedQuantity: state.itemReturned, updatedAt: now });
+      writer.update(invoiceRef, { outstandingAmountMinor: state.invoiceOutstanding, creditedAmountMinor: state.invoiceCredited, status: state.status, updatedAt: now });
+      writer.update(supplierRef, { outstandingBalanceMinor: state.balance, advanceBalanceMinor: state.nextAdvance, advanceBalancesByLocation: state.advances, updatedAt: now, updatedBy: actor.userId });
+      writer.create(db.collection("supplierAccountEntries").doc(), clean({ organizationId: actor.organizationId, supplierId: supplierRef.id, ...scope,
+        entryType: "supplier_return_reversal", referenceType: "supplierReturnReversal", referenceId: returned.id, referenceNumber,
+        amountMinor: state.debt, advanceAmountMinor: -state.credit, balanceAfterMinor: state.balance, advanceBalanceAfterMinor: state.nextAdvance,
+        journalEntryId: journalRef.id, inventoryTransactionId: movement.transactionId, effectiveAt, createdAt: now, createdBy: actor.userId, currency: "NGN" }));
+      writeAuditLog(writer, actor, { action: "supplier.return_reversed", entityType: "supplierReturn", entityId: returned.id, correlationId: input.idempotencyKey,
+        sourceFunction: "reverseSupplierReturn", reason: input.reason, before: { status: "posted", advanceMinor: state.advanceBefore },
+        after: clean({ status: "reversed", quantityRestored: state.quantity, payableRestoredMinor: state.debt, creditRemovedMinor: state.credit,
+          inventoryTransactionId: movement.transactionId, journalEntryId: journalRef.id, goodsBackInStore: true, ...scope }) });
+      return undefined;
+    },
+  });
+  return result(posted.reversed, posted.transactionId);
 }
 
 async function prepareSupplierReturn(actor: Awaited<ReturnType<typeof requireAccess>>, input: ReturnType<typeof postSupplierReturnInput.parse>, shared?: SupplierReturnShared, documentId?: string) {

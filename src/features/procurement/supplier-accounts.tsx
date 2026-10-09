@@ -21,6 +21,7 @@ const labels: Record<string, string> = {
   supplier_advance: "Advance paid", supplier_advance_applied: "Advance applied to invoice",
   supplier_advance_refund: "Advance / credit refunded by supplier",
   supplier_return: "Goods returned — supplier credit note",
+  supplier_return_reversal: "Supplier return corrected — credit reversed",
 };
 
 interface Payables {

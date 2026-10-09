@@ -1,0 +1,476 @@
+import { FieldValue, type Timestamp, type DocumentSnapshot, type QueryDocumentSnapshot, type Transaction } from "firebase-admin/firestore";
+import { createHash } from "node:crypto";
+import { logger } from "firebase-functions";
+import { HttpsError } from "firebase-functions/v2/https";
+import { db } from "../admin.js";
+import {
+  hasRole,
+  type AccessProfile,
+  requireBranchScope,
+  requirePermission,
+  requireWarehouseScope,
+} from "../auth/authorize.js";
+import { writeAuditLog } from "../audit/write-audit-log.js";
+import { balanceDocumentId } from "./calculations.js";
+import { correlationId } from "../utils/callable.js";
+import type { reversalInput } from "../validation/inventory.js";
+
+export interface InventoryReversalContext {
+  original: DocumentSnapshot;
+  entries: readonly QueryDocumentSnapshot[];
+  transactionId: string;
+  transactionNumber: string;
+}
+
+/** Trusted integration only. Public stock reversals never receive this capability. */
+export interface SupplierReturnReversalExtension<State> {
+  effectiveAt: Timestamp;
+  sourceFunction: "reverseSupplierReturn";
+  prepare(reader: Pick<Transaction, "get" | "getAll">, context: InventoryReversalContext): Promise<State>;
+  apply(writer: Pick<Transaction, "create" | "set" | "update">, state: State, context: InventoryReversalContext): undefined;
+}
+
+function clean(values: Record<string, unknown>) {
+  return Object.fromEntries(
+    Object.entries(values).filter(([, value]) => value !== undefined),
+  );
+}
+function statusForLocation(type: string) {
+  return type === "branch"
+    ? "at_branch"
+    : type === "goods_in_transit"
+      ? "in_transit"
+      : type === "damaged"
+        ? "damaged"
+        : type === "quarantined"
+          ? "quarantined"
+          : type === "returned"
+            ? "returned"
+            : "available";
+}
+
+function authorizeOriginal(actor: AccessProfile, original: DocumentSnapshot) {
+  if (!original.exists || original.get("organizationId") !== actor.organizationId)
+    throw new HttpsError("not-found", "Inventory transaction was not found.");
+  let owned = false;
+  for (const [field, scope] of [
+    ["sourceWarehouseId", requireWarehouseScope], ["destinationWarehouseId", requireWarehouseScope],
+    ["sourceBranchId", requireBranchScope], ["destinationBranchId", requireBranchScope],
+  ] as const) {
+    const id = original.get(field);
+    if (typeof id === "string") { owned = true; scope(actor, id); }
+  }
+  if (!owned && !hasRole(actor, "system_administrator"))
+    throw new HttpsError("permission-denied", "Organization-wide transaction reversal requires system-administrator authority.");
+}
+
+export async function reverseInventoryPosting<State = undefined>(
+  actor: AccessProfile,
+  input: ReturnType<typeof reversalInput.parse>,
+  extension?: SupplierReturnReversalExtension<State>,
+) {
+    requirePermission(actor, "inventory.reverse");
+    const requestId = correlationId();
+    const fingerprint = createHash("sha256").update(JSON.stringify([input.transactionId, input.reason, extension?.effectiveAt.toMillis() ?? null])).digest("hex");
+    const replay = async (prior: DocumentSnapshot) => {
+      authorizeOriginal(actor, await db.doc(`inventoryTransactions/${input.transactionId}`).get());
+      if (prior.get("fingerprint") && prior.get("fingerprint") !== fingerprint)
+        throw new HttpsError("already-exists", "This reversal retry reference belongs to different instructions.");
+      if (!prior.get("fingerprint")) {
+        const originalReversal = await db.doc(`inventoryTransactions/${prior.get("transactionId")}`).get();
+        if (originalReversal.get("organizationId") !== actor.organizationId || originalReversal.get("reversalOfTransactionId") !== input.transactionId || originalReversal.get("reason") !== input.reason)
+          throw new HttpsError("already-exists", "This retry reference belongs to another stock reversal.");
+      }
+      return { transactionId: String(prior.get("transactionId")), transactionNumber: String(prior.get("transactionNumber")), reversed: false };
+    };
+    const operation = db
+      .collection("idempotencyKeys")
+      .doc(`${actor.organizationId}_inventoryReverse_${input.idempotencyKey}`);
+    const prior = await operation.get();
+    if (prior.exists) return replay(prior);
+    const originalReference = db
+      .collection("inventoryTransactions")
+      .doc(input.transactionId);
+    const entryQuery = db
+      .collection("inventoryEntries")
+      .where("transactionId", "==", input.transactionId).limit(1001);
+    const entrySnapshot = await entryQuery.get();
+    if (entrySnapshot.empty)
+      throw new HttpsError(
+        "not-found",
+        "Inventory transaction entries were not found.",
+      );
+    if (entrySnapshot.size > 1000) throw new HttpsError("failed-precondition", "This reversal exceeds the safe document size; reconcile it through an authorized accounting workflow.");
+    const reversalReference = db.collection("inventoryTransactions").doc();
+    const reversalLock = db
+      .collection("inventoryReversals")
+      .doc(input.transactionId);
+    const counterReference = db
+      .collection("inventoryCounters")
+      .doc(`${actor.organizationId}_transactions`);
+    const locationEntries = entrySnapshot.docs.filter(
+      (entry) => typeof entry.get("locationId") === "string",
+    );
+    const balanceReferences = [
+      ...new Map(
+        locationEntries.map((entry) => {
+          const id = balanceDocumentId(
+            actor.organizationId,
+            String(entry.get("productId")),
+            String(entry.get("locationId")),
+            typeof entry.get("lotId") === "string"
+              ? String(entry.get("lotId"))
+              : undefined,
+          );
+          return [id, db.collection("inventoryBalances").doc(id)];
+        }),
+      ).values(),
+    ];
+    const serialReferences = [
+      ...new Map(
+        entrySnapshot.docs
+          .filter((entry) => typeof entry.get("serializedItemId") === "string")
+          .map((entry) => {
+            const id = String(entry.get("serializedItemId"));
+            return [id, db.collection("serializedItems").doc(id)];
+          }),
+      ).values(),
+    ];
+    const lotReferences = [
+      ...new Map(
+        entrySnapshot.docs
+          .filter((entry) => typeof entry.get("lotId") === "string")
+          .map((entry) => {
+            const id = String(entry.get("lotId"));
+            return [id, db.collection("inventoryLots").doc(id)];
+          }),
+      ).values(),
+    ];
+    const locationReferences = [
+      ...new Map(
+        locationEntries.map((entry) => {
+          const id = String(entry.get("locationId"));
+          return [id, db.collection("inventoryLocations").doc(id)];
+        }),
+      ).values(),
+    ];
+    let transactionNumber = "";
+    const result = await db.runTransaction(async (transaction) => {
+      const [original, lock, previousOperation, counter, ...dependent] =
+        await transaction.getAll(
+          originalReference,
+          reversalLock,
+          operation,
+          counterReference,
+          ...balanceReferences,
+          ...serialReferences,
+          ...lotReferences,
+          ...locationReferences,
+        );
+      if (previousOperation?.exists) {
+        return replay(previousOperation);
+      }
+      if (!original) throw new HttpsError("not-found", "Inventory transaction was not found.");
+      authorizeOriginal(actor, original);
+      if (extension && original.get("transactionType") !== "supplier_return")
+        throw new HttpsError("failed-precondition", "This financial correction only supports an original supplier stock return.");
+      if (original.get("transactionType") === "supplier_return" && !extension)
+        throw new HttpsError("failed-precondition", "Supplier returns have linked credit notes and journals. A stock-only reversal is not allowed; record an authorized financial and stock correction.");
+      if ((await transaction.get(db.doc(`supplierReturnReceiptLocks/${input.transactionId}`))).exists)
+        throw new HttpsError("failed-precondition", "This receipt has supplier return credit notes. A stock-only reversal would invalidate their evidence.");
+      if (["branch_sale", "sale_reservation", "customer_collection", "sale_return", "sale_reservation_release", "held_return_restock", "held_return_scrap", "held_return_supplier_handover", "held_return_supplier_replacement"].includes(String(original.get("transactionType"))))
+        throw new HttpsError("failed-precondition", "A sale, reservation, collection or return requires a linked financial correction, not a stock-only reversal.");
+      if (original.get("transactionType") === "stock_transfer_receipt")
+        throw new HttpsError("failed-precondition", "Direct reversal would invalidate the branch acknowledgement. Ask an administrator to record a controlled return or stock adjustment.");
+      if (original.get("transactionType") === "reversal")
+        throw new HttpsError(
+          "failed-precondition",
+          "A reversal transaction cannot be reversed directly.",
+        );
+      if (lock?.exists)
+        throw new HttpsError(
+          "already-exists",
+          "This inventory transaction has already been reversed.",
+        );
+      let cursor = 0;
+      const balances = dependent.slice(
+        cursor,
+        (cursor += balanceReferences.length),
+      );
+      const serials = dependent.slice(
+        cursor,
+        (cursor += serialReferences.length),
+      );
+      const lots = dependent.slice(cursor, (cursor += lotReferences.length));
+      const locations = dependent.slice(
+        cursor,
+        cursor + locationReferences.length,
+      );
+      const balanceById = new Map(
+        balances.map((snapshot) => [snapshot.id, snapshot]),
+      );
+      const locationById = new Map(
+        locations.map((snapshot) => [snapshot.id, snapshot]),
+      );
+      for (const balance of balances)
+        if (
+          !balance.exists ||
+          balance.get("lastTransactionId") !== input.transactionId
+        )
+          throw new HttpsError(
+            "failed-precondition",
+            "The transaction has dependent later movements and cannot be safely reversed.",
+          );
+      for (const serial of serials)
+        if (
+          !serial.exists ||
+          serial.get("lastTransactionId") !== input.transactionId
+        )
+          throw new HttpsError(
+            "failed-precondition",
+            "A serialized item has moved since this transaction.",
+          );
+      const nextSequence = Number(counter?.get("value") ?? 0) + 1;
+      const effectiveAt = extension?.effectiveAt ?? FieldValue.serverTimestamp();
+      transactionNumber = `INV-${new Date().getUTCFullYear()}-${String(nextSequence).padStart(6, "0")}`;
+      const context: InventoryReversalContext = { original, entries: entrySnapshot.docs, transactionId: reversalReference.id, transactionNumber };
+      const extensionState = extension ? await extension.prepare({ get: transaction.get.bind(transaction), getAll: transaction.getAll.bind(transaction) }, context) : undefined;
+      const now = FieldValue.serverTimestamp();
+      transaction.set(
+        counterReference,
+        {
+          organizationId: actor.organizationId,
+          kind: "inventoryTransaction",
+          value: nextSequence,
+          updatedAt: now,
+        },
+        { merge: true },
+      );
+      transaction.create(
+        reversalReference,
+        clean({
+          organizationId: actor.organizationId,
+          transactionNumber,
+          transactionType: "reversal",
+          status: "posted",
+          effectiveAt,
+          postedAt: now,
+          postedBy: actor.userId,
+          reason: input.reason,
+          sourceLocationId: original.get("destinationLocationId"),
+          destinationLocationId: original.get("sourceLocationId"),
+          sourceWarehouseId: original.get("destinationWarehouseId"),
+          destinationWarehouseId: original.get("sourceWarehouseId"),
+          sourceBranchId: original.get("destinationBranchId"),
+          destinationBranchId: original.get("sourceBranchId"),
+          reversalOfTransactionId: input.transactionId,
+          idempotencyKey: input.idempotencyKey,
+          correlationId: requestId,
+          createdAt: now,
+          createdBy: actor.userId,
+        }),
+      );
+      for (const entry of entrySnapshot.docs) {
+        const locationId =
+          typeof entry.get("locationId") === "string"
+            ? String(entry.get("locationId"))
+            : undefined;
+        let before = 0;
+        let after = 0;
+        if (locationId) {
+          const balanceId = balanceDocumentId(
+            actor.organizationId,
+            String(entry.get("productId")),
+            locationId,
+            typeof entry.get("lotId") === "string"
+              ? String(entry.get("lotId"))
+              : undefined,
+          );
+          const balance = balanceById.get(balanceId)!;
+          before = Number(balance.get("onHandQuantity"));
+          after = before - Number(entry.get("quantityDelta"));
+          const totalValue =
+            Number(balance.get("totalValueMinor")) -
+            Number(entry.get("valueDeltaMinor"));
+          if (after < Number(balance.get("reservedQuantity") ?? 0) || totalValue < 0)
+            throw new HttpsError(
+              "failed-precondition",
+              "Reversal would create an invalid balance.",
+            );
+          const reserved = Number(balance.get("reservedQuantity") ?? 0);
+          transaction.update(balance.ref, {
+            onHandQuantity: after,
+            availableQuantity: after - reserved,
+            totalValueMinor: after === 0 ? 0 : totalValue,
+            averageUnitCostMinor:
+              after === 0 ? 0 : Math.round(totalValue / after),
+            lastTransactionId: reversalReference.id,
+            lastMovementAt: now,
+            version: Number(balance.get("version") ?? 0) + 1,
+            updatedAt: now,
+          });
+          balanceById.set(balanceId, {
+            ...balance,
+            ref: balance.ref,
+            get: (field: string) =>
+              field === "onHandQuantity"
+                ? after
+                : field === "totalValueMinor"
+                  ? after === 0
+                    ? 0
+                    : totalValue
+                  : balance.get(field),
+          } as typeof balance);
+        }
+        transaction.create(
+          db.collection("inventoryEntries").doc(),
+          clean({
+            organizationId: actor.organizationId,
+            transactionId: reversalReference.id,
+            transactionNumber,
+            transactionType: "reversal",
+            productId: entry.get("productId"),
+            sku: entry.get("sku"),
+            productName: entry.get("productName"),
+            trackingType: entry.get("trackingType"),
+            locationId,
+            warehouseId: entry.get("warehouseId"),
+            branchId: entry.get("branchId"),
+            counterpartyLocationId: entry.get("counterpartyLocationId"),
+            externalAccount: entry.get("externalAccount"),
+            quantityDelta: -Number(entry.get("quantityDelta")),
+            unitCostMinor: Number(entry.get("unitCostMinor")),
+            valueDeltaMinor: -Number(entry.get("valueDeltaMinor")),
+            currency: "NGN",
+            lotId: entry.get("lotId"),
+            serializedItemId: entry.get("serializedItemId"),
+            serialNumber: entry.get("serialNumber"),
+            balanceBefore: before,
+            balanceAfter: after,
+            effectiveAt,
+            postedBy: actor.userId,
+            reason: input.reason,
+            createdAt: now,
+          }),
+        );
+      }
+      for (const serial of serials) {
+        const matching = locationEntries.filter(
+          (entry) => entry.get("serializedItemId") === serial.id,
+        );
+        const currentLocation = String(serial.get("currentLocationId"));
+        const currentEntry =
+          matching.find(
+            (entry) =>
+              entry.get("locationId") === currentLocation &&
+              Number(entry.get("quantityDelta")) > 0,
+          ) ?? matching.find((entry) => Number(entry.get("quantityDelta")) < 0);
+        if (!currentEntry)
+          throw new HttpsError(
+            "failed-precondition",
+            "Serialized reversal history is incomplete.",
+          );
+        const restoreLocationId =
+          Number(currentEntry.get("quantityDelta")) > 0
+            ? currentEntry.get("counterpartyLocationId")
+            : currentEntry.get("locationId");
+        if (typeof restoreLocationId !== "string")
+          transaction.update(serial.ref, {
+            status: "written_off",
+            active: false,
+            lastTransactionId: reversalReference.id,
+            lastMovementAt: now,
+            updatedAt: now,
+            updatedBy: actor.userId,
+          });
+        else {
+          const restoredLocation = locationById.get(restoreLocationId);
+          if (!restoredLocation?.exists)
+            throw new HttpsError(
+              "failed-precondition",
+              "The original serialized-item location no longer exists.",
+            );
+          transaction.update(
+            serial.ref,
+            clean({
+              currentLocationId: restoreLocationId,
+              warehouseId: restoredLocation.get("warehouseId"),
+              branchId: restoredLocation.get("branchId"),
+              status: statusForLocation(String(restoredLocation.get("type"))),
+              active: true,
+              lastTransactionId: reversalReference.id,
+              lastMovementAt: now,
+              updatedAt: now,
+              updatedBy: actor.userId,
+            }),
+          );
+        }
+      }
+      for (const lot of lots) {
+        const quantities = {
+          ...(lot.get("locationQuantities") as Record<string, number>),
+        };
+        for (const entry of locationEntries.filter(
+          (item) => item.get("lotId") === lot.id,
+        ))
+          quantities[String(entry.get("locationId"))] =
+            Number(quantities[String(entry.get("locationId"))] ?? 0) -
+            Number(entry.get("quantityDelta"));
+        if (Object.values(quantities).some((quantity) => quantity < 0))
+          throw new HttpsError(
+            "failed-precondition",
+            "Lot reversal would create a negative balance.",
+          );
+        transaction.update(lot.ref, {
+          locationQuantities: quantities,
+          remainingQuantity: Object.values(quantities).reduce(
+            (sum, quantity) => sum + quantity,
+            0,
+          ),
+          lastTransactionId: reversalReference.id,
+          updatedAt: now,
+          updatedBy: actor.userId,
+        });
+      }
+      transaction.create(reversalLock, {
+        organizationId: actor.organizationId,
+        originalTransactionId: input.transactionId,
+        reversalTransactionId: reversalReference.id,
+        createdAt: now,
+        createdBy: actor.userId,
+      });
+      transaction.create(operation, {
+        organizationId: actor.organizationId,
+        action: "inventoryReverse",
+        transactionId: reversalReference.id,
+        transactionNumber,
+        status: "completed",
+        fingerprint,
+        originalTransactionId: input.transactionId,
+        createdAt: now,
+        createdBy: actor.userId,
+      });
+      writeAuditLog(transaction, actor, {
+        action: "inventory.transaction_reversed",
+        entityType: "inventoryTransaction",
+        entityId: reversalReference.id,
+        correlationId: requestId,
+        sourceFunction: extension?.sourceFunction ?? "reverseInventoryTransaction",
+        reason: input.reason,
+        after: {
+          originalTransactionId: input.transactionId,
+          transactionNumber,
+        },
+      });
+      if (extension) extension.apply({ create: transaction.create.bind(transaction), set: transaction.set.bind(transaction), update: transaction.update.bind(transaction) }, extensionState as State, context);
+      return { transactionId: reversalReference.id, transactionNumber, reversed: true };
+    });
+    logger.info("Inventory transaction reversed", {
+      organizationId: actor.organizationId,
+      actorUserId: actor.userId,
+      originalTransactionId: input.transactionId,
+      transactionId: result.transactionId,
+      correlationId: requestId,
+    });
+    return result;
+}

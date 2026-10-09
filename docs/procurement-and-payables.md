@@ -47,6 +47,32 @@ order, a physical receipt, a supplier invoice, and a payment as the same event.
 
 ## Accounting mapping
 
+### Linked correction of an ordinary supplier return
+
+The existing `postSupplierReturn` accepts `action: reverse_return`. Receiving,
+payable-approval and inventory-reversal permissions plus original store scope
+are required. The operator confirms all goods on that original product line are
+physically back. Corrections are line-by-line, not a silent rewrite or a whole-
+document cancellation. Held-handover credits cannot use this stock-restoring path.
+
+The shared inventory reversal engine and one Firestore transaction restore exact
+original quantity/value, serial custody and batch positions; reverse the original
+balanced journal; restore invoice payable; remove unused supplier credit; adjust
+receipt/invoice return projections; and append supplier-account/audit evidence.
+Original financial values and journals remain unchanged. Reversed return status
+and linked reversal references are additive control metadata. Payments are not
+deleted, reallocated or invented. The existing period lock, last-stock-movement
+guard and unused same-store supplier-credit check apply. Consumed/refunded credit,
+later movements and incomplete historical evidence require reconciliation first.
+Exact retries retain the original stock/journal IDs, including concurrent requests;
+changed instructions under the same key or another reversal are rejected. No new
+collection, direct-client write permission, tax rate or IAM relaxation is introduced.
+
+Return history shows original credit separately from reversed status. Authorized
+users choose Correct return, provide a reason and physical-return confirmation,
+then Reverse stock & credit. Interrupted confirmation uses Retry same correction.
+Record a fresh corrected return separately if required; never invent a handover.
+
 | Event                     | Debit                                 | Credit                                         |
 | ------------------------- | ------------------------------------- | ---------------------------------------------- |
 | Approved supplier invoice | `1200 Inventory` and `1300 Input VAT` | `2000 Accounts Payable`                        |

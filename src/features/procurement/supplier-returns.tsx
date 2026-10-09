@@ -10,14 +10,14 @@ import { OperationalPhotos } from "@/features/pos/operational-photos";
 
 interface ReturnLine { id: string; productId: string; productName: string; quantity: number; returnedQuantity: number }
 interface Receipt { id: string; receiptNumber: string; quantity: number; returnedQuantity: number; receivedAt: string }
-interface ReturnRecord { id: string; returnNumber: string; creditNoteReference: string; productName: string; quantity: number; grossAmountMinor: number; payableReductionMinor: number; supplierCreditMinor: number; inventoryTransactionNumber: string; journalNumber: string; returnedAt: string; reason: string; serialized?: boolean }
+interface ReturnRecord { id: string; returnNumber: string; creditNoteReference: string; productName: string; quantity: number; grossAmountMinor: number; payableReductionMinor: number; supplierCreditMinor: number; inventoryTransactionNumber: string; journalNumber: string; returnedAt: string; reason: string; serialized?: boolean; status?: string; heldHandover?: boolean; reversalJournalNumber?: string; reversalInventoryTransactionId?: string; reversalReason?: string; reversedAt?: string }
 interface ReturnPage { invoiceNumber: string; lines: ReturnLine[]; returns: ReturnRecord[]; nextCursor: string | null }
 interface ReceiptPage { receipts: Receipt[]; nextCursor: string | null }
 interface CreditLine { supplierInvoiceItemId: string; productId: string; productName: string; receiptId: string; receiptNumber: string; quantity: number; serialNumbers: string[]; idempotencyKey: string }
 const date = (value: string) => value ? new Date(value).toLocaleString("en-GB", { timeZone: "Africa/Lagos" }) : "Date not recorded";
 const errorText = (cause: unknown) => cause instanceof Error ? cause.message : "The request could not be completed.";
 
-export function SupplierReturns({ invoiceId, canPost, onClose, onComplete, heldHandover }: { invoiceId: string; canPost: boolean; onClose: () => void; onComplete: () => void; heldHandover?: { id: string; remaining: number; productId: string; serialNumber?: string } }) {
+export function SupplierReturns({ invoiceId, canPost, canReverse = false, onClose, onComplete, heldHandover }: { invoiceId: string; canPost: boolean; canReverse?: boolean; onClose: () => void; onComplete: () => void; heldHandover?: { id: string; remaining: number; productId: string; serialNumber?: string } }) {
   const [limit, setLimit] = useState(25), [pages, setPages] = useState<Array<string | null>>([null]);
   const [revision, setRevision] = useState(0);
   const [page, setPage] = useState<{ key: string; data?: ReturnPage; error?: string }>();
@@ -31,6 +31,10 @@ export function SupplierReturns({ invoiceId, canPost, onClose, onComplete, heldH
   const [uncertain, setUncertain] = useState(false);
   const [evidenceRecordId, setEvidenceRecordId] = useState("");
   const [creditLines, setCreditLines] = useState<CreditLine[]>([]);
+  const [correction, setCorrection] = useState<ReturnRecord | null>(null);
+  const [correctionReason, setCorrectionReason] = useState(""), [goodsBack, setGoodsBack] = useState(false);
+  const correctionHeading = useRef<HTMLHeadingElement>(null);
+  useEffect(() => { if (correction) correctionHeading.current?.focus(); }, [correction]);
   const pending = useRef<Record<string, unknown> | null>(null);
   const cursor = pages.at(-1), receiptCursor = receiptPages.at(-1);
   const key = JSON.stringify([invoiceId, limit, cursor, revision]);
@@ -68,6 +72,7 @@ export function SupplierReturns({ invoiceId, canPost, onClose, onComplete, heldH
     return () => { active = false; };
   }, [invoiceId, lineId, receiptLimit, receiptCursor, revision, receiptKey, canPost]);
   async function post() {
+    if (correction) return;
     if (!pending.current && !valid) return;
     pending.current ??= { ...(heldHandover ? { heldHandoverId: heldHandover.id } : {}), supplierInvoiceId: invoiceId,
       ...(creditLines.length ? { lines: creditLines.map(({ supplierInvoiceItemId, receiptId: originalReceipt, quantity: returned, serialNumbers, idempotencyKey }) => ({ supplierInvoiceItemId, receiptId: originalReceipt, quantity: returned, serialNumbers, idempotencyKey })) }
@@ -86,6 +91,21 @@ export function SupplierReturns({ invoiceId, canPost, onClose, onComplete, heldH
       setError(errorText(cause));
     } finally { setBusy(false); }
   }
+  async function reverseReturn() {
+    if (!canPost || !canReverse || !correction || (!pending.current && (!goodsBack || correctionReason.trim().length < 5))) return;
+    pending.current ??= { action: "reverse_return", returnId: correction.id, reason: correctionReason.trim(), goodsBackInStore: true, reversedAt: new Date().toISOString(), idempotencyKey: crypto.randomUUID() };
+    setBusy(true); setUncertain(false); setError(""); setMessage("");
+    try {
+      const result = await callAdministration<object, { journalNumber: string }>("postSupplierReturn", pending.current);
+      pending.current = null; setCorrection(null); setCorrectionReason(""); setGoodsBack(false);
+      setMessage(`Return corrected. Stock and supplier balances restored together; reversal journal ${result.journalNumber}. Original history is retained. Record a new return if needed.`);
+      setPages([null]); setReceiptPages([null]); setRevision(value => value + 1); onComplete();
+    } catch (cause) {
+      const code = (cause as { code?: string; diagnosticCode?: string })?.diagnosticCode ?? (cause as { code?: string })?.code;
+      if (["functions/invalid-argument", "functions/permission-denied", "functions/unauthenticated", "functions/failed-precondition", "functions/not-found", "functions/already-exists", "ACCOUNTING_PERIOD_LOCKED", "SUPPLIER_RETURN_ACTION_REQUIRED"].includes(code ?? "")) pending.current = null;
+      setUncertain(Boolean(pending.current)); setError(errorText(cause));
+    } finally { setBusy(false); }
+  }
   const locked = busy || uncertain;
   return <AppDialog role="dialog" aria-modal="true" aria-label="Supplier returns and credit notes">
     <section className="app-dialog-panel max-w-4xl rounded-2xl bg-white shadow-2xl">
@@ -94,7 +114,7 @@ export function SupplierReturns({ invoiceId, canPost, onClose, onComplete, heldH
       <div className="space-y-5 p-5">
         {(error || page?.key === key && page.error) && <p role="alert" className="rounded-lg bg-red-50 p-3 text-red-800">{error || page?.error}</p>}
         {message && <p role="status" className="rounded-lg bg-emerald-50 p-3 text-emerald-800">{message}</p>}
-        {canPost && data && <fieldset disabled={locked} className="space-y-4 rounded-xl border p-4">
+        {canPost && data && <fieldset disabled={locked || Boolean(correction)} className="space-y-4 rounded-xl border p-4">
           <legend className="px-2 font-semibold">Record goods returned</legend>
           <p className="text-sm text-[var(--muted)]">Use this after goods have been handed back and the supplier has accepted the credit. Credit reduces this invoice’s unpaid balance first; any excess becomes supplier credit for a later invoice or a separately recorded refund. No cash refund is assumed.</p>
           <div className="grid gap-4 sm:grid-cols-2">
@@ -121,8 +141,26 @@ export function SupplierReturns({ invoiceId, canPost, onClose, onComplete, heldH
           <label className="flex items-start gap-2 text-sm"><input type="checkbox" checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)} />Goods have physically been returned and the supplier accepted this credit note.</label>
         </fieldset>}
         {uncertain && !busy && <p role="alert" className="text-amber-900">Confirmation was not received. Retry the same request to safely check its result; do not create another return.</p>}
-        {canPost && <div className="flex justify-end"><Button disabled={busy || (!uncertain && !valid)} onClick={() => void post()}>{busy ? "Recording…" : uncertain ? "Retry same return" : "Post return & credit note"}</Button></div>}
-        <section><h3 className="mb-3 font-semibold">Recorded returns</h3>{!data && !page?.error && <p role="status">Loading returns…</p>}{data && <><div className="overflow-x-auto"><table className="w-full text-left text-sm"><thead><tr><th className="p-2">Date / references</th><th className="p-2">Product / quantity</th><th className="p-2 text-right">Credit</th><th className="p-2">Applied to</th></tr></thead><tbody>{data.returns.map((record) => <tr key={record.id} className="border-t"><td className="p-2">{date(record.returnedAt)}<small className="block break-all">{record.returnNumber}<br />Supplier: {record.creditNoteReference}<br />Stock: {record.inventoryTransactionNumber}<br />Journal: {record.journalNumber}</small></td><td className="p-2">{record.productName} × {record.quantity}<small className="block">{record.reason}</small></td><td className="p-2 text-right finance-income">{formatNaira(record.grossAmountMinor)}</td><td className="p-2">Invoice debt: {formatNaira(record.payableReductionMinor)}<br />Supplier credit: {formatNaira(record.supplierCreditMinor)}</td></tr>)}{!data.returns.length && <tr><td colSpan={4} className="p-3 text-[var(--muted)]">No goods returned for this invoice.</td></tr>}</tbody></table></div><CursorTablePagination page={pages.length} pageSize={limit} rowCount={data.returns.length} hasNextPage={Boolean(data.nextCursor)} loading={locked} onPrevious={() => setPages((value) => value.slice(0, -1))} onNext={() => { if (data.nextCursor) setPages((value) => [...value, data.nextCursor]); }} onPageSizeChange={(size) => { setLimit(size); setPages([null]); }} itemLabel="returns" /></>}</section>
+        {canPost && !correction && <div className="flex justify-end"><Button disabled={busy || (!uncertain && !valid)} onClick={() => void post()}>{busy ? "Recording…" : uncertain ? "Retry same return" : "Post return & credit note"}</Button></div>}
+        {correction && <section aria-label="Correct supplier return" className="space-y-3 rounded-xl border border-amber-200 bg-amber-50 p-4">
+          <h3 ref={correctionHeading} tabIndex={-1} className="font-semibold">Correct {correction.returnNumber}</h3>
+          <p className="text-sm">{correction.productName} × {correction.quantity} · original credit {formatNaira(correction.grossAmountMinor)}. Reverse this line only; other products on its credit note remain unchanged. Original history is kept.</p>
+          <p className="text-sm">Use only when these goods are physically back in the same store. Later stock movements, used supplier credit or a closed accounting period require reconciliation first. A fresh return can be recorded after this reversal.</p>
+          <fieldset disabled={locked} className="space-y-3">
+            <label className="block text-sm">Reason for correction<textarea className="mt-1 w-full rounded-lg border bg-white p-3" minLength={5} maxLength={500} value={correctionReason} onChange={event => setCorrectionReason(event.target.value)} /></label>
+            <label className="flex items-start gap-2 text-sm"><input type="checkbox" checked={goodsBack} onChange={event => setGoodsBack(event.target.checked)} />All goods in this return are physically back in the original store.</label>
+          </fieldset>
+          <div className="flex flex-wrap justify-end gap-2"><Button variant="outline" disabled={locked} onClick={() => { setCorrection(null); setCorrectionReason(""); setGoodsBack(false); setError(""); }}>Cancel correction</Button><Button disabled={busy || (!uncertain && (!goodsBack || correctionReason.trim().length < 5))} onClick={() => void reverseReturn()}>{busy ? "Reversing…" : uncertain ? "Retry same correction" : "Reverse stock & credit"}</Button></div>
+        </section>}
+        <section><h3 className="mb-3 font-semibold">Recorded returns</h3>{!data && !page?.error && <p role="status">Loading returns…</p>}{data && <><div className="overflow-x-auto"><table className="w-full text-left text-sm"><thead><tr><th className="p-2">Date / references</th><th className="p-2">Product / quantity</th><th className="p-2 text-right">Original credit</th><th className="p-2">Applied to / status</th></tr></thead><tbody>{data.returns.map((record) => <tr key={record.id} className="border-t">
+          <td className="p-2">{date(record.returnedAt)}<small className="block break-all">{record.returnNumber}<br />Supplier: {record.creditNoteReference}<br />Stock: {record.inventoryTransactionNumber}<br />Journal: {record.journalNumber}</small></td>
+          <td className="p-2">{record.productName} × {record.quantity}<small className="block">{record.reason}</small></td>
+          <td className={`p-2 text-right ${record.status === "reversed" ? "text-[var(--muted)]" : "finance-income"}`}>{formatNaira(record.grossAmountMinor)}</td>
+          <td className="p-2">Invoice debt: {formatNaira(record.payableReductionMinor)}<br />Supplier credit: {formatNaira(record.supplierCreditMinor)}
+            {record.status === "reversed" ? <p className="mt-2 text-amber-900">Reversed · {date(record.reversedAt ?? "")}<small className="block break-all">{record.reversalReason}<br />Reversal journal: {record.reversalJournalNumber}<br />Stock correction: {record.reversalInventoryTransactionId}</small></p>
+              : canPost && canReverse && !heldHandover && !record.heldHandover && <Button className="mt-2" variant="outline" disabled={locked || Boolean(correction)} onClick={() => { setCorrection(record); setCorrectionReason(""); setGoodsBack(false); setError(""); setMessage(""); }}>Correct return</Button>}
+          </td>
+        </tr>)}{!data.returns.length && <tr><td colSpan={4} className="p-3 text-[var(--muted)]">No goods returned for this invoice.</td></tr>}</tbody></table></div><CursorTablePagination page={pages.length} pageSize={limit} rowCount={data.returns.length} hasNextPage={Boolean(data.nextCursor)} loading={locked || Boolean(correction)} onPrevious={() => setPages((value) => value.slice(0, -1))} onNext={() => { if (data.nextCursor) setPages((value) => [...value, data.nextCursor]); }} onPageSizeChange={(size) => { setLimit(size); setPages([null]); }} itemLabel="returns" /></>}</section>
       </div>
       {Boolean(data?.returns.length) && <section className="min-w-0 border-t p-5"><label className="text-sm font-medium">Photos for a recorded return<select className="mt-1 w-full rounded-lg border p-3" value={evidenceRecordId} onChange={event => setEvidenceRecordId(event.target.value)}><option value="">Choose return from this page</option>{data?.returns.map(record => <option key={record.id} value={record.id}>{record.returnNumber} · {record.productName}</option>)}</select></label>{data?.returns.filter(record => record.id === evidenceRecordId).map(record => <OperationalPhotos key={record.id} kind="supplier_return" recordId={record.id} stage="handover" serials={[]} serialRequired={record.serialized} canUpload={canPost} />)}</section>}
       <footer className="flex justify-end border-t p-5"><Button variant="outline" disabled={locked} onClick={onClose}>Close</Button></footer>
