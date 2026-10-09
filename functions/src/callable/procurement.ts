@@ -435,7 +435,7 @@ export const getProcurementWorkspace = onCall(
     const actor = await requireAccess(request);
     requirePermission(actor, "procurement.read");
     if (["list_evidence", "read_evidence", "upload_evidence"].includes(request.data?.action))
-      return operationalEvidence(actor, "supplier_return", parseInput(operationalEvidenceInput, request.data));
+      return operationalEvidence(actor, request.data?.evidenceKind === "purchase_receipt" ? "purchase_receipt" : "supplier_return", parseInput(operationalEvidenceInput, request.data));
     const input = parseInput(procurementWorkspaceInput, request.data);
     if (input.branchId) requireBranchScope(actor, input.branchId);
     if (input.warehouseId) requireWarehouseScope(actor, input.warehouseId);

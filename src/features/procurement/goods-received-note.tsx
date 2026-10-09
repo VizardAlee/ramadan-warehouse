@@ -6,6 +6,7 @@ import { AppDialog } from "@/components/ui/app-dialog";
 import { Button } from "@/components/ui/button";
 import { CursorTablePagination } from "@/components/ui/table-pagination";
 import { callAdministration } from "@/features/administration/api";
+import { OperationalPhotos } from "@/features/pos/operational-photos";
 
 interface ReceiptRow {
   id: string; receiptNumber: string; productName: string; quantity: number;
@@ -22,7 +23,7 @@ interface ReceiptPage { receipts: ReceiptRow[]; nextCursor: string | null }
 const receivedDate = (value: string) => value ? new Date(value).toLocaleString("en-GB", { timeZone: "Africa/Lagos" }) : "Date not recorded";
 
 /** Reprinting an existing receiving event never posts another stock movement. */
-export function GoodsReceivedNotes({ purchaseOrderId, onClose }: { purchaseOrderId: string; onClose: () => void }) {
+export function GoodsReceivedNotes({ purchaseOrderId, onClose, canUpload = false }: { purchaseOrderId: string; onClose: () => void; canUpload?: boolean }) {
   const [limit, setLimit] = useState(25);
   const [pages, setPages] = useState<Array<string | null>>([null]);
   const [page, setPage] = useState<{ key: string; data?: ReceiptPage; error?: string }>();
@@ -66,6 +67,7 @@ export function GoodsReceivedNotes({ purchaseOrderId, onClose }: { purchaseOrder
           {document.lotNumber && <p className="text-sm">Batch / lot: {document.lotNumber}</p>}
           {document.notes && <p className="whitespace-pre-wrap text-sm">{document.notes}</p>}
           <p className="break-words text-xs text-[var(--muted)]">Stock ledger reference: {document.inventoryReference}. This note covers this receiving event only, not every item on the purchase order. It is not a supplier invoice or proof of payment. Reprinting does not receive goods again.</p>
+          <OperationalPhotos key={document.id} kind="purchase_receipt" recordId={document.id} stage="receiving" serials={[]} serialRequired={document.serialNumbers.length > 0} canUpload={canUpload} />
           <div className="grid grid-cols-2 gap-8 pt-10 text-sm"><div className="border-t pt-2">Received by — signature</div><div className="border-t pt-2">Delivered by — signature</div></div>
         </div>
         <footer className="flex flex-wrap justify-end gap-3 border-t p-5" data-no-print><Button variant="outline" onClick={() => setDocument(null)}>Back to history</Button><Button variant="outline" onClick={onClose}>Close</Button><Button onClick={() => window.print()}>Print / save PDF</Button></footer>

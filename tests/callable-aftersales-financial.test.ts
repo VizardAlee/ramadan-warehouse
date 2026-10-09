@@ -105,7 +105,50 @@ describe.sequential("aftersales and ledger-derived reports", () => {
     // Generation-qualified reads must not fall back to the replaced current object.
     await expect(call("getProcurementWorkspace", { action: "read_evidence", recordId, evidenceId: photo.evidenceId })).rejects.toBeTruthy();
   }, 300_000);
+  it.skipIf(!process.env.FIREBASE_STORAGE_EMULATOR_HOST)("validates GRN serial evidence against the posted ledger without reposting goods", async () => {
+    const recordId = "photo-grn", transactionId = "photo-receipt-movement", locationId = "photo-receiving-location";
+    await adminDb.doc(`purchaseReceipts/${recordId}`).set({ organizationId, branchId, productId, purchaseOrderId: "photo-order", inventoryTransactionId: transactionId, receivingLocationId: locationId, quantity: 1 });
+    await adminDb.doc(`inventoryTransactions/${transactionId}`).set({ organizationId, status: "posted", transactionType: "inventory_receipt", referenceId: "photo-order", destinationLocationId: locationId });
+    await adminDb.doc("inventoryEntries/photo-received-unit").set({ organizationId, transactionId, locationId, productId, quantityDelta: 1, serialNumber: "REC-1" });
+    const stock = (await adminDb.collection("inventoryEntries").count().get()).data().count;
+    const journals = (await adminDb.collection("journalEntries").count().get()).data().count;
+    const upload = { action: "upload_evidence", evidenceKind: "purchase_receipt", recordId, stage: "receiving", serialNumber: "REC-1", note: "Received serial and packaging confirmed", contentType: "image/png", base64: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jDqkAAAAASUVORK5CYII=", idempotencyKey: crypto.randomUUID() };
+    await expect(call("getProcurementWorkspace", { ...upload, serialNumber: "ANOTHER-UNIT" })).rejects.toMatchObject({ code: "functions/invalid-argument" });
+    await expect(call("getProcurementWorkspace", { ...upload, stage: "handover" })).rejects.toMatchObject({ code: "functions/failed-precondition" });
+    const photo = await call<{ evidenceId: string }>("getProcurementWorkspace", upload);
+    expect(await call("getProcurementWorkspace", upload)).toMatchObject({ evidenceId: photo.evidenceId, uploaded: false });
+    expect(await call("getProcurementWorkspace", { action: "list_evidence", evidenceKind: "purchase_receipt", recordId })).toMatchObject({ evidence: [{ stage: "receiving", serialNumber: "REC-1", recordedStatus: "received" }] });
+    expect(await call("getProcurementWorkspace", { action: "read_evidence", evidenceKind: "purchase_receipt", recordId, evidenceId: photo.evidenceId })).toMatchObject({ base64: upload.base64 });
+    await expect(call("getProcurementWorkspace", { action: "read_evidence", recordId, evidenceId: photo.evidenceId })).rejects.toMatchObject({ code: "functions/not-found" });
+    await adminDb.doc(`inventoryTransactions/${transactionId}`).update({ status: "draft" });
+    await expect(call("getProcurementWorkspace", { ...upload, idempotencyKey: crypto.randomUUID() })).rejects.toMatchObject({ code: "functions/failed-precondition" });
+    expect((await adminDb.collection("inventoryEntries").count().get()).data().count).toBe(stock);
+    expect((await adminDb.collection("journalEntries").count().get()).data().count).toBe(journals);
+  }, 300_000);
+
+  it.skipIf(!process.env.FIREBASE_STORAGE_EMULATOR_HOST)("records return inspection evidence before approval and preserves retry/read access afterwards", async () => {
+    const recordId = "photo-customer-return";
+    await adminDb.doc(`saleReturns/${recordId}`).set({ organizationId, branchId, kind: "goods_return", status: "submitted", inspectionStatus: "required" });
+    await adminDb.doc("saleReturnItems/photo-returned-unit").set({ organizationId, returnId: recordId, productId, quantity: 1, serialNumbers: ["RET-1"] });
+    const stock = (await adminDb.collection("inventoryEntries").count().get()).data().count;
+    const journals = (await adminDb.collection("journalEntries").count().get()).data().count;
+    const upload = { action: "upload_evidence", recordId, stage: "inspection", serialNumber: "RET-1", note: "Inspected serial label and damage", contentType: "image/png", base64: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jDqkAAAAASUVORK5CYII=", idempotencyKey: crypto.randomUUID() };
+    await expect(call("getSaleReturnWorkspace", { ...upload, serialNumber: "NOT-RETURNED" })).rejects.toMatchObject({ code: "functions/invalid-argument" });
+    const photo = await call<{ evidenceId: string }>("getSaleReturnWorkspace", upload);
+    expect((await adminDb.doc(`saleReturns/${recordId}`).get()).get("inspectionStatus")).toBe("required");
+    await adminDb.doc(`saleReturns/${recordId}`).update({ status: "approved" });
+    expect(await call("getSaleReturnWorkspace", upload)).toMatchObject({ evidenceId: photo.evidenceId, uploaded: false });
+    expect(await call("getSaleReturnWorkspace", { action: "read_evidence", recordId, evidenceId: photo.evidenceId })).toMatchObject({ base64: upload.base64 });
+    await expect(call("getSaleReturnWorkspace", { ...upload, idempotencyKey: crypto.randomUUID() })).rejects.toMatchObject({ code: "functions/failed-precondition" });
+    await adminDb.doc(`saleReturns/${recordId}`).update({ status: "submitted", kind: "reservation_cancellation" });
+    await expect(call("getSaleReturnWorkspace", { ...upload, idempotencyKey: crypto.randomUUID() })).rejects.toMatchObject({ code: "functions/failed-precondition" });
+    expect((await adminDb.collection("inventoryEntries").count().get()).data().count).toBe(stock);
+    expect((await adminDb.collection("journalEntries").count().get()).data().count).toBe(journals);
+  }, 300_000);
+
   it("records a complimentary warranty case without stock or journal effects", async () => {
+    const beforeStock = (await adminDb.collection("inventoryEntries").count().get()).data().count;
+    const beforeJournals = (await adminDb.collection("journalEntries").count().get()).data().count;
     const key = crypto.randomUUID();
     const input = { branchId, customerId, productId, serviceType: "warranty", requestType: "warranty", complaint: "Inverter is not starting", idempotencyKey: key };
     const first = await call<{ caseId: string; created: boolean }>("createAftersalesCase", input);
@@ -117,8 +160,8 @@ describe.sequential("aftersales and ledger-derived reports", () => {
     await call("updateAftersalesCase", { caseId: first.caseId, status: "awaiting_collection", resolution: "Power board repaired", idempotencyKey: crypto.randomUUID() });
     await call("updateAftersalesCase", { caseId: first.caseId, status: "completed", resolution: "Customer collected repaired item", idempotencyKey: crypto.randomUUID() });
     expect((await adminDb.doc(`aftersalesCases/${first.caseId}`).get()).data()).toMatchObject({ status: "completed", chargeStatus: "complimentary" });
-    expect((await adminDb.collection("journalEntries").get()).empty).toBe(true);
-    expect((await adminDb.collection("inventoryEntries").get()).empty).toBe(true);
+    expect((await adminDb.collection("journalEntries").count().get()).data().count).toBe(beforeJournals);
+    expect((await adminDb.collection("inventoryEntries").count().get()).data().count).toBe(beforeStock);
   });
 
   it("tracks paid non-warranty service and uses the selected bank ledger account exactly once", async () => {

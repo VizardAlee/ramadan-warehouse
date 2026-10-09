@@ -21,6 +21,7 @@ import {
 } from "../inventory/calculations.js";
 import { assertBalancedJournal } from "../sales/calculations.js";
 import { followUpSaleReturn } from "../sales/return-follow-up.js";
+import { operationalEvidence, operationalEvidenceInput } from "../sales/operational-evidence.js";
 import { readSaleSerials, serialCost, changeSaleSerials, writeSaleSerialEntries } from "../sales/serials.js";
 import { selectedArrangement, changeArrangementBalance } from "../sales/customer-arrangements.js";
 import { changeMoneyBalance, legacyDebt, reduceInvoice } from "../sales/receivables.js";
@@ -84,6 +85,8 @@ export const getSaleReturnWorkspace = onCall(
   { enforceAppCheck },
   async (request) => {
     const actor = await requireAccess(request);
+    if (["list_evidence", "read_evidence", "upload_evidence"].includes(request.data?.action))
+      return operationalEvidence(actor, "customer_return", parseInput(operationalEvidenceInput, request.data));
     requirePermission(actor, "sales.returns.create");
     const input = parseInput(saleReturnWorkspaceInput, request.data);
     requireBranchScope(actor, input.branchId);

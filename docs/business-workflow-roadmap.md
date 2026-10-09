@@ -2,6 +2,33 @@
 
 This roadmap extends the existing Firebase application and preserves historical users, stock entries, sales, journals and audit records. A requested capability is not marked complete merely because a screen or a partial workflow exists.
 
+### Receiving / customer-return inspection photos — 9 October 2026 (release pending)
+
+Extends the same private, append-only operational evidence controls onto existing
+`purchaseReceipts` and `saleReturns`, without duplicate inventory, returns or
+media systems. Receiving staff open the posted GRN from Receiving history;
+authorized return inspectors expand the submitted physical return's evidence.
+Receiving photos validate exact serials, product, quantity and original posted
+stock movement; return photos validate the return's recorded serials. Photo
+uploads do not receive stock, complete inspection, approve returns or issue money.
+Posted return evidence stays readable; new uploads after approval are denied,
+while an identical successful-but-unacknowledged request remains retryable.
+Reservation cancellations do not accept physical-return inspection evidence.
+
+Existing organization/location permissions, private Storage generation/hash checks,
+20-photo cap, 2 MB JPEG/PNG validation, metadata and audit linking remain enforced.
+No historical records, financial entries, indexes or security rules are rewritten.
+Camera/device and signed-in live business acceptance remain separate.
+Validation: 318 unit/interface tests, 15 procurement/aftersales/evidence emulator
+cases and 27 Firestore/Storage security cases passed. Typecheck, lint, Functions
+compilation, production build, secret scan and diff checks passed; the live index
+audit passed 440/440 with all 224 indexes READY. A cold-start emulator discovery
+timeout was retried with a longer startup allowance. The existing complimentary
+service test now compares before/after ledger counts instead of assuming empty
+data; its complete eight-case suite passed on rerun.
+Next: link inspected warranty/repair dispositions to existing aftersales cases,
+preserving quarantined stock and avoiding duplicate cases on retries.
+
 ### Supplier / aftersales serial photos — 9 October 2026 (deployed)
 
 Existing supplier returns and warranty/non-warranty cases now accept private

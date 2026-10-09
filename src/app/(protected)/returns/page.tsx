@@ -12,6 +12,7 @@ import { formatNaira } from "@/features/inventory/format";
 import { canSelfAuthorize, hasPermission } from "@/lib/permissions/roles";
 import type { Branch, SaleReturn } from "@/types/domain";
 import { ReturnFollowUp } from "@/features/returns/return-follow-up";
+import { OperationalPhotos } from "@/features/pos/operational-photos";
 import { SaleCorrections } from "@/features/returns/sale-corrections";
 import { CursorTablePagination } from "@/components/ui/table-pagination";
 
@@ -562,6 +563,7 @@ export default function ReturnsPage() {
                 </span>
               )}
               {canApprove && <ReturnFollowUp record={record} accounts={bankAccounts} shifts={openShifts} onComplete={() => void refreshPending()} />}
+              {record.kind !== "reservation_cancellation" && <div className="w-full"><OperationalPhotos kind="customer_return" recordId={record.id} stage="inspection" serials={record.items?.flatMap(item => item.serialNumbers ?? []) ?? []} canUpload={canApprove && record.status === "submitted"} /></div>}
             </article>
           ))}
           {pending.length === 0 && (

@@ -437,7 +437,7 @@ describe("Firestore baseline rules", () => {
     await seed();
     await environment.withSecurityRulesDisabled(async context => {
       await context.firestore().doc("saleCollectionEvidence/photo-1").set({ organizationId: "org-1", branchId: "branch-1", status: "linked" });
-      for (const parent of ["aftersalesCases/case-1", "supplierReturns/return-1"])
+      for (const parent of ["aftersalesCases/case-1", "supplierReturns/return-1", "purchaseReceipts/receipt-1", "saleReturns/customer-return-1"])
         await context.firestore().doc(`${parent}/evidence/photo-1`).set({ organizationId: "org-1", branchId: "branch-1", serialNumber: "SN-1" });
     });
     for (const uid of ["admin", "branch-manager", "sales-cashier"]) {
@@ -448,7 +448,7 @@ describe("Firestore baseline rules", () => {
       const object = context.storage("gs://demo-ramadan-warehouse.appspot.com").ref("collection-evidence/org-1/sale-1/photo.png");
       await assertFails(Promise.resolve(object.put(new Uint8Array([1, 2, 3]), { contentType: "image/png" })));
       await assertFails(object.getDownloadURL());
-      for (const parent of ["aftersalesCases/case-1", "supplierReturns/return-1"]) {
+      for (const parent of ["aftersalesCases/case-1", "supplierReturns/return-1", "purchaseReceipts/receipt-1", "saleReturns/customer-return-1"]) {
         const metadata = context.firestore().doc(`${parent}/evidence/photo-1`);
         await assertFails(metadata.get());
         await assertFails(metadata.set({ organizationId: "org-1", serialNumber: "SN-1" }));

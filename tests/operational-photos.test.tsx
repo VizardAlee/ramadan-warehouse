@@ -6,6 +6,14 @@ const api = vi.hoisted(() => ({ call: vi.fn() }));
 vi.mock("@/features/administration/api", () => ({ callAdministration: api.call }));
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
 describe("operational serial photos", () => {
+  it.each(["purchase_receipt", "customer_return"] as const)("routes %s evidence to its original workspace without loading another module", async kind => {
+    api.call.mockResolvedValue({ evidence: [] });
+    render(<OperationalPhotos kind={kind} recordId="original-record" stage={kind === "purchase_receipt" ? "receiving" : "inspection"} serials={[]} canUpload={false} />);
+    fireEvent.click(screen.getByRole("button", { name: "Photos & serial evidence" }));
+    await screen.findByText("No photos recorded yet.");
+    expect(api.call).toHaveBeenCalledWith(kind === "purchase_receipt" ? "getProcurementWorkspace" : "getSaleReturnWorkspace", { action: "list_evidence", recordId: "original-record", ...(kind === "purchase_receipt" ? { evidenceKind: kind } : {}) });
+    expect(screen.queryByRole("button", { name: "Save photo evidence" })).toBeNull();
+  });
   it("keeps a definite business rejection editable instead of trapping an invalid photo in retry", async () => {
     api.call.mockImplementation(async (_endpoint, input) => {
       if (input.action === "upload_evidence") throw Object.assign(new Error("Choose a matching stage"), { diagnosticCode: "OPERATIONAL_EVIDENCE_ACTION_REQUIRED" });

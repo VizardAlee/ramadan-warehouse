@@ -598,7 +598,7 @@ export default function ProcurementPage() {
       )}
 
       <section id="purchase-orders" className="scroll-mt-40 rounded-xl border bg-white p-5">
-        {receiptOrderId && <GoodsReceivedNotes key={receiptOrderId} purchaseOrderId={receiptOrderId} onClose={() => setReceiptOrderId(null)} />}
+        {receiptOrderId && <GoodsReceivedNotes key={receiptOrderId} purchaseOrderId={receiptOrderId} canUpload={Boolean(profile && hasPermission(profile, "procurement.receive"))} onClose={() => setReceiptOrderId(null)} />}
         <h2 className="text-xl font-semibold">Purchase orders</h2>
         <p className="text-sm text-[var(--muted)]">
           Submission freezes the commercial snapshot. An assigned manager may

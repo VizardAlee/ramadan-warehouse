@@ -7,10 +7,12 @@ import { callAdministration } from "@/features/administration/api";
 
 interface Evidence { evidenceId: string; stage: string; serialNumber: string | null; note: string; uploadedAt: string | null; recordedStatus: string }
 export function OperationalPhotos({ kind, recordId, stage, serials, canUpload, serialRequired = false }: {
-  kind: "supplier_return" | "aftersales"; recordId: string;
-  stage: "intake" | "diagnosis" | "handover"; serials: string[]; canUpload: boolean; serialRequired?: boolean;
+  kind: "supplier_return" | "aftersales" | "purchase_receipt" | "customer_return"; recordId: string;
+  stage: "intake" | "diagnosis" | "handover" | "receiving" | "inspection"; serials: string[]; canUpload: boolean; serialRequired?: boolean;
 }) {
-  const endpoint = kind === "aftersales" ? "getAftersalesWorkspace" : "getProcurementWorkspace";
+  const endpoint = kind === "aftersales" ? "getAftersalesWorkspace" : kind === "customer_return" ? "getSaleReturnWorkspace" : "getProcurementWorkspace";
+  const context = kind === "purchase_receipt" ? { evidenceKind: kind } : {};
+  const serialLabel = kind === "purchase_receipt" ? "Confirm received serial" : "Confirm returned serial";
   const [open, setOpen] = useState(false), [records, setRecords] = useState<Evidence[]>([]);
   const [busy, setBusy] = useState(false), [error, setError] = useState("");
   const [serialNumber, setSerialNumber] = useState(serials[0] ?? ""), [note, setNote] = useState("");
@@ -18,7 +20,7 @@ export function OperationalPhotos({ kind, recordId, stage, serials, canUpload, s
   const [photo, setPhoto] = useState<{ contentType: string; base64: string; evidence: Evidence } | null>(null);
   const pending = useRef<Record<string, unknown> | null>(null), input = useRef<HTMLInputElement>(null);
   async function load() {
-    const result = await callAdministration<object, { evidence: Evidence[] }>(endpoint, { action: "list_evidence", recordId });
+    const result = await callAdministration<object, { evidence: Evidence[] }>(endpoint, { action: "list_evidence", recordId, ...context });
     setRecords(result.evidence);
   }
   async function toggle() {
@@ -36,7 +38,7 @@ export function OperationalPhotos({ kind, recordId, stage, serials, canUpload, s
           const reader = new FileReader(); reader.onload = () => resolve(String(reader.result).split(",")[1]!);
           reader.onerror = () => reject(new Error("Photo could not be read.")); reader.readAsDataURL(file);
         });
-        pending.current = { action: "upload_evidence", recordId, stage, serialNumber: serialNumber || undefined, note: note.trim(), contentType: file.type, base64, idempotencyKey: crypto.randomUUID() };
+        pending.current = { action: "upload_evidence", recordId, ...context, stage, serialNumber: serialNumber || undefined, note: note.trim(), contentType: file.type, base64, idempotencyKey: crypto.randomUUID() };
       }
       await callAdministration(endpoint, pending.current!);
       pending.current = null; setUncertain(false); setFile(null); setNote("");
@@ -50,7 +52,7 @@ export function OperationalPhotos({ kind, recordId, stage, serials, canUpload, s
   }
   async function view(record: Evidence) {
     setBusy(true); setError(""); setPhoto(null);
-    try { const result = await callAdministration<object, { contentType: string; base64: string }>(endpoint, { action: "read_evidence", recordId, evidenceId: record.evidenceId }); setPhoto({ ...result, evidence: record }); }
+    try { const result = await callAdministration<object, { contentType: string; base64: string }>(endpoint, { action: "read_evidence", recordId, ...context, evidenceId: record.evidenceId }); setPhoto({ ...result, evidence: record }); }
     catch (cause) { setError(cause instanceof Error ? cause.message : "Photo could not be loaded."); }
     finally { setBusy(false); }
   }
@@ -66,7 +68,7 @@ export function OperationalPhotos({ kind, recordId, stage, serials, canUpload, s
       {canUpload && <fieldset disabled={busy || uncertain} className="grid min-w-0 gap-3 border-t pt-3 sm:grid-cols-2">
         <legend className="pt-2 font-medium capitalize">Add {stage} photo (optional, up to 20 per record)</legend>
         {serials.length > 0 && <label>Confirm recorded serial<select className="mt-1 w-full rounded border p-2" value={serialNumber} onChange={event => setSerialNumber(event.target.value)}>{serials.map(serial => <option key={serial} value={serial}>{serial}</option>)}</select></label>}
-        {serialRequired && !serials.length && <label>Confirm returned serial<input aria-label="Confirm returned serial" className="mt-1 w-full rounded border p-2" maxLength={160} value={serialNumber} onChange={event => setSerialNumber(event.target.value)} placeholder="Read the serial label on the returned unit" /><small>The server checks this against the original return. No full serial register is downloaded.</small></label>}
+        {serialRequired && !serials.length && <label>{serialLabel}<input aria-label={serialLabel} className="mt-1 w-full rounded border p-2" maxLength={160} value={serialNumber} onChange={event => setSerialNumber(event.target.value)} placeholder="Read the serial label on the physical unit" /><small>The server checks this against the original record. No full serial register is downloaded for photo selection.</small></label>}
         <label>Photo description<input className="mt-1 w-full rounded border p-2" maxLength={500} value={note} onChange={event => setNote(event.target.value)} placeholder="Condition, serial label or handover details" /></label>
         <label className="min-w-0 sm:col-span-2">Choose photo / use camera<input ref={input} className="mt-1 block w-full min-w-0" type="file" accept="image/jpeg,image/png" capture="environment" onChange={event => { const chosen = event.target.files?.[0] ?? null; setError(""); if (chosen && (!["image/jpeg", "image/png"].includes(chosen.type) || !chosen.size || chosen.size > 2 * 1024 * 1024)) { setFile(null); setError("Choose a JPEG or PNG no larger than 2 MB."); } else setFile(chosen); }} /><small>JPEG/PNG, 2 MB maximum. Camera availability depends on your device.</small></label>
       </fieldset>}

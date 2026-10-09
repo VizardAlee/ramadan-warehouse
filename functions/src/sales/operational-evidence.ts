@@ -12,44 +12,65 @@ import { decodeCollectionPhoto, MAX_COLLECTION_PHOTO_BYTES } from "./collection-
 
 const id = z.string().trim().min(1).max(200).refine(value => !value.includes("/"));
 export const operationalEvidenceInput = z.discriminatedUnion("action", [
-  z.object({ action: z.literal("list_evidence"), recordId: id }),
-  z.object({ action: z.literal("read_evidence"), recordId: id, evidenceId: id }),
-  z.object({ action: z.literal("upload_evidence"), recordId: id, stage: z.enum(["intake", "diagnosis", "handover"]),
+  z.object({ action: z.literal("list_evidence"), recordId: id, evidenceKind: z.enum(["supplier_return", "purchase_receipt"]).optional() }),
+  z.object({ action: z.literal("read_evidence"), recordId: id, evidenceId: id, evidenceKind: z.enum(["supplier_return", "purchase_receipt"]).optional() }),
+  z.object({ action: z.literal("upload_evidence"), recordId: id, stage: z.enum(["intake", "diagnosis", "handover", "receiving", "inspection"]),
+    evidenceKind: z.enum(["supplier_return", "purchase_receipt"]).optional(),
     serialNumber: z.string().trim().max(160).optional(), note: z.string().trim().min(3).max(500),
     contentType: z.enum(["image/jpeg", "image/png"]), base64: z.string().min(32).max(2796204), idempotencyKey: z.string().uuid() }),
 ]);
-type Kind = "supplier_return" | "aftersales";
+type Kind = "supplier_return" | "aftersales" | "purchase_receipt" | "customer_return";
 type Input = z.infer<typeof operationalEvidenceInput>;
 
 function scope(actor: AccessProfile, parent: DocumentSnapshot, kind: Kind) {
-  requirePermission(actor, kind === "aftersales" ? "sales.returns.read" : "procurement.read");
+  requirePermission(actor, ["aftersales", "customer_return"].includes(kind) ? "sales.returns.read" : "procurement.read");
   if (kind === "supplier_return") requirePermission(actor, "payables.read");
   if (!parent.exists || parent.get("organizationId") !== actor.organizationId) throw new HttpsError("not-found", "Evidence record not found.");
   if (parent.get("branchId")) requireBranchScope(actor, String(parent.get("branchId")));
-  else if (kind === "supplier_return" && parent.get("warehouseId")) requireWarehouseScope(actor, String(parent.get("warehouseId")));
+  else if (["supplier_return", "purchase_receipt"].includes(kind) && parent.get("warehouseId")) requireWarehouseScope(actor, String(parent.get("warehouseId")));
   else throw new HttpsError("failed-precondition", "The record has no operating location.");
 }
 
-function uploadScope(actor: AccessProfile, parent: DocumentSnapshot, kind: Kind, input: Extract<Input, { action: "upload_evidence" }>) {
+async function uploadScope(actor: AccessProfile, parent: DocumentSnapshot, kind: Kind, input: Extract<Input, { action: "upload_evidence" }>) {
   scope(actor, parent, kind);
-  if (kind === "supplier_return") {
+  let expected: string[] = [];
+  let productId = parent.get("productId") ?? null;
+  if (kind === "purchase_receipt") {
+    requirePermission(actor, "procurement.receive");
+    if (input.stage !== "receiving" || !parent.get("inventoryTransactionId") || !parent.get("receivingLocationId")) throw new HttpsError("failed-precondition", "Receiving evidence requires a posted goods-received note with its stock reference.");
+    const movement = await db.doc(`inventoryTransactions/${parent.get("inventoryTransactionId")}`).get();
+    if (movement.get("organizationId") !== actor.organizationId || movement.get("status") !== "posted" || movement.get("transactionType") !== "inventory_receipt" || movement.get("referenceId") !== parent.get("purchaseOrderId") || movement.get("destinationLocationId") !== parent.get("receivingLocationId")) throw new HttpsError("failed-precondition", "Reconcile the receipt's stock reference before attaching evidence.");
+    const entries = await db.collection("inventoryEntries").where("organizationId", "==", actor.organizationId).where("transactionId", "==", movement.id).where("locationId", "==", parent.get("receivingLocationId")).limit(5001).get();
+    if (entries.size > 5000 || entries.empty || entries.docs.some(entry => entry.get("productId") !== parent.get("productId") || Number(entry.get("quantityDelta")) <= 0) || entries.docs.reduce((sum, entry) => sum + Number(entry.get("quantityDelta")), 0) !== Number(parent.get("quantity"))) throw new HttpsError("failed-precondition", "Receipt quantities need reconciliation before attaching evidence.");
+    expected = entries.docs.map(entry => entry.get("serialNumber")).filter(Boolean);
+  } else if (kind === "customer_return") {
+    requirePermission(actor, "sales.returns.approve");
+    if (input.stage !== "inspection" || parent.get("status") !== "submitted" || parent.get("kind") === "reservation_cancellation") throw new HttpsError("failed-precondition", "Inspection photos belong to submitted physical returns, before approval.");
+    const items = await db.collection("saleReturnItems").where("returnId", "==", parent.id).limit(51).get();
+    if (items.empty || items.size > 50 || items.docs.some(item => item.get("organizationId") !== actor.organizationId)) throw new HttpsError("failed-precondition", "The return item register needs review.");
+    expected = items.docs.flatMap(item => item.get("serialNumbers") ?? []);
+    productId = items.docs.find(item => (item.get("serialNumbers") ?? []).map(normalizeInventoryIdentifier).includes(normalizeInventoryIdentifier(input.serialNumber ?? "")))?.get("productId") ?? (items.size === 1 ? items.docs[0]!.get("productId") ?? null : null);
+  } else if (kind === "supplier_return") {
     requirePermission(actor, "procurement.receive"); requirePermission(actor, "payables.approve");
     if (parent.get("status") !== "posted" || input.stage !== "handover") throw new HttpsError("failed-precondition", "Attach handover evidence to a posted supplier return.");
+    expected = parent.get("serialNumbers") ?? [];
   } else {
     requirePermission(actor, input.stage === "intake" ? "sales.returns.create" : "sales.returns.approve");
     const allowed = { intake: ["open"], diagnosis: ["diagnosed", "in_service"], handover: ["awaiting_collection", "completed"] };
-    if (!allowed[input.stage].includes(String(parent.get("status")))) throw new HttpsError("failed-precondition", "Choose the evidence stage matching this service case's current status.");
+    if (!(allowed[input.stage as keyof typeof allowed] ?? []).includes(String(parent.get("status")))) throw new HttpsError("failed-precondition", "Choose the evidence stage matching this service case's current status.");
+    expected = [parent.get("serialNumber")].filter(Boolean);
   }
-  const expected = (kind === "supplier_return" ? parent.get("serialNumbers") ?? [] : [parent.get("serialNumber")].filter(Boolean)) as string[];
   const serial = normalizeInventoryIdentifier(input.serialNumber ?? "");
   if (expected.length ? !expected.map(normalizeInventoryIdentifier).includes(serial) : Boolean(serial))
     throw new HttpsError("invalid-argument", "Select the exact serial recorded on this return or service case. Do not attach another unit's photo.");
-  return serial || null;
+  return { serialNumber: serial || null, productId };
 }
 
 /** Append-only evidence on existing operational records; never posts stock, cash or journals. */
 async function handleOperationalEvidence(actor: AccessProfile, kind: Kind, input: Input) {
-  const parentRef = db.doc(`${kind === "aftersales" ? "aftersalesCases" : "supplierReturns"}/${input.recordId}`);
+  const collections = { aftersales: "aftersalesCases", supplier_return: "supplierReturns", purchase_receipt: "purchaseReceipts", customer_return: "saleReturns" };
+  const entityTypes = { aftersales: "aftersalesCase", supplier_return: "supplierReturn", purchase_receipt: "purchaseReceipt", customer_return: "saleReturn" };
+  const parentRef = db.doc(`${collections[kind]}/${input.recordId}`);
   const parent = await parentRef.get(); scope(actor, parent, kind);
   const ids = (parent.get("evidenceIds") ?? []) as string[];
   if (input.action === "list_evidence") {
@@ -73,12 +94,12 @@ async function handleOperationalEvidence(actor: AccessProfile, kind: Kind, input
   const previous = await reference.get();
   // A successful but unacknowledged upload remains retryable after a status transition.
   if (previous.exists) {
-    requirePermission(actor, kind === "supplier_return" ? "procurement.receive" : input.stage === "intake" ? "sales.returns.create" : "sales.returns.approve");
+    requirePermission(actor, ["supplier_return", "purchase_receipt"].includes(kind) ? "procurement.receive" : input.stage === "intake" ? "sales.returns.create" : "sales.returns.approve");
     if (kind === "supplier_return") requirePermission(actor, "payables.approve");
     if (previous.get("fingerprint") !== fingerprint || !ids.includes(evidenceId)) throw new HttpsError("invalid-argument", "Retry the original photo without changes.");
     return { evidenceId, uploaded: false };
   }
-  uploadScope(actor, parent, kind, input);
+  await uploadScope(actor, parent, kind, input);
   if (ids.length >= 20) throw new HttpsError("failed-precondition", "This record already has 20 photos.");
   const path = `operational-evidence/${actor.organizationId}/${kind}/${parent.id}/${evidenceId}.${input.contentType === "image/png" ? "png" : "jpg"}`;
   const file = getStorage().bucket().file(path);
@@ -95,12 +116,13 @@ async function handleOperationalEvidence(actor: AccessProfile, kind: Kind, input
       if (currentPhoto!.get("fingerprint") !== fingerprint || !currentIds.includes(evidenceId)) throw new HttpsError("invalid-argument", "Retry the original photo without changes.");
       return;
     }
-    uploadScope(actor, currentParent!, kind, input);
+    const association = await uploadScope(actor, currentParent!, kind, input);
     if (currentIds.length >= 20) throw new HttpsError("failed-precondition", "This record already has 20 photos.");
     const now = FieldValue.serverTimestamp();
-    transaction.create(reference, { organizationId: actor.organizationId, recordId: parent.id, kind, productId: currentParent!.get("productId") ?? null, serialNumber, stage: input.stage, note: input.note, recordedStatus: currentParent!.get("status"), uploadedBy: actor.userId, uploadedAt: now, path, generation: String(metadata.generation), contentType: input.contentType, byteSize: photo.bytes.length, sha256: photo.sha256, width: photo.width, height: photo.height, fingerprint });
+    const recordedStatus = currentParent!.get("status") ?? "received";
+    transaction.create(reference, { organizationId: actor.organizationId, recordId: parent.id, kind, productId: association.productId, serialNumber, stage: input.stage, note: input.note, recordedStatus, uploadedBy: actor.userId, uploadedAt: now, path, generation: String(metadata.generation), contentType: input.contentType, byteSize: photo.bytes.length, sha256: photo.sha256, width: photo.width, height: photo.height, fingerprint });
     transaction.update(parentRef, { evidenceIds: FieldValue.arrayUnion(evidenceId) });
-    writeAuditLog(transaction, actor, { action: `${kind}.photo_recorded`, entityType: kind === "aftersales" ? "aftersalesCase" : "supplierReturn", entityId: parent.id, sourceFunction: kind === "aftersales" ? "getAftersalesWorkspace" : "getProcurementWorkspace", correlationId: correlationId(), reason: input.note, after: { evidenceId, serialNumber, stage: input.stage, recordedStatus: currentParent!.get("status"), sha256: photo.sha256 } });
+    writeAuditLog(transaction, actor, { action: `${kind}.photo_recorded`, entityType: entityTypes[kind], entityId: parent.id, sourceFunction: kind === "aftersales" ? "getAftersalesWorkspace" : kind === "customer_return" ? "getSaleReturnWorkspace" : "getProcurementWorkspace", correlationId: correlationId(), reason: input.note, after: { evidenceId, serialNumber, stage: input.stage, recordedStatus, sha256: photo.sha256 } });
     uploaded = true;
   });
   return { evidenceId, uploaded };
