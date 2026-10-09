@@ -1,7 +1,7 @@
 {
   "lastLiveAudit": {
     "project": "ramadan-warehouse-staging",
-    "verifiedAt": "2026-10-09T09:50:00.909Z",
+    "verifiedAt": "2026-10-09T10:02:06.002Z",
     "queryShapes": 440,
     "unsupportedQueries": 0,
     "readyIndexes": 224,
@@ -33,7 +33,7 @@
     "functions/src/callable/manage-roles.ts": "cafd5c85fe810569b119c64e640e97cb93b450b3cc4d616a4e81b0a124d09a7d",
     "functions/src/callable/manage-users.ts": "4afaad46c8d64ffdc08fc49a419d608ee3a6cb0ff1b3ad20bb497ca166e27d7a",
     "functions/src/callable/operational-readiness.ts": "5710f7b794dc5560f44a60fa86e21dc96c9591066d6996ca0119ba7615e11279",
-    "functions/src/callable/procurement.ts": "5fe1cf9ed23f90e4e263271b296256904d51923177ac8b4e40200f403b9a8b4e",
+    "functions/src/callable/procurement.ts": "20cb3c88dda3768855b182457ac74fbb3da6933ff8c2592a3a70f7ff3e2684e4",
     "functions/src/callable/reset-organization.ts": "ef008e650d39213d23c35d3d801015dccad8ad7ea78edf9d62b6b5c230d53a5c",
     "functions/src/callable/reverse-inventory.ts": "0b9fb294fb76be05fd3ead92704e698de2e331876a8c652c83b3a73068ed826c",
     "functions/src/callable/sales-corrections.ts": "6a81ad6d02442729f5a390a4184739fd4f3f3a450b8951e51c543a09bcdd95ff",

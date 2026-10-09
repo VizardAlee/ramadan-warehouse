@@ -6,9 +6,9 @@ import { Button } from "@/components/ui/button";
 import { callAdministration } from "@/features/administration/api";
 
 interface Evidence { evidenceId: string; stage: string; serialNumber: string | null; note: string; uploadedAt: string | null; recordedStatus: string }
-export function OperationalPhotos({ kind, recordId, stage, serials, canUpload }: {
+export function OperationalPhotos({ kind, recordId, stage, serials, canUpload, serialRequired = false }: {
   kind: "supplier_return" | "aftersales"; recordId: string;
-  stage: "intake" | "diagnosis" | "handover"; serials: string[]; canUpload: boolean;
+  stage: "intake" | "diagnosis" | "handover"; serials: string[]; canUpload: boolean; serialRequired?: boolean;
 }) {
   const endpoint = kind === "aftersales" ? "getAftersalesWorkspace" : "getProcurementWorkspace";
   const [open, setOpen] = useState(false), [records, setRecords] = useState<Evidence[]>([]);
@@ -28,7 +28,7 @@ export function OperationalPhotos({ kind, recordId, stage, serials, canUpload }:
     finally { setBusy(false); }
   }
   async function upload() {
-    if (busy || (!pending.current && (!file || note.trim().length < 3))) return;
+    if (busy || (!pending.current && (!file || note.trim().length < 3 || (serialRequired && !serialNumber.trim())))) return;
     setBusy(true); setError("");
     try {
       if (!pending.current && file) {
@@ -66,11 +66,12 @@ export function OperationalPhotos({ kind, recordId, stage, serials, canUpload }:
       {canUpload && <fieldset disabled={busy || uncertain} className="grid min-w-0 gap-3 border-t pt-3 sm:grid-cols-2">
         <legend className="pt-2 font-medium capitalize">Add {stage} photo (optional, up to 20 per record)</legend>
         {serials.length > 0 && <label>Confirm recorded serial<select className="mt-1 w-full rounded border p-2" value={serialNumber} onChange={event => setSerialNumber(event.target.value)}>{serials.map(serial => <option key={serial} value={serial}>{serial}</option>)}</select></label>}
+        {serialRequired && !serials.length && <label>Confirm returned serial<input aria-label="Confirm returned serial" className="mt-1 w-full rounded border p-2" maxLength={160} value={serialNumber} onChange={event => setSerialNumber(event.target.value)} placeholder="Read the serial label on the returned unit" /><small>The server checks this against the original return. No full serial register is downloaded.</small></label>}
         <label>Photo description<input className="mt-1 w-full rounded border p-2" maxLength={500} value={note} onChange={event => setNote(event.target.value)} placeholder="Condition, serial label or handover details" /></label>
         <label className="min-w-0 sm:col-span-2">Choose photo / use camera<input ref={input} className="mt-1 block w-full min-w-0" type="file" accept="image/jpeg,image/png" capture="environment" onChange={event => { const chosen = event.target.files?.[0] ?? null; setError(""); if (chosen && (!["image/jpeg", "image/png"].includes(chosen.type) || !chosen.size || chosen.size > 2 * 1024 * 1024)) { setFile(null); setError("Choose a JPEG or PNG no larger than 2 MB."); } else setFile(chosen); }} /><small>JPEG/PNG, 2 MB maximum. Camera availability depends on your device.</small></label>
       </fieldset>}
       {uncertain && <p className="text-amber-800">Confirmation was not received. Retry the same photo without changing it.</p>}
-      {(canUpload || uncertain) && <Button type="button" variant="outline" disabled={busy || (!uncertain && (!file || note.trim().length < 3 || records.length >= 20))} onClick={() => void upload()}>{uncertain ? "Retry same photo" : "Save photo evidence"}</Button>}
+      {(canUpload || uncertain) && <Button type="button" variant="outline" disabled={busy || (!uncertain && (!file || note.trim().length < 3 || records.length >= 20 || (serialRequired && !serialNumber.trim())))} onClick={() => void upload()}>{uncertain ? "Retry same photo" : "Save photo evidence"}</Button>}
     </section>}
   </div>;
 }

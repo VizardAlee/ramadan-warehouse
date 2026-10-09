@@ -225,6 +225,8 @@ describe.sequential("procurement callables", () => {
     await expect(call(headOfficeManager, "postSupplierReturn", { ...payload, creditNoteReference: "CN-OVER", idempotencyKey: crypto.randomUUID() })).rejects.toThrow();
     const history = await call<{ returns: unknown[]; nextCursor: string }>(headOfficeManager, "getProcurementWorkspace", { view: "supplier_returns", ...invoice, limit: 1 });
     expect(history.returns).toHaveLength(1); expect(history.nextCursor).toBeTruthy();
+    expect(history.returns[0]).toMatchObject({ serialized: false });
+    expect(history.returns[0]).not.toHaveProperty("serialNumbers");
     const older = await call<{ returns: unknown[] }>(headOfficeManager, "getProcurementWorkspace", { view: "supplier_returns", ...invoice, limit: 1, cursor: history.nextCursor });
     expect(older.returns).toHaveLength(1);
     const receipts = await call<{ receipts: { returnedQuantity: number }[] }>(headOfficeManager, "getProcurementWorkspace", { view: "supplier_return_receipts", ...invoice, supplierInvoiceItemId: line.id, limit: 25 });

@@ -36,14 +36,16 @@ describe("operational serial photos", () => {
       if (input.action === "upload_evidence") { if (++uploads === 1) throw new Error("Connection lost"); return { uploaded: false }; }
       return { evidence: [] };
     });
-    render(<OperationalPhotos kind="supplier_return" recordId="return" stage="handover" serials={["SUP-1", "SUP-2"]} canUpload />);
+    render(<OperationalPhotos kind="supplier_return" recordId="return" stage="handover" serials={[]} serialRequired canUpload />);
     fireEvent.click(screen.getByRole("button", { name: "Photos & serial evidence" }));
     await screen.findByText("No photos recorded yet.");
     fireEvent.change(screen.getByLabelText("Photo description"), { target: { value: "Supplier confirmed serial" } });
     fireEvent.change(screen.getByLabelText(/Choose photo \/ use camera/), { target: { files: [new File(["photo"], "photo.png", { type: "image/png" })] } });
+    expect(screen.getByRole("button", { name: "Save photo evidence" }).hasAttribute("disabled")).toBe(true);
+    fireEvent.change(screen.getByLabelText("Confirm returned serial"), { target: { value: "SUP-1" } });
     fireEvent.click(screen.getByRole("button", { name: "Save photo evidence" }));
     await screen.findByText("Connection lost");
-    expect(screen.getByLabelText("Confirm recorded serial").closest("fieldset")?.disabled).toBe(true);
+    expect(screen.getByLabelText("Confirm returned serial").closest("fieldset")?.disabled).toBe(true);
     fireEvent.click(screen.getByRole("button", { name: "Retry same photo" }));
     await waitFor(() => expect(uploads).toBe(2));
     const calls = api.call.mock.calls.filter(([, input]) => input.action === "upload_evidence");

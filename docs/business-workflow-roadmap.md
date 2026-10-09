@@ -8,6 +8,9 @@ Existing supplier returns and warranty/non-warranty cases now accept private
 append-only JPEG/PNG evidence (2 MB each, 20 per record). Aftersales captures
 intake, diagnosis and handover against the current case status; supplier evidence
 supplements already-posted physical returns. Exact serials must match the record.
+Return history carries only a serialized flag, not potentially thousands of
+serials on each row. Operators enter the photographed unit's serial on demand;
+the server verifies it against the recorded return.
 These photos document an operator-confirmed reference, not automatic warranty
 eligibility, OCR verification, collection confirmation or a new inventory posting.
 
