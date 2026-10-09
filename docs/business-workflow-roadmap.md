@@ -1,6 +1,6 @@
 # Business workflow expansion (24 September 2026 baseline)
 
-## Controlled held-return disposition — 9 October 2026 (validated; rollout pending)
+## Controlled held-return disposition — 9 October 2026 (deployed)
 
 Extends the existing approved return → aftersales link, without migrating or
 rewriting history. Completed/cancelled linked cases offer partial restock,
@@ -20,6 +20,17 @@ preservation, stock-only reversal denial and forged history are covered.
 Report assertions include non-cash COGS restoration without cash/VAT changes.
 Typecheck, lint, Functions compilation, production build, secret/diff checks
 passed. Live index audit: 441/441 query shapes passed, all 224 indexes READY.
+Implementation `337ded1`: Firebase explicitly completed all three Function
+updates and App Hosting `build-2026-10-09-009`, READY at 100% traffic with no
+reconciliation pending. ACTIVE revisions: `approvesalereturn-00015-kos`,
+`getaftersalesworkspace-00008-sos`, `reverseinventorytransaction-00017-vac`,
+each at 100% traffic. Production/App Check/runtime account and pre-existing
+invoker settings are preserved; unauthenticated probes return 401.
+Live Aftersales, Returns, Guide, POS and Products routes returned HTTP 200;
+all 20 linked JavaScript assets returned 200 and contain the new controls,
+full product-history link and guide instructions. No real stock/financial
+mutation was made; signed-in live posting and physical acceptance remain
+separate from emulator validation and release verification.
 Next: link actual supplier credit-note/replacement settlement to held handovers.
 
 ## Inspected returns to aftersales — 9 October 2026 (deployed)
