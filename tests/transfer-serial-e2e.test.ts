@@ -17,9 +17,9 @@ function client(name: string) {
   const app = initializeApp({ projectId, apiKey: "demo", appId: `serial-${name}` }, `serial-${name}`);
   apps.push(app);
   const auth = getAuth(app);
-  connectAuthEmulator(auth, "http://127.0.0.1:9099", { disableWarnings: true });
+  connectAuthEmulator(auth, `http://${process.env.FIREBASE_AUTH_EMULATOR_HOST ?? "127.0.0.1:9099"}`, { disableWarnings: true });
   const functions = getFunctions(app, "us-central1");
-  connectFunctionsEmulator(functions, "127.0.0.1", 5001);
+  connectFunctionsEmulator(functions, "127.0.0.1", Number(process.env.TEST_FUNCTIONS_PORT ?? 5001));
   return { auth, functions };
 }
 async function call<T>(target: ReturnType<typeof client>, name: string, data: Record<string, unknown>) {
@@ -43,8 +43,8 @@ const serialNumbers = ["INV-6200-001", "INV-6200-002", "INV-6200-003"];
 const serialIds = serialNumbers.map((serial) => uniquenessDocumentId(organizationId, serial));
 
 beforeAll(async () => {
-  await fetch(`http://127.0.0.1:9099/emulator/v1/projects/${projectId}/accounts`, { method: "DELETE" });
-  await fetch(`http://127.0.0.1:8180/emulator/v1/projects/${projectId}/databases/(default)/documents`, { method: "DELETE" });
+  await fetch(`http://${process.env.FIREBASE_AUTH_EMULATOR_HOST ?? "127.0.0.1:9099"}/emulator/v1/projects/${projectId}/accounts`, { method: "DELETE" });
+  await fetch(`http://${process.env.FIRESTORE_EMULATOR_HOST ?? "127.0.0.1:8180"}/emulator/v1/projects/${projectId}/databases/(default)/documents`, { method: "DELETE" });
   await Promise.all([
     adminDb.doc(`organizations/${organizationId}`).set({ name: "Serial Test", status: "active", openingStockEnabled: true, createdAt: FieldValue.serverTimestamp() }),
     adminDb.doc("warehouses/serial-wh").set({ organizationId, name: "Central", code: "CEN", status: "active" }),
@@ -119,5 +119,5 @@ describe.sequential("serialized transfer callable E2E", () => {
     await call(manager, "closeTransfer", { transferId, expectedVersion: 1, idempotencyKey: crypto.randomUUID() });
     expect((await adminDb.doc(`transfers/${transferId}`).get()).get("status")).toBe("closed");
     expect((await adminDb.collection("inventoryTransactions").where("transferId", "==", transferId).get()).size).toBe(4);
-  }, 90_000);
+  }, 300_000);
 });

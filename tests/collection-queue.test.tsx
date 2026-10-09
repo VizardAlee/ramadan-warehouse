@@ -7,6 +7,29 @@ vi.mock("@/features/administration/api", () => ({ callAdministration: api.call }
 vi.mock("@/features/pos/sale-document", () => ({ SaleDocumentDialog: () => null }));
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
 describe("physical collection queue", () => {
+  it("requires eligible serials and freezes the exact selection during uncertain retries", async () => {
+    api.call.mockImplementation(async (name, payload) => {
+      if (name === "confirmPosSaleOrder") throw new Error("Network interrupted");
+      if (payload.action === "list_collections") return { rows: [{ id: "s", saleNumber: "S", customerName: "Musa", totalQuantity: 2, collectedQuantity: 0 }], nextCursor: null };
+      return { sale: { id: "s", saleNumber: "S" }, items: [{ id: "i", productName: "Inverter", trackingType: "serial", quantity: 2, collectedQuantity: 0, serialNumbers: ["A", "B"], collectedSerialNumbers: [], cancelledSerialNumbers: [] }] };
+    });
+    render(<CollectionQueue branchId="b" canRelease online />);
+    fireEvent.click(screen.getByRole("button", { name: "Goods awaiting collection" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Review collection" }));
+    const serials = await screen.findByLabelText(/Serials handed over for Inverter/);
+    fireEvent.change(screen.getByLabelText("Collect quantity for Inverter"), { target: { value: "1" } });
+    fireEvent.change(screen.getByLabelText("Collector name"), { target: { value: "Musa" } });
+    const submit = screen.getByRole("button", { name: "Record physical collection" });
+    expect(submit.hasAttribute("disabled")).toBe(true);
+    fireEvent.change(serials, { target: { value: "C" } });
+    expect(submit.hasAttribute("disabled")).toBe(true);
+    fireEvent.change(serials, { target: { value: "a" } });
+    expect(submit.hasAttribute("disabled")).toBe(false);
+    fireEvent.click(submit);
+    await screen.findByRole("alert");
+    expect(serials.hasAttribute("disabled")).toBe(true);
+    expect(api.call.mock.calls.find(([name]) => name === "confirmPosSaleOrder")?.[1]).toMatchObject({ lines: [{ saleItemId: "i", quantity: 1, serialNumbers: ["A"] }] });
+  });
   it("requires explicit quantity and collector, preserving the retry reference after an uncertain response", async () => {
     let attempt = 0;
     api.call.mockImplementation(async (name, payload) => {

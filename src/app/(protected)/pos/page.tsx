@@ -1,5 +1,7 @@
 "use client";
 
+import { parseSaleSerials, validSaleSerials } from "@/features/pos/serial-selection";
+
 import {
   Banknote,
   CheckCircle2,
@@ -470,6 +472,7 @@ export default function PosPage() {
         lines: cart.map((line) => ({
           productId: line.product.id,
           quantity: line.quantity,
+          ...(line.serialNumbers ? { serialNumbers: line.serialNumbers } : {}),
           priceTier: line.priceTier ?? "retail",
           ...(line.sellingPriceMinor !== undefined ? {
             catalogUnitPriceMinor: line.product.unitPriceMinor,
@@ -693,6 +696,12 @@ export default function PosPage() {
       setError("Review the sale price and reason for each edited item before receiving the order.");
       return;
     }
+    const serialLines = cart.filter(line => line.product.trackingType === "serial");
+    const serials = serialLines.flatMap(line => parseSaleSerials((line.serialNumbers ?? []).join("\n")));
+    if (serialLines.length && (!online || serials.length > 50 || new Set(serials).size !== serials.length || serialLines.some(line => !validSaleSerials(parseSaleSerials((line.serialNumbers ?? []).join("\n")), line.quantity)))) {
+      setError("Connect online and enter one unique serial per unit (one per line, at most 50 per order). Serials are checked and reserved at final confirmation.");
+      return;
+    }
     if (!discountIsValid) {
       setError("Enter a valid discount that does not exceed the product subtotal.");
       return;
@@ -775,9 +784,10 @@ export default function PosPage() {
       recordedAt: new Date().toISOString(),
       offline: !online,
       provisionalReceiptReference: !online ? provisional : undefined,
-      lines: cart.map(({ product, quantity, sellingPriceMinor, priceOverrideReason, priceTier }) => ({
+      lines: cart.map(({ product, quantity, serialNumbers, sellingPriceMinor, priceOverrideReason, priceTier }) => ({
         productId: product.id,
         quantity,
+        ...(product.trackingType === "serial" ? { serialNumbers: parseSaleSerials((serialNumbers ?? []).join("\n")) } : {}),
         priceTier: priceTier ?? "retail",
         ...(!online || sellingPriceMinor !== undefined || priceTier === "wholesale"
           ? {
@@ -1101,7 +1111,7 @@ export default function PosPage() {
     setCart((current) => current.map((item) => item.product.id !== line.product.id
       ? item
       : amountMinor === item.product.unitPriceMinor
-        ? { product: item.product, quantity: item.quantity, ...(item.priceTier ? { priceTier: item.priceTier } : {}) }
+        ? { ...item, sellingPriceMinor: undefined, priceOverrideReason: undefined }
         : { ...item, sellingPriceMinor: amountMinor, priceOverrideReason: salePriceReason.trim() }));
     setSalePriceProductId(null);
     setSalePriceReason("");
@@ -1627,6 +1637,7 @@ export default function PosPage() {
                         {formatNaira(line.quantity * posLineUnitPriceMinor(line))}
                       </span>
                     </div>
+                    {line.product.trackingType === "serial" && <label className="mt-3 block text-sm">Serial numbers — one per unit<textarea aria-label={`Serial numbers for ${line.product.name}`} rows={3} value={(line.serialNumbers ?? []).join("\n")} onChange={event => setCart(lines => lines.map(item => item.product.id === line.product.id ? { ...item, serialNumbers: event.target.value.split(/\r?\n/) } : item))} className="mt-1 w-full rounded-lg border p-2" /><span className="text-xs text-[var(--muted)]">Enter {line.quantity} exact serials, one per line. Online only; units are reserved at final payment confirmation, not while holding a basket.</span></label>}
                     <label className="mt-2 block text-xs font-medium">
                       Price level
                       <select className="mt-1 w-full rounded-lg border p-2" value={line.priceTier ?? "retail"}

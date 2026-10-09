@@ -472,6 +472,9 @@ export async function postInventoryTransaction<State = undefined>(
           item.snapshot.get("organizationId") !== actor.organizationId ||
           item.snapshot.get("productId") !== product.id ||
           item.locationId !== sourceLocation.id ||
+          item.snapshot.get("active") === false ||
+          Boolean(item.snapshot.get("reservedSaleId")) ||
+          item.status === "sold" || item.status === "returned_held" ||
           item.status === "written_off" ||
           item.status === "returned_to_supplier" ||
           (item.status === "reserved" &&

@@ -1,10 +1,12 @@
 import { AggregateField, FieldPath, FieldValue, Timestamp } from "firebase-admin/firestore";
 import { logger } from "firebase-functions";
+import { createHash } from "node:crypto";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
 import type { z } from "zod";
 import { db } from "../admin.js";
 import { accountingPeriodReference, assertAccountingPeriodOpen } from "../accounting/period-lock.js";
 import { collectReservedSale } from "../sales/collection.js";
+import { readSaleSerials, serialCost, changeSaleSerials, writeSaleSerialEntries } from "../sales/serials.js";
 import { uploadCollectionPhoto, uploadCollectionPhotoInput, readCollectionPhoto, readCollectionPhotoInput } from "../sales/collection-evidence.js";
 import { resolveCatalogPrice } from "../sales/pricing.js";
 import { customerArrangements, selectedArrangement, changeArrangementBalance } from "../sales/customer-arrangements.js";
@@ -446,7 +448,7 @@ export const getPosWorkspace = onCall(
         .filter(
           (product) =>
             product.get("active") === true &&
-            product.get("trackingType") === "quantity",
+            ["quantity", "serial"].includes(product.get("trackingType")),
         )
         .flatMap((product) => {
           const central = centralByProduct.get(product.id);
@@ -619,7 +621,7 @@ export const getSaleDocument = onCall(
         notes: record.get("notes") ?? null, totalQuantity: record.get("totalQuantity"),
         evidenceIds: record.get("evidenceIds") ?? [],
         lines: (record.get("lines") as Array<{ saleItemId: string; productName: string; quantity: number }>).map((line) => ({
-          saleItemId: line.saleItemId, productName: line.productName, quantity: line.quantity,
+          saleItemId: line.saleItemId, productName: line.productName, quantity: line.quantity, serialNumbers: (line as { serialNumbers?: string[] }).serialNumbers ?? [],
           sku: itemById.get(line.saleItemId)?.get("sku") ?? "",
           unitOfMeasure: itemById.get(line.saleItemId)?.get("unitOfMeasure") ?? "unit",
         })),
@@ -670,6 +672,8 @@ export const getSaleDocument = onCall(
       },
       items: items.docs.map((item) => ({
         id: item.id,
+        trackingType: item.get("trackingType") ?? "quantity",
+        serialNumbers: item.get("serialNumbers") ?? [], collectedSerialNumbers: item.get("collectedSerialNumbers") ?? [], cancelledSerialNumbers: item.get("cancelledSerialNumbers") ?? [],
         sku: item.get("sku"),
         productName: item.get("productName"),
         unitOfMeasure: item.get("unitOfMeasure"),
@@ -1372,6 +1376,7 @@ async function postPosSale(
       ),
     );
     const cid = correlationId();
+    const serialFingerprint = input.lines.some(line => line.serialNumbers?.length) ? createHash("sha256").update(JSON.stringify({ input, deferCollection })).digest("hex") : null;
     let result = { saleId: sale.id, saleNumber: "", receiptNumber: "", posted: true };
     await db.runTransaction(async (transaction) => {
       const snapshots = await transaction.getAll(
@@ -1410,6 +1415,8 @@ async function postPosSale(
       const branchPrices = snapshots.slice(cursor, (cursor += input.lines.length));
       const balances = snapshots.slice(cursor, (cursor += input.lines.length));
       if (previousOperation.exists) {
+        if (previousOperation.get("serialFingerprint") && previousOperation.get("serialFingerprint") !== serialFingerprint)
+          throw new HttpsError("invalid-argument", "Retry the original serialized sale without changing its details.");
         result = {
           saleId: String(previousOperation.get("entityId")),
           saleNumber: String(previousOperation.get("saleNumber")),
@@ -1418,6 +1425,9 @@ async function postPosSale(
         };
         return;
       }
+      const saleSerials = await readSaleSerials(transaction, { organizationId: actor.organizationId, locationId: location.id, saleId: sale.id }, input.lines.map((line, index) => ({ ...line, trackingType: String(products[index]!.get("trackingType")) })), deferCollection ? "reserve" : "sell");
+      if (input.offline && saleSerials.some(line => line.length))
+        throw new HttpsError("failed-precondition", "Serialized sales require an online ownership check. Quantity-tracked offline POS remains available.");
       assertAccountingPeriodOpen(accountingPeriodSnapshot);
       if (!organizationSnapshot.exists || organizationSnapshot.get("status") !== "active")
         throw new HttpsError("failed-precondition", "The organization is unavailable.");
@@ -1522,10 +1532,10 @@ async function postPosSale(
           product.get("active") !== true
         )
           throw new HttpsError("failed-precondition", "A sale product is unavailable.");
-        if (product.get("trackingType") !== "quantity")
+        if (!["quantity", "serial"].includes(product.get("trackingType")))
           throw new HttpsError(
             "failed-precondition",
-            "Phase 1 POS supports quantity-tracked products. Serialized and batch checkout require their controlled scan workflow.",
+            "Batch checkout requires its controlled lot workflow.",
           );
         if (
           !central.exists ||
@@ -1573,7 +1583,10 @@ async function postPosSale(
             averageUnitCostMinor: Number(balance.get("averageUnitCostMinor") ?? 0),
           },
           line.quantity,
+          saleSerials[index]!.length ? serialCost(saleSerials[index]!) : undefined,
         );
+        if (saleSerials[index]!.length && line.quantity === onHandQuantity && issued.movementValueMinor !== Number(balance.get("totalValueMinor")))
+          throw new HttpsError("failed-precondition", "Serial costs and stock valuation disagree. Reconcile before sale.");
         return {
           input: line,
           product,
@@ -1588,7 +1601,7 @@ async function postPosSale(
           reservedQuantity,
         };
       });
-      const calculated = calculateSale(
+      const priced = calculateSale(
         resolvedLines.map((line) => ({
           quantity: line.input.quantity,
           unitPriceMinor: line.unitPriceMinor,
@@ -1597,6 +1610,7 @@ async function postPosSale(
         })),
         input.discountAmountMinor,
       );
+      const calculated = { ...priced, lines: priced.lines.map((line, index) => ({ ...line, costAmountMinor: resolvedLines[index]!.issued.movementValueMinor })), costAmountMinor: resolvedLines.reduce((sum, line) => sum + line.issued.movementValueMinor, 0) };
       try {
         assertPaymentsEqualTotal(
           [
@@ -1785,9 +1799,12 @@ async function postPosSale(
       resolvedLines.forEach((line, index) => {
         const calculatedLine = calculated.lines[index]!;
         const saleItem = db.collection("saleItems").doc();
+        const serials = saleSerials[index]!;
+        const serialNumbers = serials.map(serial => String(serial.get("serialNumber")));
+        changeSaleSerials(transaction, serials, deferCollection ? "reserve" : "sell", { saleId: sale.id, saleItemId: saleItem.id, locationId: location.id, branchId: input.branchId, userId: actor.userId, movementId: inventoryTransaction.id, ...(!deferCollection ? { collectionId: `${sale.id}_checkout` } : {}) });
         checkoutCollectionLines.push({ saleItemId: saleItem.id, productId: line.product.id,
           productName: line.product.get("name"), quantity: line.input.quantity,
-          costAmountMinor: calculatedLine.costAmountMinor });
+          costAmountMinor: calculatedLine.costAmountMinor, serialNumbers });
         transaction.create(saleItem, {
           organizationId: actor.organizationId,
           branchId: input.branchId,
@@ -1798,6 +1815,7 @@ async function postPosSale(
           unitOfMeasure: line.product.get("unitOfMeasure"),
           trackingType: line.product.get("trackingType"),
           quantity: line.input.quantity,
+          serialNumbers, collectedSerialNumbers: deferCollection ? [] : serialNumbers, cancelledSerialNumbers: [],
           collectionTracked: true,
           collectedQuantity: deferCollection ? 0 : line.input.quantity,
           unitPriceMinor: line.unitPriceMinor,
@@ -1840,6 +1858,10 @@ async function postPosSale(
           hasLedgerActivity: true,
           updatedAt: now,
         });
+        if (serials.length) {
+          writeSaleSerialEntries(transaction, serials, { organizationId: actor.organizationId, transactionId: inventoryTransaction.id, transactionNumber: inventoryNumber, transactionType: deferCollection ? "sale_reservation" : "branch_sale", productId: line.product.id, sku: line.product.get("sku"), productName: line.product.get("name"), currency: "NGN", effectiveAt: recordedAt, postedBy: actor.userId, createdAt: now, referenceNumber: saleNumber, reason: deferCollection ? "Serialized goods reserved for customer" : "Serialized customer collection" }, { locationId: location.id, branchId: input.branchId, balanceBefore: beforeQuantity, direction: deferCollection ? 0 : -1, ...(deferCollection ? { reservedDirection: 1 } : { externalAccount: "customer_sales" }) });
+          return;
+        }
         if (deferCollection) {
           transaction.create(db.collection("inventoryEntries").doc(), {
             organizationId: actor.organizationId, transactionId: inventoryTransaction.id,
@@ -2051,6 +2073,7 @@ async function postPosSale(
       transaction.create(operation, {
         organizationId: actor.organizationId,
         action: "commitPosSale",
+        serialFingerprint,
         entityId: sale.id,
         saleNumber,
         receiptNumber,

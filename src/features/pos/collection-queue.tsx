@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { callAdministration } from "@/features/administration/api";
 import { SaleDocumentDialog } from "./sale-document";
 import type { SaleDocument } from "./types";
+import { parseSaleSerials, validSaleSerials } from "./serial-selection";
 import { CollectionPhotoUpload, type CollectionPhotoReference } from "./collection-photos";
 
 interface PendingCollection {
@@ -21,6 +22,7 @@ export function CollectionQueue({ branchId, canRelease, online }: { branchId: st
   const [revision, setRevision] = useState(0);
   const [document, setDocument] = useState<SaleDocument | null>(null);
   const [quantities, setQuantities] = useState<Record<string, string>>({});
+  const [serialText, setSerialText] = useState<Record<string, string>>({});
   const [collector, setCollector] = useState("");
   const [notes, setNotes] = useState("");
   const [busy, setBusy] = useState(false);
@@ -45,17 +47,18 @@ export function CollectionQueue({ branchId, canRelease, online }: { branchId: st
     setBusy(true); setError(null); setMessage(null);
     try {
       const result = await callAdministration<{ saleId: string }, SaleDocument>("getSaleDocument", { saleId });
-      setDocument(result); setQuantities({}); setCollector(""); setNotes(""); setPhotos([]);
+      setDocument(result); setQuantities({}); setSerialText({}); setCollector(""); setNotes(""); setPhotos([]);
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Invoice could not be loaded."); }
     finally { setBusy(false); }
   }
   const selectedLines = document?.items.flatMap((item) => {
     const quantity = Number(quantities[item.id] || 0);
-    return quantity > 0 ? [{ saleItemId: item.id, quantity }] : [];
+    return quantity > 0 ? [{ saleItemId: item.id, quantity, ...(item.trackingType === "serial" ? { serialNumbers: parseSaleSerials(serialText[item.id] ?? "") } : {}) }] : [];
   }) ?? [];
   const invalid = document?.items.some((item) => {
     const quantity = Number(quantities[item.id] || 0);
-    return !Number.isInteger(quantity) || quantity < 0 || quantity > item.quantity - (item.collectedQuantity ?? item.quantity) - (item.cancelledQuantity ?? 0);
+    const eligible = (item.serialNumbers ?? []).filter(serial => !item.collectedSerialNumbers?.includes(serial) && !item.cancelledSerialNumbers?.includes(serial));
+    return !Number.isInteger(quantity) || quantity < 0 || quantity > item.quantity - (item.collectedQuantity ?? item.quantity) - (item.cancelledQuantity ?? 0) || (item.trackingType === "serial" && quantity > 0 && !validSaleSerials(parseSaleSerials(serialText[item.id] ?? ""), quantity, eligible));
   });
   async function collect() {
     if (!document || uploadBusy || (!retry.current && (!selectedLines.length || invalid || collector.trim().length < 2 || photos.some(photo => !selectedLines.some(line => line.saleItemId === photo.saleItemId))))) return;
@@ -66,7 +69,7 @@ export function CollectionQueue({ branchId, canRelease, online }: { branchId: st
       await callAdministration("confirmPosSaleOrder", retry.current);
       retry.current = null;
       setUncertain(false);
-      setQuantities({}); setPhotos([]); setRevision((value) => value + 1);
+      setQuantities({}); setSerialText({}); setPhotos([]); setRevision((value) => value + 1);
       setMessage("Collection recorded. Physical stock, reservation, journal and audit were updated together.");
       const result = await callAdministration<{ saleId: string }, SaleDocument>("getSaleDocument", { saleId: document.sale.id });
       setDocument(result);
@@ -93,7 +96,14 @@ export function CollectionQueue({ branchId, canRelease, online }: { branchId: st
       {!rows.length && online && <p>No goods awaiting collection on this page.</p>}
       <div className="flex flex-wrap items-center gap-3"><label>Rows per page <select value={size} onChange={(event) => { setSize(Number(event.target.value)); setCursors([undefined]); }} className="rounded border p-2">{[25, 50, 100].map((value) => <option key={value}>{value}</option>)}</select></label><Button variant="outline" disabled={cursors.length === 1 || busy} onClick={() => setCursors((values) => values.slice(0, -1))}>Previous</Button><span>Page {cursors.length}</span><Button variant="outline" disabled={!next || busy} onClick={() => setCursors((values) => [...values, next!])}>Next</Button></div>
       {document && <div className="space-y-3 rounded-xl border p-4"><div className="flex flex-wrap items-center justify-between gap-2"><h3 className="font-semibold">{document.sale.saleNumber} · {(document.sale.collectionStatus ?? "collected").replaceAll("_", " ")}</h3><Button variant="outline" onClick={() => setPrint(true)}>View invoice and collection record</Button></div>
-        {document.items.map((item) => <label key={item.id} className="grid items-center gap-2 sm:grid-cols-[1fr_8rem]"><span>{item.productName} · sold {item.quantity}, collected {item.collectedQuantity ?? item.quantity}, cancelled {item.cancelledQuantity ?? 0}, remaining {item.quantity - (item.collectedQuantity ?? item.quantity) - (item.cancelledQuantity ?? 0)}</span><input aria-label={`Collect quantity for ${item.productName}`} type="number" min="0" max={item.quantity - (item.collectedQuantity ?? item.quantity) - (item.cancelledQuantity ?? 0)} step="1" value={quantities[item.id] ?? "0"} disabled={!canRelease || busy || uncertain} onChange={(event) => setQuantities((values) => ({ ...values, [item.id]: event.target.value }))} className="rounded-lg border p-3" /></label>)}
+        {document.items.map((item) => {
+          const remaining = item.quantity - (item.collectedQuantity ?? item.quantity) - (item.cancelledQuantity ?? 0);
+          const eligible = (item.serialNumbers ?? []).filter(serial => !item.collectedSerialNumbers?.includes(serial) && !item.cancelledSerialNumbers?.includes(serial));
+          return <div key={item.id} className="space-y-2 rounded-lg border p-3">
+            <label className="grid items-center gap-2 sm:grid-cols-[1fr_8rem]"><span>{item.productName} · sold {item.quantity}, collected {item.collectedQuantity ?? item.quantity}, cancelled {item.cancelledQuantity ?? 0}, remaining {remaining}</span><input aria-label={`Collect quantity for ${item.productName}`} type="number" min="0" max={remaining} step="1" value={quantities[item.id] ?? "0"} disabled={!canRelease || busy || uncertain || !remaining} onChange={(event) => setQuantities((values) => ({ ...values, [item.id]: event.target.value }))} className="rounded-lg border p-3" /></label>
+            {item.trackingType === "serial" && remaining > 0 && <label className="block text-sm">Serials handed over for {item.productName}<textarea rows={3} disabled={!canRelease || busy || uncertain || !online} value={serialText[item.id] ?? ""} onChange={event => setSerialText(values => ({ ...values, [item.id]: event.target.value }))} className="mt-1 w-full rounded-lg border p-3" /><span className="block break-all text-xs text-[var(--muted)]">One per collected unit, one per line. Still reserved: {eligible.join(", ") || "None"}</span></label>}
+          </div>;
+        })}
         {canRelease ? <><CollectionPhotoUpload key={document.sale.id + ':' + revision} saleId={document.sale.id} items={document.items.filter(item => item.quantity > (item.collectedQuantity ?? item.quantity) + (item.cancelledQuantity ?? 0))} photos={photos} onChange={setPhotos} locked={busy || uncertain || !online} onBusy={setUploadBusy} />{photos.some(photo => !selectedLines.some(line => line.saleItemId === photo.saleItemId)) && <p className="text-sm text-amber-900">Enter a collection quantity for every photographed product, or remove its photo.</p>}<label className="block text-sm">Collector name<input disabled={busy || uncertain || uploadBusy} maxLength={120} value={collector} onChange={(event) => setCollector(event.target.value)} className="mt-1 w-full rounded-lg border p-3" /></label><label className="block text-sm">Collection notes<textarea disabled={busy || uncertain || uploadBusy} maxLength={500} value={notes} onChange={(event) => setNotes(event.target.value)} className="mt-1 w-full rounded-lg border p-3" /></label><Button disabled={busy || uploadBusy || !online || photos.some(photo => !selectedLines.some(line => line.saleItemId === photo.saleItemId)) || (!uncertain && (!selectedLines.length || invalid || collector.trim().length < 2))} onClick={() => void collect()}>{uncertain ? "Retry same collection" : "Record physical collection"}</Button></> : <p>A user with stock-release permission must record the physical collection.</p>}
       </div>}
     </div>}

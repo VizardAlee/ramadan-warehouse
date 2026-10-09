@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+const saleSerialNumbers = z.array(z.string().trim().min(1).max(160)).max(50).optional();
+
 const id = z.string().trim().min(1).max(128);
 const money = z.number().int().min(0).max(Number.MAX_SAFE_INTEGER);
 const positiveMoney = z.number().int().positive().max(Number.MAX_SAFE_INTEGER);
@@ -161,6 +163,7 @@ export const createSaleReturnInput = z.object({
   lines: z.array(z.object({
     saleItemId: id,
     quantity: z.number().int().positive().max(100_000),
+    serialNumbers: saleSerialNumbers,
     condition: z.enum(["restockable", "non_restockable"]),
   })).min(1).max(50),
   resolution: z.enum(["cash", "card", "bank_transfer", "customer_account", "exchange_credit"]),
@@ -219,6 +222,7 @@ export const commitSaleInput = z.object({
     .array(
       z.object({
         productId: id,
+        serialNumbers: saleSerialNumbers,
         priceTier: z.enum(["retail", "wholesale"]).optional(),
         quantity: z.number().int().positive().max(100_000),
         priceVersion: z.number().int().positive().optional(),
@@ -326,7 +330,7 @@ export const confirmPosSaleOrderInput = z.object({
 export const collectSaleInput = z.object({
   action: z.literal("collect"),
   saleId: id,
-  lines: z.array(z.object({ saleItemId: id, quantity: z.number().int().positive().max(1000000) })).min(1).max(50),
+  lines: z.array(z.object({ saleItemId: id, quantity: z.number().int().positive().max(1000000), serialNumbers: saleSerialNumbers })).min(1).max(50),
   collector: z.string().trim().min(2).max(120),
   evidenceIds: z.array(id).max(5).optional().refine(value => !value || new Set(value).size === value.length, "Choose each collection photo once."),
   notes: z.string().trim().max(500).optional(),

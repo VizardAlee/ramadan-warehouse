@@ -12,11 +12,11 @@ let environment: RulesTestEnvironment;
 beforeAll(async () => {
   environment = await initializeTestEnvironment({
     projectId: "demo-ramadan-warehouse",
-    ...(process.env.FIREBASE_STORAGE_EMULATOR_HOST ? { storage: { rules: readFileSync("storage.rules", "utf8"), host: "127.0.0.1", port: 9199 } } : {}),
+    ...(process.env.FIREBASE_STORAGE_EMULATOR_HOST ? { storage: { rules: readFileSync("storage.rules", "utf8"), host: "127.0.0.1", port: Number(process.env.FIREBASE_STORAGE_EMULATOR_HOST.split(":").at(-1)) } } : {}),
     firestore: {
       rules: readFileSync("firestore.rules", "utf8"),
       host: "127.0.0.1",
-      port: 8180,
+      port: Number(process.env.FIRESTORE_EMULATOR_HOST?.split(":").at(-1) ?? 8180),
     },
   });
 });
@@ -421,6 +421,18 @@ async function seed() {
 }
 
 describe("Firestore baseline rules", () => {
+  it("keeps sale serial ownership server-only even for privileged clients", async () => {
+    await seed();
+    await environment.withSecurityRulesDisabled(async context => {
+      await context.firestore().doc("serializedItems/reserved-unit").set({ organizationId: "org-1", branchId: "branch-1", currentLocationId: "location-1", status: "reserved", active: true, reservedSaleId: "sale-1", reservedSaleItemId: "item-1" });
+    });
+    for (const uid of ["admin", "branch-manager", "sales-cashier"]) {
+      const db = environment.authenticatedContext(uid).firestore();
+      await assertFails(db.doc("serializedItems/reserved-unit").update({ status: "at_branch", reservedSaleId: null }));
+      await assertFails(db.doc("serializedItems/reserved-unit").delete());
+      await assertFails(db.doc("serializedItems/new-unit").set({ organizationId: "org-1", status: "at_branch", active: true }));
+    }
+  });
   it.skipIf(!process.env.FIREBASE_STORAGE_EMULATOR_HOST)("denies direct collection photo metadata and object access even to administrators", async () => {
     await seed();
     await environment.withSecurityRulesDisabled(async context => {

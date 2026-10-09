@@ -74,11 +74,11 @@ export async function setupTransferHarness(options: {
   const apps: FirebaseApp[] = [];
 
   await fetch(
-    `http://127.0.0.1:9099/emulator/v1/projects/${emulatorProjectId}/accounts`,
+    `http://${process.env.FIREBASE_AUTH_EMULATOR_HOST ?? "127.0.0.1:9099"}/emulator/v1/projects/${emulatorProjectId}/accounts`,
     { method: "DELETE" },
   );
   await fetch(
-    `http://127.0.0.1:8180/emulator/v1/projects/${emulatorProjectId}/databases/(default)/documents`,
+    `http://${process.env.FIRESTORE_EMULATOR_HOST ?? "127.0.0.1:8180"}/emulator/v1/projects/${emulatorProjectId}/databases/(default)/documents`,
     { method: "DELETE" },
   );
 
@@ -109,9 +109,9 @@ export async function setupTransferHarness(options: {
     );
     apps.push(app);
     const auth = getAuth(app);
-    connectAuthEmulator(auth, "http://127.0.0.1:9099", { disableWarnings: true });
+    connectAuthEmulator(auth, `http://${process.env.FIREBASE_AUTH_EMULATOR_HOST ?? "127.0.0.1:9099"}`, { disableWarnings: true });
     const functions = getFunctions(app, "us-central1");
-    connectFunctionsEmulator(functions, "127.0.0.1", 5001);
+    connectFunctionsEmulator(functions, "127.0.0.1", Number(process.env.TEST_FUNCTIONS_PORT ?? 5001));
     await signInWithEmailAndPassword(auth, email, "Password!234567");
     return { uid: user.uid, auth, functions };
   };

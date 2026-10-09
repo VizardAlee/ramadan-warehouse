@@ -10,6 +10,7 @@ import { balanceDocumentId, issueCost, uniquenessDocumentId } from "../inventory
 import { correlationId } from "../utils/callable.js";
 import { assertBalancedJournal } from "./calculations.js";
 import type { collectSaleInput } from "../validation/sales.js";
+import { readSaleSerials, serialCost, changeSaleSerials, writeSaleSerialEntries } from "./serials.js";
 
 /** Uses the existing confirmation endpoint; physical release has its own permission. */
 export async function collectReservedSale(
@@ -61,6 +62,7 @@ export async function collectReservedSale(
     if (new Set(balanceRefs.map((reference) => reference.path)).size !== balanceRefs.length)
       throw new HttpsError("failed-precondition", "Collect each product once per submission.");
     const balances = await transaction.getAll(...balanceRefs);
+    const saleSerials = await readSaleSerials(transaction, { organizationId: actor.organizationId, locationId: location!.id, saleId: saleRef.id }, items.map((item, index) => ({ ...input.lines[index]!, productId: String(item.get("productId")), trackingType: String(item.get("trackingType")) })), "collect");
     const evidence = evidenceRefs.length ? await transaction.getAll(...evidenceRefs) : [];
     for (const photo of evidence) {
       if (!photo.exists || photo.get("organizationId") !== actor.organizationId || photo.get("branchId") !== branchId || photo.get("saleId") !== saleRef.id || photo.get("uploadedBy") !== actor.userId || photo.get("status") !== "uploaded" || !input.lines.some(line => line.saleItemId === photo.get("saleItemId")))
@@ -71,12 +73,16 @@ export async function collectReservedSale(
       const collected = Number(item.get("collectedQuantity") ?? 0);
       const balance = balances[index]!;
       const reserved = Number(balance.get("reservedQuantity") ?? 0);
-      if (!item.exists || item.get("organizationId") !== actor.organizationId || item.get("saleId") !== saleRef.id || item.get("trackingType") !== "quantity" || quantity > Number(item.get("quantity")) - collected - Number(item.get("cancelledQuantity") ?? 0))
+      if (!item.exists || item.get("organizationId") !== actor.organizationId || item.get("saleId") !== saleRef.id || !["quantity", "serial"].includes(item.get("trackingType")) || quantity > Number(item.get("quantity")) - collected - Number(item.get("cancelledQuantity") ?? 0))
         throw new HttpsError("failed-precondition", "A collection quantity exceeds the goods still awaiting collection.");
       if (!balance.exists || balance.get("organizationId") !== actor.organizationId || reserved < quantity || Number(balance.get("onHandQuantity")) < quantity)
         throw new HttpsError("failed-precondition", "Reserved stock is inconsistent; reconcile this location before release.");
-      const issued = issueCost({ quantity: Number(balance.get("onHandQuantity")), totalValueMinor: Number(balance.get("totalValueMinor")), averageUnitCostMinor: Number(balance.get("averageUnitCostMinor")) }, quantity, quantity === Number(balance.get("onHandQuantity")) ? Number(balance.get("totalValueMinor")) : undefined);
-      return { item, balance, quantity, collected, reserved, issued };
+      const serials = saleSerials[index]!;
+      const value = serials.length ? serialCost(serials) : undefined;
+      if (serials.length && quantity === Number(balance.get("onHandQuantity")) && value !== Number(balance.get("totalValueMinor")))
+        throw new HttpsError("failed-precondition", "Serial costs and stock valuation disagree. Reconcile before release.");
+      const issued = issueCost({ quantity: Number(balance.get("onHandQuantity")), totalValueMinor: Number(balance.get("totalValueMinor")), averageUnitCostMinor: Number(balance.get("averageUnitCostMinor")) }, quantity, value ?? (quantity === Number(balance.get("onHandQuantity")) ? Number(balance.get("totalValueMinor")) : undefined));
+      return { item, balance, quantity, collected, reserved, issued, serials };
     });
     const totalQuantity = resolved.reduce((sum, line) => sum + line.quantity, 0);
     const cost = resolved.reduce((sum, line) => sum + line.issued.movementValueMinor, 0);
@@ -93,9 +99,16 @@ export async function collectReservedSale(
     transaction.set(inventoryCounter, { organizationId: actor.organizationId, value: movementSequence, updatedAt: now }, { merge: true });
     transaction.create(movement, { organizationId: actor.organizationId, transactionNumber: movementNumber, transactionType: "customer_collection", status: "posted", sourceLocationId: location!.id, sourceBranchId: branchId, referenceType: "saleCollection", referenceId: collection.id, referenceNumber, effectiveAt, postedAt: now, postedBy: actor.userId, createdAt: now, createdBy: actor.userId, reason: "Customer physically collected reserved goods", idempotencyKey: input.idempotencyKey, correlationId: cid });
     resolved.forEach((line, index) => {
+      const serialNumbers = line.serials.map(serial => String(serial.get("serialNumber")));
+      changeSaleSerials(transaction, line.serials, "collect", { saleId: saleRef.id, saleItemId: line.item.id, locationId: location!.id, branchId, userId: actor.userId, movementId: movement.id, collectionId: collection.id });
+      if (serialNumbers.length) transaction.update(itemRefs[index]!, { collectedSerialNumbers: FieldValue.arrayUnion(...serialNumbers) });
       transaction.update(itemRefs[index]!, { collectedQuantity: line.collected + line.quantity, costAmountMinor: Number(line.item.get("costAmountMinor") ?? 0) + line.issued.movementValueMinor, lastCollectionId: collection.id, updatedAt: now });
       transaction.update(balanceRefs[index]!, { onHandQuantity: line.issued.balance.quantity, reservedQuantity: line.reserved - line.quantity, availableQuantity: line.issued.balance.quantity - line.reserved + line.quantity, totalValueMinor: line.issued.balance.totalValueMinor, averageUnitCostMinor: line.issued.balance.averageUnitCostMinor, lastTransactionId: movement.id, lastMovementAt: effectiveAt, version: Number(line.balance.get("version") ?? 0) + 1, updatedAt: now });
       const base = { organizationId: actor.organizationId, transactionId: movement.id, transactionNumber: movementNumber, transactionType: "customer_collection", productId: line.item.get("productId"), sku: line.item.get("sku"), productName: line.item.get("productName"), trackingType: "quantity", unitCostMinor: line.issued.unitCostMinor, currency: "NGN", effectiveAt, postedBy: actor.userId, createdAt: now, reason: "Customer collection", referenceNumber };
+      if (line.serials.length) {
+        writeSaleSerialEntries(transaction, line.serials, base, { locationId: location!.id, branchId, balanceBefore: Number(line.balance.get("onHandQuantity")), direction: -1, reservedDirection: -1, externalAccount: "customer_sales" });
+        return;
+      }
       transaction.create(db.collection("inventoryEntries").doc(), { ...base, locationId: location!.id, branchId, quantityDelta: -line.quantity, reservedQuantityDelta: -line.quantity, valueDeltaMinor: -line.issued.movementValueMinor, balanceBefore: Number(line.balance.get("onHandQuantity")), balanceAfter: line.issued.balance.quantity });
       transaction.create(db.collection("inventoryEntries").doc(), { ...base, externalAccount: "customer_sales", counterpartyLocationId: location!.id, quantityDelta: line.quantity, valueDeltaMinor: line.issued.movementValueMinor, balanceBefore: 0, balanceAfter: 0 });
     });
@@ -111,7 +124,7 @@ export async function collectReservedSale(
       });
     }
     transaction.update(saleRef, { collectionStatus: status, collectedQuantity, costAmountMinor: Number(sale!.get("costAmountMinor") ?? 0) + cost, lastCollectionId: collection.id, lastCollectedAt: now, updatedAt: now });
-    transaction.create(collection, { organizationId: actor.organizationId, branchId, saleId: saleRef.id, referenceNumber, customerId: sale!.get("customerId") ?? null, customerName: sale!.get("customerName") ?? "Walk-in customer", collector: input.collector, notes: input.notes ?? null, evidenceIds: input.evidenceIds ?? [], lines: resolved.map((line) => ({ saleItemId: line.item.id, productId: line.item.get("productId"), productName: line.item.get("productName"), quantity: line.quantity, costAmountMinor: line.issued.movementValueMinor })), totalQuantity, costAmountMinor: cost, inventoryTransactionId: movement.id, journalEntryId: cost > 0 ? journal.id : null, collectedAt: now, releasedBy: actor.userId, correlationId: cid });
+    transaction.create(collection, { organizationId: actor.organizationId, branchId, saleId: saleRef.id, referenceNumber, customerId: sale!.get("customerId") ?? null, customerName: sale!.get("customerName") ?? "Walk-in customer", collector: input.collector, notes: input.notes ?? null, evidenceIds: input.evidenceIds ?? [], lines: resolved.map((line) => ({ saleItemId: line.item.id, productId: line.item.get("productId"), productName: line.item.get("productName"), quantity: line.quantity, serialNumbers: line.serials.map(serial => String(serial.get("serialNumber"))), costAmountMinor: line.issued.movementValueMinor })), totalQuantity, costAmountMinor: cost, inventoryTransactionId: movement.id, journalEntryId: cost > 0 ? journal.id : null, collectedAt: now, releasedBy: actor.userId, correlationId: cid });
     transaction.create(operation, { organizationId: actor.organizationId, saleId: saleRef.id, entityId: collection.id, collectionStatus: status, fingerprint, createdAt: now });
     writeAuditLog(transaction, actor, { action: "sale.goods_collected", entityType: "saleCollection", entityId: collection.id, sourceFunction: "confirmPosSaleOrder", correlationId: cid, reason: "Physical collection", before: { collectionStatus: sale!.get("collectionStatus"), collectedQuantity: sale!.get("collectedQuantity") }, after: { evidenceIds: input.evidenceIds ?? [], saleId: saleRef.id, branchId, referenceNumber, collector: input.collector, totalQuantity, collectionStatus: status, inventoryTransactionId: movement.id, journalEntryId: cost > 0 ? journal.id : null } });
     result = { saleId: saleRef.id, collectionId: collection.id, collectionStatus: status, recorded: true };

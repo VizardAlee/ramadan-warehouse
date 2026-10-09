@@ -474,6 +474,14 @@ describe.sequential("simple manager stock transfers", () => {
         await expect(approve(id)).rejects.toMatchObject({
           code: "functions/failed-precondition",
         });
+      if (trackingType === "serial") {
+        const reservedUnit = h.db.doc(`serializedItems/${s.serials[0]!.id}`);
+        await reservedUnit.update({ reservedSaleId: "owning-customer-sale" });
+        const filtered = await api<{ stock: Array<{ productId: string; serials: Array<{ id: string }> }> }>(h.creator, { action: "stock", locationId: h.originLocationId });
+        expect(filtered.stock.find(row => row.productId === productId)!.serials).not.toContainEqual(expect.objectContaining({ id: reservedUnit.id }));
+        await expect(approve(id, { lines: [{ id: t.items[0]!.id, quantity: 2, serialItemIds: s.serials.map(unit => unit.id) }] })).rejects.toMatchObject({ code: "functions/failed-precondition" });
+        await reservedUnit.update({ reservedSaleId: null });
+      }
       await approve(id, {
         lines: [
           {

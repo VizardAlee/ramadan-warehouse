@@ -339,7 +339,7 @@ export const stockTransfers = onCall({ enforceAppCheck }, async (request) => {
               .filter(
                 (s) =>
                   s.get("productId") === d.get("productId") &&
-                  !s.get("reservedTransferId") &&
+                  !s.get("reservedTransferId") && !s.get("reservedSaleId") && s.get("active") !== false &&
                   ["available", "at_branch"].includes(s.get("status")),
               )
               .map((s) => ({ id: s.id, name: s.get("serialNumber") })) ?? [],
@@ -854,7 +854,7 @@ async function changeStock(
         serial.get("currentLocationId") !== source!.id ||
         (approving
           ? !["available", "at_branch"].includes(serial.get("status")) ||
-            Boolean(serial.get("reservedTransferId"))
+            Boolean(serial.get("reservedTransferId")) || Boolean(serial.get("reservedSaleId")) || serial.get("active") === false
           : serial.get("reservedTransferId") !== transfer.id)
       )
         fail(

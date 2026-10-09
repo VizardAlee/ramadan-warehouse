@@ -188,7 +188,7 @@ export function SaleDocumentDialog({
                 {document.items.map((item) => (
                   <tr key={item.id} className="border-t">
                     <td className="p-3">
-                      <strong>{item.productName}</strong>
+                      <strong>{item.productName}</strong>{Boolean(item.serialNumbers?.length) && <p className="mt-1 break-all text-xs">Allocated serials: {item.serialNumbers!.join(", ")}<br />Collected: {item.collectedSerialNumbers?.join(", ") || "None"}<br />Cancelled: {item.cancelledSerialNumbers?.join(", ") || "None"}</p>}
                       <span className="block font-mono text-xs text-[var(--muted)]">
                         {item.sku}
                       </span>

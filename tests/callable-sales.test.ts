@@ -45,11 +45,11 @@ function client(name: string) {
   );
   apps.push(app);
   const auth = getAuth(app);
-  connectAuthEmulator(auth, "http://127.0.0.1:9099", {
+  connectAuthEmulator(auth, `http://${process.env.FIREBASE_AUTH_EMULATOR_HOST ?? "127.0.0.1:9099"}`, {
     disableWarnings: true,
   });
   const functions = getFunctions(app, "us-central1");
-  connectFunctionsEmulator(functions, "127.0.0.1", 5001);
+  connectFunctionsEmulator(functions, "127.0.0.1", Number(process.env.TEST_FUNCTIONS_PORT ?? 5001));
   return { auth, functions };
 }
 
@@ -95,11 +95,11 @@ async function inspectReturnedGoods(target: ReturnType<typeof client>, returnId:
 
 beforeAll(async () => {
   await fetch(
-    `http://127.0.0.1:9099/emulator/v1/projects/${projectId}/accounts`,
+    `http://${process.env.FIREBASE_AUTH_EMULATOR_HOST ?? "127.0.0.1:9099"}/emulator/v1/projects/${projectId}/accounts`,
     { method: "DELETE" },
   );
   await fetch(
-    `http://127.0.0.1:8180/emulator/v1/projects/${projectId}/databases/(default)/documents`,
+    `http://${process.env.FIRESTORE_EMULATOR_HOST ?? "127.0.0.1:8180"}/emulator/v1/projects/${projectId}/databases/(default)/documents`,
     { method: "DELETE" },
   );
   administrator = await createActor(
@@ -200,6 +200,68 @@ beforeAll(async () => {
 afterAll(async () => Promise.all(apps.map((app) => deleteApp(app))));
 
 describe.sequential("sales callables", () => {
+  it("owns serialized units across reservation, partial collection, cancellation and inspected returns", async () => {
+    const serialProduct = "serialized-sales-product";
+    const balance = adminDb.doc(`inventoryBalances/${balanceDocumentId(organizationId, serialProduct, locationId)}`);
+    const serialRef = (serial: string) => adminDb.doc(`serializedItems/${uniquenessDocumentId(organizationId, serial)}`);
+    await adminDb.doc(`products/${serialProduct}`).set({ organizationId, name: "Serialized inverter", sku: "SERIAL-POS", unitOfMeasure: "unit", trackingType: "serial", active: true, hasLedgerActivity: true });
+    await balance.set({ organizationId, branchId, locationId, productId: serialProduct, onHandQuantity: 3, reservedQuantity: 0, availableQuantity: 3, totalValueMinor: 6, averageUnitCostMinor: 2, version: 1 });
+    for (const [index, serial] of ["SN-A", "SN-B", "SN-C"].entries()) await serialRef(serial).set({ organizationId, productId: serialProduct, serialNumber: serial, normalizedSerialNumber: serial, currentLocationId: locationId, branchId, status: "at_branch", active: true, currentUnitCostMinor: index + 1 });
+    await call(administrator, "saveProductSalesPrice", { productId: serialProduct, basePriceMinor: 1_000, vatRateBasisPoints: 0, active: true, idempotencyKey: crypto.randomUUID() });
+    const deviceId = crypto.randomUUID();
+    const shift = await call<{ shiftId: string }>(branchManager, "openPosShift", { branchId, deviceId, deviceName: "Serial desk", openingCashMinor: 0, idempotencyKey: crypto.randomUUID() });
+    const checkout = { branchId, shiftId: shift.shiftId, deviceId, recordedAt: new Date().toISOString(), offline: false, lines: [{ productId: serialProduct, quantity: 2, serialNumbers: ["sn-a", "SN-B"] }], payments: [{ method: "cash", amountMinor: 2_000 }], idempotencyKey: crypto.randomUUID() };
+    const workspace = await call<{ products: Array<{ id: string; trackingType: string }> }>(branchManager, "getPosWorkspace", { branchId });
+    expect(workspace.products).toContainEqual(expect.objectContaining({ id: serialProduct, trackingType: "serial" }));
+    const order = await call<{ orderId: string }>(branchManager, "createPosSaleOrder", checkout);
+    expect((await serialRef("SN-A").get()).get("status")).toBe("at_branch");
+    await call(branchManager, "acceptPosSaleOrderPayment", { orderId: order.orderId, shiftId: shift.shiftId, deviceId, idempotencyKey: crypto.randomUUID() });
+    const sale = await call<{ saleId: string }>(branchManager, "confirmPosSaleOrder", { orderId: order.orderId, deferCollection: true, idempotencyKey: crypto.randomUUID() });
+    const item = (await adminDb.collection("saleItems").where("saleId", "==", sale.saleId).get()).docs[0]!;
+    expect((await balance.get()).data()).toMatchObject({ onHandQuantity: 3, reservedQuantity: 2, availableQuantity: 1, totalValueMinor: 6 });
+    expect((await serialRef("SN-A").get()).data()).toMatchObject({ status: "reserved", reservedSaleId: sale.saleId, reservedSaleItemId: item.id });
+    await expect(call(administrator, "postStockAdjustment", { productId: serialProduct, locationId, direction: "decrease", adjustmentType: "loss", quantity: 1, serialNumbers: ["SN-A"], effectiveAt: new Date().toISOString(), reason: "Reserved serial must not bypass sales", idempotencyKey: crypto.randomUUID() })).rejects.toMatchObject({ code: "functions/failed-precondition" });
+    const reservationMovement = (await serialRef("SN-A").get()).get("lastTransactionId");
+    await expect(call(administrator, "reverseInventoryTransaction", { transactionId: reservationMovement, reason: "Must use linked financial correction", idempotencyKey: crypto.randomUUID() })).rejects.toMatchObject({ code: "functions/failed-precondition" });
+    const collect = { action: "collect", saleId: sale.saleId, lines: [{ saleItemId: item.id, quantity: 1, serialNumbers: ["SN-A"] }], collector: "Serial customer", idempotencyKey: crypto.randomUUID() };
+    for (const serialNumbers of [[], ["SN-C"], ["SN-A", "sn-a"]]) await expect(call(branchManager, "confirmPosSaleOrder", { ...collect, lines: [{ saleItemId: item.id, quantity: 1, serialNumbers }] })).rejects.toBeDefined();
+    await expect(call(cashier, "confirmPosSaleOrder", collect)).rejects.toMatchObject({ code: "functions/permission-denied" });
+    const collection = await call<{ collectionId: string }>(branchManager, "confirmPosSaleOrder", collect);
+    expect(await call(branchManager, "confirmPosSaleOrder", collect)).toMatchObject({ recorded: false, collectionId: collection.collectionId });
+    await expect(call(branchManager, "confirmPosSaleOrder", { ...collect, idempotencyKey: crypto.randomUUID() })).rejects.toMatchObject({ code: "functions/failed-precondition" });
+    expect((await balance.get()).data()).toMatchObject({ onHandQuantity: 2, reservedQuantity: 1, availableQuantity: 1, totalValueMinor: 5 });
+    expect((await serialRef("SN-A").get()).data()).toMatchObject({ status: "sold", active: false, currentLocationId: null, saleId: sale.saleId, saleItemId: item.id });
+    const collectionRecord = await adminDb.doc(`saleCollections/${collection.collectionId}`).get();
+    const journal = await adminDb.doc(`journalEntries/${collectionRecord.get("journalEntryId")}`).get();
+    expect(journal.data()).toMatchObject({ totalDebitMinor: 1, totalCreditMinor: 1 });
+    const collectionEntries = await adminDb.collection("inventoryEntries").where("transactionId", "==", collectionRecord.get("inventoryTransactionId")).get();
+    expect(collectionEntries.docs.map(doc => doc.data())).toContainEqual(expect.objectContaining({ serialNumber: "SN-A", quantityDelta: -1, valueDeltaMinor: -1 }));
+    const returnRequest = (serial: string, kind = "goods_return", condition = "restockable") => ({ branchId, saleId: sale.saleId, kind, lines: [{ saleItemId: item.id, quantity: 1, serialNumbers: [serial], condition }], resolution: "exchange_credit", reason: "Serialized customer correction", idempotencyKey: crypto.randomUUID() });
+    await expect(call(branchManager, "createSaleReturn", returnRequest("SN-C"))).rejects.toMatchObject({ code: "functions/failed-precondition" });
+    const cancelled = await call<{ returnId: string }>(branchManager, "createSaleReturn", returnRequest("SN-B", "reservation_cancellation"));
+    await call(branchManager, "approveSaleReturn", { returnId: cancelled.returnId, idempotencyKey: crypto.randomUUID() });
+    expect((await balance.get()).data()).toMatchObject({ onHandQuantity: 2, reservedQuantity: 0, availableQuantity: 2, totalValueMinor: 5 });
+    expect((await serialRef("SN-B").get()).data()).toMatchObject({ status: "at_branch", active: true, currentLocationId: locationId });
+    const returned = await call<{ returnId: string }>(branchManager, "createSaleReturn", returnRequest("SN-A"));
+    await expect(call(branchManager, "approveSaleReturn", { returnId: returned.returnId, idempotencyKey: crypto.randomUUID() })).rejects.toMatchObject({ code: "functions/failed-precondition" });
+    await inspectReturnedGoods(branchManager, returned.returnId);
+    await call(branchManager, "approveSaleReturn", { returnId: returned.returnId, idempotencyKey: crypto.randomUUID() });
+    expect((await balance.get()).data()).toMatchObject({ onHandQuantity: 3, reservedQuantity: 0, availableQuantity: 3, totalValueMinor: 6 });
+    expect((await serialRef("SN-A").get()).data()).toMatchObject({ status: "at_branch", active: true, currentLocationId: locationId });
+    await expect(call(branchManager, "createSaleReturn", returnRequest("SN-A"))).rejects.toMatchObject({ code: "functions/failed-precondition" });
+    const immediate = { ...checkout, lines: [{ productId: serialProduct, quantity: 1, serialNumbers: ["SN-C"] }], payments: [{ method: "cash", amountMinor: 1_000 }], idempotencyKey: crypto.randomUUID() };
+    await expect(call(branchManager, "commitPosSale", { ...immediate, offline: true, provisionalReceiptReference: "OFF-SERIAL-DENIED" })).rejects.toMatchObject({ code: "functions/failed-precondition" });
+    const immediateSale = await call<{ saleId: string }>(branchManager, "commitPosSale", immediate);
+    expect(await call(branchManager, "commitPosSale", immediate)).toMatchObject({ posted: false });
+    await expect(call(branchManager, "commitPosSale", { ...immediate, lines: [{ productId: serialProduct, quantity: 1, serialNumbers: ["SN-A"] }] })).rejects.toMatchObject({ code: "functions/invalid-argument" });
+    const immediateItem = (await adminDb.collection("saleItems").where("saleId", "==", immediateSale.saleId).get()).docs[0]!;
+    const heldReturn = await call<{ returnId: string }>(branchManager, "createSaleReturn", { ...returnRequest("SN-C", "goods_return", "non_restockable"), saleId: immediateSale.saleId, lines: [{ saleItemId: immediateItem.id, quantity: 1, serialNumbers: ["SN-C"], condition: "non_restockable" }] });
+    await inspectReturnedGoods(branchManager, heldReturn.returnId);
+    await call(branchManager, "approveSaleReturn", { returnId: heldReturn.returnId, idempotencyKey: crypto.randomUUID() });
+    expect((await serialRef("SN-C").get()).data()).toMatchObject({ status: "returned_held", active: false, lastSaleReturnId: heldReturn.returnId });
+    expect((await balance.get()).data()).toMatchObject({ onHandQuantity: 2, reservedQuantity: 0, availableQuantity: 2, totalValueMinor: 3 });
+    expect(await call(branchManager, "getSaleDocument", { saleId: sale.saleId })).toMatchObject({ items: [expect.objectContaining({ serialNumbers: ["SN-A", "SN-B"], collectedSerialNumbers: ["SN-A"], cancelledSerialNumbers: ["SN-B"] })], collections: [expect.objectContaining({ lines: [expect.objectContaining({ serialNumbers: ["SN-A"] })] })] });
+  }, 300_000);
   it.skipIf(!process.env.FIREBASE_STORAGE_EMULATOR_HOST)("uploads private collection photos and links them exactly once with stock release", async () => {
     const saleId = "photo-sale", saleItemId = "photo-item", photoProduct = "photo-product";
     const balanceRef = adminDb.doc(`inventoryBalances/${balanceDocumentId(organizationId, photoProduct, locationId)}`);

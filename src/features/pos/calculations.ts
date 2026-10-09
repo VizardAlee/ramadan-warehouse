@@ -65,6 +65,7 @@ export function reconcileHeldCart(
     return [{
       product,
       quantity,
+      ...(product.trackingType === "serial" ? { serialNumbers: heldLine.serialNumbers?.slice(0, quantity) ?? [] } : {}),
       ...(heldLine.priceTier ? { priceTier: heldLine.priceTier } : {}),
       ...(keepPrice ? {
         sellingPriceMinor: heldLine.sellingPriceMinor,

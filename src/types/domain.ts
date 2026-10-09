@@ -845,6 +845,8 @@ export type SerializedItemStatus =
   | "quarantined"
   | "damaged"
   | "returned"
+  | "sold"
+  | "returned_held"
   | "written_off";
 export interface SerializedItem {
   id: string;
@@ -853,7 +855,7 @@ export interface SerializedItem {
   sku: string;
   serialNumber: string;
   normalizedSerialNumber: string;
-  currentLocationId: string;
+  currentLocationId: string | null;
   status: SerializedItemStatus;
   lotId?: string;
   acquisitionUnitCostMinor: number;

@@ -34,7 +34,7 @@ export interface PosProduct {
   sku: string;
   name: string;
   unitOfMeasure: string;
-  trackingType: "quantity";
+  trackingType: "quantity" | "serial";
   unitPriceMinor: number;
   basePriceMinor: number;
   vatRateBasisPoints: number;
@@ -91,6 +91,7 @@ export interface PosWorkspace {
 }
 
 export interface PosCartLine {
+  serialNumbers?: string[];
   product: PosProduct;
   quantity: number;
   priceTier?: "retail" | "wholesale";
@@ -106,6 +107,7 @@ export interface HeldPosSale {
   branchId: string;
   lines: Array<{
     productId: string;
+    serialNumbers?: string[];
     quantity: number;
     catalogUnitPriceMinor?: number;
     priceTier?: "retail" | "wholesale";
@@ -140,6 +142,7 @@ export interface PosSalePayload {
   provisionalReceiptReference?: string;
   lines: Array<{
     productId: string;
+    serialNumbers?: string[];
     quantity: number;
     priceVersion?: number;
     priceTier?: "retail" | "wholesale";
@@ -179,7 +182,7 @@ export interface SaleDocument {
     evidenceIds?: string[];
     id: string; referenceNumber?: string; waybillNumber?: string; collector: string; collectedAt: string | null;
     releasedBy: string; releasedByName?: string; notes?: string | null; totalQuantity: number;
-    lines: Array<{ saleItemId?: string; productName: string; quantity: number; sku?: string; unitOfMeasure?: string }>;
+    lines: Array<{ saleItemId?: string; productName: string; quantity: number; serialNumbers?: string[]; sku?: string; unitOfMeasure?: string }>;
   }>;
   official: boolean;
   organization: {
@@ -229,6 +232,10 @@ export interface SaleDocument {
     productName: string;
     unitOfMeasure: string;
     quantity: number;
+    trackingType?: "quantity" | "serial";
+    serialNumbers?: string[];
+    collectedSerialNumbers?: string[];
+    cancelledSerialNumbers?: string[];
     collectedQuantity?: number;
     cancelledQuantity?: number;
     unitPriceMinor: number;

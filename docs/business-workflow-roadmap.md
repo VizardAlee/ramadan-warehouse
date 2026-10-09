@@ -2,6 +2,39 @@
 
 This roadmap extends the existing Firebase application and preserves historical users, stock entries, sales, journals and audit records. A requested capability is not marked complete merely because a screen or a partial workflow exists.
 
+### Serialized POS ownership — 9 October 2026 (implementation; release pending)
+
+Extends existing `serializedItems`, sales, collection and return transactions;
+there is no parallel stock or customer system. Online POS captures exact serials
+(one per unit, maximum 50 per order). Holding/receiving an order does not reserve
+units. Final confirmation atomically validates and reserves or releases them.
+Partial collection accepts only the owning invoice's uncollected serials;
+cancellation releases only its uncollected reservation. Inspected resellable
+returns restore the exact units/costs; other dispositions leave serials held,
+inactive and unavailable. Original sale/return/collection evidence is retained.
+
+Per-unit inventory entries carry serial identity and exact historical cost;
+linked journals use the summed unit costs rather than rounded averages. Invoice
+and actual-handover waybill show allocated/collected serials. Held baskets retain
+serial drafts, with revalidation on confirmation. Quantity-only offline POS
+remains supported; serialized sales explicitly require internet ownership checks.
+Inventory moves/transfers cannot bypass sales reservations, and stock-only
+reversal of sale/reservation/collection postings is blocked.
+
+Guide, regression coverage and live query-audit baseline are updated. Local
+validation passed: 312 unit/interface tests, all 22 sales cases (21 in the full
+run and the new serial case on focused rerun), 17 inventory cases, the legacy
+serial-transfer journey, 11 simplified-transfer cases and 27 Firestore/Storage
+security cases. The final affected UI subset passed again after layout refinement.
+Typecheck, lint, Functions compilation, production build, secret scan and diff
+checks passed. Live query planning passed 440/440; all 224 indexes are READY.
+Concurrent emulator temporary-file interference was resolved using isolated ports
+and a private temporary directory; no application checks were bypassed.
+Deployment evidence will be recorded below only after rollout completes.
+No historical data migration or index/rules/IAM relaxation is required. Physical
+device/camera acceptance remains separate. Next: serial/photo evidence coverage
+for supplier returns and warranty/repair handoffs, reusing existing workflows.
+
 ### Private collection photos — 9 October 2026 (deployed)
 
 The existing POS collection queue accepts optional JPEG/PNG evidence (five per

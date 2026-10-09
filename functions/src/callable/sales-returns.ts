@@ -21,6 +21,7 @@ import {
 } from "../inventory/calculations.js";
 import { assertBalancedJournal } from "../sales/calculations.js";
 import { followUpSaleReturn } from "../sales/return-follow-up.js";
+import { readSaleSerials, serialCost, changeSaleSerials, writeSaleSerialEntries } from "../sales/serials.js";
 import { selectedArrangement, changeArrangementBalance } from "../sales/customer-arrangements.js";
 import { changeMoneyBalance, legacyDebt, reduceInvoice } from "../sales/receivables.js";
 import { correlationId, parseInput } from "../utils/callable.js";
@@ -139,6 +140,9 @@ export const getSaleReturnWorkspace = onCall(
       },
       items: items.docs.map((item, index) => ({
         id: item.id,
+        trackingType: item.get("trackingType") ?? "quantity",
+        returnableSerialNumbers: (item.get("collectedSerialNumbers") ?? []).filter((serial: string) => !(counters[index]!.get("returnedSerialNumbers") ?? []).includes(serial)),
+        cancellableSerialNumbers: (item.get("serialNumbers") ?? []).filter((serial: string) => !(item.get("collectedSerialNumbers") ?? []).includes(serial) && !(item.get("cancelledSerialNumbers") ?? []).includes(serial)),
         productId: item.get("productId"),
         sku: item.get("sku"),
         productName: item.get("productName"),
@@ -272,6 +276,7 @@ export const createSaleReturn = onCall({ enforceAppCheck }, async (request) => {
       resolveSettlementAccount(actor.organizationId, input.resolution, input.bankAccountId, bankAccountSnapshot);
     const items = snapshots.slice(1, 1 + input.lines.length);
     const counters = snapshots.slice(1 + input.lines.length);
+    const saleSerials = await readSaleSerials(transaction, { organizationId: actor.organizationId, locationId: String(sale.get("locationId")), saleId: sale.id }, input.lines.map((line, index) => ({ ...line, productId: String(items[index]!.get("productId")), trackingType: String(items[index]!.get("trackingType")) })), input.kind === "reservation_cancellation" ? "cancel" : "return");
     const calculated = input.lines.map((line, index) => {
       const item = items[index]!;
       if (
@@ -309,7 +314,8 @@ export const createSaleReturn = onCall({ enforceAppCheck }, async (request) => {
         net,
         vat,
         gross: net + vat,
-        cost: cancellation ? 0 : item.get("collectionTracked") === true
+        serials: saleSerials[index]!,
+        cost: cancellation ? 0 : saleSerials[index]!.length ? serialCost(saleSerials[index]!) : item.get("collectionTracked") === true
           ? Math.round(Math.max(0, collectedCost - returnedCost) * line.quantity / (collectedQuantity - returnedQuantity))
           : allocated(Number(item.get("costAmountMinor") ?? soldQuantity * Number(item.get("unitCostMinor") ?? 0))),
       };
@@ -358,6 +364,7 @@ export const createSaleReturn = onCall({ enforceAppCheck }, async (request) => {
         sku: line.item.get("sku"),
         productName: line.item.get("productName"),
         quantity: line.input.quantity,
+        serialNumbers: line.serials.map(serial => String(serial.get("serialNumber"))),
         condition: "non_restockable",
         requestedCondition: line.input.condition,
         inspectionStatus: input.kind === "reservation_cancellation" ? "not_required" : "required",
@@ -543,6 +550,7 @@ export const approveSaleReturn = onCall(
           "This role cannot approve its own return.",
           { code: "RETURN_SELF_APPROVAL_FORBIDDEN" },
         );
+      const saleSerials = await readSaleSerials(transaction, { organizationId: actor.organizationId, locationId: location.id, saleId: String(current.get("saleId")) }, returnItemsQuery.docs.map((line, index) => ({ saleItemId: originalItems[index]!.id, productId: String(originalItems[index]!.get("productId")), trackingType: String(originalItems[index]!.get("trackingType")), quantity: Number(line.get("quantity")), serialNumbers: line.get("serialNumbers") ?? [] })), cancellation ? "cancel" : "return");
       const lines = returnItemsQuery.docs.map((line, index) => {
         const original = originalItems[index]!,
           counter = counters[index]!,
@@ -584,7 +592,9 @@ export const approveSaleReturn = onCall(
             "failed-precondition",
             "The branch stock balance required for restocking is unavailable.",
           );
-        return { line, original, counter, balance, quantity, reversedNet, reversedVat };
+        if (saleSerials[index]!.length && !cancellation && serialCost(saleSerials[index]!) !== Number(line.get("costAmountMinor")))
+          throw new HttpsError("failed-precondition", "Serial cost evidence changed. Review this return before posting.");
+        return { line, original, counter, balance, quantity, reversedNet, reversedVat, serials: saleSerials[index]! };
       });
       const gross = Number(current.get("grossAmountMinor")),
         net = Number(current.get("netAmountMinor")),
@@ -681,6 +691,8 @@ export const approveSaleReturn = onCall(
         updatedAt: now,
       });
       for (const [index, line] of lines.entries()) {
+        const serialNumbers = line.serials.map(serial => String(serial.get("serialNumber")));
+        changeSaleSerials(transaction, line.serials, cancellation ? "cancel" : "return", { saleId: String(current.get("saleId")), saleItemId: line.original.id, locationId: location.id, branchId: String(current.get("branchId")), userId: actor.userId, ...(cancellation || line.line.get("condition") === "restockable" ? { movementId: inventoryTransaction.id } : {}), returnId: returnRef.id, resellable: line.line.get("condition") === "restockable" });
         transaction.set(counterRefs[index]!, {
           organizationId: actor.organizationId,
           saleId: current.get("saleId"),
@@ -694,6 +706,11 @@ export const approveSaleReturn = onCall(
           const physical = Number(line.balance.get("onHandQuantity"));
           transaction.update(itemRefs[index]!, { cancelledQuantity: Number(line.original.get("cancelledQuantity") ?? 0) + line.quantity, updatedAt: now });
           transaction.update(balanceRefs[index]!, { reservedQuantity: reserved - line.quantity, availableQuantity: physical - reserved + line.quantity, lastTransactionId: inventoryTransaction.id, lastMovementAt: effectiveAt, version: Number(line.balance.get("version") ?? 0) + 1, updatedAt: now });
+          if (serialNumbers.length) {
+            transaction.update(itemRefs[index]!, { cancelledSerialNumbers: FieldValue.arrayUnion(...serialNumbers) });
+            writeSaleSerialEntries(transaction, line.serials, { organizationId: actor.organizationId, productId: line.original.get("productId"), productName: line.original.get("productName"), sku: line.original.get("sku"), transactionId: inventoryTransaction.id, transactionNumber: inventoryNumber, transactionType: "sale_reservation_release", currency: "NGN", effectiveAt, createdAt: now, postedBy: actor.userId, referenceNumber: current.get("returnNumber"), reason: "Cancelled uncollected serialized goods" }, { locationId: location.id, branchId: String(current.get("branchId")), balanceBefore: physical, direction: 0, reservedDirection: -1 });
+            continue;
+          }
           transaction.create(db.collection("inventoryEntries").doc(), { organizationId: actor.organizationId, branchId: current.get("branchId"), locationId: location.id, productId: line.original.get("productId"), productName: line.original.get("productName"), sku: line.original.get("sku"), trackingType: "quantity", transactionId: inventoryTransaction.id, transactionNumber: inventoryNumber, transactionType: "sale_reservation_release", quantityDelta: 0, reservedQuantityDelta: -line.quantity, valueDeltaMinor: 0, unitCostMinor: 0, currency: "NGN", balanceBefore: physical, balanceAfter: physical, effectiveAt, createdAt: now, postedBy: actor.userId, referenceNumber: current.get("returnNumber"), reason: "Cancelled uncollected goods; physical stock never left" });
           continue;
         }
@@ -705,6 +722,7 @@ export const approveSaleReturn = onCall(
             saleItemId: line.original.id,
             returnedQuantity:
               Number(line.counter.get("returnedQuantity") ?? 0) + line.quantity,
+            ...(serialNumbers.length ? { returnedSerialNumbers: FieldValue.arrayUnion(...serialNumbers) } : {}),
             returnedCostAmountMinor: Number(line.counter.get("returnedCostAmountMinor") ?? Math.round(Number(line.original.get("costAmountMinor") ?? 0) * Number(line.counter.get("returnedQuantity") ?? 0) / Number(line.original.get("collectedQuantity") ?? line.original.get("quantity")))) + Number(line.line.get("costAmountMinor")),
             updatedAt: now,
           },
@@ -745,6 +763,10 @@ export const approveSaleReturn = onCall(
           referenceNumber: current.get("returnNumber"),
           createdAt: now,
         };
+        if (line.serials.length) {
+          writeSaleSerialEntries(transaction, line.serials, base, { locationId: location.id, branchId: String(current.get("branchId")), balanceBefore: beforeQuantity, direction: 1, externalAccount: "customer_returns" });
+          continue;
+        }
         transaction.create(db.collection("inventoryEntries").doc(), {
           ...base,
           locationId: location.id,

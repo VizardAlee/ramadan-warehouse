@@ -1,5 +1,7 @@
 "use client";
 
+import { parseSaleSerials, validSaleSerials } from "@/features/pos/serial-selection";
+
 import { CheckCircle2, RotateCcw, Search, ShieldCheck } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -28,6 +30,9 @@ interface ReturnWorkspace {
   items: Array<{
     id: string;
     productId: string;
+    trackingType?: "quantity" | "serial";
+    returnableSerialNumbers?: string[];
+    cancellableSerialNumbers?: string[];
     sku: string;
     productName: string;
     unitOfMeasure: string;
@@ -65,6 +70,7 @@ export default function ReturnsPage() {
   const [workspace, setWorkspace] = useState<ReturnWorkspace | null>(null);
   const [showCorrections, setShowCorrections] = useState(false);
   const [quantities, setQuantities] = useState<Record<string, number>>({});
+  const [serialText, setSerialText] = useState<Record<string, string>>({});
   const [kind, setKind] = useState<"goods_return" | "reservation_cancellation">("goods_return");
   const [conditions, setConditions] = useState<
     Record<string, "restockable" | "non_restockable">
@@ -151,6 +157,7 @@ export default function ReturnsPage() {
         receiptNumber: receiptNumber.trim(),
       });
       setWorkspace(result);
+      setSerialText({});
       setQuantities(
         Object.fromEntries(result.items.map((item) => [item.id, 0])),
       );
@@ -189,13 +196,17 @@ export default function ReturnsPage() {
 
   async function submitReturn() {
     if (!workspace || selectedLines.length === 0) return;
+    if (selectedLines.some(item => item.trackingType === "serial" && !validSaleSerials(parseSaleSerials(serialText[item.id] ?? ""), quantities[item.id]!, kind === "reservation_cancellation" ? item.cancellableSerialNumbers : item.returnableSerialNumbers))) {
+      setError("Enter the exact eligible serial numbers, one per selected unit and one per line.");
+      return;
+    }
     setBusy(true);
     setError(null);
     setMessage(null);
     try {
       const payload = {
         kind, branchId, saleId: workspace.sale.id,
-        lines: selectedLines.map((item) => ({ saleItemId: item.id, quantity: quantities[item.id], condition: kind === "reservation_cancellation" ? "non_restockable" : conditions[item.id] })),
+        lines: selectedLines.map((item) => ({ saleItemId: item.id, quantity: quantities[item.id], ...(item.trackingType === "serial" ? { serialNumbers: parseSaleSerials(serialText[item.id] ?? "") } : {}), condition: kind === "reservation_cancellation" ? "non_restockable" : conditions[item.id] })),
         resolution, refundShiftId: resolution === "cash" ? refundShiftId : undefined,
         bankAccountId: ["card", "bank_transfer"].includes(resolution) ? refundBankAccountId : undefined,
         reason,
@@ -352,7 +363,7 @@ export default function ReturnsPage() {
           </div>
           <div className="mt-5 space-y-3">
             <label className="block text-sm font-medium">What happened?
-              <select value={kind} onChange={(event) => { setKind(event.target.value as typeof kind); setQuantities({}); }} className="mt-1 w-full rounded-lg border p-3">
+              <select value={kind} onChange={(event) => { setKind(event.target.value as typeof kind); setQuantities({}); setSerialText({}); }} className="mt-1 w-full rounded-lg border p-3">
                 <option value="goods_return">Return goods already collected</option>
                 <option value="reservation_cancellation">Cancel goods not collected</option>
               </select>
@@ -411,6 +422,7 @@ export default function ReturnsPage() {
                     </option>
                   </select>
                 </label>}
+                {item.trackingType === "serial" && <label className="block text-sm md:col-span-3">Exact serial numbers<textarea rows={3} value={serialText[item.id] ?? ""} onChange={event => setSerialText(values => ({ ...values, [item.id]: event.target.value }))} className="mt-1 w-full rounded-lg border p-3" /><span className="block break-all text-xs text-[var(--muted)]">One per selected unit, one per line. Eligible: {(kind === "reservation_cancellation" ? item.cancellableSerialNumbers : item.returnableSerialNumbers)?.join(", ") || "None"}</span></label>}
               </div>
             ))}
           </div>

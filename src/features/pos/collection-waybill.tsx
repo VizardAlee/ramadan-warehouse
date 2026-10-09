@@ -34,7 +34,7 @@ export function CollectionWaybill({ document, collection, onBack, onClose }: {
         <div className="overflow-x-auto">
           <table className="w-full text-left text-sm">
             <thead className="border-y-2 border-slate-700"><tr><th className="py-3 pr-3">No.</th><th className="py-3 pr-3">Goods handed over</th><th className="py-3 text-right">Quantity</th></tr></thead>
-            <tbody>{collection.lines.map((line, index) => <tr key={line.saleItemId || index} className="border-b"><td className="py-3 pr-3 align-top">{index + 1}</td><td className="py-3 pr-3"><strong>{line.productName}</strong>{line.sku && <span className="mt-1 block text-xs text-slate-500">{line.sku}</span>}</td><td className="py-3 text-right align-top">{line.quantity} {line.unitOfMeasure || "unit"}</td></tr>)}</tbody>
+            <tbody>{collection.lines.map((line, index) => <tr key={line.saleItemId || index} className="border-b"><td className="py-3 pr-3 align-top">{index + 1}</td><td className="py-3 pr-3"><strong>{line.productName}</strong>{Boolean(line.serialNumbers?.length) && <p className="mt-1 break-all text-xs">Serials: {line.serialNumbers!.join(", ")}</p>}{line.sku && <span className="mt-1 block text-xs text-slate-500">{line.sku}</span>}</td><td className="py-3 text-right align-top">{line.quantity} {line.unitOfMeasure || "unit"}</td></tr>)}</tbody>
             <tfoot><tr className="border-b-2 border-slate-700 font-bold"><td colSpan={2} className="py-3">Total units in this handover</td><td className="py-3 text-right">{collection.totalQuantity}</td></tr></tfoot>
           </table>
         </div>
