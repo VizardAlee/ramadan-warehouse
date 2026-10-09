@@ -5,7 +5,8 @@
 Extends postSupplierReturn and extracts the existing stock-reversal engine for
 trusted atomic integration; ordinary stock-only financial reversals stay denied.
 Authorized receiving/payables/reversal users can correct one original product
-line after confirming the goods are physically back at its original store. Stock,
+line after confirming the goods are physically back at its original store and
+inspected as resellable. Damaged/uncertain goods require inspection/reconciliation. Stock,
 serial/batch custody, invoice debt, unused same-store supplier credit, original
 receipt/invoice projections, opposite balanced journal and audit commit together.
 Original return values, journals, payments and history remain intact. Return

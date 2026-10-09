@@ -93,7 +93,7 @@ export function SupplierReturns({ invoiceId, canPost, canReverse = false, onClos
   }
   async function reverseReturn() {
     if (!canPost || !canReverse || !correction || (!pending.current && (!goodsBack || correctionReason.trim().length < 5))) return;
-    pending.current ??= { action: "reverse_return", returnId: correction.id, reason: correctionReason.trim(), goodsBackInStore: true, reversedAt: new Date().toISOString(), idempotencyKey: crypto.randomUUID() };
+    pending.current ??= { action: "reverse_return", returnId: correction.id, reason: correctionReason.trim(), goodsBackInStore: true, confirmedResellable: true, reversedAt: new Date().toISOString(), idempotencyKey: crypto.randomUUID() };
     setBusy(true); setUncertain(false); setError(""); setMessage("");
     try {
       const result = await callAdministration<object, { journalNumber: string }>("postSupplierReturn", pending.current);
@@ -148,7 +148,7 @@ export function SupplierReturns({ invoiceId, canPost, canReverse = false, onClos
           <p className="text-sm">Use only when these goods are physically back in the same store. Later stock movements, used supplier credit or a closed accounting period require reconciliation first. A fresh return can be recorded after this reversal.</p>
           <fieldset disabled={locked} className="space-y-3">
             <label className="block text-sm">Reason for correction<textarea className="mt-1 w-full rounded-lg border bg-white p-3" minLength={5} maxLength={500} value={correctionReason} onChange={event => setCorrectionReason(event.target.value)} /></label>
-            <label className="flex items-start gap-2 text-sm"><input type="checkbox" checked={goodsBack} onChange={event => setGoodsBack(event.target.checked)} />All goods in this return are physically back in the original store.</label>
+            <label className="flex items-start gap-2 text-sm"><input type="checkbox" checked={goodsBack} onChange={event => setGoodsBack(event.target.checked)} />All goods in this return are physically back in the original store and inspected as resellable.</label>
           </fieldset>
           <div className="flex flex-wrap justify-end gap-2"><Button variant="outline" disabled={locked} onClick={() => { setCorrection(null); setCorrectionReason(""); setGoodsBack(false); setError(""); }}>Cancel correction</Button><Button disabled={busy || (!uncertain && (!goodsBack || correctionReason.trim().length < 5))} onClick={() => void reverseReturn()}>{busy ? "Reversing…" : uncertain ? "Retry same correction" : "Reverse stock & credit"}</Button></div>
         </section>}

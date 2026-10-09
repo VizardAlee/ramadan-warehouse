@@ -52,7 +52,9 @@ order, a physical receipt, a supplier invoice, and a payment as the same event.
 The existing `postSupplierReturn` accepts `action: reverse_return`. Receiving,
 payable-approval and inventory-reversal permissions plus original store scope
 are required. The operator confirms all goods on that original product line are
-physically back. Corrections are line-by-line, not a silent rewrite or a whole-
+physically back and inspected as resellable. Damaged or uncertain-condition goods
+must use inspection/reconciliation, not this availability-restoring correction.
+Corrections are line-by-line, not a silent rewrite or a whole-
 document cancellation. Held-handover credits cannot use this stock-restoring path.
 
 The shared inventory reversal engine and one Firestore transaction restore exact

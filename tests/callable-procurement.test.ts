@@ -283,7 +283,7 @@ describe.sequential("procurement callables", () => {
     await call(headOfficeManager, "approveSupplierInvoice", { ...invoice, idempotencyKey: crypto.randomUUID() });
     const line = (await adminDb.collection("supplierInvoiceItems").where("supplierInvoiceId", "==", invoice.supplierInvoiceId).get()).docs[0]!;
     const returned = await call<{ returnId: string; inventoryTransactionId: string }>(headOfficeManager, "postSupplierReturn", { ...invoice, supplierInvoiceItemId: line.id, receiptId: receipt.receiptId, quantity: 2, serialNumbers: serialNumbers.slice(0, 2), creditNoteReference: `CORRECTION-CN-${trackingType}`, reason: "Original goods accepted for supplier credit", returnedAt: new Date().toISOString(), idempotencyKey: crypto.randomUUID() });
-    const correction = { action: "reverse_return", returnId: returned.returnId, reason: "Supplier rescinded credit and physically returned the goods", goodsBackInStore: true, reversedAt: new Date().toISOString(), idempotencyKey: crypto.randomUUID() };
+    const correction = { action: "reverse_return", returnId: returned.returnId, reason: "Supplier rescinded credit and physically returned the goods", goodsBackInStore: true, confirmedResellable: true, reversedAt: new Date().toISOString(), idempotencyKey: crypto.randomUUID() };
     const positions = await adminDb.collection("inventoryBalances").where("organizationId", "==", organizationId).where("productId", "==", product).get();
     const before = positions.docs[0]!;
     expect(before.get("onHandQuantity")).toBe(1);
@@ -363,10 +363,11 @@ describe.sequential("procurement callables", () => {
     await expect(call(headOfficeManager, "postSupplierReturn", { ...payload, idempotencyKey: crypto.randomUUID(), lines: payload.lines.map(line => ({ ...line, idempotencyKey: crypto.randomUUID() })) })).rejects.toMatchObject({ code: "functions/already-exists" });
     expect((await adminDb.getAll(...stockRefs)).map(snapshot => snapshot.get("onHandQuantity"))).toEqual([2, 2]);
     const returned = returns[0]!, originalJournal = journals[0]!;
-    const correction = { action: "reverse_return", returnId: returned.id, reason: "Wrong product on supplier credit note", goodsBackInStore: true,
+    const correction = { action: "reverse_return", returnId: returned.id, reason: "Wrong product on supplier credit note", goodsBackInStore: true, confirmedResellable: true,
       reversedAt: new Date().toISOString(), idempotencyKey: crypto.randomUUID() };
     const beforeCorrection = (await adminDb.getAll(invoiceRef, supplierRef, ...stockRefs)).map(snapshot => snapshot.data());
     await expect(call(headOfficeManager, "postSupplierReturn", { ...correction, goodsBackInStore: false })).rejects.toMatchObject({ code: "functions/invalid-argument" });
+    await expect(call(headOfficeManager, "postSupplierReturn", { ...correction, confirmedResellable: false })).rejects.toMatchObject({ code: "functions/invalid-argument" });
     await expect(call(warehouseManager, "postSupplierReturn", correction)).rejects.toMatchObject({ code: "functions/permission-denied" });
     const periodKey = correction.reversedAt.slice(0, 7), periodRef = adminDb.doc(`accountingPeriods/${uniquenessDocumentId(organizationId, periodKey)}`);
     await periodRef.set({ organizationId, periodKey, status: "closed" });

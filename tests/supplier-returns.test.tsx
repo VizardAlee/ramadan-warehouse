@@ -18,7 +18,7 @@ describe("supplier return dialog", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Correct return" }));
     fireEvent.change(screen.getByLabelText("Reason for correction"), { target: { value: "Wrong product in credit note" } });
     expect((screen.getByRole("button", { name: "Reverse stock & credit" }) as HTMLButtonElement).disabled).toBe(true);
-    fireEvent.click(screen.getByLabelText("All goods in this return are physically back in the original store."));
+    fireEvent.click(screen.getByLabelText("All goods in this return are physically back in the original store and inspected as resellable."));
     fireEvent.click(screen.getByRole("button", { name: "Reverse stock & credit" }));
     await screen.findByRole("button", { name: "Retry same correction" });
     expect((screen.getByRole("button", { name: "Cancel correction" }) as HTMLButtonElement).disabled).toBe(true);

@@ -1760,7 +1760,7 @@ async function reverseSupplierReturn(actor: Awaited<ReturnType<typeof requireAcc
       writeAuditLog(writer, actor, { action: "supplier.return_reversed", entityType: "supplierReturn", entityId: returned.id, correlationId: input.idempotencyKey,
         sourceFunction: "reverseSupplierReturn", reason: input.reason, before: { status: "posted", advanceMinor: state.advanceBefore },
         after: clean({ status: "reversed", quantityRestored: state.quantity, payableRestoredMinor: state.debt, creditRemovedMinor: state.credit,
-          inventoryTransactionId: movement.transactionId, journalEntryId: journalRef.id, goodsBackInStore: true, ...scope }) });
+          inventoryTransactionId: movement.transactionId, journalEntryId: journalRef.id, goodsBackInStore: true, confirmedResellable: true, ...scope }) });
       return undefined;
     },
   });

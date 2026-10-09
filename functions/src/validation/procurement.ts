@@ -154,6 +154,7 @@ export const reverseSupplierReturnInput = z.object({
   reason: z.string().trim().min(5).max(500),
   reversedAt: z.string().datetime(),
   goodsBackInStore: z.literal(true),
+  confirmedResellable: z.literal(true),
   idempotencyKey: z.string().uuid(),
 });
 
