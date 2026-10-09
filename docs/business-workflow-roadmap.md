@@ -1,6 +1,6 @@
 # Business workflow expansion (24 September 2026 baseline)
 
-## Multi-product supplier credit notes — 9 October 2026 (implementation)
+## Multi-product supplier credit notes — 9 October 2026 (deployed)
 
 Extends the existing supplier-return callable, original-GRN validation, inventory
 posting engine and credit/advance accounting. Users may collect up to 10 distinct
@@ -21,7 +21,13 @@ reference assertion exposed the older compiled function. Rebuilding and rerunnin
 all 10 procurement cases passed. New return numbers use the retry UUID rather
 than the common organization prefix; historical references remain unchanged.
 Live planner audit passed 442/442 with all 224 indexes READY; no new indexes.
-Release underway. Next: linked supplier credit corrections/reversals,
+Release verified: postSupplierReturn revision postsupplierreturn-00005-lij is
+ACTIVE with production/App Check retained, unchanged invoker IAM and service
+account, 100% traffic and no reconciliation pending; unauthenticated access is
+401. App Hosting build-2026-10-09-015 is READY, rollout SUCCEEDED, 100% traffic;
+procurement, guide, POS, inventory and all 17 referenced scripts returned 200.
+The deployed client includes the multi-product credit-note controls.
+Next: linked supplier credit corrections/reversals,
 with current settlement and original stock evidence checked, not history edits.
 
 ## Customer arrangement credit/advance statements — 9 October 2026 (deployed)
