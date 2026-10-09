@@ -1,6 +1,6 @@
 # Business workflow expansion (24 September 2026 baseline)
 
-## Customer arrangement credit/advance statements — 9 October 2026 (implementation)
+## Customer arrangement credit/advance statements — 9 October 2026 (deployed)
 
 Extends the existing customer-history callable and full-history page. A separate
 statement reads each account entry once, avoiding duplicate sale/account-entry
@@ -15,7 +15,16 @@ Read-only extension, no migration or new permission. Validation passed 338 unit/
 interface tests and 62 emulator sales/accounting/security tests (400 distinct),
 typecheck, lint, Functions compilation, production build, secret scan and diff
 checks. Live query audit passed 442/442 with all 224 indexes READY; guarded
-baseline refreshed only after verification. Release underway.
+baseline refreshed only after verification. Release proof for source `14b7a4b`:
+Firebase explicitly completed getCustomerHistory and App Hosting deployment.
+`getcustomerhistory-00009-rax` is ACTIVE, production mode, App Check enabled,
+100% traffic, reconciling false, unchanged service account and invoker settings;
+unauthenticated calls return 401. Web `build-2026-10-09-014` is READY, rollout
+SUCCEEDED, 100% traffic, reconciling false. Customers, full-history, guide and POS
+routes plus all 15 referenced JS assets return 200; statement controls are present.
+The first Functions attempt failed before upload on function discovery; retry
+completed. Authorized behavior was verified in emulators, not with real financial
+mutations. Continuing directly into supplier credit documents.
 Next: supplier multi-product credit documents and correction/reversal controls.
 
 ## POS customer advance tender — 9 October 2026 (deployed)
