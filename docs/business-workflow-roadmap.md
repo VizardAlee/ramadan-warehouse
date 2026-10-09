@@ -1,6 +1,46 @@
 # Business workflow expansion (24 September 2026 baseline)
 
-## Monthly budgets versus actuals — 9 October 2026 (implementation validation)
+## Remaining dependency queue — 9 October 2026
+
+Recent deployed sections below supersede the historical 7 October checkpoint;
+they do not establish that all eight workstreams are complete. Continue without
+routine approval pauses through non-stock service items/costs and outsourced
+provider settlement, then issued quotation/proforma conversion using existing
+customer/POS/invoice primitives. Follow with older collection-history paging,
+remaining dashboard/report scalability and HR/payroll expansion. Department and
+multi-month budgets are extensions to the deployed monthly targets. Company tax
+assessment/payment/filing activation still needs reviewed legal/tax-profile facts;
+external financial statements need accountant classification/opening-balance
+sign-off. Hardware-specific attendance acceptance waits for device procurement.
+Do not substitute invented tax facts, production test postings or a cosmetic
+completion score for these dependencies.
+
+## POS minor-unit calculation hardening — 9 October 2026 (validated; release pending)
+
+The existing browser/offline cart and trusted sale posting calculations now use
+exact integer intermediates for half-up VAT and proportional discounts. Cumulative
+allocation prevents accumulated rounding remainder from making the final item
+negative, while preserving the full discount. Unsafe aggregate subtotals/totals
+and malformed offline VAT snapshots are rejected. No rates, price permissions,
+stored orders, issued invoices or posted ledger entries are changed. Existing
+snapshot/retry checks remain authoritative. New payloads carry calculationVersion
+2; unversioned queued/received orders retain legacy calculation version 1 without
+changing their retry fingerprints. Posted sales record the method used. Invalid
+negative legacy line allocations fail closed rather than posting corrupt values.
+Old queued transactions are not silently repriced. Regression cases cover client/server parity, mixed rates,
+large safe amounts, overflow and 100 low-value lines with a near-full discount.
+This is calculation integrity hardening, not activation of statutory tax rules.
+Validation passes 377 unit/interface cases across 97 files, 29 sales callable
+emulator cases (one Storage-photo skip), typecheck, lint, Functions compilation,
+production build, secret scan and diff checks. The fresh audit passes 454/454
+live query shapes with zero missing indexes; independent API inspection confirms
+all 226 indexes READY. The query definitions are unchanged. A failed transport
+audit was discarded, then explicit IPv4 connection selection restored the
+planner requests; only matching successful evidence refreshed the baseline.
+Deployment scope is createPosSaleOrder, commitPosSale, confirmPosSaleOrder and
+App Hosting; no rules, data migrations, statutory rates or IAM changes.
+
+## Monthly budgets versus actuals — 9 October 2026 (deployed)
 
 Extends Accounting with monthly income/expense account targets scoped to one
 store or the organization. Consolidated targets are distinct from branch targets,
@@ -19,7 +59,7 @@ passes 370 unit/interface cases across 97 files, 41 accounting/tax/budget/securi
 emulator cases (one Storage-only skip), typecheck, lint, Functions compilation,
 production build, secret scan and diff checks. The live audit passes 454/454
 query shapes with zero missing indexes and all 226 indexes READY; baseline was
-refreshed only against matching source/proof. Deployment is in progress.
+refreshed only against matching source/proof.
 An initial emulator failure exposed encoded scope IDs that could not pass history
 validation; new budget IDs now use fixed-length SHA-256. Existing tax IDs remain
 unchanged, with validated encoded version labels supported in reviews, previews
@@ -31,6 +71,24 @@ Client confirms a limited-liability company but currently has no registered-name
 TIN, financial-year or VAT-status evidence available. Company-specific tax profile
 and liability activation therefore remain unconfirmed; do not infer exemptions,
 taxable profit or filing obligations from entity type alone. Other work continues.
+
+Source 03db698 is pushed. A pre-upload Firestore metadata request timed out;
+the retry uploaded successfully and updated all five existing selected Functions.
+The new budgetWorkspace service required the owner's standing approval for its
+service-specific supported invoker-IAM-disabled annotation after Google's policy
+setup failed. It is ACTIVE at budgetworkspace-00001-hiv. The other revisions are
+gettaxworkspace-00008-pen, taxruleadministration-00003-hax,
+getmyaccesscontext-00017-hob, getassignablerolepermissions-00008-zed and
+saveorganizationrole-00008-diz. All six retain production mode, App Check and
+the original runtime identity, serve 100% traffic, and are not reconciling.
+Unauthenticated probes return Firebase HTTP 401; no unrelated IAM was changed.
+App Hosting build-2026-10-09-020 is READY, rollout SUCCEEDED and serving 100%
+traffic, with explicit Rollout complete / Deploy complete. Finance, Tax, Guide,
+POS and Banking return HTTP 200. All eleven Finance scripts return HTTP 200,
+with deployed target creation, revision history and saved-retry controls found.
+Bounded retries/compression recovered transient asset transport failures.
+No live business records were posted; emulator tests provide the signed-in
+workflow evidence, while these probes establish release and Auth barriers only.
 
 ## Reviewed tax-rule configuration — 9 October 2026 (deployed)
 

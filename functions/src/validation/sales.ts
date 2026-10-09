@@ -254,6 +254,8 @@ export const approveSaleReturnInput = z.object({
 });
 
 export const commitSaleInput = z.object({
+  // Absence preserves the method used by existing queued and received orders.
+  calculationVersion: z.literal(2).optional(),
   branchId: id,
   shiftId: id,
   deviceId: id,

@@ -3,6 +3,13 @@ import { resolveCatalogPrice } from "../functions/src/sales/pricing";
 import { salesPriceInput, commitSaleInput } from "../functions/src/validation/sales";
 
 describe("catalogue price levels", () => {
+  it("keeps absent calculation versions absent for existing retry fingerprints", () => {
+    const payload = { branchId: "store", shiftId: "shift", deviceId: "device", recordedAt: new Date().toISOString(),
+      lines: [{ productId: "product", quantity: 1 }], payments: [{ method: "cash", amountMinor: 100 }], idempotencyKey: crypto.randomUUID() };
+    expect(commitSaleInput.parse(payload)).not.toHaveProperty("calculationVersion");
+    expect(commitSaleInput.parse({ ...payload, calculationVersion: 2 }).calculationVersion).toBe(2);
+    expect(commitSaleInput.safeParse({ ...payload, calculationVersion: 3 }).success).toBe(false);
+  });
   const central = { basePriceMinor: 10000, wholesalePriceMinor: 8000, version: 3 };
   const branch = { active: true, sellingPriceMinor: 11000, version: 9 };
   it("keeps legacy retail and branch overrides compatible", () => {

@@ -133,6 +133,7 @@ export interface HeldPosSale {
 }
 
 export interface PosSalePayload {
+  calculationVersion?: 2;
   creditDueDate?: string;
   customerAccountId?: string;
   branchId: string;

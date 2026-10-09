@@ -788,6 +788,7 @@ export default function PosPage() {
       totals.grossAmountMinor,
     );
     const payload: PosSalePayload = {
+      calculationVersion: 2,
       branchId: workspace.branch.id,
       shiftId: workspace.openShift.id,
       deviceId: workspace.openShift.deviceId,

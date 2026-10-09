@@ -6,6 +6,18 @@ import {
 } from "../functions/src/sales/calculations";
 
 describe("sales calculations", () => {
+  it("preserves valid legacy snapshot rounding without allowing negative line values", () => {
+    const line = { quantity: 1, unitPriceMinor: 4_000_000_000_000_073, vatRateBasisPoints: 750, unitCostMinor: 0 };
+    expect(calculateSale([line], 0, 1).vatAmountMinor).toBe(300_000_000_000_006);
+    expect(calculateSale([line], 0, 2).vatAmountMinor).toBe(300_000_000_000_005);
+    const tiny = { ...line, unitPriceMinor: 1, vatRateBasisPoints: 0 };
+    expect(() => calculateSale(Array.from({ length: 50 }, () => tiny), 49, 1)).toThrow("Discounted line amount");
+    expect(calculateSale(Array.from({ length: 50 }, () => tiny), 49, 2).netAmountMinor).toBe(1);
+  });
+  it("rejects aggregate overflow before allocating a discount", () => {
+    const line = { quantity: 1, unitPriceMinor: 5_000_000_000_000_000, vatRateBasisPoints: 0, unitCostMinor: 0 };
+    expect(() => calculateSale([line, line], Number.MAX_SAFE_INTEGER)).toThrow("Subtotal amount");
+  });
   it("keeps VAT separate and calculates cost in integer kobo", () => {
     expect(
       calculateSale([

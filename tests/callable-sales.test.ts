@@ -612,6 +612,7 @@ describe.sequential("sales callables", () => {
     const offlineSale = await adminDb.doc(`sales/${offline.saleId}`).get();
     expect(offlineSale.data()).toMatchObject({
       source: "offline_sync",
+      calculationVersion: 1,
       paymentStatus: "awaiting_verification",
       provisionalReceiptReference: "OFF-IRB-VALID-0001",
       netAmountMinor: 12_000,
@@ -751,9 +752,10 @@ describe.sequential("sales callables", () => {
   it("rolls back sale posting if atomic workflow completion cannot commit, and safely retries", async () => {
     const deviceId = crypto.randomUUID();
     const shift = await call<{ shiftId: string }>(branchManager, "openPosShift", { branchId, deviceId, deviceName: "Atomic confirmation", openingCashMinor: 0, idempotencyKey: crypto.randomUUID() });
-    const checkout = { branchId, shiftId: shift.shiftId, deviceId, recordedAt: new Date().toISOString(), offline: false,
+    const checkout = { calculationVersion: 2, branchId, shiftId: shift.shiftId, deviceId, recordedAt: new Date().toISOString(), offline: false,
       lines: [{ productId, quantity: 1 }], payments: [{ method: "cash", amountMinor: 12900 }], idempotencyKey: crypto.randomUUID() };
     const order = await call<{ orderId: string }>(branchManager, "createPosSaleOrder", checkout);
+    expect((await adminDb.doc(`salesOrders/${order.orderId}`).get()).get("payload.calculationVersion")).toBe(2);
     await call(branchManager, "acceptPosSaleOrderPayment", { orderId: order.orderId, shiftId: shift.shiftId, deviceId, idempotencyKey: crypto.randomUUID() });
     const balance = adminDb.doc(`inventoryBalances/${balanceDocumentId(organizationId, productId, locationId)}`);
     const before = (await balance.get()).data();
@@ -769,6 +771,7 @@ describe.sequential("sales callables", () => {
     expect((await adminDb.doc(`idempotencyKeys/${organizationId}_commitPosSale_${checkout.idempotencyKey}`).get()).exists).toBe(false);
     await event.delete();
     const completed = await call<{ saleId: string }>(branchManager, "confirmPosSaleOrder", confirm);
+    expect((await adminDb.doc(`sales/${completed.saleId}`).get()).get("calculationVersion")).toBe(2);
     expect((await adminDb.doc(`sales/${completed.saleId}`).get()).get("salesOrderId")).toBe(order.orderId);
     expect((await adminDb.doc(`salesOrders/${order.orderId}`).get()).data()).toMatchObject({ status: "completed", saleId: completed.saleId, confirmationIdempotencyKey: confirm.idempotencyKey });
     expect((await balance.get()).get("onHandQuantity")).toBe(Number(before!.onHandQuantity) - 1);

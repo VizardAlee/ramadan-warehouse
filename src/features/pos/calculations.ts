@@ -88,35 +88,39 @@ export function calculatePosCart(
     const unitPriceMinor = posLineUnitPriceMinor(line);
     if (!Number.isSafeInteger(unitPriceMinor) || unitPriceMinor <= 0)
       throw new Error("Sale prices must be positive whole amounts in kobo.");
-    return sum + line.quantity * unitPriceMinor;
+    if (!Number.isSafeInteger(line.product.vatRateBasisPoints) ||
+        line.product.vatRateBasisPoints < 0 || line.product.vatRateBasisPoints > 10_000)
+      throw new Error("VAT rate must be between zero and 100 percent in basis points.");
+    const subtotal = sum + line.quantity * unitPriceMinor;
+    if (!Number.isSafeInteger(subtotal)) throw new Error("The cart total is too large.");
+    return subtotal;
   }, 0);
   if (discountAmountMinor > subtotalAmountMinor)
     throw new Error("Discount cannot exceed the product subtotal.");
   let allocatedDiscountMinor = 0;
+  let cumulativeSubtotalMinor = 0;
   let lineIndex = 0;
   return lines.reduce<PosCartTotals>(
     (totals, line) => {
       if (!Number.isSafeInteger(line.quantity) || line.quantity <= 0)
         throw new Error("Cart quantities must be positive whole numbers.");
       const subtotal = line.quantity * posLineUnitPriceMinor(line);
+      cumulativeSubtotalMinor += subtotal;
       const lineDiscount =
         discountAmountMinor === 0
           ? 0
           : lineIndex === lines.length - 1
           ? discountAmountMinor - allocatedDiscountMinor
-          : Math.floor(
-              (discountAmountMinor * subtotal) / subtotalAmountMinor,
-            );
+          : Number((BigInt(discountAmountMinor) * BigInt(cumulativeSubtotalMinor)) /
+              BigInt(subtotalAmountMinor)) - allocatedDiscountMinor;
       allocatedDiscountMinor += lineDiscount;
       lineIndex += 1;
       const net = subtotal - lineDiscount;
-      const vat = Math.round(
-        (net * line.product.vatRateBasisPoints) / 10_000,
-      );
+      const vat = Number((BigInt(net) * BigInt(line.product.vatRateBasisPoints) + 5_000n) / 10_000n);
       const gross = net + vat;
       if (![net, vat, gross].every(Number.isSafeInteger))
         throw new Error("The cart total is too large.");
-      return {
+      const result = {
         subtotalAmountMinor,
         discountAmountMinor,
         netAmountMinor: totals.netAmountMinor + net,
@@ -124,6 +128,9 @@ export function calculatePosCart(
         grossAmountMinor: totals.grossAmountMinor + gross,
         totalQuantity: totals.totalQuantity + line.quantity,
       };
+      if (!Object.values(result).every(Number.isSafeInteger))
+        throw new Error("The cart total is too large.");
+      return result;
     },
     {
       subtotalAmountMinor,

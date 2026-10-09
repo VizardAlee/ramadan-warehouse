@@ -1643,6 +1643,7 @@ async function postPosSale(
           unitCostMinor: line.issued.unitCostMinor,
         })),
         input.discountAmountMinor,
+        input.calculationVersion ?? 1,
       );
       const calculated = { ...priced, lines: priced.lines.map((line, index) => ({ ...line, costAmountMinor: resolvedLines[index]!.issued.movementValueMinor })), costAmountMinor: resolvedLines.reduce((sum, line) => sum + line.issued.movementValueMinor, 0) };
       try {
@@ -1716,6 +1717,7 @@ async function postPosSale(
       });
       transaction.create(sale, clean({
         organizationId: actor.organizationId,
+        calculationVersion: input.calculationVersion ?? 1,
         organizationLegalName: organizationSnapshot.get("legalName"),
         organizationTradingName: organizationSnapshot.get("tradingName"),
         organizationRegistrationNumber: organizationSnapshot.get("registrationNumber"),

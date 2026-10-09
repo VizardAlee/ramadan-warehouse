@@ -29,6 +29,11 @@ function safeNonNegativeInteger(value: number, name: string) {
     throw new Error(`${name} must be a non-negative safe integer.`);
 }
 
+function roundedVat(netAmountMinor: number, rateBasisPoints: number) {
+  // Multiplying two safe integers can lose kobo before division in Number math.
+  return Number((BigInt(netAmountMinor) * BigInt(rateBasisPoints) + 5_000n) / 10_000n);
+}
+
 export function calculateSaleLine(
   line: SaleCalculationLine,
 ): CalculatedSaleLine {
@@ -40,9 +45,8 @@ export function calculateSaleLine(
   if (line.vatRateBasisPoints > 10_000)
     throw new Error("VAT rate cannot exceed 100 percent.");
   const netAmountMinor = line.quantity * line.unitPriceMinor;
-  const vatAmountMinor = Math.round(
-    (netAmountMinor * line.vatRateBasisPoints) / 10_000,
-  );
+  safeNonNegativeInteger(netAmountMinor, "Net amount");
+  const vatAmountMinor = roundedVat(netAmountMinor, line.vatRateBasisPoints);
   const grossAmountMinor = netAmountMinor + vatAmountMinor;
   const costAmountMinor = line.quantity * line.unitCostMinor;
   for (const [name, value] of [
@@ -66,6 +70,7 @@ export function calculateSaleLine(
 export function calculateSale(
   input: readonly SaleCalculationLine[],
   discountAmountMinor = 0,
+  calculationVersion: 1 | 2 = 2,
 ): CalculatedSale {
   if (input.length === 0) throw new Error("A sale requires at least one item.");
   safeNonNegativeInteger(discountAmountMinor, "Discount amount");
@@ -74,24 +79,28 @@ export function calculateSale(
     (sum, line) => sum + line.subtotalAmountMinor,
     0,
   );
+  safeNonNegativeInteger(subtotalAmountMinor, "Subtotal amount");
   if (discountAmountMinor > subtotalAmountMinor)
     throw new Error("Discount cannot exceed the product subtotal.");
   let allocatedDiscountMinor = 0;
+  let cumulativeSubtotalMinor = 0;
   const lines = undiscountedLines.map((line, index) => {
+    cumulativeSubtotalMinor += line.subtotalAmountMinor;
     const lineDiscountMinor =
       discountAmountMinor === 0
         ? 0
         : index === undiscountedLines.length - 1
         ? discountAmountMinor - allocatedDiscountMinor
-        : Math.floor(
-            (discountAmountMinor * line.subtotalAmountMinor) /
-              subtotalAmountMinor,
-          );
+        : calculationVersion === 1
+        ? Math.floor((discountAmountMinor * line.subtotalAmountMinor) / subtotalAmountMinor)
+        : Number((BigInt(discountAmountMinor) * BigInt(cumulativeSubtotalMinor)) /
+              BigInt(subtotalAmountMinor)) - allocatedDiscountMinor;
     allocatedDiscountMinor += lineDiscountMinor;
     const netAmountMinor = line.subtotalAmountMinor - lineDiscountMinor;
-    const vatAmountMinor = Math.round(
-      (netAmountMinor * line.vatRateBasisPoints) / 10_000,
-    );
+    safeNonNegativeInteger(netAmountMinor, "Discounted line amount");
+    const vatAmountMinor = calculationVersion === 1
+      ? Math.round((netAmountMinor * line.vatRateBasisPoints) / 10_000)
+      : roundedVat(netAmountMinor, line.vatRateBasisPoints);
     return {
       ...line,
       discountAmountMinor: lineDiscountMinor,
