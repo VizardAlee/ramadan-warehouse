@@ -1,6 +1,6 @@
 # Business workflow expansion (24 September 2026 baseline)
 
-## Accountant journals and linked reversals — 9 October 2026 (backend release blocked)
+## Accountant journals and linked reversals — 9 October 2026 (deployed)
 
 Extends the Accounting hub with a server-paged dated journal register (25/50/100),
 on-demand debit/credit expansion, explicit accountant-adjustment and reversal
@@ -24,8 +24,8 @@ idempotent and uncertain client instructions survive reload/store switching.
 Historical cash-flow grouping is preserved; explicitly classified new manual
 money entries follow their reviewed operating/investing/financing choice.
 Guide and plain-language audit presentation updated. No tax rules activated,
-business records migrated, direct-client ledger writes enabled or IAM checks
-disabled for the new accountingJournals service.
+business records migrated or direct-client ledger writes enabled. Service-level
+invoker IAM configuration is recorded separately below.
 The two added journal register indexes were deployed; after their CREATING
 phase, all 226 indexes were verified READY and the live planner audit passed
 449/449 with zero missing indexes. Only then was the guarded baseline refreshed.
@@ -50,8 +50,25 @@ App Check enabled, original runtime identity, 100% traffic and no pending
 reconciliation. Google rejected its invoker IAM policy setup; unauthenticated
 requests still return Cloud Run HTTP 403 and invoker IAM checks remain enabled.
 The earlier user approval covered recordCompanyFundsTransfer only, not this
-service. No security setting was broadened. Journal web controls remain
-undeployed until separate service-specific approval and endpoint verification.
+service, so the web release was held. After separate explicit approval for
+accountingJournals only, its supported Cloud Run service-level invoker-IAM-disabled
+annotation was applied. The service is generation 2, with the same revision,
+production mode, App Check, runtime identity, 100% traffic and no reconciliation
+pending. Its unauthenticated response is now Firebase HTTP 401, not Cloud Run
+HTTP 403; application authentication and action-specific permissions remain
+enforced. No other service or IAM policy binding was changed.
+App Hosting `build-2026-10-09-018` is READY, rollout SUCCEEDED, with 100% traffic
+at `ramadan-warehouse-staging-build-2026-10-09-018` and no pending reconciliation.
+Firebase reported explicit Rollout complete and Deploy complete. Production
+environment/query-baseline/deployment safeguards passed again before deployment.
+The four targeted manual-journal validation/interface tests passed again after
+approval. Signed-in production financial mutations were not exercised; emulator
+tests are the business-workflow proof, without adding live test transactions.
+Finance, Banking, Tax, Guide and POS routes returned HTTP 200. All 11 scripts
+referenced by Finance returned HTTP 200; the journal register, accountant
+adjustment, linked reversal and saved-instructions retry controls were present
+in the deployed assets. Transient peer/TLS connection failures recovered on
+bounded retries.
 Next: reviewed statutory tax configuration and accountant statement sign-off.
 
 ## Internal company-account transfers — 9 October 2026 (deployed)
