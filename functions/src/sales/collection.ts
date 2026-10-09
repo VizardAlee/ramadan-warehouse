@@ -33,7 +33,9 @@ export async function collectReservedSale(
   const effectiveAt = Timestamp.now();
   const period = accountingPeriodReference(actor.organizationId, effectiveAt);
   const cid = correlationId();
-  const fingerprint = createHash("sha256").update(JSON.stringify({ saleId: input.saleId, lines: [...input.lines].sort((a, b) => a.saleItemId.localeCompare(b.saleItemId)), collector: input.collector, notes: input.notes ?? null })).digest("hex");
+  const evidenceRefs = (input.evidenceIds ?? []).map(id => db.doc(`saleCollectionEvidence/${id}`));
+  // Preserve fingerprints issued before optional photo evidence was introduced.
+  const fingerprint = createHash("sha256").update(JSON.stringify({ saleId: input.saleId, lines: [...input.lines].sort((a, b) => a.saleItemId.localeCompare(b.saleItemId)), collector: input.collector, notes: input.notes ?? null, ...(evidenceRefs.length ? { evidenceIds: [...input.evidenceIds!].sort() } : {}) })).digest("hex");
   let result = { saleId: saleRef.id, collectionId: collection.id, collectionStatus: "collected", recorded: true };
   await db.runTransaction(async (transaction) => {
     const [previous, sale, inventorySequence, journalSequence, periodSnapshot, location, ...items] = await transaction.getAll(
@@ -59,6 +61,11 @@ export async function collectReservedSale(
     if (new Set(balanceRefs.map((reference) => reference.path)).size !== balanceRefs.length)
       throw new HttpsError("failed-precondition", "Collect each product once per submission.");
     const balances = await transaction.getAll(...balanceRefs);
+    const evidence = evidenceRefs.length ? await transaction.getAll(...evidenceRefs) : [];
+    for (const photo of evidence) {
+      if (!photo.exists || photo.get("organizationId") !== actor.organizationId || photo.get("branchId") !== branchId || photo.get("saleId") !== saleRef.id || photo.get("uploadedBy") !== actor.userId || photo.get("status") !== "uploaded" || !input.lines.some(line => line.saleItemId === photo.get("saleItemId")))
+        throw new HttpsError("failed-precondition", "Choose your own unlinked photos for products included in this collection.");
+    }
     const resolved = items.map((item, index) => {
       const quantity = input.lines[index]!.quantity;
       const collected = Number(item.get("collectedQuantity") ?? 0);
@@ -76,6 +83,7 @@ export async function collectReservedSale(
     const collectedQuantity = Number(sale!.get("collectedQuantity") ?? 0) + totalQuantity;
     const status = collectedQuantity + Number(sale!.get("cancelledQuantity") ?? 0) === Number(sale!.get("totalQuantity")) ? "collected" : "partially_collected";
     const now = FieldValue.serverTimestamp();
+    evidenceRefs.forEach(reference => transaction.update(reference, { status: "linked", collectionId: collection.id, linkedAt: now, releasedBy: actor.userId }));
     const year = effectiveAt.toDate().getUTCFullYear();
     const movementSequence = Number(inventorySequence!.get("value") ?? 0) + 1;
     const journalNumberSequence = Number(journalSequence!.get("value") ?? 0) + 1;
@@ -103,9 +111,9 @@ export async function collectReservedSale(
       });
     }
     transaction.update(saleRef, { collectionStatus: status, collectedQuantity, costAmountMinor: Number(sale!.get("costAmountMinor") ?? 0) + cost, lastCollectionId: collection.id, lastCollectedAt: now, updatedAt: now });
-    transaction.create(collection, { organizationId: actor.organizationId, branchId, saleId: saleRef.id, referenceNumber, customerId: sale!.get("customerId") ?? null, customerName: sale!.get("customerName") ?? "Walk-in customer", collector: input.collector, notes: input.notes ?? null, lines: resolved.map((line) => ({ saleItemId: line.item.id, productId: line.item.get("productId"), productName: line.item.get("productName"), quantity: line.quantity, costAmountMinor: line.issued.movementValueMinor })), totalQuantity, costAmountMinor: cost, inventoryTransactionId: movement.id, journalEntryId: cost > 0 ? journal.id : null, collectedAt: now, releasedBy: actor.userId, correlationId: cid });
+    transaction.create(collection, { organizationId: actor.organizationId, branchId, saleId: saleRef.id, referenceNumber, customerId: sale!.get("customerId") ?? null, customerName: sale!.get("customerName") ?? "Walk-in customer", collector: input.collector, notes: input.notes ?? null, evidenceIds: input.evidenceIds ?? [], lines: resolved.map((line) => ({ saleItemId: line.item.id, productId: line.item.get("productId"), productName: line.item.get("productName"), quantity: line.quantity, costAmountMinor: line.issued.movementValueMinor })), totalQuantity, costAmountMinor: cost, inventoryTransactionId: movement.id, journalEntryId: cost > 0 ? journal.id : null, collectedAt: now, releasedBy: actor.userId, correlationId: cid });
     transaction.create(operation, { organizationId: actor.organizationId, saleId: saleRef.id, entityId: collection.id, collectionStatus: status, fingerprint, createdAt: now });
-    writeAuditLog(transaction, actor, { action: "sale.goods_collected", entityType: "saleCollection", entityId: collection.id, sourceFunction: "confirmPosSaleOrder", correlationId: cid, reason: "Physical collection", before: { collectionStatus: sale!.get("collectionStatus"), collectedQuantity: sale!.get("collectedQuantity") }, after: { saleId: saleRef.id, branchId, referenceNumber, collector: input.collector, totalQuantity, collectionStatus: status, inventoryTransactionId: movement.id, journalEntryId: cost > 0 ? journal.id : null } });
+    writeAuditLog(transaction, actor, { action: "sale.goods_collected", entityType: "saleCollection", entityId: collection.id, sourceFunction: "confirmPosSaleOrder", correlationId: cid, reason: "Physical collection", before: { collectionStatus: sale!.get("collectionStatus"), collectedQuantity: sale!.get("collectedQuantity") }, after: { evidenceIds: input.evidenceIds ?? [], saleId: saleRef.id, branchId, referenceNumber, collector: input.collector, totalQuantity, collectionStatus: status, inventoryTransactionId: movement.id, journalEntryId: cost > 0 ? journal.id : null } });
     result = { saleId: saleRef.id, collectionId: collection.id, collectionStatus: status, recorded: true };
   });
   return result;

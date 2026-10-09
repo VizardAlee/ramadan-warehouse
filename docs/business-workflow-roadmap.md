@@ -2,6 +2,39 @@
 
 This roadmap extends the existing Firebase application and preserves historical users, stock entries, sales, journals and audit records. A requested capability is not marked complete merely because a screen or a partial workflow exists.
 
+### Private collection photos — 9 October 2026 (implementation; release pending)
+
+The existing POS collection queue accepts optional JPEG/PNG evidence (five per
+collection, 2 MB each), with device camera capture where the browser supports it.
+Each photo identifies its product, capturing user, upload time, hash and immutable
+Storage generation. Upload and read actions reuse the existing confirmation and
+sale-document callables. Direct client Storage/metadata access remains denied;
+there are no public tokens or signed download links.
+
+Photo uploads never post stock or accounting. A collection transaction claims
+only its releasing user's unlinked photos for included products, atomically with
+the stock movement, balanced journal, collection record and audit. Exact retries
+remain safe, including fingerprints issued before photos existed. Authorized
+sale readers can view linked photos from the invoice collection record.
+
+Unattached/interrupted uploads remain private and are not automatically deleted;
+retention/cleanup requires an explicit reviewed policy. This is collection-photo
+evidence, not a complete serialized-product POS workflow. POS retains its
+quantity-only guard. Next: controlled serial allocation through reservations,
+collection, cancellation and inspected returns. Physical camera/device acceptance
+and signed-in live postings must not be inferred from automated tests.
+
+Local validation: 305 unit/interface tests, typecheck, lint, Functions compilation,
+production build, secret scan and diff checks passed. The complete sales emulator
+suite passed all 21 tests, including private upload/read, idempotent replay,
+wrong-user attachment, cross-organization read denial and photo reuse rejection.
+The live planner audit passed 440/440 query shapes; all 224 indexes are READY and
+the guarded source baseline is refreshed. No index or IAM changes are required.
+All 26 Firestore/Storage security tests passed, including denial of direct photo
+metadata/object access to administrators, managers and cashiers (47 combined
+sales/security tests, none skipped). Release remains pending explicit deployment
+completion and live verification.
+
 ### Collection follow-up — 9 October 2026 (deployed)
 
 The existing scheduled notification worker now performs a bounded, resumable

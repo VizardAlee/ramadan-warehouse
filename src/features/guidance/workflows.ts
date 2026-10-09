@@ -126,7 +126,7 @@ export const salesWorkflowSteps: readonly WorkflowStep[] = [
   {
     title: "Confirm & choose collection",
     detail:
-      "Confirm payment and choose collect now or reserve for later. Reserved goods stay physically in the store and unavailable to other sales. Record full or partial handover later in Goods awaiting collection, with collector details and stock-release permission. After seven days, responsible stock-release staff receive a weekly reminder; reservations are never cancelled automatically. If confirmation is interrupted, use Retry same collection before starting another release. Serial/photo evidence is not yet available in POS collection.",
+      "Confirm payment and choose collect now or reserve for later. Reserved goods stay physically in the store and unavailable to other sales. Record full or partial handover later in Goods awaiting collection, with collector details and stock-release permission. After seven days, responsible stock-release staff receive a weekly reminder; reservations are never cancelled automatically. If confirmation is interrupted, use Retry same collection before starting another release. Before recording collection, optionally choose the product and upload up to five JPEG/PNG photos (2 MB each), using a camera where supported. Photos attach only to the recorded collection and can be viewed securely from the invoice collection record. Serialized-product POS sales remain unavailable pending the complete serial reservation and return workflow.",
     href: "/pos",
   },
   {

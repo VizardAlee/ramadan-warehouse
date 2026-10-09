@@ -200,6 +200,37 @@ beforeAll(async () => {
 afterAll(async () => Promise.all(apps.map((app) => deleteApp(app))));
 
 describe.sequential("sales callables", () => {
+  it.skipIf(!process.env.FIREBASE_STORAGE_EMULATOR_HOST)("uploads private collection photos and links them exactly once with stock release", async () => {
+    const saleId = "photo-sale", saleItemId = "photo-item", photoProduct = "photo-product";
+    const balanceRef = adminDb.doc(`inventoryBalances/${balanceDocumentId(organizationId, photoProduct, locationId)}`);
+    await Promise.all([
+      adminDb.doc(`sales/${saleId}`).set({ organizationId, branchId, locationId, saleNumber: "PHOTO-SAL-1", status: "completed", collectionTracked: true, collectionStatus: "awaiting_collection", totalQuantity: 2, collectedQuantity: 0, costAmountMinor: 0 }),
+      adminDb.doc(`saleItems/${saleItemId}`).set({ organizationId, saleId, productId: photoProduct, productName: "Photo Panel", sku: "PHOTO", trackingType: "quantity", quantity: 2, collectedQuantity: 0, costAmountMinor: 0 }),
+      balanceRef.set({ organizationId, branchId, productId: photoProduct, locationId, onHandQuantity: 2, reservedQuantity: 2, availableQuantity: 0, totalValueMinor: 200, averageUnitCostMinor: 100 }),
+    ]);
+    const upload = { action: "upload_collection_photo", saleId, saleItemId, contentType: "image/png", base64: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jDqkAAAAASUVORK5CYII=", idempotencyKey: crypto.randomUUID() };
+    await expect(call(cashier, "confirmPosSaleOrder", upload)).rejects.toMatchObject({ code: "functions/permission-denied" });
+    await expect(call(branchManager, "confirmPosSaleOrder", { ...upload, contentType: "image/jpeg" })).rejects.toMatchObject({ code: "functions/invalid-argument" });
+    const photo = await call<{ evidenceId: string }>(branchManager, "confirmPosSaleOrder", upload);
+    await expect(call(branchManager, "confirmPosSaleOrder", upload)).resolves.toMatchObject({ evidenceId: photo.evidenceId, uploaded: false });
+    await expect(call(branchManager, "confirmPosSaleOrder", { ...upload, saleItemId: "wrong-item" })).rejects.toMatchObject({ code: "functions/invalid-argument" });
+    expect((await balanceRef.get()).get("onHandQuantity")).toBe(2);
+    const read = { action: "collection_photo", saleId, evidenceId: photo.evidenceId };
+    await expect(call(branchManager, "getSaleDocument", read)).rejects.toMatchObject({ code: "functions/not-found" });
+    const collect = { action: "collect", saleId, lines: [{ saleItemId, quantity: 1 }], collector: "Amina Musa", evidenceIds: [photo.evidenceId], idempotencyKey: crypto.randomUUID() };
+    await expect(call(administrator, "confirmPosSaleOrder", collect)).rejects.toMatchObject({ code: "functions/failed-precondition" });
+    expect((await balanceRef.get()).get("onHandQuantity")).toBe(2);
+    const posted = await call<{ collectionId: string }>(branchManager, "confirmPosSaleOrder", collect);
+    await expect(call(branchManager, "confirmPosSaleOrder", collect)).resolves.toMatchObject({ recorded: false, collectionId: posted.collectionId });
+    expect((await balanceRef.get()).get("onHandQuantity")).toBe(1);
+    expect((await adminDb.doc(`saleCollections/${posted.collectionId}`).get()).get("evidenceIds")).toEqual([photo.evidenceId]);
+    expect((await adminDb.doc(`saleCollectionEvidence/${photo.evidenceId}`).get()).get("status")).toBe("linked");
+    await expect(call(branchManager, "getSaleDocument", read)).resolves.toMatchObject({ base64: upload.base64, contentType: "image/png", saleItemId });
+    await expect(call(branchManager, "confirmPosSaleOrder", { ...collect, idempotencyKey: crypto.randomUUID() })).rejects.toMatchObject({ code: "functions/failed-precondition" });
+    expect((await balanceRef.get()).get("onHandQuantity")).toBe(1);
+    await adminDb.doc(`saleCollectionEvidence/${photo.evidenceId}`).update({ organizationId: "another-org" });
+    await expect(call(branchManager, "getSaleDocument", read)).rejects.toMatchObject({ code: "functions/not-found" });
+  }, 120000);
   it("sets a central price and only permits authorized below-base pricing", async () => {
     await expect(
       call(administrator, "saveProductSalesPrice", {

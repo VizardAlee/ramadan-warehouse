@@ -176,6 +176,7 @@ export interface QueuedPosSale {
 
 export interface SaleDocument {
   collections?: Array<{
+    evidenceIds?: string[];
     id: string; referenceNumber?: string; waybillNumber?: string; collector: string; collectedAt: string | null;
     releasedBy: string; releasedByName?: string; notes?: string | null; totalQuantity: number;
     lines: Array<{ saleItemId?: string; productName: string; quantity: number; sku?: string; unitOfMeasure?: string }>;

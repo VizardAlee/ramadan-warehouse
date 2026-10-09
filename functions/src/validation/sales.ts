@@ -328,6 +328,7 @@ export const collectSaleInput = z.object({
   saleId: id,
   lines: z.array(z.object({ saleItemId: id, quantity: z.number().int().positive().max(1000000) })).min(1).max(50),
   collector: z.string().trim().min(2).max(120),
+  evidenceIds: z.array(id).max(5).optional().refine(value => !value || new Set(value).size === value.length, "Choose each collection photo once."),
   notes: z.string().trim().max(500).optional(),
   idempotencyKey: z.string().uuid(),
 }).refine((value) => new Set(value.lines.map((line) => line.saleItemId)).size === value.lines.length, "Select each sale item only once.");

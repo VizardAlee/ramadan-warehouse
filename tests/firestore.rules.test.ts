@@ -12,6 +12,7 @@ let environment: RulesTestEnvironment;
 beforeAll(async () => {
   environment = await initializeTestEnvironment({
     projectId: "demo-ramadan-warehouse",
+    ...(process.env.FIREBASE_STORAGE_EMULATOR_HOST ? { storage: { rules: readFileSync("storage.rules", "utf8"), host: "127.0.0.1", port: 9199 } } : {}),
     firestore: {
       rules: readFileSync("firestore.rules", "utf8"),
       host: "127.0.0.1",
@@ -420,6 +421,22 @@ async function seed() {
 }
 
 describe("Firestore baseline rules", () => {
+  it.skipIf(!process.env.FIREBASE_STORAGE_EMULATOR_HOST)("denies direct collection photo metadata and object access even to administrators", async () => {
+    await seed();
+    await environment.withSecurityRulesDisabled(async context => {
+      await context.firestore().doc("saleCollectionEvidence/photo-1").set({ organizationId: "org-1", branchId: "branch-1", status: "linked" });
+    });
+    for (const uid of ["admin", "branch-manager", "sales-cashier"]) {
+      const context = environment.authenticatedContext(uid);
+      await assertFails(context.firestore().doc("saleCollectionEvidence/photo-1").get());
+      await assertFails(context.firestore().doc("saleCollectionEvidence/photo-1").update({ status: "uploaded" }));
+      await assertFails(context.firestore().doc("saleCollectionEvidence/new-photo").set({ organizationId: "org-1" }));
+      const object = context.storage("gs://demo-ramadan-warehouse.appspot.com").ref("collection-evidence/org-1/sale-1/photo.png");
+      await assertFails(Promise.resolve(object.put(new Uint8Array([1, 2, 3]), { contentType: "image/png" })));
+      await assertFails(object.getDownloadURL());
+    }
+  });
+
   it("keeps aftersales cases and payments branch-scoped and server-write-only", async () => {
     await seed();
     const branchDb = environment.authenticatedContext("branch-manager").firestore();

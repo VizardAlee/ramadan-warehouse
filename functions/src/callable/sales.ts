@@ -5,6 +5,7 @@ import type { z } from "zod";
 import { db } from "../admin.js";
 import { accountingPeriodReference, assertAccountingPeriodOpen } from "../accounting/period-lock.js";
 import { collectReservedSale } from "../sales/collection.js";
+import { uploadCollectionPhoto, uploadCollectionPhotoInput, readCollectionPhoto, readCollectionPhotoInput } from "../sales/collection-evidence.js";
 import { resolveCatalogPrice } from "../sales/pricing.js";
 import { customerArrangements, selectedArrangement, changeArrangementBalance } from "../sales/customer-arrangements.js";
 import { changeMoneyBalance, UNDATED_DEBT } from "../sales/receivables.js";
@@ -548,6 +549,8 @@ export const getSaleDocument = onCall(
       !hasServerPermission(actor, "sales.read.all")
     )
       throw new HttpsError("permission-denied", "You do not have permission to view sale documents.");
+    if (request.data?.action === "collection_photo")
+      return readCollectionPhoto(actor, parseInput(readCollectionPhotoInput, request.data));
     if (request.data?.action === "list_collections") {
       const input = parseInput(listCollectionsInput, request.data);
       requireBranchScope(actor, input.branchId);
@@ -614,6 +617,7 @@ export const getSaleDocument = onCall(
         collector: record.get("collector"), collectedAt: iso(record.get("collectedAt")),
         releasedBy: record.get("releasedBy"), releasedByName: staffNames.get(String(record.get("releasedBy"))) ?? "Authorized staff",
         notes: record.get("notes") ?? null, totalQuantity: record.get("totalQuantity"),
+        evidenceIds: record.get("evidenceIds") ?? [],
         lines: (record.get("lines") as Array<{ saleItemId: string; productName: string; quantity: number }>).map((line) => ({
           saleItemId: line.saleItemId, productName: line.productName, quantity: line.quantity,
           sku: itemById.get(line.saleItemId)?.get("sku") ?? "",
@@ -2100,6 +2104,8 @@ export const confirmPosSaleOrder = onCall(
   { enforceAppCheck, timeoutSeconds: 60 },
   async (request) => {
     const actor = await requireAccess(request);
+    if (request.data?.action === "upload_collection_photo")
+      return uploadCollectionPhoto(actor, parseInput(uploadCollectionPhotoInput, request.data));
     if (request.data?.action === "collect")
       return collectReservedSale(actor, parseInput(collectSaleInput, request.data));
     requirePermission(actor, "sales.payment.confirm");

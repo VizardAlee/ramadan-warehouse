@@ -25,6 +25,7 @@ const specialActions: Readonly<Record<string, string>> = {
   "sales_order.payment_confirmed_inventory_released": "Confirmed payment and released sale stock",
   "sales_order.payment_confirmed_stock_reserved": "Confirmed payment and reserved goods for later collection",
   "sale.goods_collected": "Recorded a customer's physical collection",
+  "sale.collection_photo_uploaded": "Uploaded a private photo for customer collection",
   "sale.reservation_cancelled": "Cancelled uncollected goods and released their reservation",
   "sales_order.received": "Received a customer order",
   "sales_order.rejected": "Rejected a customer order",

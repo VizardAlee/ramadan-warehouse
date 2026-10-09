@@ -8,6 +8,7 @@ import { AppDialog } from "@/components/ui/app-dialog";
 import { formatNaira } from "@/features/inventory/format";
 import type { SaleDocument } from "@/features/pos/types";
 import { CollectionWaybill } from "./collection-waybill";
+import { CollectionPhotoViewer } from "./collection-photos";
 
 function label(value: string) {
   return value.replaceAll("_", " ");
@@ -99,7 +100,7 @@ export function SaleDocumentDialog({
           <section className="rounded-xl border p-4 text-sm">
             <p className="font-semibold">Collection: {label(document.sale.collectionStatus ?? "collected")}</p>
             {document.items.map((item) => <p key={item.id}>{item.productName}: sold {item.quantity}, collected {item.collectedQuantity ?? item.quantity}, cancelled {item.cancelledQuantity ?? 0}, awaiting collection {item.quantity - (item.collectedQuantity ?? item.quantity) - (item.cancelledQuantity ?? 0)}</p>)}
-            {document.collections?.map((collection) => <div key={collection.id} className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t pt-3"><p>{collection.collectedAt ? new Date(collection.collectedAt).toLocaleString("en-NG") : "—"} · {collection.totalQuantity} collected by {collection.collector} · {collection.releasedByName || "Authorized staff"}</p>{document.official && <Button type="button" variant="outline" size="sm" data-no-print onClick={() => setWaybillId(collection.id)}>View waybill</Button>}</div>)}
+            {document.collections?.map((collection) => <div key={collection.id} className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t pt-3"><p>{collection.collectedAt ? new Date(collection.collectedAt).toLocaleString("en-NG") : "—"} · {collection.totalQuantity} collected by {collection.collector} · {collection.releasedByName || "Authorized staff"}</p>{document.official && <Button type="button" variant="outline" size="sm" data-no-print onClick={() => setWaybillId(collection.id)}>View waybill</Button>}{document.official && <CollectionPhotoViewer saleId={document.sale.id} evidenceIds={collection.evidenceIds ?? []} />}</div>)}
           </section>
           <section className="grid gap-4 sm:grid-cols-2">
             <div className="rounded-xl border p-4">

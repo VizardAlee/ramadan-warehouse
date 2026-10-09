@@ -1,7 +1,7 @@
 {
   "lastLiveAudit": {
     "project": "ramadan-warehouse-staging",
-    "verifiedAt": "2026-10-09T08:04:15.953Z",
+    "verifiedAt": "2026-10-09T08:27:24.394Z",
     "queryShapes": 440,
     "unsupportedQueries": 0,
     "readyIndexes": 224,
@@ -38,7 +38,7 @@
     "functions/src/callable/reverse-inventory.ts": "216adc552c28ea5cdbba48c29af9980720d5b5689b7baf144f49e40ba0181ee3",
     "functions/src/callable/sales-corrections.ts": "6a81ad6d02442729f5a390a4184739fd4f3f3a450b8951e51c543a09bcdd95ff",
     "functions/src/callable/sales-returns.ts": "395e26ee2f5c6a2c65ee41f8f46269f56ccfdc1df8bf66be4d6ea71f7024313c",
-    "functions/src/callable/sales.ts": "68c386730c11465667fc65ae9f0601e7bc2cbbc39913b5382ede316774bd7931",
+    "functions/src/callable/sales.ts": "e84b6dfa9947a7bafad9d5620205cb2c47b8ff4cca48e7c49d88fcf62f96fee6",
     "functions/src/callable/stock-counts.ts": "319e73fba41579383a5fd615a2f60e90e77c7bc86613d6446a07c5c040adc49d",
     "functions/src/callable/stock-transfers.ts": "b085f0aedf64a0cf3b9c40f315e277b4149449bbf4017852f4b933c16941a074",
     "functions/src/callable/transfers.ts": "40f6059886b760b10f6dcec2f08ad3b53070db51b384454d8eb96fe58de59497",
@@ -50,7 +50,7 @@
     "functions/src/notifications/web-push.ts": "f0645af68419cf9f25cff8a9e5e8eec84e3fb09fa982c671e55080609053176e",
     "functions/src/reconciliation/warehouse-operations.ts": "333261c86082284f4702f50a7c67bc6b987d1f4691d96fd6ea04b9e577b1ac3b",
     "functions/src/requests/apply-transfer-fulfilment.ts": "c7649d49875bcdeb732173544376d7f1891318ec141647bd5c9a465ec4c91d4e",
-    "functions/src/sales/collection.ts": "5f024a04292ac62c268c7c68d1ef8a181887d593e4b14721c04fd7d04993188f",
+    "functions/src/sales/collection.ts": "14bc5b1b733a26280d7bcbf18678cce64d0651437e5e938372ca3feece7cf210",
     "functions/src/sales/return-follow-up.ts": "01a3175d0874dbcfdc5874bbe6d1200871243b93f2921f5894dbfa0b7b9d0615",
     "functions/src/services/assignments.ts": "66d89ec81eb211c73c678e9e39b492877e20f66382d1fddd968ae546e37c8259",
     "functions/src/transfers/reservation-service.ts": "36e8c51eed244b4b1b35fffdd4e787fc41cb55b7e1c316ad4cc14fce1b2449e9",
