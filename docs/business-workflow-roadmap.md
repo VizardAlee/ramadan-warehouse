@@ -15,7 +15,7 @@ sign-off. Hardware-specific attendance acceptance waits for device procurement.
 Do not substitute invented tax facts, production test postings or a cosmetic
 completion score for these dependencies.
 
-## POS minor-unit calculation hardening — 9 October 2026 (validated; release pending)
+## POS minor-unit calculation hardening — 9 October 2026 (deployed)
 
 The existing browser/offline cart and trusted sale posting calculations now use
 exact integer intermediates for half-up VAT and proportional discounts. Cumulative
@@ -39,6 +39,20 @@ audit was discarded, then explicit IPv4 connection selection restored the
 planner requests; only matching successful evidence refreshed the baseline.
 Deployment scope is createPosSaleOrder, commitPosSale, confirmPosSaleOrder and
 App Hosting; no rules, data migrations, statutory rates or IAM changes.
+Source c34babf is pushed and released. Functions printed successful updates and
+Deploy complete: createpossaleorder-00014-nac, commitpossale-00019-rir and
+confirmpossaleorder-00020-xoj are ACTIVE, serving 100% traffic without
+reconciliation. Production mode, App Check, original runtime identities and
+existing transport settings are preserved; unauthenticated probes return
+Firebase HTTP 401. The first web attempt hit a pre-upload IAM API network error;
+the same-scope retry completed. App Hosting build-2026-10-09-021 is READY,
+rollout SUCCEEDED, 100% traffic and no reconciliation, with explicit Rollout
+complete / Deploy complete. POS, Finance, Tax, Guide, Banking and manifest
+return HTTP 200. All twelve served POS scripts load; calculationVersion:2,
+aggregate overflow checks and VAT snapshot validation appear in live assets.
+No live business records were posted. Emulator coverage includes unversioned
+offline sale retention and version-2 order receipt, atomic confirmation and
+exact replay; HTTP probes alone do not prove authenticated business mutations.
 
 ## Monthly budgets versus actuals — 9 October 2026 (deployed)
 
