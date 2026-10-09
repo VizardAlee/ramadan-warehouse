@@ -1,5 +1,22 @@
 # Business workflow expansion (24 September 2026 baseline)
 
+## Inspected returns to aftersales — 9 October 2026
+
+Approved warranty/repair returns can explicitly create a linked existing-system
+aftersales case per returned serial, or per quantity line. Deterministic links
+and transactional idempotency prevent duplicate cases. Walk-in service contacts
+are captured without rewriting the original sale or duplicating customers.
+Routing and service completion do not change held stock, refund money, or decide
+warranty eligibility. Service charges remain separately authorized and auditable.
+Direct case links are store/organization scoped. No historical migration needed.
+Validation: 320 unit/interface tests, 32 sales/aftersales emulator cases and
+27 Firestore/Storage security cases passed. Includes concurrent distinct-key
+routing, exact held serials, store denial, walk-in contacts, unchanged stock and
+journals, immutable original identity, retry payloads and forged-link denial.
+Live query audit: 440/440 passed, all 224 deployed indexes READY. Deployment and
+signed-in live business acceptance are separate release gates.
+Next: controlled final disposition of held goods after service; never automatic restocking.
+
 This roadmap extends the existing Firebase application and preserves historical users, stock entries, sales, journals and audit records. A requested capability is not marked complete merely because a screen or a partial workflow exists.
 
 ### Receiving / customer-return inspection photos — 9 October 2026 (deployed)

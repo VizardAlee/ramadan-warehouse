@@ -37,6 +37,13 @@ export const getAftersalesWorkspace = onCall(
     if (["list_evidence", "read_evidence", "upload_evidence"].includes(request.data?.action))
       return operationalEvidence(actor, "aftersales", parseInput(operationalEvidenceInput, request.data));
     const input = parseInput(aftersalesWorkspaceInput, request.data);
+    const selectedCase = input.caseId ? await db.doc(`aftersalesCases/${input.caseId}`).get() : null;
+    if (input.caseId) {
+      if (!selectedCase?.exists || selectedCase.get("organizationId") !== actor.organizationId)
+        throw new HttpsError("not-found", "Aftersales case not found.");
+      requireBranchScope(actor, String(selectedCase.get("branchId")));
+      input.branchId = String(selectedCase.get("branchId"));
+    }
     if (input.branchId) requireBranchScope(actor, input.branchId);
     const organizationWide = [
       "system_administrator",
@@ -57,7 +64,7 @@ export const getAftersalesWorkspace = onCall(
       db.collection("sales").where("organizationId", "==", actor.organizationId).limit(200).get(),
     ]);
     return {
-      cases: cases.docs
+      cases: (selectedCase ? [selectedCase] : cases.docs)
         .filter((item) => organizationWide || actor.branchIds.includes(String(item.get("branchId"))))
         .map((item) => ({ id: item.id, ...item.data() })),
       customers: customers.docs.filter((item) => item.get("active") === true).map((item) => ({ id: item.id, name: item.get("name"), customerNumber: item.get("customerNumber") })),

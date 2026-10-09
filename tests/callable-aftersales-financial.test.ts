@@ -6,6 +6,7 @@ import { getAuth as getAdminAuth } from "firebase-admin/auth";
 import { FieldValue, Timestamp, getFirestore } from "firebase-admin/firestore";
 import { getStorage } from "firebase-admin/storage";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { uniquenessDocumentId } from "../functions/src/inventory/calculations";
 
 const projectId = "demo-ramadan-warehouse";
 const adminApp = getAdminApps().find((app) => app.name === "aftersales-financial-tests") ?? initializeAdminApp({ projectId }, "aftersales-financial-tests");
@@ -52,6 +53,51 @@ beforeAll(async () => {
 afterAll(async () => Promise.all(apps.map((app) => deleteApp(app))));
 
 describe.sequential("aftersales and ledger-derived reports", () => {
+  it("routes only exact held serials and denies access from another store", async () => {
+    const returnId = "serial-service-return", returnItemId = "serial-service-item", serialNumber = "SERVICE-UNIT-1";
+    await adminDb.doc(`saleReturns/${returnId}`).set({ organizationId, branchId, saleId: "serial-sale", customerId, customerName: "Test Customer", status: "approved", inspectionStatus: "completed" });
+    await adminDb.doc(`saleReturnItems/${returnItemId}`).set({ organizationId, branchId, returnId, saleId: "serial-sale", productId, productName: "Serialized product", quantity: 1, serialNumbers: [serialNumber], disposition: "warranty", condition: "non_restockable", inspectionStatus: "completed" });
+    const serialRef = adminDb.doc(`serializedItems/${uniquenessDocumentId(organizationId, serialNumber)}`);
+    await serialRef.set({ organizationId, branchId, productId, saleId: "serial-sale", lastSaleReturnId: returnId, status: "sold", active: false });
+    const payload = { returnId, action: "route_aftersales", aftersales: { returnItemId, serialNumber, complaint: "Inspect this exact warranty unit" }, idempotencyKey: crypto.randomUUID() };
+    await expect(call("approveSaleReturn", { ...payload, aftersales: { ...payload.aftersales, serialNumber: "WRONG-UNIT" } })).rejects.toMatchObject({ code: "functions/invalid-argument" });
+    await expect(call("approveSaleReturn", payload)).rejects.toMatchObject({ code: "functions/failed-precondition" });
+    await serialRef.update({ status: "returned_held" });
+    const before = (await serialRef.get()).data();
+    const created = await call<{ caseId: string }>("approveSaleReturn", payload);
+    expect((await serialRef.get()).data()).toEqual(before);
+    expect((await adminDb.doc(`aftersalesCases/${created.caseId}`).get()).data()).toMatchObject({ serialNumber, quantity: 1, chargeStatus: "not_quoted" });
+    const user = await adminAuth.createUser({ email: "service-other-store@example.test", password: "Password!234567" });
+    await adminDb.doc(`users/${user.uid}`).set({ uid: user.uid, organizationId, roleId: "branch_manager", branchIds: ["other-store"], warehouseIds: [], status: "active", authorizationVersion: 1 });
+    const manager = client("service-other-store"); await signInWithEmailAndPassword(manager.auth, "service-other-store@example.test", "Password!234567");
+    await expect(httpsCallable(manager.functions, "getAftersalesWorkspace")({ caseId: created.caseId })).rejects.toMatchObject({ code: "functions/permission-denied" });
+    await expect(httpsCallable(manager.functions, "approveSaleReturn")({ ...payload, idempotencyKey: crypto.randomUUID() })).rejects.toMatchObject({ code: "functions/permission-denied" });
+  }, 300_000);
+  it("routes inspected returns once without changing stock, money or original walk-in identity", async () => {
+    const returnId = "service-routing-return", returnItemId = "service-routing-item";
+    const parent = adminDb.doc(`saleReturns/${returnId}`), item = adminDb.doc(`saleReturnItems/${returnItemId}`);
+    await parent.set({ organizationId, branchId, saleId: "original-sale", saleNumber: "SALE-ROUTE", returnNumber: "RET-ROUTE", customerId: null, customerName: "Walk-in", kind: "goods_return", status: "approved", inspectionStatus: "completed" });
+    await item.set({ organizationId, branchId, returnId, saleId: "original-sale", productId, productName: "Test Product", quantity: 2, serialNumbers: [], disposition: "repair", condition: "non_restockable", inspectionStatus: "completed" });
+    const counts = async () => Promise.all(["inventoryEntries", "journalEntries", "customers"].map(async name => (await adminDb.collection(name).count().get()).data().count));
+    const before = await counts();
+    const payload = { returnId, action: "route_aftersales", aftersales: { returnItemId, complaint: "Inspect and repair returned goods", contactName: "Returning customer", contactPhone: "08012345678" }, idempotencyKey: crypto.randomUUID() };
+    await expect(call("approveSaleReturn", { ...payload, aftersales: { returnItemId, complaint: "Missing walk-in contacts" } })).rejects.toMatchObject({ code: "functions/invalid-argument" });
+    const [first, second] = await Promise.all([call<{ caseId: string }>("approveSaleReturn", payload), call<{ caseId: string }>("approveSaleReturn", { ...payload, idempotencyKey: crypto.randomUUID() })]);
+    expect(first.caseId).toBe(second.caseId);
+    expect(await call("approveSaleReturn", payload)).toMatchObject(first);
+    await expect(call("approveSaleReturn", { ...payload, aftersales: { ...payload.aftersales, complaint: "Changed request under the same key" } })).rejects.toMatchObject({ code: "functions/already-exists" });
+    expect((await adminDb.doc(`aftersalesCases/${first.caseId}`).get()).data()).toMatchObject({ returnId, returnItemId, quantity: 2, status: "open", chargeStatus: "not_quoted", customerId: null, customerName: "Returning customer" });
+    expect((await item.get()).get("aftersalesCaseLinks")).toHaveLength(1);
+    expect(await call("getAftersalesWorkspace", { caseId: first.caseId })).toMatchObject({ cases: [expect.objectContaining({ id: first.caseId, returnId })] });
+    await item.update({ disposition: "resellable" });
+    await expect(call("approveSaleReturn", { ...payload, idempotencyKey: crypto.randomUUID() })).rejects.toMatchObject({ code: "functions/failed-precondition" });
+    await item.update({ disposition: "repair", organizationId: "other-org" });
+    await expect(call("approveSaleReturn", { ...payload, idempotencyKey: crypto.randomUUID() })).rejects.toMatchObject({ code: "functions/not-found" });
+    await item.update({ organizationId }); await parent.update({ inspectionStatus: "required" });
+    await expect(call("approveSaleReturn", { ...payload, idempotencyKey: crypto.randomUUID() })).rejects.toMatchObject({ code: "functions/failed-precondition" });
+    expect((await parent.get()).get("customerName")).toBe("Walk-in");
+    expect(await counts()).toEqual(before);
+  }, 300_000);
   it.skipIf(!process.env.FIREBASE_STORAGE_EMULATOR_HOST)("keeps serial photos private, stage-bound, immutable and safely retryable without ledger effects", async () => {
     const created = await call<{ caseId: string }>("createAftersalesCase", { branchId, customerId, productId, serialNumber: "SN-PHOTO", serviceType: "warranty", requestType: "repair", complaint: "Serial label and initial condition", idempotencyKey: crypto.randomUUID() });
     const recordId = created.caseId;

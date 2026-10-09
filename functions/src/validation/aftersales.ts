@@ -4,6 +4,7 @@ const id = z.string().trim().min(1).max(128);
 const text = z.string().trim();
 
 export const aftersalesWorkspaceInput = z.object({
+  caseId: id.refine(value => !value.includes("/"), "Invalid case reference.").optional(),
   branchId: id.optional(),
   limit: z.number().int().min(1).max(200).default(100),
 });

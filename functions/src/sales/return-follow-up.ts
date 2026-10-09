@@ -6,8 +6,8 @@ import { db } from "../admin.js";
 import { accountingPeriodReference, assertAccountingPeriodOpen } from "../accounting/period-lock.js";
 import { resolveSettlementAccount } from "../accounting/settlement-account.js";
 import { writeAuditLog } from "../audit/write-audit-log.js";
-import { requireAccess, requireBranchScope } from "../auth/authorize.js";
-import { uniquenessDocumentId } from "../inventory/calculations.js";
+import { requireAccess, requireBranchScope, requirePermission } from "../auth/authorize.js";
+import { normalizeInventoryIdentifier, uniquenessDocumentId } from "../inventory/calculations.js";
 import { assertBalancedJournal } from "./calculations.js";
 import { correlationId } from "../utils/callable.js";
 import { approveSaleReturnInput } from "../validation/sales.js";
@@ -28,6 +28,54 @@ export async function followUpSaleReturn(actor: Awaited<ReturnType<typeof requir
       return previous.get("result");
     }
     const now = FieldValue.serverTimestamp();
+    if (input.action === "route_aftersales") {
+      requirePermission(actor, "sales.returns.create");
+      const request = input.aftersales!;
+      if (record.get("status") !== "approved" || record.get("kind") === "reservation_cancellation" || record.get("inspectionStatus") !== "completed")
+        throw new HttpsError("failed-precondition", "Approve an inspected physical return before sending it to aftersales.");
+      const item = await tx.get(db.doc(`saleReturnItems/${request.returnItemId}`));
+      if (!item.exists || item.get("organizationId") !== actor.organizationId || item.get("returnId") !== record.id || item.get("saleId") !== record.get("saleId") || item.get("branchId") !== record.get("branchId"))
+        throw new HttpsError("not-found", "Returned item not found.");
+      if (item.get("inspectionStatus") !== "completed" || item.get("condition") !== "non_restockable" || !["warranty", "repair"].includes(item.get("disposition")))
+        throw new HttpsError("failed-precondition", "Only held warranty or repair items can be sent to aftersales.");
+      const serials = (item.get("serialNumbers") ?? []) as string[];
+      const serialNumber = request.serialNumber ? normalizeInventoryIdentifier(request.serialNumber) : null;
+      if (serials.length ? !serialNumber || !serials.some(s => normalizeInventoryIdentifier(s) === serialNumber) : serialNumber !== null)
+        throw new HttpsError("invalid-argument", "Select one exact returned serial, or leave serial empty for quantity-tracked goods.");
+      const caseRef = db.doc(`aftersalesCases/${createHash("sha256").update(JSON.stringify([actor.organizationId, record.id, item.id, serialNumber])).digest("hex")}`);
+      const existing = await tx.get(caseRef);
+      const result = { returnId: record.id, caseId: caseRef.id, routed: true };
+      if (existing.exists) {
+        if (existing.get("organizationId") !== actor.organizationId || existing.get("returnId") !== record.id || existing.get("returnItemId") !== item.id)
+          throw new HttpsError("failed-precondition", "Aftersales link scope mismatch.");
+        tx.create(op, { organizationId: actor.organizationId, fingerprint, result, createdAt: now, createdBy: actor.userId });
+        return result;
+      }
+      if (serialNumber) {
+        const serial = await tx.get(db.doc(`serializedItems/${uniquenessDocumentId(actor.organizationId, serialNumber)}`));
+        if (!serial.exists || serial.get("organizationId") !== actor.organizationId || serial.get("productId") !== item.get("productId") || serial.get("branchId") !== record.get("branchId") || serial.get("saleId") !== record.get("saleId") || serial.get("lastSaleReturnId") !== record.id || serial.get("status") !== "returned_held" || serial.get("active") !== false)
+          throw new HttpsError("failed-precondition", "The returned serial is no longer held for this return.");
+      }
+      if (!record.get("customerId") && (!request.contactName || !request.contactPhone))
+        throw new HttpsError("invalid-argument", "Capture the walk-in customer's name and phone for service follow-up.");
+      const branch = await tx.get(db.doc(`branches/${record.get("branchId")}`));
+      const quantity = serialNumber ? 1 : Number(item.get("quantity"));
+      if (!Number.isSafeInteger(quantity) || quantity < 1) throw new HttpsError("failed-precondition", "Invalid returned quantity.");
+      tx.create(caseRef, {
+        organizationId: actor.organizationId, branchId: record.get("branchId"), branchName: branch.get("name") ?? "Store",
+        customerId: record.get("customerId") ?? null, customerName: record.get("customerId") ? record.get("customerName") ?? "Customer" : request.contactName,
+        contactPhone: request.contactPhone ?? null, saleId: record.get("saleId"), saleNumber: record.get("saleNumber") ?? null,
+        productId: item.get("productId"), productName: item.get("productName"), serialNumber, quantity,
+        returnId: record.id, returnNumber: record.get("returnNumber") ?? record.id, returnItemId: item.id,
+        sourceDisposition: item.get("disposition"), serviceType: item.get("disposition") === "warranty" ? "warranty" : "non_warranty",
+        requestType: item.get("disposition"), complaint: request.complaint, notes: "Routed from inspected return. Stock remains held; refunds and service charges are separate.",
+        status: "open", chargeStatus: "not_quoted", createdAt: now, createdBy: actor.userId, updatedAt: now,
+      });
+      tx.update(item.ref, { aftersalesCaseLinks: FieldValue.arrayUnion({ caseId: caseRef.id, serialNumber, quantity }), updatedAt: now });
+      tx.create(op, { organizationId: actor.organizationId, fingerprint, result, createdAt: now, createdBy: actor.userId });
+      writeAuditLog(tx, actor, { action: "sale_return.sent_to_aftersales", entityType: "saleReturn", entityId: record.id, sourceFunction: "approveSaleReturn", correlationId: cid, reason: request.complaint, after: { caseId: caseRef.id, returnItemId: item.id, serialNumber, quantity, stockRemainsHeld: true } });
+      return result;
+    }
     if (input.action === "inspect") {
       if (record.get("status") !== "submitted" || record.get("kind") === "reservation_cancellation" || record.get("inspectionStatus") === "completed")
         throw new HttpsError("failed-precondition", "Only uninspected submitted goods returns can be inspected.");

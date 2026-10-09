@@ -801,6 +801,7 @@ describe("Firestore baseline rules", () => {
       adminDb.doc("salesCredits/sale-1-credit").update({ remainingAmountMinor: 0 }),
     );
     await assertFails(adminDb.doc("saleReturnItems/sale-1-return-item").update({ inspectionStatus: "completed", disposition: "resellable" }));
+    await assertFails(adminDb.doc("saleReturnItems/sale-1-return-item").update({ aftersalesCaseLinks: [{ caseId: "forged-case", serialNumber: null, quantity: 1 }] }));
     await assertFails(adminDb.doc("saleRefunds/forged-exchange-refund").set({ organizationId: "org-1", branchId: "branch-1", amountMinor: 5000, status: "recorded" }));
     await assertFails(
       adminDb.doc("journalEntries/journal-1").update({ status: "void" }),

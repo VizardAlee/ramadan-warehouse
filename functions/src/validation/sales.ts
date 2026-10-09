@@ -186,7 +186,14 @@ export const createSaleReturnInput = z.object({
 
 export const approveSaleReturnInput = z.object({
   returnId: id,
-  action: z.enum(["approve", "inspect", "refund_exchange_credit"]).default("approve"),
+  action: z.enum(["approve", "inspect", "refund_exchange_credit", "route_aftersales"]).default("approve"),
+  aftersales: z.object({
+    returnItemId: id,
+    serialNumber: z.string().trim().min(1).max(160).optional(),
+    complaint: z.string().trim().min(5).max(1000),
+    contactName: z.string().trim().min(2).max(160).optional(),
+    contactPhone: z.string().trim().min(5).max(50).optional(),
+  }).optional(),
   inspection: z.object({
     notes: z.string().trim().min(5).max(1000),
     lines: z.array(z.object({
@@ -205,6 +212,8 @@ export const approveSaleReturnInput = z.object({
   notes: z.string().trim().max(500).optional(),
   idempotencyKey: z.string().uuid(),
 }).superRefine((value, context) => {
+  if (value.action === "route_aftersales" && !value.aftersales)
+    context.addIssue({ code: "custom", path: ["aftersales"], message: "Select the inspected return item and describe the service request." });
   if (value.action === "inspect" && !value.inspection)
     context.addIssue({ code: "custom", path: ["inspection"], message: "Record each item's inspection result." });
   if (value.action === "refund_exchange_credit" && (!value.refund || (value.refund.method === "cash" ? !value.refund.shiftId : !value.refund.bankAccountId)))

@@ -1,7 +1,9 @@
 "use client";
 
 import { RefreshCw, Wrench } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect, useState } from "react";
+import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { callAdministration } from "@/features/administration/api";
 import { useAuth } from "@/features/auth/auth-context";
@@ -16,6 +18,9 @@ interface Case {
   productName?: string;
   saleNumber?: string;
   serialNumber?: string;
+  returnNumber?: string;
+  quantity?: number;
+  contactPhone?: string;
   serviceType: "warranty" | "non_warranty";
   requestType: string;
   complaint: string;
@@ -41,6 +46,11 @@ const transitions: Record<string, Array<{ value: string; label: string }>> = {
 };
 
 export default function AftersalesPage() {
+  return <Suspense fallback={<p role="status">Loading aftersales…</p>}><AftersalesWorkspace /></Suspense>;
+}
+
+function AftersalesWorkspace() {
+  const caseId = useSearchParams().get("caseId");
   const { profile, operatingContext } = useAuth();
   const can = (permission: Parameters<typeof hasPermission>[1]) => Boolean(profile && hasPermission(profile, permission));
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
@@ -69,7 +79,7 @@ export default function AftersalesPage() {
     setBusy(true);
     setError(null);
     try {
-      setWorkspace(await callAdministration("getAftersalesWorkspace", { branchId: branchId || undefined }));
+      setWorkspace(await callAdministration("getAftersalesWorkspace", caseId ? { caseId } : { branchId: branchId || undefined }));
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Aftersales cases could not be loaded.");
     } finally {
@@ -77,7 +87,7 @@ export default function AftersalesPage() {
     }
     // `can` derives from profile.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [profile, branchId]);
+  }, [profile, branchId, caseId]);
   useEffect(() => {
     const timer = window.setTimeout(() => void load(), 0);
     return () => window.clearTimeout(timer);
@@ -153,6 +163,7 @@ export default function AftersalesPage() {
                 <div>
                   <strong>{item.customerName} · {item.requestType.replaceAll("_", " ")}</strong>
                   <p className="text-sm text-[var(--muted)]">{item.productName || "Service only"} · {item.serviceType.replaceAll("_", " ")} · {item.saleNumber || "No linked sale"} {item.serialNumber && `· Serial ${item.serialNumber}`}</p>
+                  {item.returnNumber && <p className="mt-2 text-sm">From inspected return {item.returnNumber} · {item.quantity} unit(s) {item.contactPhone && `· ${item.contactPhone}`}<br />Stock remains held. Completing this service does not restock goods or issue a refund. <Link href="/aftersales" className="underline">View all service cases</Link></p>}
                   <p className="mt-2 text-sm">{item.complaint}</p>
                   {item.resolution && <p className="mt-1 text-sm"><strong>Resolution:</strong> {item.resolution}</p>}
                 </div>
