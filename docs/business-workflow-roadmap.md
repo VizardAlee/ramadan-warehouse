@@ -2,7 +2,7 @@
 
 This roadmap extends the existing Firebase application and preserves historical users, stock entries, sales, journals and audit records. A requested capability is not marked complete merely because a screen or a partial workflow exists.
 
-### Collection follow-up — 9 October 2026 (implementation; release pending)
+### Collection follow-up — 9 October 2026 (deployed)
 
 The existing scheduled notification worker now performs a bounded, resumable
 25-sale scan for uncollected reservations. After seven complete days it queues
@@ -30,9 +30,20 @@ scan and diff checks passed.
 Release validation resumed after owner-controlled Firebase reauthentication:
 all 440 live query plans passed and all 224 indexes are READY. No new index is
 required; the guarded baseline has been refreshed. The full unit/interface suite
-now passes all 299 tests, including the live-audit baseline gate. Deployment pending: only
-`confirmPosSaleOrder`, `deliverPendingNotifications` and App Hosting are affected.
-No production stock/financial records or IAM settings were changed by validation.
+now passes all 299 tests, including the live-audit baseline gate.
+
+Release verified: source `4d3bcdb` is pushed. Firebase explicitly completed
+deployment of `confirmPosSaleOrder`, `deliverPendingNotifications` and App Hosting.
+Both Functions are ACTIVE with APP_ENV=production and App Check enabled; ready
+revisions are `confirmpossaleorder-00015-mem` and
+`deliverpendingnotifications-00017-vuh`. No IAM settings were changed.
+The collection endpoint returns Firebase JSON HTTP 401 UNAUTHENTICATED without
+credentials; this confirms reachability/rejection, not a live authorized posting.
+App Hosting `build-2026-10-09-002` is READY, serves 100% of traffic and is no
+longer reconciling. POS and guide routes return HTTP 200; served POS JavaScript
+includes the retry action, waiting-age display and reminder explanation. No real
+financial/stock postings were performed for verification; authorized workflow
+behavior is covered by emulator tests.
 
 Next dependency: serial allocation through order/reservation/release and secure
 photo uploads. Current POS explicitly accepts quantity-tracked products only;
