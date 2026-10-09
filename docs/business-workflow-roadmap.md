@@ -1,6 +1,6 @@
 # Business workflow expansion (24 September 2026 baseline)
 
-## Internal company-account transfers — 9 October 2026 (release blocked)
+## Internal company-account transfers — 9 October 2026 (deployed)
 
 Extends Banking and extracts the existing procurement journal writer rather than
 creating another ledger. Authorized finance users record an already-completed
@@ -31,14 +31,21 @@ saveOrganizationRole `saveorganizationrole-00005-nel`, approveSupplierInvoice
 and recordSupplierPayment `recordsupplierpayment-00009-xaq`. All retain production
 mode, App Check, original runtime identity and invoker settings, 100% traffic and
 no reconciliation pending. The new recordCompanyFundsTransfer function is ACTIVE
-at `recordcompanyfundstransfer-00001-lur`, but Google rejected its invoker policy
-setup; the endpoint returns HTTP 403 before Firebase handling. No IAM checks were
-disabled for this new service. Prior service-specific approvals do not cover it.
-The Banking UI has intentionally NOT been deployed while its action is blocked;
-App Hosting remains the verified supplier-correction build-2026-10-09-016.
-Full transfer release requires specific authority for this new service's invoker
-setting, then HTTP 401/security verification and the web rollout. No real
-financial mutations were used for release checks. No full-release claim yet.
+at `recordcompanyfundstransfer-00001-lur`. Google initially rejected its invoker
+policy setup. Following explicit user approval for this service only, the
+supported Cloud Run service-level invoker-IAM-disabled setting was applied.
+The v2 PATCH rejected revision-name reuse without applying the change; the v1
+service annotation update succeeded without a new revision or runtime change.
+The endpoint now returns HTTP 401 at Firebase; production mode, App Check,
+runtime identity, application RBAC, 100% traffic and no pending reconciliation
+were verified. No other service or IAM policy binding was changed.
+App Hosting `build-2026-10-09-017` is READY with its rollout SUCCEEDED,
+100% traffic and no reconciliation pending. Banking, finance, guide, POS and
+procurement return HTTP 200. All 11 scripts referenced by Banking return 200;
+the deployed Record completed transfer and Retry saved transfer controls are
+present. Transient asset connection failures were retried successfully.
+No real financial mutations were used for release checks; authorized behavior
+was validated in emulators rather than on live company records.
 Next: authorized manual/reversal journals, then reviewed statutory tax rules.
 
 ## Linked supplier-return corrections — 9 October 2026 (deployed)
