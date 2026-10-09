@@ -1,6 +1,6 @@
 # Business workflow expansion (24 September 2026 baseline)
 
-## Inspected returns to aftersales — 9 October 2026
+## Inspected returns to aftersales — 9 October 2026 (deployed)
 
 Approved warranty/repair returns can explicitly create a linked existing-system
 aftersales case per returned serial, or per quantity line. Deterministic links
@@ -13,8 +13,19 @@ Validation: 320 unit/interface tests, 32 sales/aftersales emulator cases and
 27 Firestore/Storage security cases passed. Includes concurrent distinct-key
 routing, exact held serials, store denial, walk-in contacts, unchanged stock and
 journals, immutable original identity, retry payloads and forged-link denial.
-Live query audit: 440/440 passed, all 224 deployed indexes READY. Deployment and
-signed-in live business acceptance are separate release gates.
+Live query audit: 440/440 passed, all 224 deployed indexes READY. Typecheck, lint,
+Functions compilation, production build, secret scan and diff checks passed.
+Implementation `a3bae7c`: Firebase explicitly completed both Function updates and
+the web rollout. App Hosting `build-2026-10-09-008` is READY with 100% traffic and
+no reconciliation pending. Active revisions: `approvesalereturn-00014-mag` and
+`getaftersalesworkspace-00007-neg`; production/App Check/runtime account and
+existing invoker settings are preserved. Unauthenticated callable probes return
+401 UNAUTHENTICATED. Signed-in live business posting was not performed; emulator
+acceptance and deployment verification are not a claim of physical/live acceptance.
+Live Returns, Aftersales, Guide and POS routes returned HTTP 200; all 16 linked
+JavaScript assets loaded successfully and contain the new routing controls,
+return-origin details and guide instructions. No real stock/financial posting
+was made during live verification.
 Next: controlled final disposition of held goods after service; never automatic restocking.
 
 This roadmap extends the existing Firebase application and preserves historical users, stock entries, sales, journals and audit records. A requested capability is not marked complete merely because a screen or a partial workflow exists.
