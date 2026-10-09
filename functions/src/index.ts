@@ -1,4 +1,5 @@
 import "./config.js";
+export { accountingJournals } from "./callable/accounting-journals.js";
 export { getDailyCloseWorkspace, prepareDailyClose, signDailyClose } from "./callable/daily-close.js";
 export { getDashboardWorkspace } from "./callable/dashboard.js";
 export { stockTransfers } from "./callable/stock-transfers.js";

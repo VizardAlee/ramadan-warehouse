@@ -84,17 +84,24 @@ export const generateFinancialStatement = onCall(
       const cashLines = lines.filter((line) => bankCodes.has(String(line.get("accountCode"))));
       const entryIds = [...new Set(cashLines.map((line) => String(line.get("journalEntryId"))))];
       const typeByEntry = new Map<string, string>();
+      const activityByEntry = new Map<string, string>();
       for (let offset = 0; offset < entryIds.length; offset += 100) {
         const snapshots = await db.getAll(...entryIds.slice(offset, offset + 100).map((id) => db.doc(`journalEntries/${id}`)));
         for (const entry of snapshots) {
           if (!entry.exists || entry.get("organizationId") !== actor.organizationId || (branchId && entry.get("branchId") !== branchId))
             throw new HttpsError("failed-precondition", "A cash ledger entry has no matching journal in this reporting scope. Reconcile the journal before issuing this statement.");
           typeByEntry.set(entry.id, String(entry.get("journalType") ?? "other"));
+          const activity = entry.get("cashFlowActivity");
+          if (activity !== undefined && !["operating", "investing", "financing"].includes(activity))
+            throw new HttpsError("failed-precondition", "A journal cash-flow classification requires review.");
+          if (activity) activityByEntry.set(entry.id, activity);
         }
       }
       for (const line of cashLines) {
         const journalType = typeByEntry.get(String(line.get("journalEntryId")))!;
-        const section = investingTypes.has(journalType) ? "Investing activities" : financingTypes.has(journalType) ? "Financing activities" : "Operating activities";
+        const activity = activityByEntry.get(String(line.get("journalEntryId")));
+        const section = activity ? ({ operating: "Operating activities", investing: "Investing activities", financing: "Financing activities" } as Record<string, string>)[activity]!
+          : investingTypes.has(journalType) ? "Investing activities" : financingTypes.has(journalType) ? "Financing activities" : "Operating activities";
         grouped.set(section, grouped.get(section)! + Number(line.get("debitMinor") ?? 0) - Number(line.get("creditMinor") ?? 0));
       }
     }, { orderField: "effectiveAt" });

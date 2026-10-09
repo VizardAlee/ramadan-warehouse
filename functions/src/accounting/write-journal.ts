@@ -32,11 +32,15 @@ export function writeJournal(
     referenceNumber: string;
     description: string;
     details?: Record<string, unknown>;
+    manageAccounts?: boolean;
+    cashFlowActivity?: "operating" | "investing" | "financing";
     branchId?: string;
     warehouseId?: string;
     effectiveAt: Timestamp;
     lines: Array<{
       accountCode: string;
+      accountId?: string;
+      bankAccountId?: string;
       accountName?: string;
       debitMinor: number;
       creditMinor: number;
@@ -68,6 +72,7 @@ export function writeJournal(
       referenceNumber: values.referenceNumber,
       description: values.description,
       details: values.details,
+      cashFlowActivity: values.cashFlowActivity,
       totalDebitMinor: values.lines.reduce(
         (sum, line) => sum + line.debitMinor,
         0,
@@ -85,9 +90,9 @@ export function writeJournal(
   );
   for (const line of values.lines) {
     const account = db.doc(
-      `chartOfAccounts/${uniquenessDocumentId(actor.organizationId, line.accountCode)}`,
+      `chartOfAccounts/${line.accountId ?? uniquenessDocumentId(actor.organizationId, line.accountCode)}`,
     );
-    transaction.set(
+    if (values.manageAccounts !== false) transaction.set(
       account,
       {
         organizationId: actor.organizationId,
@@ -111,6 +116,7 @@ export function writeJournal(
         accountId: account.id,
         accountCode: line.accountCode,
         accountName: line.accountName ?? accountNames[line.accountCode] ?? line.accountCode,
+        bankAccountId: line.bankAccountId,
         debitMinor: line.debitMinor,
         creditMinor: line.creditMinor,
         currency: "NGN",

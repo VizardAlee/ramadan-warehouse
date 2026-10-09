@@ -1,5 +1,44 @@
 # Business workflow expansion (24 September 2026 baseline)
 
+## Accountant journals and linked reversals — 9 October 2026 (release validation)
+
+Extends the Accounting hub with a server-paged dated journal register (25/50/100),
+on-demand debit/credit expansion, explicit accountant-adjustment and reversal
+permissions, and non-system Chart of Accounts configuration. Direct administrator
+and finance roles gain the new capabilities; restricted custom bases do not.
+The existing shared journal writer, counters, accounting period locks, company
+financial accounts and audit system are reused; there is no parallel ledger.
+Postings require an active store, date, reference, reason, purpose, safe balanced
+minor units, active NGN ledger accounts and explicit cash-flow classification.
+Bank lines identify one active company account with a unique ledger code; the
+account ID and name remain traceable. Existing account metadata is not upserted
+by accountant postings. Operational inventory/customer/supplier/advance/tax
+controls and derived retained earnings cannot be changed through manual journals.
+Reserved operational account configuration stays in its existing workflow.
+Manual journals can be reversed once, in an open period, including when the
+original period is closed or the original account has since been deactivated.
+Opposite lines and a new journal commit with an additive link and audit; the
+original posted status, values and history remain intact. Automatic journals and
+reversals cannot be reversed through this route. Exact concurrent retries are
+idempotent and uncertain client instructions survive reload/store switching.
+Historical cash-flow grouping is preserved; explicitly classified new manual
+money entries follow their reviewed operating/investing/financing choice.
+Guide and plain-language audit presentation updated. No tax rules activated,
+business records migrated, direct-client ledger writes enabled or IAM checks
+disabled for the new accountingJournals service.
+The two added journal register indexes were deployed; after their CREATING
+phase, all 226 indexes were verified READY and the live planner audit passed
+449/449 with zero missing indexes. Only then was the guarded baseline refreshed.
+Validation passed 359 unit/interface tests across 93 files, 52 distinct
+procurement/banking/accounting/security emulator cases (one Storage-only skip),
+and the expanded five-case manual-journal suite rerun after final guards.
+Typecheck, lint, Functions compilation, production build, secret scan, query
+baseline and diff checks pass. An initial emulator assertion sent an undefined
+bank reference instead of omitting the field; the fixture was corrected and
+the real missing-bank/shared-code denials and successful posting were verified.
+Production release remains pending selected backend and web verification.
+Next: reviewed statutory tax configuration and accountant statement sign-off.
+
 ## Internal company-account transfers — 9 October 2026 (deployed)
 
 Extends Banking and extracts the existing procurement journal writer rather than

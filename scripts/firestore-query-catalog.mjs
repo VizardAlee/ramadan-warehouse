@@ -145,6 +145,7 @@ export function queryCatalog() {
   add("notification inbox/clear all", "notifications", [org], [["occurredAt", "DESCENDING"]], null, "users/index-audit-probe");
   for (const collection of ["branches", "users", "products", "suppliers", "inventoryLocations", "auditLogs", "roles", "bankAccounts", "taxRules", "journalEntries", "journalLines"]) add("organization-scoped client registers", collection, [org]);
   add("daily close cash evidence", "journalLines", eq(["organizationId", "branchId", "accountCode"]), [["__name__", "ASCENDING"]]);
+  for (const scope of [[], [["branchId", "=="]]]) add("paged accounting journal register", "journalEntries", [org, ...scope, ["effectiveAt", ">="], ["effectiveAt", "<="]], dateOrder("effectiveAt"));
   add("daily close stock evidence", "stockCounts", eq(["organizationId", "branchId", "countDate"]), [["__name__", "ASCENDING"]]);
   add("daily close till evidence", "posShifts", eq(["organizationId", "branchId"]), [["__name__", "ASCENDING"]]);
   return [...shapes.values()];

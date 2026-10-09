@@ -4,6 +4,7 @@ import Link from "next/link";
 import { FileBarChart, Landmark, LockKeyhole, Calculator } from "lucide-react";
 import { useAuth } from "@/features/auth/auth-context";
 import { hasPermission } from "@/lib/permissions/roles";
+import { JournalWorkspace } from "@/features/accounting/journal-workspace";
 
 const destinations = [
   { href: "/reports", title: "Financial statements", description: "Income statement, balance sheet, trial balance, and cash-flow draft reports from posted journals.", icon: FileBarChart, permission: "finance.journal.read" as const },
@@ -13,7 +14,8 @@ const destinations = [
 ];
 
 export default function FinancePage() {
-  const { profile } = useAuth();
+  const { profile, user, operatingContext } = useAuth();
+  const branchId = operatingContext?.type === "branch" ? operatingContext.id : profile?.branchIds.length === 1 ? profile.branchIds[0] : undefined;
   const visible = destinations.filter((item) => profile && hasPermission(profile, item.permission) &&
     (item.href !== "/tax" || hasPermission(profile, "sales.read.all")));
   return (
@@ -30,6 +32,9 @@ export default function FinancePage() {
           <span className="mt-1 block text-sm text-[var(--muted)]">{item.description}</span>
         </Link>)}
       </div> : <p className="rounded-xl border bg-white p-5">Your roles do not include accounting access.</p>}
+      {profile && user && hasPermission(profile, "finance.journal.read") && <JournalWorkspace key={`${profile.organizationId}:${user.uid}:${branchId ?? "all"}`}
+        ownerKey={`${profile.organizationId}:${user.uid}`} branchId={branchId}
+        canCreate={hasPermission(profile, "finance.journal.create")} canReverse={hasPermission(profile, "finance.journal.reverse")} canManageAccounts={hasPermission(profile, "finance.accounts.manage")} />}
     </div>
   );
 }
