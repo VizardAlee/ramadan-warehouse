@@ -52,6 +52,8 @@ export function readCachedWorkspace(userId: string, branchId: string) {
 }
 
 export function queueOfflineSale(sale: QueuedPosSale) {
+  if (sale.payload.payments.some(payment => payment.method === "customer_advance"))
+    return Promise.reject(new Error("Customer advances require an online balance check and cannot be queued offline."));
   return transact(queueStore, "readwrite", (store) => store.put(sale));
 }
 

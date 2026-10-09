@@ -153,6 +153,7 @@ export const salePaymentMethods = [
   "card",
   "bank_transfer",
   "exchange_credit",
+  "customer_advance",
 ] as const;
 
 export const saleReturnWorkspaceInput = z.object({
@@ -310,6 +311,9 @@ export const commitSaleInput = z.object({
   notes: z.string().trim().max(500).optional(),
   idempotencyKey: z.string().uuid(),
 }).superRefine((value, context) => {
+  const advances = value.payments.filter(payment => payment.method === "customer_advance");
+  if (advances.length && (value.offline || !value.customerId || advances.length > 1 || advances.some(payment => payment.bankAccountId || payment.reference)))
+    context.addIssue({ code: "custom", path: ["payments"], message: "Use one customer advance component, online, for a named customer. Advances are not new bank receipts." });
   if (value.customerAccountId && !value.customerId)
     context.addIssue({ code: "custom", path: ["customerAccountId"], message: "Select a named customer before choosing an account arrangement." });
   if (value.discountAmountMinor > 0 && !value.discountReason)

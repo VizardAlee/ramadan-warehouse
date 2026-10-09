@@ -823,6 +823,10 @@ describe.sequential("sales callables", () => {
         expect(after.get("onHandQuantity")).toBe(Number(before.get("onHandQuantity")) - (round === 1 ? 0 : 1));
         expect(after.get("reservedQuantity")).toBe(Number(before.get("reservedQuantity")) + (round === 1 ? 1 : 0));
         await expect(call(branchManager, "rejectPosSaleOrder", { orderId: order.orderId, reason: "Cannot reject a posted sale", idempotencyKey: crypto.randomUUID() })).rejects.toMatchObject({ code: "functions/failed-precondition" });
+        if (round === 1) {
+          const item = (await adminDb.collection("saleItems").where("saleId", "==", sale.id).get()).docs[0]!;
+          await call(branchManager, "confirmPosSaleOrder", { action: "collect", saleId: sale.id, lines: [{ saleItemId: item.id, quantity: 1 }], collector: "Atomic race test collector", idempotencyKey: crypto.randomUUID() });
+        }
       }
     }
   });
@@ -1797,6 +1801,97 @@ describe.sequential("sales callables", () => {
     expect((await customer.get()).get("outstandingBalanceMinor")).toBe(0);
     expect((await invoice.get()).get("receivableStatus")).toBe("settled");
     expect(await deliverInAppNotification({ ...reminder.data(), id: `${reminder.id}_retry` } as InboxEvent)).toMatchObject({ delivered: true, providerMessageId: expect.stringContaining("superseded") });
+  });
+
+  it("uses a named arrangement advance in POS split payment only at final confirmation", async () => {
+    const accountId = crypto.randomUUID();
+    const saved = await call<{ customerId: string }>(administrator, "saveCustomer", { name: "POS advance customer", phone: "08077665548", idempotencyKey: crypto.randomUUID() });
+    await call(administrator, "saveCustomer", { customerId: saved.customerId, name: "POS advance customer", phone: "08077665548", arrangement: { id: accountId, name: "Solar project", active: true, reason: "Customer project arrangement" }, idempotencyKey: crypto.randomUUID() });
+    const customer = adminDb.doc(`customers/${saved.customerId}`);
+    await call(administrator, "recordCustomerPayment", { customerId: customer.id, branchId, method: "cash", amountMinor: 10000, purpose: "advance", allocations: [{ accountId, amountMinor: 10000 }], idempotencyKey: crypto.randomUUID() });
+    const deviceId = crypto.randomUUID();
+    const shift = await call<{ shiftId: string }>(branchManager, "openPosShift", { branchId, deviceId, deviceName: "Advance checkout", openingCashMinor: 0, idempotencyKey: crypto.randomUUID() });
+    const workspace = await call<{ products: Array<{ id: string; unitPriceMinor: number; vatRateBasisPoints: number }> }>(branchManager, "getPosWorkspace", { branchId });
+    const product = workspace.products.find(row => row.id === productId)!;
+    const gross = product.unitPriceMinor + Math.round(product.unitPriceMinor * product.vatRateBasisPoints / 10000);
+    const payload = { branchId, shiftId: shift.shiftId, deviceId, customerId: customer.id, customerAccountId: accountId, recordedAt: new Date().toISOString(), offline: false,
+      lines: [{ productId, quantity: 1 }], payments: [{ method: "customer_advance", amountMinor: 5000 }, { method: "cash", amountMinor: gross - 5000 }], idempotencyKey: crypto.randomUUID() };
+    await expect(call(branchManager, "createPosSaleOrder", { ...payload, customerAccountId: "general" })).rejects.toMatchObject({ code: "functions/failed-precondition" });
+    await expect(call(cashier, "commitPosSale", payload)).rejects.toMatchObject({ code: "functions/permission-denied" });
+    const rejected = await call<{ orderId: string }>(branchManager, "createPosSaleOrder", payload);
+    await call(branchManager, "acceptPosSaleOrderPayment", { orderId: rejected.orderId, shiftId: shift.shiftId, deviceId, idempotencyKey: crypto.randomUUID() });
+    expect((await customer.get()).get(`advanceBalances.${accountId}`)).toBe(10000);
+    await call(branchManager, "rejectPosSaleOrder", { orderId: rejected.orderId, reason: "Customer reviewed and changed their order", idempotencyKey: crypto.randomUUID() });
+    expect((await customer.get()).get(`advanceBalances.${accountId}`)).toBe(10000);
+    const order = await call<{ orderId: string }>(branchManager, "createPosSaleOrder", { ...payload, idempotencyKey: crypto.randomUUID() });
+    await call(branchManager, "acceptPosSaleOrderPayment", { orderId: order.orderId, shiftId: shift.shiftId, deviceId, idempotencyKey: crypto.randomUUID() });
+    const balance = adminDb.doc(`inventoryBalances/${balanceDocumentId(organizationId, productId, locationId)}`), before = await balance.get();
+    const confirm = { orderId: order.orderId, deferCollection: true, idempotencyKey: crypto.randomUUID() };
+    const posted = await call<{ saleId: string }>(branchManager, "confirmPosSaleOrder", confirm);
+    expect(await call(branchManager, "confirmPosSaleOrder", confirm)).toMatchObject({ saleId: posted.saleId, posted: false });
+    expect((await customer.get()).data()).toMatchObject({ advanceBalances: { [accountId]: 5000 }, outstandingBalanceMinor: 0 });
+    expect((await balance.get()).get("onHandQuantity")).toBe(before.get("onHandQuantity"));
+    expect((await balance.get()).get("reservedQuantity")).toBe(Number(before.get("reservedQuantity")) + 1);
+    const sale = await adminDb.doc(`sales/${posted.saleId}`).get();
+    expect(sale.data()).toMatchObject({ advanceAmountMinor: 5000, amountPaidMinor: gross, creditAmountMinor: 0, collectionStatus: "awaiting_collection", journalEntryId: expect.any(String) });
+    const payments = await adminDb.collection("salePayments").where("saleId", "==", posted.saleId).get();
+    expect(payments.docs.map(doc => doc.data())).toContainEqual(expect.objectContaining({ method: "customer_advance", amountMinor: 5000, customerId: customer.id, customerAccountId: accountId, ledgerAccountCode: "2210", direction: "non_cash", journalEntryId: sale.get("journalEntryId") }));
+    const journal = await adminDb.collection("journalLines").where("journalEntryId", "==", sale.get("journalEntryId")).get();
+    expect(journal.docs.map(doc => doc.data())).toContainEqual(expect.objectContaining({ accountCode: "2210", debitMinor: 5000, creditMinor: 0 }));
+    expect(journal.docs.reduce((sum, doc) => sum + Number(doc.get("debitMinor")) - Number(doc.get("creditMinor")), 0)).toBe(0);
+    expect((await adminDb.doc(`posShifts/${shift.shiftId}`).get()).data()).toMatchObject({ cashSalesMinor: gross - 5000, nonCashSalesMinor: 0, advanceAppliedMinor: 5000, saleCount: 1 });
+    const entries = await adminDb.collection("customerAccountEntries").where("referenceId", "==", posted.saleId).get();
+    expect(entries.docs.map(doc => doc.data())).toContainEqual(expect.objectContaining({ entryType: "advance_sale", amountMinor: -5000, advanceAmountMinor: -5000, debtAmountMinor: 0, journalEntryId: sale.get("journalEntryId") }));
+    const item = (await adminDb.collection("saleItems").where("saleId", "==", posted.saleId).get()).docs[0]!;
+    const returned = await call<{ returnId: string }>(branchManager, "createSaleReturn", { kind: "reservation_cancellation", branchId, saleId: posted.saleId, lines: [{ saleItemId: item.id, quantity: 1, condition: "restockable" }], resolution: "exchange_credit", reason: "Customer cancelled the reserved advance-funded goods", idempotencyKey: crypto.randomUUID() });
+    await call(branchManager, "approveSaleReturn", { returnId: returned.returnId, idempotencyKey: crypto.randomUUID() });
+    expect((await customer.get()).get(`advanceBalances.${accountId}`)).toBe(5000);
+    expect((await balance.get()).get("reservedQuantity")).toBe(before.get("reservedQuantity"));
+    const mixed = await call<{ orderId: string }>(administrator, "createPosSaleOrder", { ...payload,
+      payments: [{ method: "customer_advance", amountMinor: 2000 }, { method: "cash", amountMinor: 1000 }],
+      creditAmountMinor: gross - 3000, idempotencyKey: crypto.randomUUID() });
+    await call(branchManager, "acceptPosSaleOrderPayment", { orderId: mixed.orderId, shiftId: shift.shiftId, deviceId, idempotencyKey: crypto.randomUUID() });
+    const mixedSale = await call<{ saleId: string }>(branchManager, "confirmPosSaleOrder", { orderId: mixed.orderId, deferCollection: true, idempotencyKey: crypto.randomUUID() });
+    expect((await customer.get()).data()).toMatchObject({ advanceBalances: { [accountId]: 3000 }, outstandingBalanceMinor: gross - 3000, invoiceDebtByAccount: { [accountId]: gross - 3000 } });
+    expect((await customer.get()).get("arrangements")).toContainEqual(expect.objectContaining({ id: accountId, outstandingBalanceMinor: gross - 3000 }));
+    expect((await adminDb.doc(`sales/${mixedSale.saleId}`).get()).get("receivableOutstandingMinor")).toBe(gross - 3000);
+    const mixedItem = (await adminDb.collection("saleItems").where("saleId", "==", mixedSale.saleId).get()).docs[0]!;
+    await call(branchManager, "confirmPosSaleOrder", { action: "collect", saleId: mixedSale.saleId, lines: [{ saleItemId: mixedItem.id, quantity: 1 }], collector: "Advance plus credit test collector", idempotencyKey: crypto.randomUUID() });
+  });
+
+  it("prevents POS confirmations and an advance refund from spending the same money", async () => {
+    const saved = await call<{ customerId: string }>(administrator, "saveCustomer", { name: "POS advance race", phone: "08077665549", idempotencyKey: crypto.randomUUID() });
+    const customer = adminDb.doc(`customers/${saved.customerId}`);
+    const workspace = await call<{ products: Array<{ id: string; unitPriceMinor: number; vatRateBasisPoints: number }> }>(branchManager, "getPosWorkspace", { branchId });
+    const product = workspace.products.find(row => row.id === productId)!;
+    const gross = product.unitPriceMinor + Math.round(product.unitPriceMinor * product.vatRateBasisPoints / 10000);
+    await call(administrator, "recordCustomerPayment", { customerId: customer.id, branchId, method: "cash", amountMinor: gross, purpose: "advance", idempotencyKey: crypto.randomUUID() });
+    const deviceId = crypto.randomUUID();
+    const shift = await call<{ shiftId: string }>(branchManager, "openPosShift", { branchId, deviceId, deviceName: "Advance race", openingCashMinor: 0, idempotencyKey: crypto.randomUUID() });
+    const orders: string[] = [];
+    for (let index = 0; index < 2; index++) {
+      const order = await call<{ orderId: string }>(branchManager, "createPosSaleOrder", { branchId, shiftId: shift.shiftId, deviceId, customerId: customer.id, recordedAt: new Date().toISOString(), offline: false, lines: [{ productId, quantity: 1 }], payments: [{ method: "customer_advance", amountMinor: gross }], idempotencyKey: crypto.randomUUID() });
+      await call(branchManager, "acceptPosSaleOrderPayment", { orderId: order.orderId, shiftId: shift.shiftId, deviceId, idempotencyKey: crypto.randomUUID() });
+      orders.push(order.orderId);
+    }
+    const results = await Promise.allSettled([
+      ...orders.map(orderId => call(branchManager, "confirmPosSaleOrder", { orderId, deferCollection: true, idempotencyKey: crypto.randomUUID() })),
+      call(branchManager, "recordCustomerPayment", { customerId: customer.id, branchId, method: "cash", amountMinor: gross, purpose: "advance_refund", notes: "Return the unused customer advance", idempotencyKey: crypto.randomUUID() }),
+    ]);
+    expect(results.filter(result => result.status === "fulfilled")).toHaveLength(1);
+    expect((await customer.get()).get("advanceBalances.general")).toBe(0);
+    const entries = await adminDb.collection("customerAccountEntries").where("customerId", "==", customer.id).get();
+    expect(entries.docs.filter(doc => ["advance_sale", "advance_refund"].includes(doc.get("entryType")))).toHaveLength(1);
+    for (const orderId of orders) {
+      const order = await adminDb.doc(`salesOrders/${orderId}`).get();
+      if (order.get("status") !== "completed") {
+        expect(order.get("status")).toBe("payment_accepted");
+        await call(branchManager, "rejectPosSaleOrder", { orderId, reason: "Advance consumed by the winning transaction", idempotencyKey: crypto.randomUUID() });
+      } else {
+        const item = (await adminDb.collection("saleItems").where("saleId", "==", order.get("saleId")).get()).docs[0]!;
+        await call(branchManager, "confirmPosSaleOrder", { action: "collect", saleId: order.get("saleId"), lines: [{ saleItemId: item.id, quantity: 1 }], collector: "Advance race test collector", idempotencyKey: crypto.randomUUID() });
+      }
+    }
   });
 
   it("refunds unused customer advances atomically without changing debt, invoices or stock", async () => {

@@ -231,7 +231,7 @@ export default function PosPage() {
   const splitValid = paymentMethod !== "split" || (
     splitPayments.length >= 2 && splitPayments.length <= 5 &&
     splitAmounts.every((amount) => amount > 0) &&
-    splitPayments.every((payment) => payment.method === "cash" || Boolean(payment.bankAccountId)) &&
+    splitPayments.every((payment) => ["cash", "customer_advance"].includes(payment.method) || Boolean(payment.bankAccountId)) &&
     (splitAllowCredit ? splitPaidMinor < totals.grossAmountMinor : splitPaidMinor === totals.grossAmountMinor)
   );
   const creditAmountMinor =
@@ -243,6 +243,12 @@ export default function PosPage() {
   const selectedCustomer = workspace?.customers.find(
     (customer) => customer.id === customerId,
   );
+  const availableAdvanceMinor = selectedCustomer?.advanceBalances?.[customerAccountId] ?? 0;
+  const advanceComponents = paymentMethod === "customer_advance" ? 1
+    : paymentMethod === "split" ? splitPayments.filter(payment => payment.method === "customer_advance").length : 0;
+  const requestedAdvanceMinor = paymentMethod === "customer_advance" ? totals.grossAmountMinor
+    : paymentMethod === "split" ? splitPayments.reduce((sum, payment, index) => sum + (payment.method === "customer_advance" ? Math.max(0, splitAmounts[index]!) : 0), 0) : 0;
+  const advanceValid = advanceComponents === 0 || (advanceComponents === 1 && online && Boolean(selectedCustomer) && requestedAdvanceMinor > 0 && requestedAdvanceMinor <= availableAdvanceMinor);
   const creditIsAuthorized = Boolean(selectedCustomer &&
     (canGrantCreditDirectly ||
       (selectedCustomer.creditStatus === "approved" &&
@@ -710,6 +716,10 @@ export default function PosPage() {
       setError("Split payments must have positive amounts that total the sale, and each card or transfer needs a company bank account. For customer credit, the paid amount must be below the total.");
       return;
     }
+    if (!advanceValid) {
+      setError("Connect online, select a named customer and use no more than the unused advance on their selected account. Use only one advance component.");
+      return;
+    }
     if (paymentMethod === "split" && splitAllowCredit && (!online || !canCreateCredit || !customerId || !creditIsAuthorized)) {
       setError("Select a named customer with available credit and connect to the internet before leaving a split-payment balance due.");
       return;
@@ -806,8 +816,8 @@ export default function PosPage() {
           ? splitPayments.map((payment, index) => ({
               method: payment.method,
               amountMinor: splitAmounts[index]!,
-              reference: payment.reference.trim() || undefined,
-              bankAccountId: payment.bankAccountId || undefined,
+              reference: payment.method === "customer_advance" ? undefined : payment.reference.trim() || undefined,
+              bankAccountId: ["card", "bank_transfer"].includes(payment.method) ? payment.bankAccountId || undefined : undefined,
             }))
         : paymentMethod === "customer_credit"
           ? creditPaidAmountMinor > 0
@@ -820,6 +830,8 @@ export default function PosPage() {
                 },
               ]
             : []
+          : paymentMethod === "customer_advance"
+            ? [{ method: "customer_advance" as const, amountMinor: totals.grossAmountMinor }]
           : paymentMethod === "exchange_credit"
             ? [
                 {
@@ -1882,9 +1894,15 @@ export default function PosPage() {
                   <option value="bank_transfer">Bank transfer</option>
                   <option value="split">Split across payment methods</option>
                   <option value="exchange_credit" disabled={!online}>Exchange credit</option>
+                  <option value="customer_advance" disabled={!online || !selectedCustomer}>Customer advance</option>
                 </select>
               </label>
             )}
+            {selectedCustomer && <div className="mt-3 rounded-xl border bg-blue-50 p-3 text-sm">
+              <div className="flex justify-between gap-2"><span>Unused advance on this customer account</span><strong className="finance-balance">{formatNaira(availableAdvanceMinor)}</strong></div>
+              <p className="mt-1 text-xs">Money already received. It is deducted only at final confirmation, not when the order is held or received. Connect online to use it; split payment allows a cash, card or transfer top-up.</p>
+              {!advanceValid && <p className="mt-2 font-medium text-red-800">Use one advance component within this account balance, online. Refresh balances if they have changed.</p>}
+            </div>}
             {paymentMethod === "split" ? (
               <div className="mt-3 space-y-3 rounded-xl border border-indigo-200 bg-indigo-50 p-3">
                 <p className="text-sm font-semibold">Split payment</p>
@@ -1892,13 +1910,13 @@ export default function PosPage() {
                   <div key={payment.id} className="grid gap-2 rounded-lg border bg-white p-3 sm:grid-cols-2">
                     <label className="text-sm font-medium">Method {index + 1}
                       <select value={payment.method} onChange={(event) => setSplitPayments((items) => items.map((item) => item.id === payment.id ? { ...item, method: event.target.value as SplitPaymentDraft["method"], bankAccountId: "" } : item))} className="mt-1 w-full rounded-lg border p-2.5">
-                        <option value="cash">Cash</option><option value="bank_transfer">Bank transfer</option><option value="card">Card / POS terminal</option>
+                        <option value="cash">Cash</option><option value="bank_transfer">Bank transfer</option><option value="card">Card / POS terminal</option><option value="customer_advance" disabled={!online || !selectedCustomer}>Customer advance</option>
                       </select>
                     </label>
                     <label className="text-sm font-medium">Amount (₦)
                       <input type="number" inputMode="decimal" min="0.01" step="0.01" value={payment.amount} onChange={(event) => setSplitPayments((items) => items.map((item) => item.id === payment.id ? { ...item, amount: event.target.value } : item))} className="mt-1 w-full rounded-lg border p-2.5" placeholder="0.00" />
                     </label>
-                    {payment.method !== "cash" && <>
+                    {["card", "bank_transfer"].includes(payment.method) && <>
                       <label className="text-sm font-medium">Company bank account
                         <select value={payment.bankAccountId} onChange={(event) => setSplitPayments((items) => items.map((item) => item.id === payment.id ? { ...item, bankAccountId: event.target.value } : item))} className="mt-1 w-full rounded-lg border p-2.5">
                           <option value="">Select account</option>
@@ -2040,7 +2058,7 @@ export default function PosPage() {
                   the difference is recorded as cash. For other payment methods, use the payment-recording step in Awaiting action. For a cheaper replacement, refund the unused credit from Posted returns or keep it for later.
                 </span>
               </label>
-            ) : paymentMethod !== "cash" ? (
+            ) : ["card", "bank_transfer"].includes(paymentMethod) ? (
               <div className="mt-3 grid gap-3 sm:grid-cols-2">
                 <label className="block text-sm font-medium">
                   Company bank account
@@ -2087,6 +2105,7 @@ export default function PosPage() {
                 (paymentMethod === "exchange_credit" &&
                   (!online || !paymentReference)) ||
                 !splitValid ||
+                !advanceValid ||
                 (paymentMethod === "split" && splitAllowCredit && (!online || !canCreateCredit || !customerId || !creditIsAuthorized)) ||
                 ((["card", "bank_transfer"].includes(paymentMethod) ||
                   (paymentMethod === "customer_credit" &&

@@ -10,7 +10,7 @@ import { readSaleSerials, serialCost, changeSaleSerials, writeSaleSerialEntries 
 import { uploadCollectionPhoto, uploadCollectionPhotoInput, readCollectionPhoto, readCollectionPhotoInput } from "../sales/collection-evidence.js";
 import { resolveCatalogPrice } from "../sales/pricing.js";
 import { customerArrangements, selectedArrangement, changeArrangementBalance } from "../sales/customer-arrangements.js";
-import { changeMoneyBalance, UNDATED_DEBT } from "../sales/receivables.js";
+import { changeMoneyBalance, moneyBalances, UNDATED_DEBT } from "../sales/receivables.js";
 import { bankAccountSummary, resolveSettlementAccount } from "../accounting/settlement-account.js";
 import { writeAuditLog } from "../audit/write-audit-log.js";
 import {
@@ -57,6 +57,7 @@ const accountNames: Readonly<Record<string, string>> = {
   "1200": "Inventory asset",
   "2100": "VAT payable",
   "2200": "Customer exchange credits",
+  "2210": "Customer advances",
   "4000": "Sales revenue",
   "5000": "Cost of goods sold",
 };
@@ -66,6 +67,7 @@ const paymentAccount: Readonly<Record<string, string>> = {
   card: "1020",
   bank_transfer: "1030",
   exchange_credit: "2200",
+  customer_advance: "2210",
 };
 
 function clean(values: Record<string, unknown>) {
@@ -498,6 +500,7 @@ export const getPosWorkspace = onCall(
         name: customer.get("name"),
         pricingTier: customer.get("pricingTier") ?? "retail",
         arrangements: customerArrangements(customer.data()),
+        advanceBalances: moneyBalances(customer.get("advanceBalances")),
         phone: customer.get("phone") ?? null,
         creditStatus: customer.get("creditStatus") ?? "pending",
         creditLimitMinor: Number(customer.get("creditLimitMinor") ?? 0),
@@ -1055,6 +1058,9 @@ export const createPosSaleOrder = onCall(
       if (input.customerId && (!customerSnapshot!.exists || customerSnapshot!.get("organizationId") !== actor.organizationId || customerSnapshot!.get("active") !== true))
         throw new HttpsError("failed-precondition", "Select an active customer from this organization.");
       const customerAccount = input.customerId ? selectedArrangement(customerSnapshot!.data()!, input.customerAccountId) : null;
+      const advanceAmount = input.payments.find(payment => payment.method === "customer_advance")?.amountMinor ?? 0;
+      if (advanceAmount > (moneyBalances(customerSnapshot!.get("advanceBalances"))[customerAccount?.id ?? "general"] ?? 0))
+        throw new HttpsError("failed-precondition", "The selected customer arrangement has insufficient unused advance. Refresh customer balances.");
       if (input.creditAmountMinor > 0) {
         if (!customerSnapshot!.exists ||
           customerSnapshot!.get("organizationId") !== actor.organizationId ||
@@ -1307,6 +1313,8 @@ async function postPosSale(
   workflowOrder?: { id: string; confirmationIdempotencyKey: string },
 ) {
   requirePermission(actor, "sales.create");
+  if (input.payments.some(payment => payment.method === "customer_advance"))
+    requirePermission(actor, "sales.payment.confirm");
   if (
     !allowWorkflowShift &&
     !input.offline &&
@@ -1497,6 +1505,9 @@ async function postPosSale(
           "Select an active customer from this organization.",
         );
       const customerAccount = input.customerId ? selectedArrangement(customerSnapshot.data()!, input.customerAccountId) : null;
+      const advanceAmount = input.payments.find(payment => payment.method === "customer_advance")?.amountMinor ?? 0;
+      const advanceBalances = advanceAmount > 0
+        ? changeMoneyBalance(customerSnapshot.get("advanceBalances"), customerAccount!.id, -advanceAmount) : null;
       if (input.creditAmountMinor > 0) {
         const administratorAuthorized = hasRole(actor, "system_administrator") ||
           (allowWorkflowShift && Boolean(workflowCreditAuthorization?.authorizedBy) &&
@@ -1530,6 +1541,8 @@ async function postPosSale(
           return { accountCode: "1010", accountName: accountNames["1010"]! };
         if (payment.method === "exchange_credit")
           return { accountCode: "2200", accountName: accountNames["2200"]! };
+        if (payment.method === "customer_advance")
+          return { accountCode: "2210", accountName: accountNames["2210"]! };
         if (!payment.bankAccountId && (allowWorkflowShift || input.offline))
           return {
             accountCode: paymentAccount[payment.method]!,
@@ -1721,6 +1734,7 @@ async function postPosSale(
         saleNumber,
         receiptNumber,
         salesOrderId: workflowOrder?.id,
+        journalEntryId: journal.id,
         exchangeReturnIds: input.payments.flatMap((payment, index) => payment.method === "exchange_credit" ? [salesCreditSnapshots[index]!.get("returnId")] : []),
         exchangeOriginalSaleIds: input.payments.flatMap((payment, index) => payment.method === "exchange_credit" ? [salesCreditSnapshots[index]!.get("saleId")] : []),
         provisionalReceiptReference: input.provisionalReceiptReference,
@@ -1755,6 +1769,7 @@ async function postPosSale(
               creditAuthorizedBy: workflowCreditAuthorization?.authorizedBy ?? actor.userId }
           : {}),
         amountPaidMinor: calculated.grossAmountMinor - input.creditAmountMinor,
+        advanceAmountMinor: advanceAmount,
         ...(input.creditAmountMinor > 0 ? { receivableVersion: 1, receivableOutstandingMinor: input.creditAmountMinor, receivableStatus: "open", receivableDueDate: input.creditDueDate ?? UNDATED_DEBT, receivablePaidMinor: calculated.grossAmountMinor - input.creditAmountMinor, receivableCreditedMinor: 0 } : {}),
         source: input.offline ? "offline_sync" : "online_pos",
         subtotalAmountMinor: calculated.subtotalAmountMinor,
@@ -1966,6 +1981,7 @@ async function postPosSale(
           method: payment.method,
           amountMinor: payment.amountMinor,
           reference: payment.reference,
+          ...(payment.method === "customer_advance" ? { customerId: customer.id, customerAccountId: customerAccount!.id, customerAccountName: customerAccount!.name, journalEntryId: journal.id, direction: "non_cash" } : {}),
           ...(payment.method === "exchange_credit" ? { returnId: salesCreditSnapshots[index]!.get("returnId"), originalSaleId: salesCreditSnapshots[index]!.get("saleId") } : {}),
           bankAccountId: settlement.bankAccountId,
           bankName: settlement.bankName,
@@ -2027,6 +2043,17 @@ async function postPosSale(
           createdBy: actor.userId,
         });
       }
+      if (advanceBalances) {
+        transaction.update(customer, { advanceBalances, updatedAt: now, updatedBy: actor.userId });
+        transaction.create(db.collection("customerAccountEntries").doc(), {
+          organizationId: actor.organizationId, branchId: input.branchId, customerId: customer.id,
+          entryType: "advance_sale", customerAccountId: customerAccount!.id, customerAccountName: customerAccount!.name,
+          referenceType: "sale", referenceId: sale.id, referenceNumber: saleNumber, journalEntryId: journal.id,
+          amountMinor: -advanceAmount, advanceAmountMinor: -advanceAmount, debtAmountMinor: 0,
+          balanceAfterMinor: Number(customerSnapshot.get("outstandingBalanceMinor") ?? 0) + input.creditAmountMinor,
+          advanceBalancesAfter: advanceBalances, currency: "NGN", effectiveAt: recordedAt, createdAt: now, createdBy: actor.userId,
+        });
+      }
       transaction.create(journal, {
         organizationId: actor.organizationId,
         branchId: input.branchId,
@@ -2082,7 +2109,8 @@ async function postPosSale(
         nonCashSalesMinor:
           Number(shiftSnapshot.get("nonCashSalesMinor") ?? 0) +
           input.payments.reduce((sum, payment) => sum + payment.amountMinor, 0) -
-          cashAmount,
+          cashAmount - advanceAmount,
+        advanceAppliedMinor: Number(shiftSnapshot.get("advanceAppliedMinor") ?? 0) + advanceAmount,
         creditSalesMinor:
           Number(shiftSnapshot.get("creditSalesMinor") ?? 0) +
           input.creditAmountMinor,
@@ -2141,6 +2169,8 @@ async function postPosSale(
           discountReason: input.discountReason ?? null,
           customerId: input.customerId ?? null,
           creditAmountMinor: input.creditAmountMinor,
+          advanceAmountMinor: advanceAmount,
+          ...(advanceBalances ? { advanceBalancesAfter: advanceBalances } : {}),
           ...(input.creditAmountMinor > 0 &&
             (workflowCreditAuthorization?.authorizedBy || hasRole(actor, "system_administrator"))
             ? { creditAuthorizationType: "administrator_direct",

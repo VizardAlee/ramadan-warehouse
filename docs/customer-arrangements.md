@@ -47,9 +47,20 @@ customer-advance liability (2210), not sales income or accrued expenses (2300).
 To apply it, open Payment, choose Apply previously received advance and select
 the invoice/arrangement. This debits 2210 and credits receivables (1100), without
 another cash receipt. Insufficient advances and overpaid invoices are rejected.
-Customer-wide credit authorization still applies when receiving a credit order;
-advance application is currently a subsequent customer-account action, not a
-direct POS tender. Unused advance refunds remain a later controlled workflow.
+Customer-wide credit authorization still applies when receiving a credit order.
+POS also supports full payment from an unused advance, or one advance component
+alongside cash, card, transfer and authorized credit. Select the named customer
+and arrangement. A live balance check is required: advances cannot be queued
+offline. Holding, receiving, accepting or rejecting an order does not spend the
+advance. Final confirmation atomically consumes it and links the sale, payment,
+journal and account entry. It is not another cash/bank receipt. Competing sales,
+debt applications and refunds cannot spend the same balance twice.
+
+Use Refund unused advance for money owed back to the customer, with a reason
+and the paying company account/reference for non-cash refunds. Refunds debit
+2210 and credit the money account; they do not change invoice debt or inventory.
+Returns from advance-funded sales follow the normal authorized refund/exchange
+workflow and do not also replenish the advance balance.
 
 The existing scheduled notification worker scans due invoices in resumable
 25-record pages per organization. Due-today alerts are deduplicated per date;
@@ -61,5 +72,5 @@ This requires the existing scheduled-functions feature flag and delivery worker.
 
 No historical sale/payment is backfilled or reassigned. Legacy debt remains
 explicitly unallocated; historical migration requires verified evidence and a
-separate reconciliation plan. Arrangement-filtered statements, unused-advance
-refunds, direct POS advance tender and historical corrections remain roadmap work.
+separate reconciliation plan. Arrangement-filtered statements and historical
+corrections remain roadmap work.

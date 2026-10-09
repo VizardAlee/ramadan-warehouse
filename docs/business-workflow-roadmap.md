@@ -1,6 +1,30 @@
 # Business workflow expansion (24 September 2026 baseline)
 
-## Atomic sales-order confirmation — 9 October 2026 (implementation)
+## POS customer advance tender — 9 October 2026 (implementation)
+
+Extends the existing POS payment components and customer arrangement balances.
+Full-advance payment or one advance component alongside cash/card/transfer and
+authorized credit is supported online. Order receiving validates current funds
+but holding/receiving/accepting/rejecting does not spend them. Final confirmation
+atomically debits advance liability 2210, deducts the selected arrangement's
+unused balance, and posts the sale, reservation/release, journal and audit.
+The shared customer transaction prevents competing sales, debt applications and
+refunds from overspending. Advance tender is not a new bank/till receipt; shift
+advance usage is tracked separately from fresh non-cash collections. History
+links the advance application to the sale/journal. Offline advance queueing is
+blocked; quantity-tracked cash/card offline functionality is retained. Returns
+use their existing authorized refund/exchange workflow, without also restoring
+the advance. Additive fields only; no historical migration or new permissions.
+New sales also retain the direct journal ID, preserving the reverse journal-to-sale
+reference. Final validation passed 333 unit/interface tests and all 61 emulator
+sales/accounting/Firestore/Storage security cases (394 distinct tests), typecheck,
+lint, Functions compilation, production build, secret scan and diff checks.
+The first final run exposed the missing direct journal link; the additive fix
+and full rerun passed. A test reservation fixture was also isolated correctly.
+Live planner audit passed 441/441 with all 224 indexes READY; no new query shapes
+or indexes. Deployment verification pending. Next: arrangement statements.
+
+## Atomic sales-order confirmation — 9 October 2026 (deployed)
 
 Safety dependency before direct POS advance tender. Final confirmation now reads
 the accepted order and posts its completion, sale, stock/reservation, journal,
@@ -18,8 +42,15 @@ checks. The initial emulator run used an earlier compiled function for the final
 legacy-reference assertion; rebuilding and the clean sequential full rerun
 passed. Live planner audit passed 441/441 with all 224 indexes READY; unchanged
 query catalog, guarded source baseline refreshed after readiness verification.
-Release in progress; not yet deployed. POS advance tender remains next,
-followed by arrangement statements.
+Release proof for source `f0113c8`: Firebase explicitly completed both affected
+functions. `commitpossale-00017-nag` and `confirmpossaleorder-00018-zaj` are ACTIVE,
+production mode, App Check enabled, 100% traffic and reconciling false. Existing
+invoker settings and runtime service account unchanged. One initial deployment
+failed before upload checking a Google service identity; retry succeeded.
+Both endpoints reject unauthenticated requests with Firebase HTTP 401.
+No web source changed, no new indexes/IAM relaxation or real financial mutations.
+Authorized financial behavior was tested in emulators. POS advance tender is
+next, followed by arrangement statements.
 
 ## Customer unused-advance refunds — 9 October 2026 (deployed)
 

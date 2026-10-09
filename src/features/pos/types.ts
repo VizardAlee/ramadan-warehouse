@@ -1,15 +1,16 @@
-export type PosPaymentMethod = "cash" | "card" | "bank_transfer" | "exchange_credit";
+export type PosPaymentMethod = "cash" | "card" | "bank_transfer" | "exchange_credit" | "customer_advance";
 export type PosCheckoutMethod = PosPaymentMethod | "customer_credit" | "split";
 
 export interface SplitPaymentDraft {
   id: string;
-  method: "cash" | "card" | "bank_transfer";
+  method: "cash" | "card" | "bank_transfer" | "customer_advance";
   amount: string;
   reference: string;
   bankAccountId: string;
 }
 
 export interface PosCustomer {
+  advanceBalances?: Record<string, number>;
   arrangements?: import("@/types/domain").CustomerArrangement[];
   id: string;
   customerNumber: string;

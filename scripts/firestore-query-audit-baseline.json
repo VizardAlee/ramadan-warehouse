@@ -1,7 +1,7 @@
 {
   "lastLiveAudit": {
     "project": "ramadan-warehouse-staging",
-    "verifiedAt": "2026-10-09T13:27:40.385Z",
+    "verifiedAt": "2026-10-09T14:30:26.273Z",
     "queryShapes": 441,
     "unsupportedQueries": 0,
     "readyIndexes": 224,
@@ -38,7 +38,7 @@
     "functions/src/callable/reverse-inventory.ts": "8c95b039d7985210fbc7e41330cdd9286dc4dd384730eb19f6ad3996979048e9",
     "functions/src/callable/sales-corrections.ts": "6a81ad6d02442729f5a390a4184739fd4f3f3a450b8951e51c543a09bcdd95ff",
     "functions/src/callable/sales-returns.ts": "554ea6865dde83ad7f589ef27324a1904f5fba9e45dd0bf260b777981679b3c8",
-    "functions/src/callable/sales.ts": "374779d2d89befd63e2bf0da68bdfd979b3d6ac29c683a57636d463d1f372dfa",
+    "functions/src/callable/sales.ts": "4472053b6d0ec32f7b4d2742b873a4d36e9e1ef4f940eadb36b99fa2c77d6a5c",
     "functions/src/callable/stock-counts.ts": "319e73fba41579383a5fd615a2f60e90e77c7bc86613d6446a07c5c040adc49d",
     "functions/src/callable/stock-transfers.ts": "53ca1615e1a291f797688d0a2cf2fec6c3543e3d07da4c75c483d9dc5f026953",
     "functions/src/callable/transfers.ts": "40f6059886b760b10f6dcec2f08ad3b53070db51b384454d8eb96fe58de59497",
@@ -68,7 +68,7 @@
     "src/app/(protected)/hr/page.tsx": "888d986dc8942cf59b15deaf16d3d1f3f82fd5168f27d987fc1647f85c5ce614",
     "src/app/(protected)/inventory/counts/page.tsx": "9291e66ef5acef6ef6cf84858f0232837e4d7b4cedbfcf8fe0ff397b08abbe39",
     "src/app/(protected)/inventory/page.tsx": "587c809b9be1fb0c4975f08de51131ae3448023b20ee862b71e81b2802998be0",
-    "src/app/(protected)/pos/page.tsx": "c46c26ff33e704e0f19c409aaf299f7910c52dc62a1a261c575ab6376437ec23",
+    "src/app/(protected)/pos/page.tsx": "958ae6bf3892e2e0bbe0b8866cac8feafe8c92c5677d066fe2abbe20b5122ff4",
     "src/app/(protected)/products/[product_id]/page.tsx": "0ffacf745447de1e98afe81b4a0007f9b0df154e14ece329c0be5ad7b3fef821",
     "src/app/(protected)/products/categories/page.tsx": "825f82bca475cc5200fc2784bd8acf166ee06bbbe9eccee26aa7ef6bec1599f3",
     "src/app/(protected)/products/page.tsx": "b1ac15eb81c5306df10347d00f810ef398e1dc3592f7bdad4b1fcba7875e223f",
