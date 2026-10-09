@@ -2,7 +2,7 @@
 
 This roadmap extends the existing Firebase application and preserves historical users, stock entries, sales, journals and audit records. A requested capability is not marked complete merely because a screen or a partial workflow exists.
 
-### Posted-order corrections — 9 October 2026 (validated; release blocked on scoped IAM approval)
+### Posted-order corrections — 9 October 2026 (deployed; full-reissue scope)
 
 Returns now has an expandable full return/cancellation-and-reissue correction
 register, with original/proposed snapshots, reasons, permission-scoped review,
@@ -23,20 +23,27 @@ duplicate requests, mismatched replacements, unbalanced journals and replay-safe
 completion. Typecheck, lint (including final changed-file checks), Functions
 compilation, production build, secret scan and diff checks passed. All 224 live
 indexes are READY and 439/439 live query plans passed; no new index was needed.
-The guarded query-audit baseline has been refreshed. Deployment remains pending;
+The guarded query-audit baseline has been refreshed;
 no signed-in live financial posting or real-data migration was performed.
 
-Release checkpoint: implementation `e973764` is pushed. Firebase created
-`salesCorrections` as ACTIVE revision `salescorrections-00001-rar`, with
-APP_ENV=production and App Check enabled, but the deploy exited with an invoker
-IAM-policy error. Cloud Run reports `invokerIamDisabled=false`; the public probe
-returns HTTP 403 before callable authentication. No IAM override was applied.
-Rules and the new interface have not been deployed. App Hosting still serves
-`build-2026-10-08-008` at 100% traffic, not reconciling. Owner approval is required
-to disable Cloud Run invoker IAM checks for this new service only; Firebase Auth,
-App Check and permission/scope checks must remain enforced. Then verify callable
-availability, deploy rules/web and wait for explicit rollout completion. This is
-not a completed release. No real financial/stock records were modified.
+Release verified: implementation `e973764` and source checkpoint `957778e` are
+pushed. The initial Function creation reached ACTIVE but failed to set public
+invoker IAM policy. The owner subsequently explicitly approved disabling Cloud
+Run invoker IAM checks for `salesCorrections` only. That scoped update completed
+successfully; Cloud Run revision `salescorrections-00002-swm` is ready, with
+invokerIamDisabled=true, APP_ENV=production and App Check enabled. No other
+service IAM settings were changed. The public callable probe now returns
+Firebase JSON HTTP 401 UNAUTHENTICATED, not the preceding IAM HTTP 403. Firebase
+Auth and server permission/scope checks remain in place. Authorized workflow
+behavior is covered by emulator tests, not a signed-in live financial posting.
+
+Firestore rules compiled and were released. Firebase explicitly reported the
+App Hosting rollout and deployment complete. `build-2026-10-09-001` is READY,
+serves 100% traffic and is no longer reconciling. Returns, POS and the guide each
+return HTTP 200; the served Returns JavaScript contains the new correction
+interface and callable. All 224 indexes remain READY. No real financial/stock
+records were modified during verification. The changes are additive and do not
+rewrite historical stock, sale, journal or audit records.
 
 Scope remains partial: standalone monetary debit/credit notes, payment-only or
 serial/delivery amendments, partial correction plans and automated held-stock
