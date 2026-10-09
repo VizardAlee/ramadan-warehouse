@@ -5,9 +5,10 @@ export interface CustomerHistoryCursor {
 }
 
 export interface CustomerHistory {
+  statement?: { accountId: string | null; accountName: string; outstandingMinor: number; advanceMinor: number; asOf: string; scannedCount: number };
   bankAccounts?: Array<{ id: string; bankName: string; accountName: string; accountNumberLast4: string }>;
   customer: { id: string; name: string; customerNumber: string; creditStatus: string; creditLimitMinor: number; outstandingBalanceMinor: number; availableCreditMinor: number; advanceBalances?: Record<string, number>; arrangements?: import("@/types/domain").CustomerArrangement[] };
-  rows: Array<{ id: string; kind: string; reference: string; branchId: string; amountMinor: number; detail: string; at: string | null; accountName?: string; invoiceAllocations?: Array<{ saleId: string; saleNumber: string; amountMinor: number }>; allocations?: Array<{ accountId: string; accountName: string; amountMinor: number }> }>;
+  rows: Array<{ id: string; kind: string; reference: string; branchId: string; amountMinor: number; detail: string; at: string | null; accountName?: string; journalEntryId?: string | null; debtChangeMinor?: number | null; advanceChangeMinor?: number | null; needsReview?: boolean; invoiceAllocations?: Array<{ saleId: string; saleNumber: string; amountMinor: number }>; allocations?: Array<{ accountId: string; accountName: string; amountMinor: number }> }>;
   moreAvailable: boolean;
   nextCursor: CustomerHistoryCursor | null;
 }

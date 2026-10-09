@@ -122,8 +122,9 @@ export const customerPaymentInput = z.object({
 });
 
 export const customerHistoryInput = z.object({
-  view: z.enum(["activity", "receivables"]).default("activity"),
+  view: z.enum(["activity", "receivables", "statement"]).default("activity"),
   customerId: id,
+  customerAccountId: id.optional(),
   branchId: id.optional(),
   limit: z.number().int().min(1).max(100).default(50),
   cursor: z.object({

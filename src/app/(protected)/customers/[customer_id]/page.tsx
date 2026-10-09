@@ -12,6 +12,7 @@ import { formatNaira } from "@/features/inventory/format";
 import { hasPermission } from "@/lib/permissions/roles";
 import type { Branch } from "@/types/domain";
 import { CustomerReceivablesPanel } from "@/features/customers/receivables-panel";
+import { CustomerAccountStatement } from "@/features/customers/account-statement";
 
 export default function CustomerHistoryPage() {
   const { customer_id: customerId } = useParams<{ customer_id: string }>();
@@ -20,13 +21,16 @@ export default function CustomerHistoryPage() {
   const canRead = Boolean(profile && hasPermission(profile, "customers.read"));
   const canAllStores = Boolean(profile && hasPermission(profile, "sales.read.all"));
   const [selectedBranchId, setSelectedBranchId] = useState("");
+  const [view, setView] = useState<"activity" | "statement">("activity");
+  const [accountId, setAccountId] = useState("");
+  const [arrangementOptions, setArrangementOptions] = useState<NonNullable<CustomerHistory["customer"]["arrangements"]>>([]);
   const branchId = canAllStores ? selectedBranchId : selectedBranchId || (operatingContext?.type === "branch" ? operatingContext.id : accessProfile?.branchIds[0] ?? "");
   const [pageSize, setPageSize] = useState(25);
   const [pageStarts, setPageStarts] = useState<(CustomerHistoryCursor | null)[]>([null]);
   const [response, setResponse] = useState<{ key: string; result?: CustomerHistory; error?: string } | null>(null);
   const requestVersion = useRef(0);
   const cursor = pageStarts.at(-1) ?? null;
-  const queryKey = JSON.stringify([customerId, branchId, pageSize, cursor, canRead]);
+  const queryKey = JSON.stringify([customerId, branchId, pageSize, cursor, canRead, view, accountId]);
   const currentResponse = response?.key === queryKey ? response : null;
   const result = currentResponse?.result;
   const loading = !currentResponse;
@@ -37,16 +41,21 @@ export default function CustomerHistoryPage() {
     const version = ++requestVersion.current;
     void callAdministration<object, CustomerHistory>("getCustomerHistory", {
       customerId,
+      view,
+      customerAccountId: view === "statement" ? accountId || undefined : undefined,
       branchId: branchId || undefined,
       limit: pageSize,
       cursor: cursor || undefined,
     }).then((value) => {
-      if (version === requestVersion.current) setResponse({ key: queryKey, result: value });
+      if (version === requestVersion.current) {
+        setResponse({ key: queryKey, result: value });
+        setArrangementOptions(value.customer.arrangements ?? []);
+      }
     }).catch((cause) => {
       if (version === requestVersion.current) setResponse({ key: queryKey, error: cause instanceof Error ? cause.message : "Unable to load customer history." });
     });
     return () => { requestVersion.current += 1; };
-  }, [branchId, canAllStores, canRead, cursor, customerId, pageSize, queryKey]);
+  }, [branchId, canAllStores, canRead, cursor, customerId, pageSize, queryKey, view, accountId]);
 
   if (!canRead) return <p className="rounded-xl border bg-white p-6">Your roles do not include customer-account access.</p>;
   const visibleBranches = branches.data.filter((branch) => branch.status === "active" && (canAllStores || accessProfile?.branchIds.includes(branch.id)));
@@ -66,6 +75,16 @@ export default function CustomerHistoryPage() {
       <dl className="mt-3 grid gap-3 sm:grid-cols-2">{result.customer.arrangements.map((account) => <div key={account.id} className="flex justify-between gap-3 rounded-lg bg-slate-50 p-3 text-sm"><dt>{account.name}{!account.active && " (Inactive)"}</dt><dd className="font-semibold finance-attention">{formatNaira(account.outstandingBalanceMinor)}</dd></div>)}</dl>
     </section>}
     <section className="rounded-xl border bg-white p-4">
+      <div className="mb-4 flex flex-wrap gap-2" aria-label="Customer history view">
+        <button type="button" aria-pressed={view === "activity"} className="rounded-lg border px-4 py-2 text-sm" onClick={() => { setView("activity"); setPageStarts([null]); }}>Activity</button>
+        <button type="button" aria-pressed={view === "statement"} className="rounded-lg border px-4 py-2 text-sm" onClick={() => { setView("statement"); setPageStarts([null]); }}>Account statement</button>
+      </div>
+      {view === "statement" && <label className="mb-3 block max-w-sm text-sm font-medium">Statement arrangement
+        <select className="mt-1 w-full rounded-lg border p-3" value={accountId} onChange={event => { setAccountId(event.target.value); setPageStarts([null]); }}>
+          <option value="">All arrangements</option>
+          {arrangementOptions.map(account => <option key={account.id} value={account.id}>{account.name}{!account.active && " (Inactive)"}</option>)}
+        </select>
+      </label>}
       <label className="block max-w-sm text-sm font-medium">Activity at store
         <select value={branchId} onChange={(event) => { setSelectedBranchId(event.target.value); setPageStarts([null]); }} className="mt-1 w-full rounded-lg border p-3">
           {canAllStores && <option value="">All stores</option>}
@@ -77,7 +96,8 @@ export default function CustomerHistoryPage() {
     <CustomerReceivablesPanel key={branchId} customerId={customerId} branchId={branchId || undefined} />
     {error && <p role="alert" className="rounded-xl bg-red-50 p-4 text-sm text-red-800">{error}</p>}
     {loading && <p role="status" className="text-sm text-[var(--muted)]">Loading customer transactions…</p>}
-    <section aria-label="Customer transactions" className="hidden lg:block">
+    {view === "statement" && result && <CustomerAccountStatement result={result} />}
+    <section aria-label="Customer transactions" className={view === "statement" ? "hidden" : "hidden lg:block"}>
       <div className="responsive-table-wrap"><table className="responsive-table">
         <thead className="bg-slate-50"><tr><th className="px-4 py-3">Date</th><th className="px-4 py-3">Activity</th><th className="px-4 py-3">Reference</th><th className="px-4 py-3 text-right">Amount</th></tr></thead>
         <tbody>{rows.map((row) => <tr key={row.id} className="border-t"><td className="px-4 py-3">{row.at ? new Date(row.at).toLocaleString("en-NG") : "Date pending"}</td><td className="px-4 py-3 capitalize">{`${customerHistoryLabel(row.kind, row.detail, row.invoiceAllocations)} · ${row.accountName ?? "General account"}${row.allocations?.length ? " — " + row.allocations.map((allocation) => `${allocation.accountName}: ${formatNaira(allocation.amountMinor)}`).join("; ") : ""}`}</td><td className="px-4 py-3 font-mono text-xs">{row.reference}</td><td className={`px-4 py-3 text-right font-semibold finance-${customerHistoryTone(row.kind, row.detail)}`}>{formatNaira(Math.abs(row.amountMinor))}</td></tr>)}
@@ -85,7 +105,7 @@ export default function CustomerHistoryPage() {
         </tbody>
       </table></div>
     </section>
-    <section aria-label="Customer transactions on compact screens" className="space-y-3 lg:hidden">{rows.map((row) => <article key={row.id} className="rounded-xl border bg-white p-4"><div className="flex justify-between gap-3"><strong className="capitalize">{`${customerHistoryLabel(row.kind, row.detail, row.invoiceAllocations)} · ${row.accountName ?? "General account"}${row.allocations?.length ? " — " + row.allocations.map((allocation) => `${allocation.accountName}: ${formatNaira(allocation.amountMinor)}`).join("; ") : ""}`}</strong><strong className={`finance-${customerHistoryTone(row.kind, row.detail)}`}>{formatNaira(Math.abs(row.amountMinor))}</strong></div><p className="mt-1 text-xs text-[var(--muted)]">{row.reference} · {row.at ? new Date(row.at).toLocaleString("en-NG") : "Date pending"}</p></article>)}
+    <section aria-label="Customer transactions on compact screens" className={view === "statement" ? "hidden" : "space-y-3 lg:hidden"}>{rows.map((row) => <article key={row.id} className="rounded-xl border bg-white p-4"><div className="flex justify-between gap-3"><strong className="capitalize">{`${customerHistoryLabel(row.kind, row.detail, row.invoiceAllocations)} · ${row.accountName ?? "General account"}${row.allocations?.length ? " — " + row.allocations.map((allocation) => `${allocation.accountName}: ${formatNaira(allocation.amountMinor)}`).join("; ") : ""}`}</strong><strong className={`finance-${customerHistoryTone(row.kind, row.detail)}`}>{formatNaira(Math.abs(row.amountMinor))}</strong></div><p className="mt-1 text-xs text-[var(--muted)]">{row.reference} · {row.at ? new Date(row.at).toLocaleString("en-NG") : "Date pending"}</p></article>)}
       {!loading && rows.length === 0 && <p className="rounded-xl border bg-white p-6 text-center text-[var(--muted)]">No recorded transactions for this selection.</p>}
     </section>
     <CursorTablePagination page={pageStarts.length} pageSize={pageSize} rowCount={rows.length} hasNextPage={Boolean(result?.nextCursor)} loading={loading} onPrevious={() => setPageStarts((current) => current.length > 1 ? current.slice(0, -1) : current)} onNext={() => { if (result?.nextCursor) setPageStarts((current) => [...current, result.nextCursor]); }} onPageSizeChange={(size) => { setPageSize(size); setPageStarts([null]); }} itemLabel="transactions" />

@@ -1,5 +1,23 @@
 # Business workflow expansion (24 September 2026 baseline)
 
+## Customer arrangement credit/advance statements — 9 October 2026 (implementation)
+
+Extends the existing customer-history callable and full-history page. A separate
+statement reads each account entry once, avoiding duplicate sale/account-entry
+totals. Select all arrangements or a named/inactive arrangement, with mixed
+receipts projected to the selected portion. Debt changes and advance movements
+are separate; current all-store balances are not mislabeled as dated opening/
+closing balances. Store scope and every cursor remain server-authorized. Bounded
+scans retain continuation across empty matching pages; no entire-ledger browser
+download or guessed historical reassignment. Page export, responsive presentation
+and guide included. Unknown/non-proportional classifications require review.
+Read-only extension, no migration or new permission. Validation passed 338 unit/
+interface tests and 62 emulator sales/accounting/security tests (400 distinct),
+typecheck, lint, Functions compilation, production build, secret scan and diff
+checks. Live query audit passed 442/442 with all 224 indexes READY; guarded
+baseline refreshed only after verification. Release underway.
+Next: supplier multi-product credit documents and correction/reversal controls.
+
 ## POS customer advance tender — 9 October 2026 (deployed)
 
 Extends the existing POS payment components and customer arrangement balances.

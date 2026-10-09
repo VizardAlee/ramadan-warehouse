@@ -17,6 +17,7 @@ import { uniquenessDocumentId } from "../inventory/calculations.js";
 import { assertBalancedJournal } from "../sales/calculations.js";
 import { customerArrangements, changeArrangementBalance, selectedArrangement, upsertArrangement } from "../sales/customer-arrangements.js";
 import { changeMoneyBalance, legacyDebt, moneyBalances, reduceInvoice, UNDATED_DEBT } from "../sales/receivables.js";
+import { statementEntry } from "../sales/customer-statement.js";
 import { correlationId, parseInput } from "../utils/callable.js";
 import {
   customerPaymentInput,
@@ -37,6 +38,45 @@ export const getCustomerHistory = onCall({ enforceAppCheck }, async (request) =>
   if (!allBranches && !branchId)
     throw new HttpsError("invalid-argument", "Select an assigned branch for this customer history.");
   if (branchId) requireBranchScope(actor, branchId);
+  if (input.customerAccountId && input.view !== "statement")
+    throw new HttpsError("invalid-argument", "Select Account statement before filtering an arrangement.");
+  const arrangement = input.customerAccountId ? selectedArrangement(customer.data()!, input.customerAccountId, true) : null;
+  if (input.view === "statement") {
+    let query: FirebaseFirestore.Query = db.collection("customerAccountEntries")
+      .where("organizationId", "==", actor.organizationId).where("customerId", "==", customer.id);
+    if (branchId) query = query.where("branchId", "==", branchId);
+    query = query.orderBy("effectiveAt", "desc");
+    if (input.cursor?.account) {
+      const cursor = await db.doc(`customerAccountEntries/${input.cursor.account}`).get();
+      if (!cursor.exists || cursor.get("organizationId") !== actor.organizationId || cursor.get("customerId") !== customer.id || (branchId && cursor.get("branchId") !== branchId))
+        throw new HttpsError("invalid-argument", "Start from the first statement page.");
+      query = query.startAfter(cursor);
+    }
+    // Filter one bounded server-side scan, including legacy multi-arrangement
+    // allocations. Never fetch the full ledger or silently skip later matches.
+    const entries = await query.limit(input.limit + 1).get();
+    const scanned = entries.docs.slice(0, input.limit);
+    const rows = scanned.flatMap(record => {
+      const entry = statementEntry(record.data() as Parameters<typeof statementEntry>[0], input.customerAccountId);
+      return entry ? [{ id: `account:${record.id}`, kind: "account", reference: record.get("referenceNumber"),
+        branchId: record.get("branchId"), detail: String(record.get("entryType") ?? "account activity"),
+        at: record.get("effectiveAt") instanceof Timestamp ? record.get("effectiveAt").toDate().toISOString() : null,
+        journalEntryId: record.get("journalEntryId") ?? null, ...entry }] : [];
+    });
+    return {
+      customer: { id: customer.id, name: customer.get("name"), customerNumber: customer.get("customerNumber"),
+        creditStatus: customer.get("creditStatus"), creditLimitMinor: Number(customer.get("creditLimitMinor") ?? 0),
+        outstandingBalanceMinor: Number(customer.get("outstandingBalanceMinor") ?? 0), availableCreditMinor: Number(customer.get("availableCreditMinor") ?? 0),
+        arrangements: customerArrangements(customer.data()!), advanceBalances: moneyBalances(customer.get("advanceBalances")) },
+      statement: { accountId: arrangement?.id ?? null, accountName: arrangement?.name ?? "All arrangements",
+        outstandingMinor: arrangement?.outstandingBalanceMinor ?? Number(customer.get("outstandingBalanceMinor") ?? 0),
+        advanceMinor: arrangement ? (moneyBalances(customer.get("advanceBalances"))[arrangement.id] ?? 0)
+          : Object.values(moneyBalances(customer.get("advanceBalances"))).reduce((sum, value) => sum + value, 0),
+        asOf: new Date().toISOString(), scannedCount: scanned.length },
+      rows, moreAvailable: entries.size > input.limit,
+      nextCursor: entries.size > input.limit ? { account: scanned.at(-1)!.id } : null,
+    };
+  }
   if (input.view === "receivables") {
     let base: FirebaseFirestore.Query = db.collection("sales").where("organizationId", "==", actor.organizationId).where("customerId", "==", customer.id).where("receivableStatus", "==", "open");
     if (branchId) base = base.where("branchId", "==", branchId);

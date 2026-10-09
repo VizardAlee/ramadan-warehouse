@@ -9,6 +9,7 @@ It does not create duplicate customer identities or separate credit limits.
 - In POS, select the customer and their active arrangement before receiving the order. The sale retains that selection through payment confirmation.
 - In Record payment, choose the receiving company account as required and allocate the receipt to one or more arrangements. Allocations must equal the amount received; an arrangement cannot repay another arrangement's debt.
 - Full customer history shows arrangement balances and allocation details alongside paginated sales, returns and account entries.
+- In full history, choose Account statement and optionally an arrangement. The statement uses account entries once (not both the sale and its credit entry), separates debt from advances, and supports page export. Current balances cover all stores; store selection filters entries only. A sparse page can have no matches: Next continues the bounded scan. Inactive arrangements remain readable. Unknown historical classifications are flagged for review, not guessed.
 - Return credits reduce the original sale's arrangement and, for tracked invoices, its unpaid projection. Renaming an arrangement does not rewrite historical labels. An arrangement with outstanding debt or an unused advance cannot be deactivated; arrangements are not deleted.
 
 ## Historical data and integrity
@@ -72,5 +73,7 @@ This requires the existing scheduled-functions feature flag and delivery worker.
 
 No historical sale/payment is backfilled or reassigned. Legacy debt remains
 explicitly unallocated; historical migration requires verified evidence and a
-separate reconciliation plan. Arrangement-filtered statements and historical
-corrections remain roadmap work.
+separate reconciliation plan. Arrangement-filtered credit/advance statements
+are available. Dated opening/closing reconciliation and verified historical
+corrections remain roadmap work; current balances must not be mistaken for
+opening/closing balances or netted with advances.

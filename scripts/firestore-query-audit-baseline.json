@@ -1,13 +1,13 @@
 {
   "lastLiveAudit": {
     "project": "ramadan-warehouse-staging",
-    "verifiedAt": "2026-10-09T14:30:26.273Z",
-    "queryShapes": 441,
+    "verifiedAt": "2026-10-09T16:25:41.534Z",
+    "queryShapes": 442,
     "unsupportedQueries": 0,
     "readyIndexes": 224,
     "singleFieldOverrides": 0
   },
-  "catalogSha256": "039c5ec7556515df946ebc1e7324527290bb33e278b3436d96e1594ece08fd1b",
+  "catalogSha256": "bfc87283213eef56861668c7c20aae300cbf08a60fa1602dd8538e71aa904bcd",
   "sourceFingerprints": {
     "functions/src/accounting/daily-close.ts": "88916698e8112584523b1770eb98be7e052761b4982e6f572df1e6f7221d617a",
     "functions/src/audit/write-audit-log.ts": "db7b9594fb7312ca692836ceb529dfe7785c52b36b53dab59743d4619af311a7",
@@ -19,7 +19,7 @@
     "functions/src/callable/bootstrap-organization.ts": "b16a45cd7dea7f2070f4de7839514552c0dcb0fc34baeb08e5184a5c4abdadb4",
     "functions/src/callable/branch-requests.ts": "8db116b13014504b3e16557c5a5adbcdc1793cfd0351f97aef5ce76262707021",
     "functions/src/callable/csv-imports.ts": "1c74231c0ff969b8eaf68306b5c8feed1e8256f71fe2d5677f37d79f8d01c771",
-    "functions/src/callable/customers.ts": "83c58740879fc0d7f74faf9b7ab17858eb71b86adfd9d2ebba58b4f4ad2a7103",
+    "functions/src/callable/customers.ts": "bdc2b538609770c067de07cdd62a2f10d832065be0159b79b6df311ded5f7c4c",
     "functions/src/callable/daily-close.ts": "f1d6177e7b02cb852adfcfa7ee66c1f5b850ac72f4f5e5929579d46de93113b5",
     "functions/src/callable/dashboard.ts": "a1e065c57b70ffcf647a64d68239ddfcfe9a7788b76f27bcc05db68f24151e26",
     "functions/src/callable/expenses.ts": "124f88aa3e67ee98150a4659e7bb9999babf12022b32faf9d8a0e573a2028dd8",
@@ -63,7 +63,7 @@
     "functions/src/transfers/validate-transfer-invariants.ts": "4064ec7642f48b5f40f88318620581a7c93e3e9ef7c068a9bb1305379bb6d1e8",
     "functions/src/utils/query-pages.ts": "f2a9e1f4a70480837df6780d4ae88f490273726138e18f722523d21f786aba81",
     "src/app/(protected)/administration/users/page.tsx": "fa63dc0b1860d16a0de47593281617ee369ce945a3ad2b0b065208eaa95f7ae9",
-    "src/app/(protected)/customers/[customer_id]/page.tsx": "1d9f804c577a1d0c45fe19b04f50169480246b0700fc14f860a6e218d14cc277",
+    "src/app/(protected)/customers/[customer_id]/page.tsx": "cbc0f5b63381c28b0d0d5e0edfb13cbd2c1e603c0f576ecc59a8188485b0503c",
     "src/app/(protected)/customers/page.tsx": "5d40a4c02593d732e8f9aebeeb16aa0d7bd9c42ad914692f91b521fa71f0e3d8",
     "src/app/(protected)/hr/page.tsx": "888d986dc8942cf59b15deaf16d3d1f3f82fd5168f27d987fc1647f85c5ce614",
     "src/app/(protected)/inventory/counts/page.tsx": "9291e66ef5acef6ef6cf84858f0232837e4d7b4cedbfcf8fe0ff397b08abbe39",

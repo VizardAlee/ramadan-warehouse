@@ -1803,6 +1803,35 @@ describe.sequential("sales callables", () => {
     expect(await deliverInAppNotification({ ...reminder.data(), id: `${reminder.id}_retry` } as InboxEvent)).toMatchObject({ delivered: true, providerMessageId: expect.stringContaining("superseded") });
   });
 
+  it("pages arrangement statements across unmatched entries and scopes every cursor", async () => {
+    const accountId = crypto.randomUUID();
+    const saved = await call<{ customerId: string }>(administrator, "saveCustomer", { name: "Statement customer", phone: "08077665550", idempotencyKey: crypto.randomUUID() });
+    await call(administrator, "saveCustomer", { customerId: saved.customerId, name: "Statement customer", phone: "08077665550", arrangement: { id: accountId, name: "Solar contract", active: true, reason: "Statement fixture arrangement" }, idempotencyKey: crypto.randomUUID() });
+    const refs = [0, 1, 2, 3].map(() => adminDb.collection("customerAccountEntries").doc());
+    for (const [index, ref] of refs.entries()) await ref.set({ organizationId, branchId, customerId: saved.customerId, entryType: index === 0 ? "credit_sale" : "advance", amountMinor: index === 0 ? 6000 : 1000,
+      referenceNumber: `STATEMENT-${index}`, effectiveAt: Timestamp.fromMillis(Date.now() + index * 1000),
+      ...(index === 1 ? { customerAccountId: accountId, customerAccountName: "Solar contract" } : {}),
+      ...(index === 2 ? { customerAccountName: "Multiple arrangements", allocations: [{ accountId: "general", accountName: "General account", amountMinor: 700 }, { accountId, accountName: "Solar contract", amountMinor: 300 }] } : {}),
+    });
+    type Statement = { rows: Array<{ reference: string; amountMinor: number; debtChangeMinor: number; advanceChangeMinor: number }>; nextCursor: { account: string } | null; statement: { accountName: string; scannedCount: number } };
+    const input = { view: "statement", customerId: saved.customerId, branchId, customerAccountId: accountId, limit: 1 };
+    const first = await call<Statement>(branchManager, "getCustomerHistory", input);
+    expect(first.rows).toEqual([]); expect(first.nextCursor).toEqual({ account: refs[3]!.id });
+    const second = await call<Statement>(branchManager, "getCustomerHistory", { ...input, cursor: first.nextCursor });
+    expect(second.rows).toMatchObject([{ reference: "STATEMENT-2", amountMinor: 300, debtChangeMinor: 0, advanceChangeMinor: 300 }]);
+    const third = await call<Statement>(branchManager, "getCustomerHistory", { ...input, cursor: second.nextCursor });
+    expect(third.rows).toMatchObject([{ reference: "STATEMENT-1", amountMinor: 1000 }]);
+    const fourth = await call<Statement>(branchManager, "getCustomerHistory", { ...input, cursor: third.nextCursor });
+    expect(fourth.rows).toEqual([]); expect(fourth.nextCursor).toBeNull();
+    const general = await call<Statement>(branchManager, "getCustomerHistory", { ...input, customerAccountId: "general", limit: 25 });
+    expect(general.rows).toContainEqual(expect.objectContaining({ reference: "STATEMENT-0", debtChangeMinor: 6000 }));
+    const other = adminDb.collection("customerAccountEntries").doc();
+    await other.set({ organizationId: "other-org", customerId: saved.customerId, branchId, effectiveAt: Timestamp.now() });
+    await expect(call(branchManager, "getCustomerHistory", { ...input, cursor: { account: other.id } })).rejects.toMatchObject({ code: "functions/invalid-argument" });
+    await expect(call(branchManager, "getCustomerHistory", { ...input, customerAccountId: "unknown" })).rejects.toMatchObject({ code: "functions/failed-precondition" });
+    await expect(call(branchManager, "getCustomerHistory", { ...input, branchId: "outside-assignment" })).rejects.toMatchObject({ code: "functions/permission-denied" });
+  });
+
   it("uses a named arrangement advance in POS split payment only at final confirmation", async () => {
     const accountId = crypto.randomUUID();
     const saved = await call<{ customerId: string }>(administrator, "saveCustomer", { name: "POS advance customer", phone: "08077665548", idempotencyKey: crypto.randomUUID() });
