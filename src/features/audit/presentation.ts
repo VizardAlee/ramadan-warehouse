@@ -32,6 +32,7 @@ const specialActions: Readonly<Record<string, string>> = {
   "customer.payment_recorded": "Recorded a customer payment",
   "customer.advance_recorded": "Received a customer advance",
   "customer.advance_applied": "Applied a customer advance to unpaid invoices",
+  "customer.advance_refunded": "Refunded an unused customer advance",
   "expense.payment_recorded": "Recorded an expense payment",
   "supplier_payment.recorded": "Recorded a supplier payment",
   "supplier.advance_recorded": "Paid a supplier advance",

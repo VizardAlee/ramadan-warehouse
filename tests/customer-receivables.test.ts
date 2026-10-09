@@ -35,4 +35,11 @@ describe("invoice repayment and advance controls", () => {
     const id = crypto.randomUUID();
     expect(() => upsertArrangement({ outstandingBalanceMinor: 0, arrangements: [{ id, name: "Project", active: true, outstandingBalanceMinor: 0 }], advanceBalances: { [id]: 100 } }, { id, name: "Project", active: false })).toThrow(/Settle/);
   });
+  it("requires a real refund, reason and a traceable non-cash paying account", () => {
+    const base = { customerId: "customer", branchId: "branch", method: "cash", amountMinor: 100, purpose: "advance_refund", notes: "Unused order advance returned", idempotencyKey: crypto.randomUUID() };
+    expect(customerPaymentInput.safeParse(base).success).toBe(true);
+    for (const change of [{ notes: "" }, { source: "advance_balance" }, { invoiceAllocations: [{ saleId: "sale", amountMinor: 100 }] }, { method: "bank_transfer" }, { bankAccountId: "bank" }])
+      expect(customerPaymentInput.safeParse({ ...base, ...change }).success).toBe(false);
+    expect(customerPaymentInput.safeParse({ ...base, method: "bank_transfer", bankAccountId: "bank", reference: "REF-123" }).success).toBe(true);
+  });
 });

@@ -22,6 +22,7 @@ export function customerHistoryLabel(kind: string, detail: string, invoices?: Cu
     sale_return_credit: "Return credited to account",
     advance: "Advance received",
     advance_applied: "Advance applied to debt",
+    advance_refund: "Unused advance refunded",
     refund: "Refund",
   };
   return labels[detail.replaceAll(" ", "_")] ?? detail.replaceAll("_", " ");

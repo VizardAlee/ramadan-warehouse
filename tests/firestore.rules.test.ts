@@ -821,6 +821,7 @@ describe("Firestore baseline rules", () => {
     await assertFails(adminDb.doc("sales/sale-1").update({ receivableOutstandingMinor: 0, receivableStatus: "settled" }));
     await assertFails(adminDb.doc("organizations/org-1/jobCursors/receivables").set({ saleId: "skip-invoices" }));
     await assertFails(adminDb.doc("customerPayments/forged").set({ organizationId: "org-1", customerId: "customer-1", amountMinor: 1, allocations: [{ accountId: "general", amountMinor: 1 }] }));
+    await assertFails(adminDb.doc("customerPayments/forged-advance-refund").set({ organizationId: "org-1", branchId: "branch-1", customerId: "customer-1", purpose: "advance_refund", direction: "outflow", amountMinor: 1000, status: "recorded", bankAccountId: "bank-1" }));
     await assertFails(
       cashierDb.doc("customerPayments/new").set({
         organizationId: "org-1",

@@ -26,6 +26,32 @@ vi.mock("@/features/administration/use-organization-collection", () => ({
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
 
 describe("customer account history", () => {
+  it("records a traceable advance refund without invoice allocations and locks an uncertain retry", async () => {
+    api.call.mockResolvedValueOnce({ customer: { advanceBalances: { general: 30000 } }, rows: [], bankAccounts: [{ id: "bank1", bankName: "Test Bank", accountName: "Refunds", accountNumberLast4: "1234" }] });
+    api.call.mockRejectedValueOnce(new Error("Refund response interrupted"));
+    api.call.mockResolvedValueOnce({ paymentNumber: "CRP-REFUND" });
+    render(<CustomersPage />);
+    fireEvent.click(screen.getAllByRole("button", { name: "Refund advance" })[0]!);
+    expect(screen.getByText("Refund unused customer advance")).toBeTruthy();
+    await waitFor(() => expect(screen.getByRole("option", { name: /Test Bank/ })).toBeTruthy());
+    fireEvent.change(screen.getByLabelText("Amount refunded (₦)"), { target: { value: "400" } });
+    fireEvent.change(screen.getByLabelText(/Paying company account/), { target: { value: "bank1" } });
+    fireEvent.change(screen.getByLabelText("Actual refund reference"), { target: { value: "BANK-REFUND-1" } });
+    fireEvent.change(screen.getByLabelText("Refund reason"), { target: { value: "Customer cancels unused advance" } });
+    expect(screen.getByRole("button", { name: "Record advance refund" }).hasAttribute("disabled")).toBe(true);
+    fireEvent.change(screen.getByLabelText("Amount refunded (₦)"), { target: { value: "200.001" } });
+    expect(screen.getByRole("button", { name: "Record advance refund" }).hasAttribute("disabled")).toBe(true);
+    fireEvent.change(screen.getByLabelText("Amount refunded (₦)"), { target: { value: "200" } });
+    fireEvent.click(screen.getByRole("button", { name: "Record advance refund" }));
+    await waitFor(() => expect(screen.getAllByText("Refund response interrupted").length).toBeGreaterThan(0));
+    expect(screen.getByLabelText("Refund reason").closest("fieldset")?.disabled).toBe(true);
+    const first = api.call.mock.calls.find(([name]) => name === "recordCustomerPayment")![1];
+    expect(first).toMatchObject({ purpose: "advance_refund", source: "receipt", method: "bank_transfer", bankAccountId: "bank1", amountMinor: 20000, notes: "Customer cancels unused advance", reference: "BANK-REFUND-1", allocations: [{ accountId: "general", amountMinor: 20000 }] });
+    expect(first.invoiceAllocations).toBeUndefined();
+    fireEvent.click(screen.getByRole("button", { name: "Record advance refund" }));
+    await waitFor(() => expect(api.call.mock.calls.filter(([name]) => name === "recordCustomerPayment")).toHaveLength(2));
+    expect(api.call.mock.calls.filter(([name]) => name === "recordCustomerPayment")[1]![1]).toEqual(first);
+  });
   it("preserves advance intent after a validation rejection and allows correction", async () => {
     api.call.mockResolvedValueOnce({ customer: {}, rows: [], bankAccounts: [] });
     api.call.mockRejectedValueOnce(Object.assign(new Error("Choose an active account"), { diagnosticCode: "functions/failed-precondition" }));

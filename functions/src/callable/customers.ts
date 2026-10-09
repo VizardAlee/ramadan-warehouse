@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { AggregateField, FieldValue, Timestamp } from "firebase-admin/firestore";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
 import { db } from "../admin.js";
@@ -336,7 +337,10 @@ export const recordCustomerPayment = onCall(
     const actor = await requireAccess(request);
     requirePermission(actor, "customers.payment.record");
     const input = parseInput(customerPaymentInput, request.data);
+    const refund = input.purpose === "advance_refund";
+    if (refund) requirePermission(actor, "sales.returns.approve");
     requireBranchScope(actor, input.branchId);
+    const fingerprint = createHash("sha256").update(JSON.stringify(input)).digest("hex");
     const customer = db.doc(`customers/${input.customerId}`);
     const branch = db.doc(`branches/${input.branchId}`);
     const counter = db.doc(`customerPaymentCounters/${actor.organizationId}`);
@@ -357,6 +361,17 @@ export const recordCustomerPayment = onCall(
       const [current, branchSnapshot, counterSnapshot, journalCounterSnapshot, accountingPeriodSnapshot, previousOperation, bankAccountSnapshot] =
         await transaction.getAll(customer, branch, counter, journalCounter, accountingPeriod, operation, bankAccount);
       if (previousOperation!.exists) {
+        if (previousOperation!.get("fingerprint")) {
+          if (previousOperation!.get("fingerprint") !== fingerprint)
+            throw new HttpsError("already-exists", "This retry reference belongs to different payment instructions.");
+        } else {
+          // Keep older valid retries working, but never reinterpret a receipt as a refund.
+          const previous = await transaction.get(db.doc(`customerPayments/${previousOperation!.get("entityId")}`));
+          const allocations = input.allocations ?? [{ accountId: "general", amountMinor: input.amountMinor }];
+          const storedAllocations = previous.get("allocations") ?? [{ accountId: "general", amountMinor: previous.get("amountMinor") }];
+          if (!previous.exists || previous.get("organizationId") !== actor.organizationId || previous.get("customerId") !== input.customerId || previous.get("branchId") !== input.branchId || previous.get("amountMinor") !== input.amountMinor || (previous.get("purpose") ?? "repayment") !== input.purpose || (previous.get("source") ?? "receipt") !== input.source || previous.get("method") !== (input.source === "advance_balance" ? "customer_advance" : input.method) || (previous.get("bankAccountId") ?? undefined) !== input.bankAccountId || (previous.get("reference") ?? undefined) !== (input.reference || undefined) || (previous.get("notes") ?? undefined) !== (input.notes || undefined) || JSON.stringify(storedAllocations.map((item: { accountId: string; amountMinor: number }) => ({ accountId: item.accountId, amountMinor: item.amountMinor }))) !== JSON.stringify(allocations))
+            throw new HttpsError("already-exists", "This historical retry reference belongs to different payment instructions.");
+        }
         result = {
           paymentId: String(previousOperation!.get("entityId")),
           paymentNumber: String(previousOperation!.get("paymentNumber")),
@@ -388,7 +403,7 @@ export const recordCustomerPayment = onCall(
       const journalNumber = `JRN-${year}-${String(journalSequence).padStart(6, "0")}`;
       const nextOutstanding = outstanding - (input.purpose === "repayment" ? input.amountMinor : 0);
       const allocations = (input.allocations ?? [{ accountId: "general", amountMinor: input.amountMinor }]).map((item) => ({
-        ...item, accountName: selectedArrangement(current!.data()!, item.accountId, input.purpose === "repayment").name,
+        ...item, accountName: selectedArrangement(current!.data()!, item.accountId, input.purpose !== "advance").name,
       }));
       const arrangements = input.purpose === "repayment" ? changeArrangementBalance(current!.data()!, allocations.map((item) => ({ accountId: item.accountId, amountMinor: -item.amountMinor }))) : current!.get("arrangements") ?? [];
       const invoicePayments: Array<{ sale: FirebaseFirestore.DocumentSnapshot; amountMinor: number; accountId: string }> = [];
@@ -432,12 +447,15 @@ export const recordCustomerPayment = onCall(
         reduceInvoice(Number(item.sale.get("receivableOutstandingMinor")), item.amountMinor);
         invoiceDebtByAccount = changeMoneyBalance(invoiceDebtByAccount, item.accountId, -item.amountMinor);
       }
-      if (input.purpose === "advance" || input.source === "advance_balance") {
+      if (input.purpose === "advance" || refund || input.source === "advance_balance") {
         for (const allocation of allocations) advanceBalances = changeMoneyBalance(advanceBalances, allocation.accountId, input.purpose === "advance" ? allocation.amountMinor : -allocation.amountMinor);
       }
       const creditLimit = Number(current!.get("creditLimitMinor") ?? 0);
       const account = input.source === "advance_balance" ? { accountCode: "2210", accountName: "Customer advances", bankAccountId: undefined, bankName: undefined, bankAccountName: undefined, accountNumberLast4: undefined } : resolveSettlementAccount(actor.organizationId, input.method, input.bankAccountId, bankAccountSnapshot);
-      const journalLines = [
+      const journalLines = refund ? [
+        { accountCode: "2210", accountName: "Customer advances", debitMinor: input.amountMinor, creditMinor: 0 },
+        { accountCode: account.accountCode, accountName: account.accountName, debitMinor: 0, creditMinor: input.amountMinor },
+      ] : [
         { accountCode: account.accountCode, accountName: account.accountName, debitMinor: input.amountMinor, creditMinor: 0 },
         { accountCode: input.purpose === "advance" ? "2210" : "1100", accountName: input.purpose === "advance" ? "Customer advances" : "Accounts receivable", debitMinor: 0, creditMinor: input.amountMinor },
       ];
@@ -479,6 +497,7 @@ export const recordCustomerPayment = onCall(
         method: input.source === "advance_balance" ? "customer_advance" : input.method,
         purpose: input.purpose,
         source: input.source,
+        direction: refund ? "outflow" : input.source === "advance_balance" ? "non_cash" : "inflow",
         bankAccountId: account.bankAccountId,
         bankName: account.bankName,
         bankAccountName: account.bankAccountName,
@@ -500,7 +519,7 @@ export const recordCustomerPayment = onCall(
         organizationId: actor.organizationId,
         branchId: input.branchId,
         customerId: customer.id,
-        entryType: input.purpose === "advance" ? "advance" : input.source === "advance_balance" ? "advance_applied" : "payment",
+        entryType: refund ? "advance_refund" : input.purpose === "advance" ? "advance" : input.source === "advance_balance" ? "advance_applied" : "payment",
         referenceType: "customerPayment",
         referenceId: payment.id,
         referenceNumber: paymentNumber,
@@ -508,6 +527,9 @@ export const recordCustomerPayment = onCall(
         allocations,
         invoiceAllocations,
         advanceBalancesAfter: advanceBalances,
+        advanceAmountMinor: input.purpose === "advance" ? input.amountMinor : refund || input.source === "advance_balance" ? -input.amountMinor : 0,
+        debtAmountMinor: input.purpose === "repayment" ? -input.amountMinor : 0,
+        journalEntryId: journal.id,
         customerAccountName: allocations.length === 1 ? allocations[0]!.accountName : "Multiple arrangements",
         balanceAfterMinor: nextOutstanding,
         currency: "NGN",
@@ -519,12 +541,12 @@ export const recordCustomerPayment = onCall(
         organizationId: actor.organizationId,
         branchId: input.branchId,
         journalNumber,
-        journalType: input.purpose === "advance" ? "customer_advance" : input.source === "advance_balance" ? "customer_advance_applied" : "customer_payment",
+        journalType: refund ? "customer_advance_refund" : input.purpose === "advance" ? "customer_advance" : input.source === "advance_balance" ? "customer_advance_applied" : "customer_payment",
         status: "posted",
         referenceType: "customerPayment",
         referenceId: payment.id,
         referenceNumber: paymentNumber,
-        description: `Customer payment ${paymentNumber}`,
+        description: `Customer ${refund ? "unused advance refund" : "payment"} ${paymentNumber}`,
         totalDebitMinor: input.amountMinor,
         totalCreditMinor: input.amountMinor,
         currency: "NGN",
@@ -565,6 +587,7 @@ export const recordCustomerPayment = onCall(
       transaction.create(operation, {
         organizationId: actor.organizationId,
         action: "recordCustomerPayment",
+        fingerprint,
         entityId: payment.id,
         paymentNumber,
         status: "completed",
@@ -572,7 +595,7 @@ export const recordCustomerPayment = onCall(
         createdBy: actor.userId,
       });
       writeAuditLog(transaction, actor, {
-        action: input.purpose === "advance" ? "customer.advance_recorded" : input.source === "advance_balance" ? "customer.advance_applied" : "customer.payment_recorded",
+        action: refund ? "customer.advance_refunded" : input.purpose === "advance" ? "customer.advance_recorded" : input.source === "advance_balance" ? "customer.advance_applied" : "customer.payment_recorded",
         entityType: "customerPayment",
         entityId: payment.id,
         correlationId: cid,
@@ -588,6 +611,8 @@ export const recordCustomerPayment = onCall(
           invoiceAllocations,
           purpose: input.purpose,
           source: input.source,
+          advanceBalancesAfter: advanceBalances,
+          reason: input.notes ?? null,
         },
       });
       result = { paymentId: payment.id, paymentNumber, recorded: true };

@@ -52,7 +52,7 @@ export default function CustomersPage() {
   const [paymentAllocations, setPaymentAllocations] = useState([{ accountId: "general", amount: "" }]);
   const paymentRetryKey = useRef<string | null>(null);
   const [paymentUncertain, setPaymentUncertain] = useState(false);
-  const [paymentPurpose, setPaymentPurpose] = useState<"repayment" | "advance">("repayment");
+  const [paymentPurpose, setPaymentPurpose] = useState<"repayment" | "advance" | "advance_refund">("repayment");
   const [paymentSource, setPaymentSource] = useState<"receipt" | "advance_balance">("receipt");
   const [paymentInvoice, setPaymentInvoice] = useState<OpenCustomerInvoice | null>(null);
   const [paymentMethod, setPaymentMethod] = useState<
@@ -82,6 +82,8 @@ export default function CustomersPage() {
   const canRecordPayment = Boolean(
     profile && hasPermission(profile, "customers.payment.record"),
   );
+  const canRefundAdvance = Boolean(canRecordPayment && profile && hasPermission(profile, "sales.returns.approve"));
+  const refundAdvance = paymentPurpose === "advance_refund";
   const contextBranchId =
     operatingContext?.type === "branch" ? operatingContext.id : "";
   const assignedBranchId =
@@ -98,6 +100,14 @@ export default function CustomersPage() {
   const initialHistoryBranchId = contextBranchId || assignedBranchId ||
     (profile && hasPermission(profile, "sales.read.all") ? "" : accessProfile?.branchIds[0] ?? "");
   const visible = customers.data;
+  const validAdvanceRefund = !refundAdvance || (() => {
+    if (!history || historyLoading || reason.trim().length < 5 || (paymentMethod !== "cash" && paymentReference.trim().length < 3)) return false;
+    try {
+      const total = nairaToKobo(Number(paymentAmount));
+      const allocations = paymentAllocations.map((item) => ({ accountId: item.accountId, amount: nairaToKobo(Number(paymentAllocations.length === 1 ? paymentAmount : item.amount)) }));
+      return total > 0 && new Set(allocations.map((item) => item.accountId)).size === allocations.length && allocations.reduce((sum, item) => sum + item.amount, 0) === total && allocations.every((item) => item.amount > 0 && item.amount <= (history.customer.advanceBalances?.[item.accountId] ?? 0));
+    } catch { return false; }
+  })();
   useEffect(() => {
     const key = `${searchField}:${search.trim()}`;
     if (key === appliedSearch.current) return;
@@ -211,7 +221,7 @@ export default function CustomersPage() {
   async function recordPayment() {
     if (!selected || !branchId) return;
     if (paymentSource === "receipt" && paymentMethod !== "cash" && !paymentBankAccountId) {
-      setError("Select the receiving company account.");
+      setError(refundAdvance ? "Select the paying company account." : "Select the receiving company account.");
       return;
     }
     setBusy(true);
@@ -235,6 +245,7 @@ export default function CustomersPage() {
         amountMinor,
         allocations,
         reference: paymentReference || undefined,
+        notes: refundAdvance ? reason.trim() : undefined,
         idempotencyKey: paymentRetryKey.current ??= crypto.randomUUID(),
       });
       closeAction();
@@ -317,6 +328,11 @@ export default function CustomersPage() {
         paymentRetryKey.current = null; setPaymentUncertain(false); setPaymentPurpose("advance"); setPaymentSource("receipt"); setPaymentInvoice(null);
         setAction("payment"); setPaymentBankAccountId(""); void loadHistory(customer, 1, branchId);
       }}>Record advance</Button>}
+      {canRefundAdvance && <Button size="sm" variant="outline" onClick={() => {
+        setSelected(customer); setPaymentAmount(""); setPaymentAllocations([{ accountId: "general", amount: "" }]);
+        paymentRetryKey.current = null; setPaymentUncertain(false); setPaymentPurpose("advance_refund"); setPaymentSource("receipt"); setPaymentInvoice(null);
+        setReason(""); setPaymentReference(""); setPaymentMethod("bank_transfer"); setAction("payment"); setPaymentBankAccountId(""); void loadHistory(customer, 1, branchId);
+      }}>Refund advance</Button>}
     </div>;
   }
 
@@ -497,7 +513,7 @@ export default function CustomersPage() {
                     ? "Edit customer"
                     : action === "credit"
                       ? "Administrator credit decision"
-                    : paymentPurpose === "advance" ? "Record customer advance" : "Record customer payment"}
+                    : refundAdvance ? "Refund unused customer advance" : paymentPurpose === "advance" ? "Record customer advance" : "Record customer payment"}
               </h2>
             </div>
             {(action === "create" || action === "edit") && (
@@ -642,7 +658,8 @@ export default function CustomersPage() {
                   Outstanding before payment:{" "}
                   {formatNaira(selected.outstandingBalanceMinor)}
                 </p>
-                <p className="rounded-lg bg-blue-50 p-3 text-sm">{paymentPurpose === "advance" ? "This is money received before a sale. It stays as a customer advance liability until applied—not sales income." : "Without an invoice selection, repayments clear historical unallocated debt first, then the oldest tracked invoices in this store and arrangement (up to 50 per receipt)."}</p>
+                <p className="rounded-lg bg-blue-50 p-3 text-sm">{refundAdvance ? "Record money actually paid back to this customer from unused advances. This reduces the advance liability, not invoice debt, stock or sales revenue. Choose the store recording the outgoing payment. Advance balances belong to the customer across all stores." : paymentPurpose === "advance" ? "This is money received before a sale. It stays as a customer advance liability until applied—not sales income." : "Without an invoice selection, repayments clear historical unallocated debt first, then the oldest tracked invoices in this store and arrangement (up to 50 per receipt)."}</p>
+                {refundAdvance && <p className="rounded-lg border p-3 text-sm">{historyLoading ? "Checking unused advance balances…" : <>Unused advances (all stores): <strong className="finance-balance">{formatNaira(Object.values(history?.customer.advanceBalances ?? {}).reduce((sum, amount) => sum + amount, 0))}</strong>. Each selected arrangement must have enough unused advance.</>}</p>}
                 {paymentPurpose === "repayment" && <>
                   <label className="block text-sm font-medium">Payment source<select className="mt-1 w-full rounded-lg border p-3" value={paymentSource} onChange={(event) => setPaymentSource(event.target.value as "receipt" | "advance_balance")}><option value="receipt">New cash / bank / card receipt</option><option value="advance_balance">Apply previously received advance</option></select></label>
                   {paymentSource === "advance_balance" && <p className="text-sm">Unused advances across all arrangements: {formatNaira(Object.values(history?.customer.advanceBalances ?? {}).reduce((sum, amount) => sum + amount, 0))}. Application uses the balance of each selected arrangement.</p>}
@@ -650,7 +667,7 @@ export default function CustomersPage() {
                 </>}
                 {!contextBranchId && !assignedBranchId && (
                   <label className="block text-sm font-medium">
-                    Receiving branch
+                    {refundAdvance ? "Store recording the refund" : "Receiving branch"}
                     <select
                       value={branchId}
                       onChange={(event) =>
@@ -667,7 +684,7 @@ export default function CustomersPage() {
                   </label>
                 )}
                 <label className="block text-sm font-medium">
-                  {paymentSource === "advance_balance" ? "Amount to apply (₦)" : "Amount received (₦)"}
+                  {refundAdvance ? "Amount refunded (₦)" : paymentSource === "advance_balance" ? "Amount to apply (₦)" : "Amount received (₦)"}
                   <input
                     type="number"
                     min="0.01"
@@ -693,28 +710,28 @@ export default function CustomersPage() {
                     <option value="bank_transfer">Bank transfer</option>
                   </select>
                 </label>}
-                <fieldset disabled={Boolean(paymentInvoice)} className="space-y-3 rounded-lg border p-3"><legend className="px-1 font-semibold">Apply payment to customer accounts</legend>
-                  <p className="text-xs text-[var(--muted)]">{paymentPurpose === "advance" ? "Choose the arrangement holding this advance." : "This allocates debt repayment between arrangements, not between cash/card/bank methods."} Allocations must equal the total entered.</p>
+                <fieldset disabled={Boolean(paymentInvoice)} className="space-y-3 rounded-lg border p-3"><legend className="px-1 font-semibold">{refundAdvance ? "Refund from customer advances" : "Apply payment to customer accounts"}</legend>
+                  <p className="text-xs text-[var(--muted)]">{refundAdvance ? "Choose the arrangements whose unused advances are being returned." : paymentPurpose === "advance" ? "Choose the arrangement holding this advance." : "This allocates debt repayment between arrangements, not between cash/card/bank methods."} Allocations must equal the total entered.</p>
                   {paymentAllocations.map((allocation, index) => <div key={index} className="space-y-2 rounded-lg bg-slate-50 p-2">
                     <label className="block text-sm">Customer account {index + 1}<select className="mt-1 w-full rounded-lg border p-3" value={allocation.accountId} onChange={(event) => setPaymentAllocations((items) => items.map((item, position) => position === index ? { ...item, accountId: event.target.value } : item))}>
-                      {(history?.customer.arrangements ?? [{ id: "general", name: "General account", outstandingBalanceMinor: selected.outstandingBalanceMinor }]).map((account) => <option key={account.id} value={account.id}>{account.name} · {formatNaira(account.outstandingBalanceMinor)} due</option>)}
+                      {(history?.customer.arrangements ?? [{ id: "general", name: "General account", outstandingBalanceMinor: selected.outstandingBalanceMinor }]).map((account) => <option key={account.id} value={account.id}>{account.name} · {formatNaira(refundAdvance ? history?.customer.advanceBalances?.[account.id] ?? 0 : account.outstandingBalanceMinor)} {refundAdvance ? "unused advance" : "due"}</option>)}
                     </select></label>
                     {paymentAllocations.length > 1 && <><label className="block text-sm">Allocated amount (₦)<input className="mt-1 w-full rounded-lg border p-3" type="number" min="0.01" step="0.01" value={allocation.amount} onChange={(event) => setPaymentAllocations((items) => items.map((item, position) => position === index ? { ...item, amount: event.target.value } : item))} /></label><Button size="sm" variant="outline" onClick={() => setPaymentAllocations((items) => items.filter((_, position) => position !== index))}>Remove allocation</Button></>}
                   </div>)}
                   <Button size="sm" variant="outline" disabled={paymentAllocations.length >= (history?.customer.arrangements?.length ?? 1)} onClick={() => setPaymentAllocations((items) => [...items.map((item) => ({ ...item, amount: items.length === 1 ? paymentAmount : item.amount })), { accountId: history?.customer.arrangements?.find((account) => !items.some((item) => item.accountId === account.id))?.id ?? "general", amount: "" }])}>Split across arrangements</Button>
                 </fieldset>
                 {paymentSource === "receipt" && paymentMethod !== "cash" && (
-                  <label className="block text-sm font-medium">Receiving company account
+                  <label className="block text-sm font-medium">{refundAdvance ? "Paying company account" : "Receiving company account"}
                     <select value={paymentBankAccountId} onChange={(event) => setPaymentBankAccountId(event.target.value)} className="mt-1 w-full rounded-lg border p-3">
                       <option value="">Select account</option>
                       {history?.bankAccounts?.map((account) => <option key={account.id} value={account.id}>{account.bankName} · {account.accountName} · ••••{account.accountNumberLast4}</option>)}
                     </select>
-                    <span className="mt-1 block text-xs text-[var(--muted)]">{historyLoading ? "Loading accounts…" : "This account receives the money and is used in the accounting journal."}</span>
+                    <span className="mt-1 block text-xs text-[var(--muted)]">{historyLoading ? "Loading accounts…" : refundAdvance ? "This account pays the refund and is credited in the accounting journal." : "This account receives the money and is used in the accounting journal."}</span>
                   </label>
                 )}
                 {paymentSource === "receipt" && paymentMethod !== "cash" && (
                   <label className="block text-sm font-medium">
-                    Reference (optional)
+                    {refundAdvance ? "Actual refund reference" : "Reference (optional)"}
                     <input
                       value={paymentReference}
                       onChange={(event) =>
@@ -724,6 +741,7 @@ export default function CustomersPage() {
                     />
                   </label>
                 )}
+                {refundAdvance && <label className="block text-sm font-medium">Refund reason<textarea className="mt-1 w-full rounded-lg border p-3" value={reason} minLength={5} maxLength={500} onChange={(event) => setReason(event.target.value)} /></label>}
               </fieldset>
             )}
             <div className="sticky bottom-0 mt-6 flex justify-end gap-3 border-t bg-white pt-4">
@@ -735,7 +753,7 @@ export default function CustomersPage() {
                   busy ||
                   Boolean(arrangementDraft && (arrangementDraft.name.trim().length < 2 || arrangementDraft.reason.trim().length < 5)) ||
                   (action === "credit" && reason.trim().length < 3) ||
-                  (action === "payment" && (!paymentAmount || !branchId || (paymentSource === "receipt" && paymentMethod !== "cash" && !paymentBankAccountId)))
+                  (action === "payment" && (!paymentAmount || !branchId || !validAdvanceRefund || (paymentSource === "receipt" && paymentMethod !== "cash" && !paymentBankAccountId)))
                 }
                 onClick={() =>
                   void (action === "create" || action === "edit"
@@ -751,7 +769,7 @@ export default function CustomersPage() {
                 {action === "credit"
                   ? "Save decision"
                   : action === "payment"
-                    ? paymentPurpose === "advance" ? "Record advance" : paymentSource === "advance_balance" ? "Apply advance" : "Record payment"
+                    ? refundAdvance ? "Record advance refund" : paymentPurpose === "advance" ? "Record advance" : paymentSource === "advance_balance" ? "Apply advance" : "Record payment"
                     : "Save customer"}
               </Button>
             </div>

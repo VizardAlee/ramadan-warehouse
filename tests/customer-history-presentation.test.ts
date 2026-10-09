@@ -7,6 +7,7 @@ describe("customer history presentation", () => {
     expect(customerHistoryLabel("account", "credit sale")).toBe("Added to amount owed");
     expect(customerHistoryLabel("account", "payment")).toBe("Payment received");
     expect(customerHistoryLabel("account", "sale_return_credit")).toBe("Return credited to account");
+    expect(customerHistoryLabel("account", "advance_refund")).toBe("Unused advance refunded");
   });
 
   it("uses attention for debt, green for payment, red for returns and blue for sales", () => {
@@ -15,5 +16,6 @@ describe("customer history presentation", () => {
     expect(customerHistoryTone("account", "payment")).toBe("income");
     expect(customerHistoryTone("return", "refund")).toBe("outflow");
     expect(customerHistoryTone("sale", "paid")).toBe("balance");
+    expect(customerHistoryTone("account", "advance_refund")).toBe("outflow");
   });
 });

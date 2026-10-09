@@ -1720,6 +1720,90 @@ describe.sequential("sales callables", () => {
     expect(await deliverInAppNotification({ ...reminder.data(), id: `${reminder.id}_retry` } as InboxEvent)).toMatchObject({ delivered: true, providerMessageId: expect.stringContaining("superseded") });
   });
 
+  it("refunds unused customer advances atomically without changing debt, invoices or stock", async () => {
+    const saved = await call<{ customerId: string }>(administrator, "saveCustomer", { name: "Advance refund test", phone: "08077665545", idempotencyKey: crypto.randomUUID() });
+    const customer = adminDb.doc(`customers/${saved.customerId}`);
+    const accountId = crypto.randomUUID();
+    const receipt = { customerId: saved.customerId, branchId, method: "bank_transfer", bankAccountId, amountMinor: 10000, purpose: "advance", idempotencyKey: crypto.randomUUID() };
+    await call(administrator, "recordCustomerPayment", receipt);
+    // Historical inactive customers/arrangements must still be able to receive money owed.
+    await customer.update({ active: false, outstandingBalanceMinor: 500, creditLimitMinor: 20000, availableCreditMinor: 19500, creditStatus: "approved", advanceBalances: { general: 6000, [accountId]: 4000 }, arrangements: [{ id: accountId, name: "Closed project", active: false, outstandingBalanceMinor: 0 }] });
+    const invoice = adminDb.collection("sales").doc();
+    await invoice.set({ organizationId, branchId, customerId: customer.id, receivableOutstandingMinor: 500, receivableStatus: "open" });
+    const balance = adminDb.doc(`inventoryBalances/${balanceDocumentId(organizationId, productId, locationId)}`);
+    const stockBefore = (await balance.get()).data();
+    const reportScope = { branchId, fromDate: "2020-01-01", toDate: new Date().toISOString().slice(0, 10) };
+    const cashBefore = await call<{ netCashMovementMinor: number }>(administrator, "generateFinancialStatement", { ...reportScope, reportType: "cash_flow" });
+    const incomeBefore = await call<{ profitMinor: number }>(administrator, "generateFinancialStatement", { ...reportScope, reportType: "income_statement" });
+    const positionBefore = await call<{ assetsMinor: number; liabilitiesMinor: number }>(administrator, "generateFinancialStatement", { ...reportScope, reportType: "balance_sheet" });
+    const refund = { ...receipt, purpose: "advance_refund", amountMinor: 7000, notes: "Unused advance physically refunded to customer", reference: "BANK-REFUND-TEST", allocations: [{ accountId: "general", amountMinor: 3000 }, { accountId, amountMinor: 4000 }], idempotencyKey: crypto.randomUUID() };
+    const period = adminDb.doc(`accountingPeriods/${uniquenessDocumentId(organizationId, new Date().toISOString().slice(0, 7))}`);
+    await period.set({ organizationId, status: "closed" });
+    try { await expect(call(administrator, "recordCustomerPayment", refund)).rejects.toMatchObject({ code: "functions/failed-precondition" }); }
+    finally { await period.delete(); }
+    await expect(call(cashier, "recordCustomerPayment", refund)).rejects.toMatchObject({ code: "functions/permission-denied" });
+    await expect(call(administrator, "recordCustomerPayment", { ...refund, branchId: "wrong-store" })).rejects.toMatchObject({ code: "functions/failed-precondition" });
+    await expect(call(administrator, "recordCustomerPayment", { ...refund, bankAccountId: "wrong-account" })).rejects.toMatchObject({ code: "functions/failed-precondition" });
+    const results = await Promise.all([call<{ paymentId: string; recorded: boolean }>(administrator, "recordCustomerPayment", refund), call<{ paymentId: string; recorded: boolean }>(administrator, "recordCustomerPayment", refund)]);
+    expect(results.map((item) => item.recorded).sort()).toEqual([false, true]);
+    expect(results[0]!.paymentId).toBe(results[1]!.paymentId);
+    await expect(call(administrator, "recordCustomerPayment", { ...refund, notes: "Different purpose under the same retry key" })).rejects.toMatchObject({ code: "functions/already-exists" });
+    const payment = await adminDb.doc(`customerPayments/${results[0]!.paymentId}`).get();
+    expect(payment.data()).toMatchObject({ purpose: "advance_refund", direction: "outflow", bankAccountId, ledgerAccountCode: "1040", amountMinor: 7000, invoiceAllocations: [] });
+    const lines = await adminDb.collection("journalLines").where("journalEntryId", "==", payment.get("journalEntryId")).get();
+    expect(lines.size).toBe(2);
+    expect(lines.docs.map((line) => line.data())).toEqual(expect.arrayContaining([expect.objectContaining({ accountCode: "2210", debitMinor: 7000, creditMinor: 0 }), expect.objectContaining({ accountCode: "1040", debitMinor: 0, creditMinor: 7000 })]));
+    expect((await customer.get()).data()).toMatchObject({ outstandingBalanceMinor: 500, availableCreditMinor: 19500, advanceBalances: { general: 3000, [accountId]: 0 } });
+    expect((await invoice.get()).get("receivableOutstandingMinor")).toBe(500);
+    expect((await balance.get()).data()).toEqual(stockBefore);
+    expect(await call(administrator, "generateFinancialStatement", { ...reportScope, reportType: "cash_flow" })).toMatchObject({ netCashMovementMinor: cashBefore.netCashMovementMinor - 7000 });
+    expect(await call(administrator, "generateFinancialStatement", { ...reportScope, reportType: "income_statement" })).toMatchObject({ profitMinor: incomeBefore.profitMinor });
+    expect(await call(administrator, "generateFinancialStatement", { ...reportScope, reportType: "balance_sheet" })).toMatchObject({ assetsMinor: positionBefore.assetsMinor - 7000, liabilitiesMinor: positionBefore.liabilitiesMinor - 7000 });
+    const entry = (await adminDb.collection("customerAccountEntries").where("referenceId", "==", payment.id).get()).docs[0]!;
+    expect(entry.data()).toMatchObject({ entryType: "advance_refund", amountMinor: -7000, advanceAmountMinor: -7000, debtAmountMinor: 0, journalEntryId: payment.get("journalEntryId"), balanceAfterMinor: 500 });
+    const history = await call<{ rows: unknown[] }>(administrator, "getCustomerHistory", { customerId: customer.id, branchId });
+    expect(history.rows).toContainEqual(expect.objectContaining({ detail: "advance_refund", reference: payment.get("paymentNumber"), amountMinor: -7000 }));
+    await expect(call(administrator, "recordCustomerPayment", { ...refund, idempotencyKey: crypto.randomUUID() })).rejects.toMatchObject({ code: "functions/failed-precondition" });
+  });
+
+  it("prevents concurrent refunds and debt applications from spending the same customer advance", async () => {
+    const saved = await call<{ customerId: string }>(administrator, "saveCustomer", { name: "Concurrent advance", phone: "08077665546", idempotencyKey: crypto.randomUUID() });
+    const customer = adminDb.doc(`customers/${saved.customerId}`);
+    await call(administrator, "recordCustomerPayment", { customerId: customer.id, branchId, method: "cash", amountMinor: 1000, purpose: "advance", idempotencyKey: crypto.randomUUID() });
+    await customer.update({ outstandingBalanceMinor: 1000 });
+    const common = { customerId: customer.id, branchId, method: "cash", amountMinor: 1000 };
+    const results = await Promise.allSettled([
+      call(branchManager, "recordCustomerPayment", { ...common, purpose: "advance_refund", notes: "Unused advance returned in cash", idempotencyKey: crypto.randomUUID() }),
+      call(administrator, "recordCustomerPayment", { ...common, source: "advance_balance", idempotencyKey: crypto.randomUUID() }),
+    ]);
+    expect(results.filter((item) => item.status === "fulfilled")).toHaveLength(1);
+    expect(results.find((item) => item.status === "rejected")).toMatchObject({ reason: { code: "functions/failed-precondition" } });
+    expect((await customer.get()).get("advanceBalances.general")).toBe(0);
+    expect((await customer.get()).get("outstandingBalanceMinor")).toBe(results[0]!.status === "fulfilled" ? 1000 : 0);
+    const entries = await adminDb.collection("customerPayments").where("customerId", "==", customer.id).get();
+    expect(entries.size).toBe(2); // Original receipt plus exactly one use of it.
+  });
+
+  it("enforces refund permission before replay and preserves safe historical receipt retries", async () => {
+    const saved = await call<{ customerId: string }>(administrator, "saveCustomer", { name: "Refund access", phone: "08077665547", idempotencyKey: crypto.randomUUID() });
+    const user = adminDb.doc(`users/${cashier.auth.currentUser!.uid}`);
+    const previousUser = (await user.get()).data()!;
+    const receipt = { customerId: saved.customerId, branchId, method: "cash", amountMinor: 1000, purpose: "advance", idempotencyKey: crypto.randomUUID() };
+    await call(administrator, "recordCustomerPayment", receipt);
+    const refund = { ...receipt, purpose: "advance_refund", amountMinor: 100, notes: "Returning unused advance", idempotencyKey: crypto.randomUUID() };
+    await call(administrator, "recordCustomerPayment", refund);
+    await user.update({ directRoleIds: [], effectivePermissions: ["customers.payment.record"], customRoleIds: ["receipt-only-role"] });
+    try {
+      await expect(call(cashier, "recordCustomerPayment", refund)).rejects.toMatchObject({ code: "functions/permission-denied" });
+      await expect(call(cashier, "recordCustomerPayment", { ...refund, idempotencyKey: crypto.randomUUID() })).rejects.toMatchObject({ code: "functions/permission-denied" });
+      await expect(call(cashier, "recordCustomerPayment", { ...receipt, amountMinor: 1, idempotencyKey: crypto.randomUUID() })).resolves.toMatchObject({ recorded: true });
+    } finally { await user.set(previousUser); }
+    const operation = adminDb.doc(`idempotencyKeys/${organizationId}_recordCustomerPayment_${receipt.idempotencyKey}`);
+    await operation.update({ fingerprint: FieldValue.delete() });
+    await expect(call(administrator, "recordCustomerPayment", receipt)).resolves.toMatchObject({ recorded: false });
+    await expect(call(administrator, "recordCustomerPayment", { ...receipt, purpose: "advance_refund", notes: "Reusing a historical receipt key" })).rejects.toMatchObject({ code: "functions/already-exists" });
+  });
+
   it("posts approved wholesale through the controlled workflow and rejects stale offline price tiers", async () => {
     const priceRef = adminDb.doc(`productSalesPrices/${productId}`);
     await expect(call(cashier, "saveProductSalesPrice", { productId, basePriceMinor: 10000, wholesalePriceMinor: 8000, vatRateBasisPoints: 750, idempotencyKey: crypto.randomUUID() })).rejects.toMatchObject({ code: "functions/permission-denied" });

@@ -1,5 +1,34 @@
 # Business workflow expansion (24 September 2026 baseline)
 
+## Customer unused-advance refunds — 9 October 2026 (implementation)
+
+Extends existing customer payments, arrangements, advance balances and journals;
+no second customer-account module. Authorized customer-payment/return-approval
+staff record actual refunds, a reason and the paying company account/reference
+for non-cash payments. Refunds debit customer advances (2210) and credit the
+selected money account. Debt/invoice allocations, sales income, VAT and stock
+remain unchanged. Inactive customers/arrangements can receive existing money
+owed. Shared advance-balance transactions prevent concurrent refund/application
+overspending. New operations fingerprint instructions; old valid receipt retries
+remain supported without allowing a receipt to become a refund. Refund entries
+link the payment, journal, arrangement allocations and audit; customer history
+uses plain language and red outflow styling. Additive fields only.
+
+Scope: existing organization-wide customer advances, recording an outgoing
+payment in the selected store. Cash uses the store cash-on-hand ledger, not a POS
+till shift. No historical store ownership of advances is guessed. Direct POS
+advance tender and arrangement-filtered statements remain the next dependencies.
+Sequential emulator validation passed all 57 sales/POS, accounting/daily-close
+and Firestore/Storage security cases, including all three refund cases. An extra
+isolated run verified the refund's cash-flow and balance-sheet movements and
+unchanged income statement. The earlier parallel run timed out starting an
+existing shift-close function; the full sequential rerun passed. Live planner
+audit passed 441/441, all 224 indexes READY, existing query shapes unchanged;
+the guarded source baseline was refreshed only after this verification. Final
+validation passed 330 unit/interface tests and 57 emulator/security cases (387
+distinct tests), typecheck, lint, Functions compilation, production build, secret
+scan and diff checks. Release is in progress; not yet deployed.
+
 ## Linked supplier replacement receipts — 9 October 2026 (deployed)
 
 Extends the existing approved-return follow-up and handover settlement panel.
