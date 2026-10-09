@@ -1,6 +1,6 @@
 # Business workflow expansion (24 September 2026 baseline)
 
-## Internal company-account transfers — 9 October 2026 (implementation)
+## Internal company-account transfers — 9 October 2026 (release blocked)
 
 Extends Banking and extracts the existing procurement journal writer rather than
 creating another ledger. Authorized finance users record an already-completed
@@ -22,8 +22,23 @@ and no income/expense from an internal transfer. The first full unit run hit the
 expected stale query-source baseline guard; after the live audit passed 443/443
 with all 224 indexes READY, its guarded baseline was refreshed and the full suite
 passed. An initial UI lint check required asynchronous session-storage hydration;
-that was fixed and relevant tests, lint, typecheck and build rerun. Deployment
-pending; no release claim yet.
+that was fixed and relevant tests, lint, typecheck and build rerun.
+Source `0288186` is committed/pushed and production safeguards pass. Six existing
+functions updated successfully: getMyAccessContext `getmyaccesscontext-00014-qet`,
+getAssignableRolePermissions `getassignablerolepermissions-00005-cas`,
+saveOrganizationRole `saveorganizationrole-00005-nel`, approveSupplierInvoice
+`approvesupplierinvoice-00007-tav`, postSupplierReturn `postsupplierreturn-00008-lat`
+and recordSupplierPayment `recordsupplierpayment-00009-xaq`. All retain production
+mode, App Check, original runtime identity and invoker settings, 100% traffic and
+no reconciliation pending. The new recordCompanyFundsTransfer function is ACTIVE
+at `recordcompanyfundstransfer-00001-lur`, but Google rejected its invoker policy
+setup; the endpoint returns HTTP 403 before Firebase handling. No IAM checks were
+disabled for this new service. Prior service-specific approvals do not cover it.
+The Banking UI has intentionally NOT been deployed while its action is blocked;
+App Hosting remains the verified supplier-correction build-2026-10-09-016.
+Full transfer release requires specific authority for this new service's invoker
+setting, then HTTP 401/security verification and the web rollout. No real
+financial mutations were used for release checks. No full-release claim yet.
 Next: authorized manual/reversal journals, then reviewed statutory tax rules.
 
 ## Linked supplier-return corrections — 9 October 2026 (deployed)
