@@ -2,7 +2,7 @@
 
 This roadmap extends the existing Firebase application and preserves historical users, stock entries, sales, journals and audit records. A requested capability is not marked complete merely because a screen or a partial workflow exists.
 
-### Supplier / aftersales serial photos — 9 October 2026 (implementation; release pending)
+### Supplier / aftersales serial photos — 9 October 2026 (deployed)
 
 Existing supplier returns and warranty/non-warranty cases now accept private
 append-only JPEG/PNG evidence (2 MB each, 20 per record). Aftersales captures
@@ -36,8 +36,24 @@ object rejection, cross-organization/store denial, read-only actor denial and no
 stock/journal effects from uploads. Existing supplier returns/credits/advances,
 service payments and large-ledger statements passed regression checks. Typecheck,
 lint, Functions compilation, production build, secret scan and diff checks passed.
-The live query audit passed 440/440; all 224 indexes are READY. Release evidence
-will be recorded only after the scoped deployment and live checks complete.
+The live query audit passed 440/440; all 224 indexes are READY. The final bounded
+history regression also passed in the procurement emulator.
+
+Release: implementation `7924bc2`, bounded-history correction `7f908d5`.
+App Hosting `build-2026-10-09-006` is READY, serving 100% of traffic with
+`reconciling=false`. Both workspace Functions are ACTIVE: aftersales revision
+`getaftersalesworkspace-00005-nup`, procurement `getprocurementworkspace-00012-diw`.
+Production environment and App Check remain enabled; pre-existing invoker settings
+are unchanged. Both live unauthenticated evidence probes return 401
+UNAUTHENTICATED (reachability/authentication checks, not signed-in acceptance).
+The web CLI printed Deploy complete, then an unexpected exit error; independent
+App Hosting build/traffic verification confirms the rollout completed.
+Live `/aftersales`, `/procurement`, `/guide` and `/pos` returned HTTP 200;
+their script assets loaded successfully. Aftersales/procurement bundles contain
+the evidence actions and corrected returned-serial input, and the served guide
+contains the serial-validation instructions. Physical camera and signed-in live
+business acceptance remain unverified; no real stock or financial postings were
+created for these release checks.
 
 ### Serialized POS ownership — 9 October 2026 (deployed)
 
