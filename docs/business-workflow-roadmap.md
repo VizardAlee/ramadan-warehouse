@@ -1,6 +1,6 @@
 # Business workflow expansion (24 September 2026 baseline)
 
-## Accountant journals and linked reversals — 9 October 2026 (release validation)
+## Accountant journals and linked reversals — 9 October 2026 (backend release blocked)
 
 Extends the Accounting hub with a server-paged dated journal register (25/50/100),
 on-demand debit/credit expansion, explicit accountant-adjustment and reversal
@@ -36,7 +36,22 @@ Typecheck, lint, Functions compilation, production build, secret scan, query
 baseline and diff checks pass. An initial emulator assertion sent an undefined
 bank reference instead of omitting the field; the fixture was corrected and
 the real missing-bank/shared-code denials and successful posting were verified.
-Production release remains pending selected backend and web verification.
+Source `fcfbaf5` is committed/pushed and production safeguards pass. The four
+existing selected Functions updated successfully: generateFinancialStatement
+`generatefinancialstatement-00007-wib`, getMyAccessContext
+`getmyaccesscontext-00015-nus`, getAssignableRolePermissions
+`getassignablerolepermissions-00006-vil` and saveOrganizationRole
+`saveorganizationrole-00006-zuh`. Each is ACTIVE, retains production mode,
+App Check, runtime identity and invoker settings, serves 100% traffic without
+pending reconciliation and returns Firebase HTTP 401 to unauthenticated calls.
+The new accountingJournals
+Function is ACTIVE at `accountingjournals-00001-gib`, with production mode,
+App Check enabled, original runtime identity, 100% traffic and no pending
+reconciliation. Google rejected its invoker IAM policy setup; unauthenticated
+requests still return Cloud Run HTTP 403 and invoker IAM checks remain enabled.
+The earlier user approval covered recordCompanyFundsTransfer only, not this
+service. No security setting was broadened. Journal web controls remain
+undeployed until separate service-specific approval and endpoint verification.
 Next: reviewed statutory tax configuration and accountant statement sign-off.
 
 ## Internal company-account transfers — 9 October 2026 (deployed)
