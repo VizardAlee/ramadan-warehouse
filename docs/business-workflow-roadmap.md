@@ -1,6 +1,6 @@
 # Business workflow expansion (24 September 2026 baseline)
 
-## POS customer advance tender — 9 October 2026 (implementation)
+## POS customer advance tender — 9 October 2026 (deployed)
 
 Extends the existing POS payment components and customer arrangement balances.
 Full-advance payment or one advance component alongside cash/card/transfer and
@@ -22,7 +22,18 @@ lint, Functions compilation, production build, secret scan and diff checks.
 The first final run exposed the missing direct journal link; the additive fix
 and full rerun passed. A test reservation fixture was also isolated correctly.
 Live planner audit passed 441/441 with all 224 indexes READY; no new query shapes
-or indexes. Deployment verification pending. Next: arrangement statements.
+or indexes. Release proof for source `095a844`: Firebase explicitly completed
+all four selected function updates. `getposworkspace-00013-yig`,
+`createpossaleorder-00013-has`, `commitpossale-00018-xuq` and
+`confirmpossaleorder-00019-bay` are ACTIVE, production mode, App Check enabled,
+100% traffic and reconciling false. Runtime service account and existing invoker
+settings unchanged; all four endpoints return HTTP 401 without authentication.
+App Hosting `build-2026-10-09-013` is READY, rollout SUCCEEDED, 100% traffic and
+reconciling false. POS, Guide, Customers, Returns and all 16 referenced JavaScript
+assets return 200; the new advance control and guide instructions are present.
+Initial Functions/web attempts failed before upload on intermittent Google API
+requests; retries completed. Authorized financial behavior was tested in
+emulators, without real financial mutations. Next: arrangement statements.
 
 ## Atomic sales-order confirmation — 9 October 2026 (deployed)
 
