@@ -1,5 +1,39 @@
 # Business workflow expansion (24 September 2026 baseline)
 
+## Outsourced service / logistics bills — 9 October 2026 (release validation)
+
+Extends the existing Expenses register, approval, payable and partial payment
+workflow rather than creating a separate provider ledger. Aftersales cases and
+official sales invoices link directly to a cost form. Purpose, original sale/job,
+store, payee, due date and external invoice reference remain traceable on the
+expense; payment records retain the linked purpose/reference and selected
+company financial account. Trusted creation validates record ownership, store
+and relevant sales/aftersales read permission. Cancelled jobs cannot receive new
+bills. Draft creation does not post accounting; existing approval accrues the
+expense/payable once and payment clears only the paid portion. This does not
+charge the customer, release goods or complete the service job.
+
+Creation, submission, approval and payment now save exact uncertain instructions
+in per-user browser-tab storage, prevent concurrent/new mutations until resolved
+and retry the same key after reload. New server fingerprints reject changed
+retries; pre-upgrade expense/payment keys are checked against original records
+without rewriting history. Cross-store/cross-organization links are rejected.
+No financial or inventory history is migrated or deleted, and no tax rate is
+activated. This is provider cost settlement, not full non-stock POS services or
+the delivery collected/provider-payable/retained-income split. Do not record an
+already-accrued pass-through payable as a second expense.
+Validation: 384 full-suite unit/interface tests across 99 files passed, followed
+by seven final invoice/provider UI cases including two-decimal partial payments
+and retention of an uncertain retry after access denial. Both expense callable
+emulator cases pass, covering scoped approval, selected-bank partial payment,
+exact/changed retries (including pre-upgrade keys), and cross-organization/store
+denials. Firestore security checks pass 26 cases with one Storage-only skip.
+Final typecheck, lint, Functions compilation, production build, secret scan and
+diff checks pass. The fresh planner audit passes 454/454 shapes, no missing
+indexes; independent metadata confirms all 226 indexes READY. No new index or
+rule definition and no data migration is required. Deployment scope is the
+four expense mutation Functions and App Hosting; no IAM change is planned.
+
 ## Remaining dependency queue — 9 October 2026
 
 Recent deployed sections below supersede the historical 7 October checkpoint;

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { FieldValue, Timestamp } from "firebase-admin/firestore";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
 import { db } from "../admin.js";
@@ -10,6 +11,7 @@ import { writeAuditLog } from "../audit/write-audit-log.js";
 import {
   canSelfAuthorize,
   hasRole,
+  hasServerPermission,
   requireAccess,
   requireBranchScope,
   requirePermission,
@@ -261,6 +263,11 @@ export const createExpense = onCall({ enforceAppCheck }, async (request) => {
   requirePermission(actor, "expenses.create");
   const input = parseInput(createExpenseInput, request.data);
   requireExpenseScope(actor, input.branchId, input.warehouseId);
+  if (input.costReferenceType === "aftersales") requirePermission(actor, "sales.returns.read");
+  if (input.costReferenceType === "sale" && !["sales.read.all", "sales.read.own_branch", "reports.sales.read"].some(permission => hasServerPermission(actor, permission as Parameters<typeof hasServerPermission>[1])))
+    throw new HttpsError("permission-denied", "Sale access is required to link this cost.");
+  const fingerprint = createHash("sha256").update(JSON.stringify(input)).digest("hex");
+  const costReference = input.costReferenceId ? db.doc(`${input.costReferenceType === "aftersales" ? "aftersalesCases" : "sales"}/${input.costReferenceId}`) : null;
   const expense = db.collection("expenses").doc(),
     counter = db.doc(`expenseCounters/${actor.organizationId}`);
   const normalizedCategory = normalizeInventoryIdentifier(input.categoryName);
@@ -292,6 +299,7 @@ export const createExpense = onCall({ enforceAppCheck }, async (request) => {
       ...(branch ? [branch] : []),
       ...(warehouse ? [warehouse] : []),
       ...(documentLock ? [documentLock] : []),
+      ...(costReference ? [costReference] : []),
     ];
     const snapshots = await transaction.getAll(...refs);
     let cursor = 0;
@@ -300,6 +308,14 @@ export const createExpense = onCall({ enforceAppCheck }, async (request) => {
       categorySnapshot = snapshots[cursor++]!,
       categoryCounterSnapshot = snapshots[cursor++]!;
     if (previous.exists) {
+      if (previous.get("fingerprint") && previous.get("fingerprint") !== fingerprint)
+        throw new HttpsError("failed-precondition", "This retry key belongs to different expense instructions.");
+      if (!previous.get("fingerprint")) {
+        const legacy = await transaction.get(db.doc(`expenses/${String(previous.get("entityId"))}`));
+        const comparable = ["payeeName", "branchId", "warehouseId", "expenseDate", "dueDate", "supplierDocumentNumber", "description", "netAmountMinor", "vatAmountMinor", "notes", "costPurpose", "costReferenceType", "costReferenceId"] as const;
+        if (!legacy.exists || legacy.get("organizationId") !== actor.organizationId || normalizeInventoryIdentifier(String(legacy.get("categoryName"))) !== normalizedCategory || comparable.some(field => (legacy.get(field) ?? undefined) !== (input[field] === "" ? undefined : input[field])))
+          throw new HttpsError("failed-precondition", "This older retry key does not match the recorded expense.");
+      }
       result = {
         expenseId: String(previous.get("entityId")),
         expenseNumber: String(previous.get("expenseNumber")),
@@ -310,6 +326,11 @@ export const createExpense = onCall({ enforceAppCheck }, async (request) => {
     const branchSnapshot = branch ? snapshots[cursor++]! : null,
       warehouseSnapshot = warehouse ? snapshots[cursor++]! : null,
       documentSnapshot = documentLock ? snapshots[cursor++]! : null;
+    const costSnapshot = costReference ? snapshots[cursor++]! : null;
+    if (costReference && (!costSnapshot?.exists || costSnapshot.get("organizationId") !== actor.organizationId || costSnapshot.get("branchId") !== input.branchId))
+      throw new HttpsError("not-found", "The linked job or sale is unavailable at this store.");
+    if (costSnapshot?.get("status") === "cancelled")
+      throw new HttpsError("failed-precondition", "A cancelled job or sale cannot receive a new cost.");
     if (
       branchSnapshot &&
       (!branchSnapshot.exists ||
@@ -372,6 +393,10 @@ export const createExpense = onCall({ enforceAppCheck }, async (request) => {
           ? categorySnapshot.get("name")
           : input.categoryName,
         payeeName: input.payeeName,
+        costPurpose: input.costPurpose,
+        costReferenceType: input.costReferenceType,
+        costReferenceId: input.costReferenceId,
+        costReferenceLabel: costSnapshot ? String(costSnapshot.get("saleNumber") || costSnapshot.get("customerName") || costSnapshot.id) : undefined,
         branchId: input.branchId,
         branchName: branchSnapshot?.get("name"),
         warehouseId: input.warehouseId,
@@ -403,6 +428,7 @@ export const createExpense = onCall({ enforceAppCheck }, async (request) => {
     transaction.create(operation, {
       organizationId: actor.organizationId,
       action: "createExpense",
+      fingerprint,
       entityId: expense.id,
       expenseNumber,
       status: "completed",
@@ -421,6 +447,9 @@ export const createExpense = onCall({ enforceAppCheck }, async (request) => {
         grossAmountMinor: gross,
         branchId: input.branchId,
         warehouseId: input.warehouseId,
+        costPurpose: input.costPurpose,
+        costReferenceType: input.costReferenceType,
+        costReferenceId: input.costReferenceId,
       }),
     });
     result = { expenseId: expense.id, expenseNumber, created: true };
@@ -439,6 +468,7 @@ async function expenseStatusAction(
   );
   const input = parseInput(expenseActionInput, request.data),
     expense = db.doc(`expenses/${input.expenseId}`);
+  const fingerprint = createHash("sha256").update(JSON.stringify(input)).digest("hex");
   const initial = await expense.get();
   if (!initial.exists || initial.get("organizationId") !== actor.organizationId)
     throw new HttpsError("not-found", "Expense not found.");
@@ -473,7 +503,11 @@ async function expenseStatusAction(
         : await transaction.getAll(operation, expense);
     const previous = snapshots[0]!,
       current = snapshots[1]!;
-    if (previous.exists) return;
+    if (previous.exists) {
+      if ((previous.get("fingerprint") && previous.get("fingerprint") !== fingerprint) || previous.get("entityId") !== expense.id)
+        throw new HttpsError("failed-precondition", "This retry key belongs to different expense instructions.");
+      return;
+    }
     const requiredStatus = action === "submit" ? "draft" : "submitted";
     if (!current.exists || current.get("status") !== requiredStatus)
       throw new HttpsError(
@@ -534,6 +568,7 @@ async function expenseStatusAction(
     transaction.create(operation, {
       organizationId: actor.organizationId,
       action: `${action}Expense`,
+      fingerprint,
       entityId: expense.id,
       status: "completed",
       createdAt: now,
@@ -571,6 +606,7 @@ export const recordExpensePayment = onCall(
     requirePermission(actor, "expenses.pay");
     const input = parseInput(recordExpensePaymentInput, request.data),
       expense = db.doc(`expenses/${input.expenseId}`);
+    const fingerprint = createHash("sha256").update(JSON.stringify(input)).digest("hex");
     const initial = await expense.get();
     if (
       !initial.exists ||
@@ -614,6 +650,13 @@ export const recordExpensePayment = onCall(
         bankAccount,
       );
       if (previous!.exists) {
+        if (previous!.get("fingerprint") && previous!.get("fingerprint") !== fingerprint)
+          throw new HttpsError("failed-precondition", "This retry key belongs to different payment instructions.");
+        if (!previous!.get("fingerprint")) {
+          const legacyPayment = await transaction.get(db.doc(`expensePayments/${String(previous!.get("entityId"))}`));
+          if (!legacyPayment.exists || legacyPayment.get("organizationId") !== actor.organizationId || legacyPayment.get("expenseId") !== expense.id || legacyPayment.get("amountMinor") !== input.amountMinor || legacyPayment.get("method") !== input.method || (legacyPayment.get("bankAccountId") || undefined) !== input.bankAccountId || (legacyPayment.get("reference") || undefined) !== (input.reference || undefined) || legacyPayment.get("paidAt")?.toMillis() !== effectiveAt.toMillis())
+            throw new HttpsError("failed-precondition", "This older retry key does not match the recorded payment.");
+        }
         result = {
           paymentId: String(previous!.get("entityId")),
           recorded: false,
@@ -683,6 +726,9 @@ export const recordExpensePayment = onCall(
           branchId: current!.get("branchId"),
           warehouseId: current!.get("warehouseId"),
           payeeName: current!.get("payeeName"),
+          costPurpose: current!.get("costPurpose"),
+          costReferenceType: current!.get("costReferenceType"),
+          costReferenceId: current!.get("costReferenceId"),
           method: input.method,
           reference: input.reference,
           bankAccountId: settlement.bankAccountId,
@@ -703,6 +749,7 @@ export const recordExpensePayment = onCall(
       transaction.create(operation, {
         organizationId: actor.organizationId,
         action: "recordExpensePayment",
+        fingerprint,
         entityId: payment.id,
         status: "completed",
         createdAt: now,

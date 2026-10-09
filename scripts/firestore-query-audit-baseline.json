@@ -1,7 +1,7 @@
 {
   "lastLiveAudit": {
     "project": "ramadan-warehouse-staging",
-    "verifiedAt": "2026-10-09T22:05:30.344Z",
+    "verifiedAt": "2026-10-09T22:31:48.420Z",
     "queryShapes": 454,
     "unsupportedQueries": 0,
     "readyIndexes": 226,
@@ -25,7 +25,7 @@
     "functions/src/callable/customers.ts": "bdc2b538609770c067de07cdd62a2f10d832065be0159b79b6df311ded5f7c4c",
     "functions/src/callable/daily-close.ts": "f1d6177e7b02cb852adfcfa7ee66c1f5b850ac72f4f5e5929579d46de93113b5",
     "functions/src/callable/dashboard.ts": "a1e065c57b70ffcf647a64d68239ddfcfe9a7788b76f27bcc05db68f24151e26",
-    "functions/src/callable/expenses.ts": "124f88aa3e67ee98150a4659e7bb9999babf12022b32faf9d8a0e573a2028dd8",
+    "functions/src/callable/expenses.ts": "9ba6350fa5bae174f22f96284cea7d1e81b6e95a087f2dffea0a4bd6e48e207c",
     "functions/src/callable/financial-reports.ts": "c5398d5502de4becaad9485539745a8598a992e28c4d5b6e4e9f74b908f96e6c",
     "functions/src/callable/get-my-access-context.ts": "5906a6e27b873f42bc21db88845358f5431ee6f9ec3b98da8e17f31765b377cb",
     "functions/src/callable/hr.ts": "7aef28e1384d909449dc83e72cf0d329530410b4d9182fe7019e9e1eee519326",

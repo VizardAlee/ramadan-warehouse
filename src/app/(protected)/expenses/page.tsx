@@ -1,7 +1,9 @@
 "use client";
 
 import { CheckCircle2, HandCoins, RefreshCw, Send } from "lucide-react";
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { callAdministration } from "@/features/administration/api";
 import { useAuth } from "@/features/auth/auth-context";
@@ -36,9 +38,26 @@ function localDate() {
     offset = date.getTimezoneOffset();
   return new Date(date.getTime() - offset * 60_000).toISOString().slice(0, 10);
 }
+function minorOrNaN(value: string) {
+  try { return nairaToKobo(Number(value)); } catch { return Number.NaN; }
+}
 
 export default function ExpensesPage() {
+  const { user, profile } = useAuth();
+  return <Suspense fallback={<p role="status">Loading expenses…</p>}><ExpensesWorkspace key={`${profile?.organizationId}:${user?.uid || "signed-out"}`} /></Suspense>;
+}
+
+function ExpensesWorkspace() {
+  const params = useSearchParams();
+  const linkedCaseId = params.get("caseId") || "";
+  const linkedSaleId = params.get("saleId") || "";
+  const linkedBranchId = params.get("branchId") || "";
+  const linkedId = linkedCaseId || linkedSaleId;
   const { user, profile, operatingContext } = useAuth();
+  const storageKey = `abr-pending-expense:${profile?.organizationId}:${user?.uid}`;
+  const [pending, setPending] = useState<{ name: string; input: Record<string, unknown> } | null>(null);
+  const [ready, setReady] = useState(false);
+  const mutationFlight = useRef(false);
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -46,10 +65,12 @@ export default function ExpensesPage() {
   const [payments, setPayments] = useState<Record<string, PaymentDraft>>({});
   const [form, setForm] = useState({
     categoryName: "",
+    costPurpose: linkedCaseId ? "service" : linkedSaleId ? "logistics" : "",
     payeeName: "",
     scopeType: "organization",
     scopeId: "",
     expenseDate: localDate(),
+    dueDate: "",
     supplierDocumentNumber: "",
     description: "",
     netAmountNaira: "",
@@ -59,10 +80,24 @@ export default function ExpensesPage() {
   const can = (permission: Parameters<typeof hasPermission>[1]) =>
     Boolean(profile && hasPermission(profile, permission));
   const canApproveOwnWork = Boolean(profile && canSelfAuthorize(profile));
+  const linkedScopeMismatch = !!linkedId && operatingContext?.type === "branch" && operatingContext.id !== linkedBranchId;
   const contextInput =
     operatingContext?.type === "branch"
       ? { branchId: operatingContext.id }
       : {};
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      try {
+        const saved = sessionStorage.getItem(storageKey);
+        const instruction = saved ? JSON.parse(saved) : null;
+        if (instruction && (!["createExpense", "submitExpense", "approveExpense", "recordExpensePayment"].includes(instruction.name) || !instruction.input || typeof instruction.input !== "object" || Array.isArray(instruction.input)))
+          throw new Error("Invalid saved expense instructions");
+        setPending(instruction);
+        setReady(true);
+      } catch { setReady(false); setError("Saved expense instructions could not be read. Restore browser storage before recording another bill."); }
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [storageKey]);
 
   async function load() {
     if (!profile) return;
@@ -74,7 +109,8 @@ export default function ExpensesPage() {
         Workspace
       >("getExpenseWorkspace", contextInput);
       setWorkspace(result);
-      if (operatingContext?.type === "branch")
+      if (linkedId && linkedBranchId) setForm(current => ({ ...current, scopeType: "branch", scopeId: linkedBranchId }));
+      else if (operatingContext?.type === "branch")
         setForm((current) => ({
           ...current,
           scopeType: operatingContext.type,
@@ -97,45 +133,63 @@ export default function ExpensesPage() {
     return () => window.clearTimeout(timeout);
     // The selected operating context is the authoritative workspace boundary.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [profile, operatingContext?.type, operatingContext?.id]);
+  }, [profile, operatingContext?.type, operatingContext?.id, linkedId, linkedBranchId]);
 
-  async function run(action: () => Promise<unknown>, success: string) {
+  async function run(name: string, input: Record<string, unknown>, success: string) {
+    if (mutationFlight.current || !ready) return false;
+    mutationFlight.current = true;
+    const retry = pending;
     setBusy(true);
     setError(null);
     setMessage(null);
     try {
-      await action();
+      const instruction = retry ?? { name, input };
+      sessionStorage.setItem(storageKey, JSON.stringify(instruction)); setPending(instruction);
+      await callAdministration(instruction.name, instruction.input);
+      sessionStorage.removeItem(storageKey); setPending(null);
       setMessage(success);
       await load();
+      return true;
     } catch (cause) {
+      const diagnostic = cause as { diagnosticCode?: string; code?: string };
+      if (!retry && ["functions/invalid-argument", "functions/permission-denied", "functions/failed-precondition", "functions/not-found", "functions/already-exists"].includes(diagnostic.diagnosticCode ?? diagnostic.code ?? "")) {
+        sessionStorage.removeItem(storageKey); setPending(null);
+      }
       setError(
         cause instanceof Error
           ? cause.message
           : "The expense operation could not be completed.",
       );
+      return false;
     } finally {
+      mutationFlight.current = false;
       setBusy(false);
     }
   }
   async function createExpense() {
+    const netAmountMinor = minorOrNaN(form.netAmountNaira), vatAmountMinor = minorOrNaN(form.vatAmountNaira || "0");
+    if (!pending && (!Number.isSafeInteger(netAmountMinor) || netAmountMinor <= 0 || !Number.isSafeInteger(vatAmountMinor))) {
+      setError("Enter valid positive net and non-negative VAT amounts with no more than two decimal places."); return;
+    }
     const scope =
-      form.scopeType === "branch" ? { branchId: form.scopeId } : {};
-    await run(
-      () =>
-        callAdministration("createExpense", {
+      linkedId ? { branchId: linkedBranchId } : form.scopeType === "branch" ? { branchId: form.scopeId } : {};
+    const success = await run("createExpense", {
           categoryName: form.categoryName,
           payeeName: form.payeeName,
+          costPurpose: form.costPurpose || undefined,
+          costReferenceType: linkedId ? linkedCaseId ? "aftersales" : "sale" : undefined,
+          costReferenceId: linkedId || undefined,
           ...scope,
           expenseDate: form.expenseDate,
+          dueDate: form.dueDate || undefined,
           supplierDocumentNumber: form.supplierDocumentNumber || undefined,
           description: form.description,
-          netAmountMinor: nairaToKobo(Number(form.netAmountNaira)),
-          vatAmountMinor: nairaToKobo(Number(form.vatAmountNaira || 0)),
+          netAmountMinor,
+          vatAmountMinor,
           notes: form.notes || undefined,
           idempotencyKey: crypto.randomUUID(),
-        }),
-      "Draft expense created. Review and submit it for approval.",
-    );
+        }, "Draft bill saved. Submit and approve it to recognize the cost; record actual provider payments separately.");
+    if (!success) return;
     setForm((current) => ({
       ...current,
       categoryName: "",
@@ -145,6 +199,7 @@ export default function ExpensesPage() {
       netAmountNaira: "",
       vatAmountNaira: "0.00",
       notes: "",
+      dueDate: "",
     }));
   }
   if (!profile || !can("expenses.read"))
@@ -191,6 +246,7 @@ export default function ExpensesPage() {
         </div>
       )}
 
+      {pending && <div role="status" className="rounded-xl bg-amber-50 p-4"><p>An expense operation is unconfirmed. Retry the saved instructions before recording another bill or payment.</p><Button disabled={busy || !ready} onClick={() => void run(pending.name, pending.input, "Saved expense operation confirmed.")}>Retry saved expense instructions</Button></div>}
       {can("expenses.create") && (
         <details open className="rounded-xl border bg-white p-5">
           <summary className="cursor-pointer text-lg font-semibold">
@@ -201,7 +257,9 @@ export default function ExpensesPage() {
             created automatically. Amounts are naira; kobo remains two decimal
             places.
           </p>
-          <div className="mt-4 grid gap-3 md:grid-cols-3">
+          {linkedId && <div className="my-3 rounded-xl border bg-blue-50 p-4"><strong>Linked {linkedCaseId ? "aftersales service" : "sale / delivery"} cost</strong><p>This records a provider bill, not a customer charge or bank transfer. The server verifies the related record and store. Do not enter delivery pass-through amounts already recorded as a liability.</p>{linkedScopeMismatch && <p role="alert">Switch to the original record&apos;s store before recording this cost.</p>}{linkedCaseId && <Link className="underline" href={`/aftersales?caseId=${encodeURIComponent(linkedCaseId)}`}>Return to service case</Link>}</div>}
+          <fieldset disabled={busy || !!pending || !ready} className="mt-4 grid gap-3 md:grid-cols-3">
+            <label className="text-sm">Cost purpose<select value={form.costPurpose} onChange={event => setForm({ ...form, costPurpose: event.target.value })} className="mt-1 w-full rounded-lg border p-3"><option value="">General operating expense</option><option value="service">Service / outsourced technician</option><option value="logistics">Delivery / logistics provider</option></select></label>
             <label className="text-sm">
               Category
               <input
@@ -245,7 +303,7 @@ export default function ExpensesPage() {
               Allocate to
               <select
                 value={form.scopeType}
-                disabled={Boolean(operatingContext)}
+                disabled={Boolean(operatingContext) || !!linkedId}
                 onChange={(event) =>
                   setForm({
                     ...form,
@@ -259,12 +317,13 @@ export default function ExpensesPage() {
                 <option value="branch">Store / Head Office</option>
               </select>
             </label>
+            <label className="text-sm">Payment due date (optional)<input type="date" value={form.dueDate} onChange={event => setForm({ ...form, dueDate: event.target.value })} className="mt-1 w-full rounded-lg border p-3" /></label>
             {form.scopeType !== "organization" && (
               <label className="text-sm">
                 Location
                 <select
                   value={form.scopeId}
-                  disabled={Boolean(operatingContext)}
+                  disabled={Boolean(operatingContext) || !!linkedId}
                   onChange={(event) =>
                     setForm({ ...form, scopeId: event.target.value })
                   }
@@ -329,11 +388,14 @@ export default function ExpensesPage() {
                 className="mt-1 min-h-24 w-full rounded-lg border p-3"
               />
             </label>
-          </div>
+          </fieldset>
           <Button
             className="mt-4"
             disabled={
               busy ||
+              !!pending || !ready ||
+              linkedScopeMismatch ||
+              (!!linkedId && (!linkedBranchId || !form.costPurpose || Boolean(linkedCaseId && linkedSaleId))) ||
               form.categoryName.trim().length < 2 ||
               form.payeeName.trim().length < 2 ||
               form.description.trim().length < 3 ||
@@ -361,7 +423,7 @@ export default function ExpensesPage() {
               reference: "",
               bankAccountId: "",
             };
-            const paymentMinor = Number(draft.amountNaira) * 100;
+            const paymentMinor = minorOrNaN(draft.amountNaira);
             const validPayment =
               Number.isSafeInteger(paymentMinor) &&
               paymentMinor > 0 &&
@@ -391,18 +453,19 @@ export default function ExpensesPage() {
                       Outstanding <strong className={expense.outstandingAmountMinor > 0 ? "finance-attention" : "finance-neutral"}>{formatNaira(expense.outstandingAmountMinor)}</strong>
                     </p>
                     <p className="mt-1 text-sm">{expense.description}</p>
+                    {expense.dueDate && <p className="text-sm">Payment due: {expense.dueDate}</p>}
+                    {expense.costPurpose && <p className="mt-2 text-sm"><strong>{expense.costPurpose === "service" ? "Service provider cost" : "Logistics provider cost"}</strong>{expense.costReferenceLabel && ` · ${expense.costReferenceLabel}`}{expense.costReferenceType === "aftersales" && expense.costReferenceId && <> · <Link className="underline" href={`/aftersales?caseId=${encodeURIComponent(expense.costReferenceId)}`}>Open service case</Link></>}</p>}
                   </div>
                   <div className="flex flex-wrap gap-2">
                     {expense.status === "draft" && can("expenses.create") && (
                       <Button
-                        disabled={busy}
+                        disabled={busy || !!pending || !ready}
                         onClick={() =>
                           void run(
-                            () =>
-                              callAdministration("submitExpense", {
+                            "submitExpense", {
                                 expenseId: expense.id,
                                 idempotencyKey: crypto.randomUUID(),
-                              }),
+                              },
                             `${expense.expenseNumber} submitted for approval.`,
                           )
                         }
@@ -415,14 +478,13 @@ export default function ExpensesPage() {
                       (expense.createdBy !== user?.uid ||
                         canApproveOwnWork) && (
                         <Button
-                          disabled={busy}
+                          disabled={busy || !!pending || !ready}
                           onClick={() =>
                             void run(
-                              () =>
-                                callAdministration("approveExpense", {
+                              "approveExpense", {
                                   expenseId: expense.id,
                                   idempotencyKey: crypto.randomUUID(),
-                                }),
+                                },
                               `${expense.expenseNumber} approved and posted to accrued expenses.`,
                             )
                           }
@@ -530,14 +592,14 @@ export default function ExpensesPage() {
                       <Button
                         disabled={
                           busy ||
+                          !!pending || !ready ||
                           !validPayment ||
                           (draft.method !== "cash" && !draft.reference.trim()) ||
                           (draft.method !== "cash" && !draft.bankAccountId)
                         }
                         onClick={() =>
                           void run(
-                            () =>
-                              callAdministration("recordExpensePayment", {
+                            "recordExpensePayment", {
                                 expenseId: expense.id,
                                 method: draft.method,
                                 amountMinor: nairaToKobo(
@@ -548,7 +610,7 @@ export default function ExpensesPage() {
                                   draft.bankAccountId || undefined,
                                 paidAt: new Date().toISOString(),
                                 idempotencyKey: crypto.randomUUID(),
-                              }),
+                              },
                             `Payment recorded against ${expense.expenseNumber}.`,
                           )
                         }

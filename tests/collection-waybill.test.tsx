@@ -3,6 +3,9 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { SaleDocumentDialog } from "@/features/pos/sale-document";
 import type { SaleDocument } from "@/features/pos/types";
+const access = vi.hoisted(() => ({ mayRecordCosts: false }));
+vi.mock("@/features/auth/auth-context", () => ({ useAuth: () => ({ profile: { organizationId: "org" } }) }));
+vi.mock("@/lib/permissions/roles", () => ({ hasPermission: () => access.mayRecordCosts }));
 
 const document: SaleDocument = {
   official: true,
@@ -13,9 +16,19 @@ const document: SaleDocument = {
   payments: [{ id: "p1", method: "cash", amountMinor: 100000, reference: null, status: "confirmed" }],
   collections: [{ id: "collection1", waybillNumber: "WB-INV-2026-000021", referenceNumber: "SAL-HQ-1", collector: "Amina Musa", collectedAt: "2026-10-07T11:00:00.000Z", releasedBy: "staff1", releasedByName: "Usman", totalQuantity: 6, notes: "Four units remain reserved", lines: [{ saleItemId: "item1", productName: "Solar panel", sku: "PANEL", quantity: 6, unitOfMeasure: "unit" }] }],
 };
-afterEach(() => { cleanup(); vi.restoreAllMocks(); });
+afterEach(() => { cleanup(); vi.restoreAllMocks(); access.mayRecordCosts = false; });
 
 describe("collection waybill", () => {
+  it("links authorized provider costs to the actual sale and never to an offline provisional invoice", () => {
+    access.mayRecordCosts = true;
+    const view = render(<SaleDocumentDialog document={document} onClose={() => {}} />);
+    expect(screen.getByRole("link", { name: "Record delivery / service provider cost" }).getAttribute("href")).toBe("/expenses?saleId=sale1&branchId=hq");
+    view.rerender(<SaleDocumentDialog document={{ ...document, official: false }} onClose={() => {}} />);
+    expect(screen.queryByRole("link", { name: "Record delivery / service provider cost" })).toBeNull();
+    access.mayRecordCosts = false;
+    view.rerender(<SaleDocumentDialog document={document} onClose={() => {}} />);
+    expect(screen.queryByRole("link", { name: "Record delivery / service provider cost" })).toBeNull();
+  });
   it("prints the actual handover, not the whole paid invoice, without changing stock", () => {
     const print = vi.spyOn(window, "print").mockImplementation(() => {});
     render(<SaleDocumentDialog document={document} onClose={() => {}} />);

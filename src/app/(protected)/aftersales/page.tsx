@@ -167,6 +167,7 @@ function AftersalesWorkspace() {
                   <p className="text-sm text-[var(--muted)]">{item.productName || "Service only"} · {item.serviceType.replaceAll("_", " ")} · {item.saleNumber || "No linked sale"} {item.serialNumber && `· Serial ${item.serialNumber}`}</p>
                   {item.returnNumber && <p className="mt-2 text-sm">From inspected return {item.returnNumber} · {(item.quantity ?? 0) - (item.heldDisposedQuantity ?? 0)} unit(s) still held {item.contactPhone && `· ${item.contactPhone}`}<br />Completing service does not restock goods or issue a refund. <Link href="/aftersales" className="underline">View all service cases</Link></p>}
                   <p className="mt-2 text-sm">{item.complaint}</p>
+                  {can("expenses.create") && can("expenses.read") && <Link className="mt-3 inline-block text-sm font-semibold underline" href={`/expenses?caseId=${encodeURIComponent(item.id)}&branchId=${encodeURIComponent(item.branchId)}`}>Record outsourced service / logistics cost</Link>}
                   {item.resolution && <p className="mt-1 text-sm"><strong>Resolution:</strong> {item.resolution}</p>}
                 </div>
                 <div className="text-right text-sm"><span className="rounded-full bg-slate-100 px-3 py-1 capitalize">{item.status.replaceAll("_", " ")}</span><p className="mt-2 capitalize">{item.chargeStatus.replaceAll("_", " ")}</p>{item.chargeAmountMinor !== undefined && <p>{formatNaira(item.amountPaidMinor ?? 0)} paid / {formatNaira(item.chargeAmountMinor)}</p>}</div>

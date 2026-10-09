@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-const id = z.string().trim().min(1).max(128);
+const id = z.string().trim().min(1).max(128).refine(value => !value.includes("/") && value !== "." && value !== "..", "Invalid record identifier.");
 const optionalText = (max: number) => z.string().trim().max(max).optional();
 const positiveMoney = z.number().int().positive().max(Number.MAX_SAFE_INTEGER);
 
@@ -16,6 +16,9 @@ export const expenseWorkspaceInput = z.object({
 export const createExpenseInput = z.object({
   categoryName: z.string().trim().min(2).max(120),
   payeeName: z.string().trim().min(2).max(160),
+  costPurpose: z.enum(["service", "logistics"]).optional(),
+  costReferenceType: z.enum(["sale", "aftersales"]).optional(),
+  costReferenceId: id.optional(),
   branchId: id.optional(),
   warehouseId: id.optional(),
   expenseDate: z.string().date(),
@@ -27,6 +30,10 @@ export const createExpenseInput = z.object({
   notes: optionalText(500),
   idempotencyKey: z.string().uuid(),
 }).superRefine((value, context) => {
+  if (Boolean(value.costReferenceType) !== Boolean(value.costReferenceId))
+    context.addIssue({ code: "custom", path: ["costReferenceId"], message: "Provide both the linked record type and identifier." });
+  if (value.costReferenceId && (!value.costPurpose || !value.branchId || value.warehouseId))
+    context.addIssue({ code: "custom", path: ["branchId"], message: "Linked service/logistics costs require their store and purpose." });
   if (value.branchId && value.warehouseId)
     context.addIssue({ code: "custom", message: "Allocate an expense to a branch or warehouse, not both." });
   const gross = value.netAmountMinor + value.vatAmountMinor;

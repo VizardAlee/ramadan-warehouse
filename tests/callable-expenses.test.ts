@@ -123,6 +123,39 @@ beforeAll(async () => {
 afterAll(async () => Promise.all(apps.map((app) => deleteApp(app))));
 
 describe.sequential("expense callables", () => {
+  it("links outsourced costs to scoped jobs, replays exact requests and rejects changed retries", async () => {
+    const caseId = "outsourced-service-job";
+    await adminDb.doc(`aftersalesCases/${caseId}`).set({ organizationId, branchId, customerName: "Service customer", status: "in_service" });
+    const input = { categoryName: "Outsourced installation", payeeName: "Contract technician", expenseDate: new Date().toISOString().slice(0, 10), description: "Installation labour for service job", netAmountMinor: 50000, costPurpose: "service", costReferenceType: "aftersales", costReferenceId: caseId, branchId, idempotencyKey: crypto.randomUUID(), operatingContext: { type: "branch", id: branchId } };
+    const first = await call<{ expenseId: string }>(branchManager, "createExpense", input);
+    expect(await call(branchManager, "createExpense", input)).toMatchObject({ expenseId: first.expenseId, created: false });
+    await expect(call(branchManager, "createExpense", { ...input, netAmountMinor: 60000 })).rejects.toMatchObject({ code: "functions/failed-precondition" });
+    expect((await adminDb.doc(`expenses/${first.expenseId}`).get()).data()).toMatchObject({ costPurpose: "service", costReferenceType: "aftersales", costReferenceId: caseId, costReferenceLabel: "Service customer", netAmountMinor: 50000 });
+    expect((await adminDb.collection("journalEntries").where("referenceId", "==", first.expenseId).get()).empty).toBe(true);
+    await call(branchManager, "submitExpense", { expenseId: first.expenseId, idempotencyKey: crypto.randomUUID(), operatingContext: input.operatingContext });
+    await call(branchManager, "approveExpense", { expenseId: first.expenseId, idempotencyKey: crypto.randomUUID(), operatingContext: input.operatingContext });
+    const payment = { expenseId: first.expenseId, method: "bank_transfer", bankAccountId, reference: "TECH-001", amountMinor: 20000, paidAt: new Date().toISOString(), idempotencyKey: crypto.randomUUID(), operatingContext: input.operatingContext };
+    await call(branchManager, "recordExpensePayment", payment);
+    expect(await call(branchManager, "recordExpensePayment", payment)).toMatchObject({ recorded: false });
+    await expect(call(branchManager, "recordExpensePayment", { ...payment, amountMinor: 10000 })).rejects.toMatchObject({ code: "functions/failed-precondition" });
+    await adminDb.doc(`idempotencyKeys/${organizationId}_recordExpensePayment_${payment.idempotencyKey}`).update({ fingerprint: FieldValue.delete() });
+    expect(await call(branchManager, "recordExpensePayment", payment)).toMatchObject({ recorded: false });
+    await expect(call(branchManager, "recordExpensePayment", { ...payment, bankAccountId: "different-bank" })).rejects.toMatchObject({ code: "functions/failed-precondition" });
+    await adminDb.doc(`idempotencyKeys/${organizationId}_createExpense_${input.idempotencyKey}`).update({ fingerprint: FieldValue.delete() });
+    expect(await call(branchManager, "createExpense", input)).toMatchObject({ expenseId: first.expenseId, created: false });
+    await expect(call(branchManager, "createExpense", { ...input, payeeName: "Different provider" })).rejects.toMatchObject({ code: "functions/failed-precondition" });
+    expect((await adminDb.doc(`expenses/${first.expenseId}`).get()).data()).toMatchObject({ status: "partially_paid", outstandingAmountMinor: 30000 });
+    expect((await adminDb.doc(`aftersalesCases/${caseId}`).get()).get("status")).toBe("in_service");
+    const journal = await adminDb.collection("journalEntries").where("referenceId", "==", first.expenseId).get();
+    expect(journal.size).toBe(1);
+    expect(journal.docs[0]!.get("totalDebitMinor")).toBe(journal.docs[0]!.get("totalCreditMinor"));
+    for (const data of [{ organizationId: "another-org", branchId }, { organizationId, branchId: "another-store" }]) {
+      await adminDb.doc(`aftersalesCases/${caseId}-denied`).set(data);
+      await expect(call(branchManager, "createExpense", { ...input, costReferenceId: `${caseId}-denied`, idempotencyKey: crypto.randomUUID() })).rejects.toMatchObject({ code: "functions/not-found" });
+    }
+    await adminDb.doc(`aftersalesCases/${caseId}`).update({ status: "cancelled" });
+    await expect(call(branchManager, "createExpense", { ...input, idempotencyKey: crypto.randomUUID() })).rejects.toMatchObject({ code: "functions/failed-precondition" });
+  });
   it("lets a scoped manager complete an audited expense and controls partial disbursement", async () => {
     const context = { operatingContext: { type: "branch", id: branchId } };
     const scoped = await call<{ expenseId: string; expenseNumber: string }>(

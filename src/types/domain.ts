@@ -354,11 +354,16 @@ export interface OperatingExpense {
   categoryCode: string;
   categoryName: string;
   payeeName: string;
+  costPurpose?: "service" | "logistics";
+  costReferenceType?: "sale" | "aftersales";
+  costReferenceId?: string;
+  costReferenceLabel?: string;
   branchId?: string;
   branchName?: string;
   warehouseId?: string;
   warehouseName?: string;
   expenseDate: string;
+  dueDate?: string;
   supplierDocumentNumber?: string;
   description: string;
   status: "draft" | "submitted" | "approved" | "partially_paid" | "paid";

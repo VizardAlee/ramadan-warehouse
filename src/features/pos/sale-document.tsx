@@ -2,6 +2,7 @@
 
 import { Printer, X } from "lucide-react";
 import Image from "next/image";
+import Link from "next/link";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { AppDialog } from "@/components/ui/app-dialog";
@@ -9,6 +10,8 @@ import { formatNaira } from "@/features/inventory/format";
 import type { SaleDocument } from "@/features/pos/types";
 import { CollectionWaybill } from "./collection-waybill";
 import { CollectionPhotoViewer } from "./collection-photos";
+import { useAuth } from "@/features/auth/auth-context";
+import { hasPermission } from "@/lib/permissions/roles";
 
 function label(value: string) {
   return value.replaceAll("_", " ");
@@ -21,6 +24,7 @@ export function SaleDocumentDialog({
   document: SaleDocument;
   onClose: () => void;
 }) {
+  const { profile } = useAuth();
   const [waybillId, setWaybillId] = useState<string | null>(null);
   const selectedCollection = document.official ? document.collections?.find((collection) => collection.id === waybillId) : undefined;
   if (selectedCollection) return <CollectionWaybill document={document} collection={selectedCollection} onBack={() => setWaybillId(null)} onClose={onClose} />;
@@ -280,6 +284,7 @@ export function SaleDocumentDialog({
           className="flex flex-col gap-3 border-t p-5 sm:flex-row sm:justify-end sm:p-7"
           data-no-print
         >
+          {document.official && profile && hasPermission(profile, "expenses.create") && hasPermission(profile, "expenses.read") && <Link className="self-center text-sm font-semibold underline" href={`/expenses?saleId=${encodeURIComponent(document.sale.id)}&branchId=${encodeURIComponent(document.branch.id)}`}>Record delivery / service provider cost</Link>}
           <Button variant="secondary" onClick={onClose}>
             Close
           </Button>
