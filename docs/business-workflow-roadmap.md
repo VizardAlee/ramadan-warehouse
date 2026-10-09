@@ -2,7 +2,7 @@
 
 This roadmap extends the existing Firebase application and preserves historical users, stock entries, sales, journals and audit records. A requested capability is not marked complete merely because a screen or a partial workflow exists.
 
-### Receiving / customer-return inspection photos — 9 October 2026 (release pending)
+### Receiving / customer-return inspection photos — 9 October 2026 (deployed)
 
 Extends the same private, append-only operational evidence controls onto existing
 `purchaseReceipts` and `saleReturns`, without duplicate inventory, returns or
@@ -26,6 +26,19 @@ audit passed 440/440 with all 224 indexes READY. A cold-start emulator discovery
 timeout was retried with a longer startup allowance. The existing complimentary
 service test now compares before/after ledger counts instead of assuming empty
 data; its complete eight-case suite passed on rerun.
+
+Release implementation `8ebf7e9`: Firebase explicitly completed all three scoped
+Function updates and App Hosting rollout. Web `build-2026-10-09-007` is READY,
+serving 100% of traffic with no reconciliation pending. Active revisions:
+`getaftersalesworkspace-00006-san`, `getprocurementworkspace-00013-qul`, and
+`getsalereturnworkspace-00011-yeq`. All retain production environment, App Check,
+the existing runtime service account and unchanged invoker settings. Each live
+unauthenticated evidence probe returns 401 UNAUTHENTICATED; this verifies auth
+rejection/reachability, not signed-in transaction acceptance.
+Live Purchasing, Returns, Guide and POS routes and their JavaScript assets return
+HTTP 200. Served Purchasing/Returns bundles contain the new receiving and return
+evidence controls; the guide contains original-stock-ledger receiving instructions.
+No real inventory or financial postings were made for live release verification.
 Next: link inspected warranty/repair dispositions to existing aftersales cases,
 preserving quarantined stock and avoiding duplicate cases on retries.
 
