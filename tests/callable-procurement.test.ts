@@ -43,9 +43,9 @@ function client(name: string) {
   );
   apps.push(app);
   const auth = getAuth(app);
-  connectAuthEmulator(auth, "http://127.0.0.1:9099", { disableWarnings: true });
+  connectAuthEmulator(auth, `http://${process.env.FIREBASE_AUTH_EMULATOR_HOST ?? "127.0.0.1:9099"}`, { disableWarnings: true });
   const functions = getFunctions(app, "us-central1");
-  connectFunctionsEmulator(functions, "127.0.0.1", 5001);
+  connectFunctionsEmulator(functions, "127.0.0.1", Number(process.env.TEST_FUNCTIONS_PORT ?? 5001));
   return { auth, functions };
 }
 async function call<T = Record<string, unknown>>(
@@ -86,11 +86,11 @@ async function createActor(email: string, roleId: string) {
 
 beforeAll(async () => {
   await fetch(
-    `http://127.0.0.1:9099/emulator/v1/projects/${projectId}/accounts`,
+    `http://${process.env.FIREBASE_AUTH_EMULATOR_HOST ?? "127.0.0.1:9099"}/emulator/v1/projects/${projectId}/accounts`,
     { method: "DELETE" },
   );
   await fetch(
-    `http://127.0.0.1:8180/emulator/v1/projects/${projectId}/databases/(default)/documents`,
+    `http://${process.env.FIRESTORE_EMULATOR_HOST ?? "127.0.0.1:8180"}/emulator/v1/projects/${projectId}/databases/(default)/documents`,
     { method: "DELETE" },
   );
   await adminDb.doc(`organizations/${organizationId}`).set({ name: "Procurement test organization", status: "active" });

@@ -23,6 +23,7 @@ import {
 } from "../inventory/calculations.js";
 import { postInventoryTransaction } from "../inventory/post-inventory-transaction.js";
 import { supplierReturnAmounts } from "../inventory/supplier-return-calculations.js";
+import { operationalEvidence, operationalEvidenceInput } from "../sales/operational-evidence.js";
 import { assertBalancedJournal } from "../sales/calculations.js";
 import { correlationId, parseInput } from "../utils/callable.js";
 import {
@@ -424,7 +425,7 @@ async function supplierReturnWorkspace(actor: Awaited<ReturnType<typeof requireA
   const history = await query.limit(limit + 1).get();
   return { invoiceNumber: invoice.get("supplierInvoiceNumber"), outstandingAmountMinor: invoice.get("outstandingAmountMinor"),
     lines: lines.docs.map((line) => ({ id: line.id, productName: line.get("productName"), quantity: line.get("quantity"), returnedQuantity: line.get("returnedQuantity") ?? 0 })),
-    returns: history.docs.slice(0, limit).map((record) => ({ id: record.id, returnNumber: record.get("returnNumber"), creditNoteReference: record.get("creditNoteReference"), productName: record.get("productName"), quantity: record.get("quantity"), grossAmountMinor: record.get("grossAmountMinor"), payableReductionMinor: record.get("payableReductionMinor"), supplierCreditMinor: record.get("supplierCreditMinor"), inventoryTransactionNumber: record.get("inventoryTransactionNumber"), journalNumber: record.get("journalNumber"), returnedAt: record.get("effectiveAt")?.toDate?.().toISOString() ?? "", reason: record.get("reason") })),
+    returns: history.docs.slice(0, limit).map((record) => ({ id: record.id, returnNumber: record.get("returnNumber"), creditNoteReference: record.get("creditNoteReference"), productName: record.get("productName"), quantity: record.get("quantity"), grossAmountMinor: record.get("grossAmountMinor"), payableReductionMinor: record.get("payableReductionMinor"), supplierCreditMinor: record.get("supplierCreditMinor"), inventoryTransactionNumber: record.get("inventoryTransactionNumber"), journalNumber: record.get("journalNumber"), returnedAt: record.get("effectiveAt")?.toDate?.().toISOString() ?? "", reason: record.get("reason"), serialNumbers: record.get("serialNumbers") ?? [] })),
     nextCursor: history.size > limit ? history.docs[limit - 1]!.id : null };
 }
 
@@ -433,6 +434,8 @@ export const getProcurementWorkspace = onCall(
   async (request) => {
     const actor = await requireAccess(request);
     requirePermission(actor, "procurement.read");
+    if (["list_evidence", "read_evidence", "upload_evidence"].includes(request.data?.action))
+      return operationalEvidence(actor, "supplier_return", parseInput(operationalEvidenceInput, request.data));
     const input = parseInput(procurementWorkspaceInput, request.data);
     if (input.branchId) requireBranchScope(actor, input.branchId);
     if (input.warehouseId) requireWarehouseScope(actor, input.warehouseId);

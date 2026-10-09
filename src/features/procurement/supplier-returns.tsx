@@ -6,10 +6,11 @@ import { Button } from "@/components/ui/button";
 import { CursorTablePagination } from "@/components/ui/table-pagination";
 import { callAdministration } from "@/features/administration/api";
 import { formatNaira } from "@/features/inventory/format";
+import { OperationalPhotos } from "@/features/pos/operational-photos";
 
 interface ReturnLine { id: string; productName: string; quantity: number; returnedQuantity: number }
 interface Receipt { id: string; receiptNumber: string; quantity: number; returnedQuantity: number; receivedAt: string }
-interface ReturnRecord { id: string; returnNumber: string; creditNoteReference: string; productName: string; quantity: number; grossAmountMinor: number; payableReductionMinor: number; supplierCreditMinor: number; inventoryTransactionNumber: string; journalNumber: string; returnedAt: string; reason: string }
+interface ReturnRecord { id: string; returnNumber: string; creditNoteReference: string; productName: string; quantity: number; grossAmountMinor: number; payableReductionMinor: number; supplierCreditMinor: number; inventoryTransactionNumber: string; journalNumber: string; returnedAt: string; reason: string; serialNumbers?: string[] }
 interface ReturnPage { invoiceNumber: string; lines: ReturnLine[]; returns: ReturnRecord[]; nextCursor: string | null }
 interface ReceiptPage { receipts: Receipt[]; nextCursor: string | null }
 const date = (value: string) => value ? new Date(value).toLocaleString("en-GB", { timeZone: "Africa/Lagos" }) : "Date not recorded";
@@ -27,6 +28,7 @@ export function SupplierReturns({ invoiceId, canPost, onClose, onComplete }: { i
   const [creditNote, setCreditNote] = useState(""), [reason, setReason] = useState(""), [confirmed, setConfirmed] = useState(false);
   const [busy, setBusy] = useState(false), [error, setError] = useState(""), [message, setMessage] = useState("");
   const [uncertain, setUncertain] = useState(false);
+  const [evidenceRecordId, setEvidenceRecordId] = useState("");
   const pending = useRef<Record<string, unknown> | null>(null);
   const cursor = pages.at(-1), receiptCursor = receiptPages.at(-1);
   const key = JSON.stringify([invoiceId, limit, cursor, revision]);
@@ -93,6 +95,7 @@ export function SupplierReturns({ invoiceId, canPost, onClose, onComplete }: { i
         {canPost && <div className="flex justify-end"><Button disabled={busy || (!uncertain && !valid)} onClick={() => void post()}>{busy ? "Recording…" : uncertain ? "Retry same return" : "Post return & credit note"}</Button></div>}
         <section><h3 className="mb-3 font-semibold">Recorded returns</h3>{!data && !page?.error && <p role="status">Loading returns…</p>}{data && <><div className="overflow-x-auto"><table className="w-full text-left text-sm"><thead><tr><th className="p-2">Date / references</th><th className="p-2">Product / quantity</th><th className="p-2 text-right">Credit</th><th className="p-2">Applied to</th></tr></thead><tbody>{data.returns.map((record) => <tr key={record.id} className="border-t"><td className="p-2">{date(record.returnedAt)}<small className="block break-all">{record.returnNumber}<br />Supplier: {record.creditNoteReference}<br />Stock: {record.inventoryTransactionNumber}<br />Journal: {record.journalNumber}</small></td><td className="p-2">{record.productName} × {record.quantity}<small className="block">{record.reason}</small></td><td className="p-2 text-right finance-income">{formatNaira(record.grossAmountMinor)}</td><td className="p-2">Invoice debt: {formatNaira(record.payableReductionMinor)}<br />Supplier credit: {formatNaira(record.supplierCreditMinor)}</td></tr>)}{!data.returns.length && <tr><td colSpan={4} className="p-3 text-[var(--muted)]">No goods returned for this invoice.</td></tr>}</tbody></table></div><CursorTablePagination page={pages.length} pageSize={limit} rowCount={data.returns.length} hasNextPage={Boolean(data.nextCursor)} loading={locked} onPrevious={() => setPages((value) => value.slice(0, -1))} onNext={() => { if (data.nextCursor) setPages((value) => [...value, data.nextCursor]); }} onPageSizeChange={(size) => { setLimit(size); setPages([null]); }} itemLabel="returns" /></>}</section>
       </div>
+      {Boolean(data?.returns.length) && <section className="min-w-0 border-t p-5"><label className="text-sm font-medium">Photos for a recorded return<select className="mt-1 w-full rounded-lg border p-3" value={evidenceRecordId} onChange={event => setEvidenceRecordId(event.target.value)}><option value="">Choose return from this page</option>{data?.returns.map(record => <option key={record.id} value={record.id}>{record.returnNumber} · {record.productName}</option>)}</select></label>{data?.returns.filter(record => record.id === evidenceRecordId).map(record => <OperationalPhotos key={record.id} kind="supplier_return" recordId={record.id} stage="handover" serials={record.serialNumbers ?? []} canUpload={canPost} />)}</section>}
       <footer className="flex justify-end border-t p-5"><Button variant="outline" disabled={locked} onClick={onClose}>Close</Button></footer>
     </section>
   </AppDialog>;

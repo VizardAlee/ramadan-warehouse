@@ -7,6 +7,7 @@ import { callAdministration } from "@/features/administration/api";
 import { useAuth } from "@/features/auth/auth-context";
 import { formatNaira, nairaToKobo } from "@/features/inventory/format";
 import { hasPermission } from "@/lib/permissions/roles";
+import { OperationalPhotos } from "@/features/pos/operational-photos";
 
 interface Case {
   id: string;
@@ -157,6 +158,7 @@ export default function AftersalesPage() {
                 </div>
                 <div className="text-right text-sm"><span className="rounded-full bg-slate-100 px-3 py-1 capitalize">{item.status.replaceAll("_", " ")}</span><p className="mt-2 capitalize">{item.chargeStatus.replaceAll("_", " ")}</p>{item.chargeAmountMinor !== undefined && <p>{formatNaira(item.amountPaidMinor ?? 0)} paid / {formatNaira(item.chargeAmountMinor)}</p>}</div>
               </div>
+              <OperationalPhotos kind="aftersales" recordId={item.id} stage={item.status === "open" ? "intake" : ["diagnosed", "in_service"].includes(item.status) ? "diagnosis" : "handover"} serials={item.serialNumber ? [item.serialNumber] : []} canUpload={item.status !== "cancelled" && can(item.status === "open" ? "sales.returns.create" : "sales.returns.approve")} />
               {can("sales.returns.approve") && !["completed", "cancelled"].includes(item.status) && (
                 <div className="mt-4 grid gap-3 border-t pt-4 md:grid-cols-[minmax(0,12rem)_minmax(0,1fr)_auto]">
                   <select aria-label="Next service status" value={form.status} onChange={(event) => set({ status: event.target.value })} className="rounded-lg border p-3"><option value="">Next status</option>{(transitions[item.status] ?? []).map((step) => <option key={step.value} value={step.value}>{step.label}</option>)}</select>

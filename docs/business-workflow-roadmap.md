@@ -2,6 +2,40 @@
 
 This roadmap extends the existing Firebase application and preserves historical users, stock entries, sales, journals and audit records. A requested capability is not marked complete merely because a screen or a partial workflow exists.
 
+### Supplier / aftersales serial photos — 9 October 2026 (implementation; release pending)
+
+Existing supplier returns and warranty/non-warranty cases now accept private
+append-only JPEG/PNG evidence (2 MB each, 20 per record). Aftersales captures
+intake, diagnosis and handover against the current case status; supplier evidence
+supplements already-posted physical returns. Exact serials must match the record.
+These photos document an operator-confirmed reference, not automatic warranty
+eligibility, OCR verification, collection confirmation or a new inventory posting.
+
+Reuses existing photo validation, Firebase Storage, workspace callables, RBAC and
+audit. Metadata lives under each original record's server-only `evidence`
+subcollection. A transaction atomically links immutable metadata, parent IDs and
+audit; original stock and journal postings remain untouched. Generation-qualified
+private reads check organization, location and hash. No public download tokens,
+new endpoints, index changes or IAM relaxation. Interrupted uploads retain the
+same reference for retry, even after a subsequent workflow status change.
+
+Objects saved before an interrupted metadata link remain private; no automatic
+deletion/retention policy is invented. These are optional post-record evidence
+attachments, not a prerequisite that blocks operations. Camera/device and signed-in
+live transaction acceptance remain separate. Next: the same controlled serial/photo
+evidence at goods receiving and customer-return inspection, reusing existing
+receipt/inspection records and preserving their inventory/accounting boundaries.
+
+Validation passed: 316 unit/interface tests, all 13 aftersales/financial/procurement
+emulator cases and all 27 Firestore/Storage security cases. Includes exact-unit and
+stage validation, retries after status changes, immutable private reads, tampered
+object rejection, cross-organization/store denial, read-only actor denial and no
+stock/journal effects from uploads. Existing supplier returns/credits/advances,
+service payments and large-ledger statements passed regression checks. Typecheck,
+lint, Functions compilation, production build, secret scan and diff checks passed.
+The live query audit passed 440/440; all 224 indexes are READY. Release evidence
+will be recorded only after the scoped deployment and live checks complete.
+
 ### Serialized POS ownership — 9 October 2026 (deployed)
 
 Extends existing `serializedItems`, sales, collection and return transactions;

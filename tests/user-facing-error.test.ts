@@ -2,6 +2,11 @@ import { describe, expect, it } from "vitest";
 import { toUserFacingError } from "@/lib/firebase/user-facing-error";
 
 describe("user-facing Firebase errors", () => {
+  it("shows trusted photo validation guidance and preserves its correction code", () => {
+    const error = toUserFacingError({ code: "functions/failed-precondition", details: { code: "OPERATIONAL_EVIDENCE_ACTION_REQUIRED", userMessage: "Choose the evidence stage matching this service case's current status." } });
+    expect(error.message).toContain("evidence stage");
+    expect(error.diagnosticCode).toBe("OPERATIONAL_EVIDENCE_ACTION_REQUIRED");
+  });
   it("shows explicitly safe transfer guidance but never an arbitrary server message", () => {
     expect(toUserFacingError({ details: { code: "STOCK_TRANSFER_ACTION_REQUIRED", userMessage: "Choose the serial numbers that arrived." } }).message).toBe("Choose the serial numbers that arrived.");
     expect(toUserFacingError({ details: { code: "UNKNOWN", userMessage: "secret" } }).message).not.toContain("secret");

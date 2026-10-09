@@ -1,6 +1,7 @@
 import { FieldValue, Timestamp } from "firebase-admin/firestore";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
 import { db } from "../admin.js";
+import { operationalEvidence, operationalEvidenceInput } from "../sales/operational-evidence.js";
 import { accountingPeriodReference, assertAccountingPeriodOpen } from "../accounting/period-lock.js";
 import { bankAccountSummary, resolveSettlementAccount } from "../accounting/settlement-account.js";
 import { writeAuditLog } from "../audit/write-audit-log.js";
@@ -33,6 +34,8 @@ export const getAftersalesWorkspace = onCall(
   async (request) => {
     const actor = await requireAccess(request);
     requirePermission(actor, "sales.returns.read");
+    if (["list_evidence", "read_evidence", "upload_evidence"].includes(request.data?.action))
+      return operationalEvidence(actor, "aftersales", parseInput(operationalEvidenceInput, request.data));
     const input = parseInput(aftersalesWorkspaceInput, request.data);
     if (input.branchId) requireBranchScope(actor, input.branchId);
     const organizationWide = [

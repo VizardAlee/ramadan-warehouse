@@ -4,6 +4,7 @@ import { connectFunctionsEmulator, getFunctions, httpsCallable } from "firebase/
 import { getApps as getAdminApps, initializeApp as initializeAdminApp } from "firebase-admin/app";
 import { getAuth as getAdminAuth } from "firebase-admin/auth";
 import { FieldValue, Timestamp, getFirestore } from "firebase-admin/firestore";
+import { getStorage } from "firebase-admin/storage";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 const projectId = "demo-ramadan-warehouse";
@@ -22,9 +23,9 @@ function client(name: string) {
   const app = initializeApp({ projectId, apiKey: "demo", appId: `aftersales-${name}` }, `aftersales-${name}`);
   apps.push(app);
   const auth = getAuth(app);
-  connectAuthEmulator(auth, "http://127.0.0.1:9099", { disableWarnings: true });
+  connectAuthEmulator(auth, `http://${process.env.FIREBASE_AUTH_EMULATOR_HOST ?? "127.0.0.1:9099"}`, { disableWarnings: true });
   const functions = getFunctions(app, "us-central1");
-  connectFunctionsEmulator(functions, "127.0.0.1", 5001);
+  connectFunctionsEmulator(functions, "127.0.0.1", Number(process.env.TEST_FUNCTIONS_PORT ?? 5001));
   return { auth, functions };
 }
 async function call<T = Record<string, unknown>>(name: string, data: Record<string, unknown>) {
@@ -32,8 +33,8 @@ async function call<T = Record<string, unknown>>(name: string, data: Record<stri
 }
 
 beforeAll(async () => {
-  await fetch(`http://127.0.0.1:9099/emulator/v1/projects/${projectId}/accounts`, { method: "DELETE" });
-  await fetch(`http://127.0.0.1:8180/emulator/v1/projects/${projectId}/databases/(default)/documents`, { method: "DELETE" });
+  await fetch(`http://${process.env.FIREBASE_AUTH_EMULATOR_HOST ?? "127.0.0.1:9099"}/emulator/v1/projects/${projectId}/accounts`, { method: "DELETE" });
+  await fetch(`http://${process.env.FIRESTORE_EMULATOR_HOST ?? "127.0.0.1:8180"}/emulator/v1/projects/${projectId}/databases/(default)/documents`, { method: "DELETE" });
   await adminDb.doc(`organizations/${organizationId}`).set({ name: "Aftersales test organization", status: "active" });
   const record = await adminAuth.createUser({ email: "aftersales-admin@example.test", password: "Password!234567" });
   await adminDb.doc(`users/${record.uid}`).set({ uid: record.uid, organizationId, roleId: "system_administrator", branchIds: [], warehouseIds: [], status: "active", authDisabled: false, authorizationVersion: 1 });
@@ -51,6 +52,59 @@ beforeAll(async () => {
 afterAll(async () => Promise.all(apps.map((app) => deleteApp(app))));
 
 describe.sequential("aftersales and ledger-derived reports", () => {
+  it.skipIf(!process.env.FIREBASE_STORAGE_EMULATOR_HOST)("keeps serial photos private, stage-bound, immutable and safely retryable without ledger effects", async () => {
+    const created = await call<{ caseId: string }>("createAftersalesCase", { branchId, customerId, productId, serialNumber: "SN-PHOTO", serviceType: "warranty", requestType: "repair", complaint: "Serial label and initial condition", idempotencyKey: crypto.randomUUID() });
+    const recordId = created.caseId;
+    const base64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jDqkAAAAASUVORK5CYII=";
+    const upload = { action: "upload_evidence", recordId, stage: "intake", serialNumber: "sn-photo", note: "Serial label confirmed manually", contentType: "image/png", base64, idempotencyKey: crypto.randomUUID() };
+    const beforeStock = (await adminDb.collection("inventoryEntries").count().get()).data().count;
+    const beforeJournals = (await adminDb.collection("journalEntries").count().get()).data().count;
+    await expect(call("getAftersalesWorkspace", { ...upload, stage: "handover" })).rejects.toMatchObject({ code: "functions/failed-precondition" });
+    await expect(call("getAftersalesWorkspace", { ...upload, serialNumber: "WRONG" })).rejects.toMatchObject({ code: "functions/invalid-argument" });
+    await expect(call("getAftersalesWorkspace", { ...upload, contentType: "image/jpeg" })).rejects.toMatchObject({ code: "functions/invalid-argument" });
+    const first = await call<{ evidenceId: string; uploaded: boolean }>("getAftersalesWorkspace", upload);
+    expect(first.uploaded).toBe(true);
+    await call("updateAftersalesCase", { caseId: recordId, status: "diagnosed", resolution: "Board inspected carefully", idempotencyKey: crypto.randomUUID() });
+    expect(await call("getAftersalesWorkspace", upload)).toMatchObject({ evidenceId: first.evidenceId, uploaded: false });
+    await expect(call("getAftersalesWorkspace", { ...upload, note: "Changed historical note" })).rejects.toMatchObject({ code: "functions/invalid-argument" });
+    expect(await call("getAftersalesWorkspace", { action: "list_evidence", recordId })).toMatchObject({ evidence: [{ evidenceId: first.evidenceId, stage: "intake", serialNumber: "SN-PHOTO", recordedStatus: "open" }] });
+    expect(await call("getAftersalesWorkspace", { action: "read_evidence", recordId, evidenceId: first.evidenceId })).toMatchObject({ base64, contentType: "image/png" });
+    const metadata = await adminDb.doc(`aftersalesCases/${recordId}/evidence/${first.evidenceId}`).get();
+    expect(metadata.get("generation")).toBeTruthy(); expect(metadata.get("uploadedBy")).toBe(administrator.auth.currentUser!.uid);
+    const [stored] = await getStorage(adminApp).bucket("demo-ramadan-warehouse.appspot.com").file(metadata.get("path")).getMetadata();
+    expect(stored.metadata?.firebaseStorageDownloadTokens).toBeUndefined();
+    const outsider = await adminAuth.createUser({ email: "evidence-outsider@example.test", password: "Password!234567" });
+    await adminDb.doc("organizations/other-org").set({ name: "Other test organization", status: "active" });
+    await adminDb.doc(`users/${outsider.uid}`).set({ uid: outsider.uid, organizationId: "other-org", roleId: "system_administrator", branchIds: [], warehouseIds: [], status: "active", authorizationVersion: 1 });
+    const outside = client("evidence-outsider"); await signInWithEmailAndPassword(outside.auth, "evidence-outsider@example.test", "Password!234567");
+    await expect(httpsCallable(outside.functions, "getAftersalesWorkspace")({ action: "read_evidence", recordId, evidenceId: first.evidenceId })).rejects.toMatchObject({ code: "functions/not-found" });
+    await adminDb.doc(`aftersalesCases/${recordId}`).update({ evidenceIds: Array.from({ length: 20 }, (_, index) => `photo-${index}`) });
+    await expect(call("getAftersalesWorkspace", { ...upload, stage: "diagnosis", idempotencyKey: crypto.randomUUID() })).rejects.toMatchObject({ code: "functions/failed-precondition" });
+    expect((await adminDb.collection("inventoryEntries").count().get()).data().count).toBe(beforeStock);
+    expect((await adminDb.collection("journalEntries").count().get()).data().count).toBe(beforeJournals);
+  }, 300_000);
+
+  it.skipIf(!process.env.FIREBASE_STORAGE_EMULATOR_HOST)("links supplier handover evidence only to exact returned units and enforces store scope", async () => {
+    const recordId = "supplier-photo-return";
+    await adminDb.doc(`supplierReturns/${recordId}`).set({ organizationId, branchId, productId, status: "posted", serialNumbers: ["SUP-1", "SUP-2"] });
+    const upload = { action: "upload_evidence", recordId, stage: "handover", serialNumber: "SUP-1", note: "Supplier accepted this serial", contentType: "image/png", base64: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jDqkAAAAASUVORK5CYII=", idempotencyKey: crypto.randomUUID() };
+    await expect(call("getProcurementWorkspace", { ...upload, serialNumber: "NOT-RETURNED" })).rejects.toMatchObject({ code: "functions/invalid-argument" });
+    const photo = await call<{ evidenceId: string }>("getProcurementWorkspace", upload);
+    expect(await call("getProcurementWorkspace", upload)).toMatchObject({ evidenceId: photo.evidenceId, uploaded: false });
+    await expect(call("getAftersalesWorkspace", { action: "read_evidence", recordId, evidenceId: photo.evidenceId })).rejects.toMatchObject({ code: "functions/not-found" });
+    const user = await adminAuth.createUser({ email: "evidence-manager@example.test", password: "Password!234567" });
+    await adminDb.doc(`users/${user.uid}`).set({ uid: user.uid, organizationId, roleId: "branch_manager", branchIds: ["another-store"], warehouseIds: [], status: "active", authorizationVersion: 1 });
+    const manager = client("evidence-manager"); await signInWithEmailAndPassword(manager.auth, "evidence-manager@example.test", "Password!234567");
+    await expect(httpsCallable(manager.functions, "getProcurementWorkspace")({ action: "read_evidence", recordId, evidenceId: photo.evidenceId })).rejects.toMatchObject({ code: "functions/permission-denied" });
+    const reader = await adminAuth.createUser({ email: "evidence-auditor@example.test", password: "Password!234567" });
+    await adminDb.doc(`users/${reader.uid}`).set({ uid: reader.uid, organizationId, roleId: "auditor", branchIds: [], warehouseIds: [], status: "active", authorizationVersion: 1 });
+    const auditor = client("evidence-auditor"); await signInWithEmailAndPassword(auditor.auth, "evidence-auditor@example.test", "Password!234567");
+    await expect(httpsCallable(auditor.functions, "getProcurementWorkspace")({ ...upload, idempotencyKey: crypto.randomUUID() })).rejects.toMatchObject({ code: "functions/permission-denied" });
+    const metadata = await adminDb.doc(`supplierReturns/${recordId}/evidence/${photo.evidenceId}`).get();
+    await getStorage(adminApp).bucket("demo-ramadan-warehouse.appspot.com").file(metadata.get("path")).save(Buffer.from("tampered"));
+    // Generation-qualified reads must not fall back to the replaced current object.
+    await expect(call("getProcurementWorkspace", { action: "read_evidence", recordId, evidenceId: photo.evidenceId })).rejects.toBeTruthy();
+  }, 300_000);
   it("records a complimentary warranty case without stock or journal effects", async () => {
     const key = crypto.randomUUID();
     const input = { branchId, customerId, productId, serviceType: "warranty", requestType: "warranty", complaint: "Inverter is not starting", idempotencyKey: key };
