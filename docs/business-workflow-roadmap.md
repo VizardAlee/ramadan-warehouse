@@ -1,6 +1,6 @@
 # Business workflow expansion (24 September 2026 baseline)
 
-## Linked supplier-return corrections — 9 October 2026 (implementation)
+## Linked supplier-return corrections — 9 October 2026 (deployed)
 
 Extends postSupplierReturn and extracts the existing stock-reversal engine for
 trusted atomic integration; ordinary stock-only financial reversals stay denied.
@@ -25,7 +25,20 @@ also fixes the older shared reversal cache's lost document reference. Typecheck,
 lint, Functions compilation, production build, secret scan and diff checks pass.
 Live planner audit passes 443/443, with all 224 indexes READY and no new indexes.
 Report UI checks retain their assertions with a bounded five-second asynchronous
-wait for debounced rendering under shared emulator/CI load. Deployment pending.
+wait for debounced rendering under shared emulator/CI load.
+Release proof for source `471b1d7`: selected Functions explicitly completed.
+`postsupplierreturn-00007-luq`, `getprocurementworkspace-00016-sin` and
+`reverseinventorytransaction-00019-mem` are ACTIVE, production mode, App Check
+enabled, 100% traffic, no reconciliation pending, unchanged runtime identity
+and invoker settings. All three reject unauthenticated calls with HTTP 401.
+App Hosting `build-2026-10-09-016` is READY with a SUCCEEDED rollout, 100%
+traffic and no reconciliation pending. Procurement, guide, POS, inventory and
+all 17 referenced scripts return 200; deployed correction and resellable-
+inspection controls are present. Authorized behavior was tested in emulators,
+not by mutating real financial records. Earlier attempts failed before upload
+on Google API connections. A process-local documented Undici dispatcher with
+a 30-second connection timeout and address fallback completed both deployments;
+no SDK files, TLS verification, credentials or IAM policies were changed.
 Next dependency: authorized manual /
 reversal journals and internal company-account transfers, reusing the ledger and
 period controls; reviewed statutory tax configuration follows those foundations.
