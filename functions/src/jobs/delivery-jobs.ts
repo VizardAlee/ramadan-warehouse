@@ -9,6 +9,7 @@ import { deliverPendingWebPush } from "../notifications/web-push.js";
 import { webPushSecrets } from "../config.js";
 import { scheduledJobReliability } from "./schedule-options.js";
 import { queueDebtReminders } from "../notifications/debt-reminders.js";
+import { queueCollectionReminders } from "../notifications/collection-reminders.js";
 
 const notificationAdapter = () => environment.NOTIFICATION_ADAPTER_MODE === "log" ? new LogNotificationAdapter() : environment.NOTIFICATION_ADAPTER_MODE === "emulator" ? new EmulatorNotificationAdapter() : new NoopNotificationAdapter();
 const integrationAdapter = () => environment.INTEGRATION_ADAPTER_MODE === "mock" ? new MockIntegrationAdapter() : new NoopIntegrationAdapter();
@@ -21,6 +22,7 @@ export async function runNotificationDeliveryJob(limit = 100) {
   for (const organization of organizations.docs) {
     if (attempted >= limit) break;
     await queueDebtReminders(organization.id);
+    await queueCollectionReminders(organization.id);
     const snapshots = await db.collection("notificationEvents").where("organizationId", "==", organization.id).where("status", "in", ["pending", "retry"]).limit(limit - attempted).get();
     examined += snapshots.size;
     for (const snapshot of snapshots.docs) {

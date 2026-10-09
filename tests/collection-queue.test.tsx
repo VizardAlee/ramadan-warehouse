@@ -25,8 +25,12 @@ describe("physical collection queue", () => {
     fireEvent.change(screen.getByLabelText("Collector name"), { target: { value: "Amina Musa" } });
     fireEvent.click(submit);
     await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("Network interrupted"));
-    fireEvent.click(submit);
+    expect(screen.getByLabelText("Collector name").hasAttribute("disabled")).toBe(true);
+    expect(screen.getByLabelText("Collect quantity for Panel").hasAttribute("disabled")).toBe(true);
+    expect(screen.getByRole("button", { name: "Review collection" }).hasAttribute("disabled")).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "Retry same collection" }));
     await waitFor(() => expect(attempt).toBe(2));
+    expect(screen.getByLabelText("Collector name").hasAttribute("disabled")).toBe(false);
     const calls = api.call.mock.calls.filter(([name]) => name === "confirmPosSaleOrder");
     expect(calls[0]![1]).toMatchObject({ action: "collect", lines: [{ saleItemId: "item1", quantity: 2 }], collector: "Amina Musa" });
     expect(calls[1]![1].idempotencyKey).toBe(calls[0]![1].idempotencyKey);

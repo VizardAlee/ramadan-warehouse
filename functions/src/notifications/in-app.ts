@@ -9,6 +9,7 @@ import {
 import type { DeliveryResult, NotificationEvent } from "./delivery.js";
 
 type SupportedEvent =
+  | "sale.collection_waiting"
   | "customer.debt_due"
   | "customer.debt_overdue"
   | "sales_order.received"
@@ -21,6 +22,7 @@ type SupportedEvent =
   | "stock_transfer.resolve";
 
 const supported = new Set<SupportedEvent>([
+  "sale.collection_waiting",
   "customer.debt_due",
   "customer.debt_overdue",
   "sales_order.received",
@@ -123,6 +125,12 @@ export function notificationActionFor(
   if (!actor || actor.organizationId !== event.organizationId)
     return { eligible: false, actionRequired: false };
   const wide = organizationWide(actor);
+  if (event.eventType === "sale.collection_waiting") {
+    const inScope = wide || Boolean(event.branchId && actor.branchIds.includes(event.branchId));
+    const canRead = (["reports.sales.read", "sales.read.own_branch", "sales.read.all"] as const).some(permission => hasServerPermission(actor, permission));
+    const eligible = inScope && canRead && hasServerPermission(actor, "sales.stock.release");
+    return { eligible, actionRequired: eligible };
+  }
   if (event.eventType.startsWith("customer.debt_")) {
     const inScope = wide || Boolean(event.branchId && actor.branchIds.includes(event.branchId));
     const eligible = inScope && hasServerPermission(actor, "customers.read") && hasServerPermission(actor, "customers.payment.record");
@@ -164,6 +172,8 @@ function display(event: InboxEvent): { title: string; body: string; href: string
   const reference = event.referenceNumber || "this item";
   const entityId = encodeURIComponent(event.entityId);
   switch (event.eventType) {
+    case "sale.collection_waiting":
+      return { title: "Goods still awaiting collection", body: `${reference} has reserved goods waiting at least seven days. Review the collection queue and contact the customer if appropriate. Reservations are not cancelled automatically.`, href: "/pos" };
     case "customer.debt_due":
     case "customer.debt_overdue":
       return { title: event.eventType === "customer.debt_due" ? "Customer payment due today" : "Customer payment overdue", body: `${reference} still has an unpaid balance. Open the customer account to review and record repayment.`, href: `/customers/${encodeURIComponent(event.customerId!)}` };
@@ -201,7 +211,8 @@ export async function deliverInAppNotification(event: InboxEvent): Promise<Deliv
   if (!event.organizationId || !event.entityId)
     return { delivered: false, retryable: false, errorSummary: "Missing event scope" };
   const debt = event.eventType.startsWith("customer.debt_");
-  const collectionName = debt ? "sales" : event.eventType.startsWith("sales_order.") ? "salesOrders" : "stockTransfers";
+  const collection = event.eventType === "sale.collection_waiting";
+  const collectionName = debt || collection ? "sales" : event.eventType.startsWith("sales_order.") ? "salesOrders" : "stockTransfers";
   const entity = await db.doc(`${collectionName}/${event.entityId}`).get();
   if (!entity.exists || entity.get("organizationId") !== event.organizationId)
     return { delivered: false, retryable: false, errorSummary: "Source record unavailable" };
@@ -209,6 +220,10 @@ export async function deliverInAppNotification(event: InboxEvent): Promise<Deliv
     return { delivered: true, providerMessageId: `in_app:superseded:${event.id}` };
   if (debt && !entity.get("customerId"))
     return { delivered: false, retryable: false, errorSummary: "Customer reference unavailable" };
+  if (collection && (entity.get("status") !== "completed" || entity.get("collectionTracked") !== true ||
+    !["awaiting_collection", "partially_collected"].includes(entity.get("collectionStatus")) ||
+    Number(entity.get("totalQuantity")) <= Number(entity.get("collectedQuantity") ?? 0) + Number(entity.get("cancelledQuantity") ?? 0)))
+    return { delivered: true, providerMessageId: `in_app:superseded:${event.id}` };
   const expected = expectedStatus[event.eventType];
   // Later transitions supersede an action alert even if the worker sees events out of order.
   if (expected && !expected.includes(String(entity.get("status"))))
@@ -222,7 +237,7 @@ export async function deliverInAppNotification(event: InboxEvent): Promise<Deliv
     return { delivered: false, retryable: false, errorSummary: "No eligible recipient" };
   const content = display(debt ? { ...event, customerId: String(entity.get("customerId")) } : event);
   const occurredAt = event.createdAt instanceof Timestamp ? event.createdAt : Timestamp.now();
-  const inboxId = `${collectionName}_${event.entityId}`;
+  const inboxId = `${collection ? "sale_collection" : collectionName}_${event.entityId}`;
   for (const { candidate, decision } of candidates) {
     const ref = db.doc(`users/${candidate.id}/notifications/${inboxId}`);
     await db.runTransaction(async (transaction) => {
@@ -233,7 +248,7 @@ export async function deliverInAppNotification(event: InboxEvent): Promise<Deliv
       transaction.set(ref, {
         organizationId: event.organizationId,
         recipientId: candidate.id,
-        entityType: debt ? "sale" : collectionName === "salesOrders" ? "salesOrder" : "stockTransfer",
+        entityType: debt || collection ? "sale" : collectionName === "salesOrders" ? "salesOrder" : "stockTransfer",
         entityId: event.entityId,
         eventId: event.id,
         eventType: event.eventType,

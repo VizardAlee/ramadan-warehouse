@@ -1,4 +1,5 @@
 import { FieldValue, Timestamp } from "firebase-admin/firestore";
+import { createHash } from "node:crypto";
 import { HttpsError } from "firebase-functions/v2/https";
 import type { z } from "zod";
 import { db } from "../admin.js";
@@ -32,6 +33,7 @@ export async function collectReservedSale(
   const effectiveAt = Timestamp.now();
   const period = accountingPeriodReference(actor.organizationId, effectiveAt);
   const cid = correlationId();
+  const fingerprint = createHash("sha256").update(JSON.stringify({ saleId: input.saleId, lines: [...input.lines].sort((a, b) => a.saleItemId.localeCompare(b.saleItemId)), collector: input.collector, notes: input.notes ?? null })).digest("hex");
   let result = { saleId: saleRef.id, collectionId: collection.id, collectionStatus: "collected", recorded: true };
   await db.runTransaction(async (transaction) => {
     const [previous, sale, inventorySequence, journalSequence, periodSnapshot, location, ...items] = await transaction.getAll(
@@ -41,6 +43,8 @@ export async function collectReservedSale(
     if (previous!.exists) {
       if (previous!.get("saleId") !== input.saleId)
         throw new HttpsError("invalid-argument", "This collection reference belongs to another sale.");
+      if (previous!.get("fingerprint") && previous!.get("fingerprint") !== fingerprint)
+        throw new HttpsError("invalid-argument", "Retry the original collection details without changes.");
       result = { saleId: saleRef.id, collectionId: String(previous!.get("entityId")), collectionStatus: String(previous!.get("collectionStatus")), recorded: false };
       return;
     }
@@ -100,7 +104,7 @@ export async function collectReservedSale(
     }
     transaction.update(saleRef, { collectionStatus: status, collectedQuantity, costAmountMinor: Number(sale!.get("costAmountMinor") ?? 0) + cost, lastCollectionId: collection.id, lastCollectedAt: now, updatedAt: now });
     transaction.create(collection, { organizationId: actor.organizationId, branchId, saleId: saleRef.id, referenceNumber, customerId: sale!.get("customerId") ?? null, customerName: sale!.get("customerName") ?? "Walk-in customer", collector: input.collector, notes: input.notes ?? null, lines: resolved.map((line) => ({ saleItemId: line.item.id, productId: line.item.get("productId"), productName: line.item.get("productName"), quantity: line.quantity, costAmountMinor: line.issued.movementValueMinor })), totalQuantity, costAmountMinor: cost, inventoryTransactionId: movement.id, journalEntryId: cost > 0 ? journal.id : null, collectedAt: now, releasedBy: actor.userId, correlationId: cid });
-    transaction.create(operation, { organizationId: actor.organizationId, saleId: saleRef.id, entityId: collection.id, collectionStatus: status, createdAt: now });
+    transaction.create(operation, { organizationId: actor.organizationId, saleId: saleRef.id, entityId: collection.id, collectionStatus: status, fingerprint, createdAt: now });
     writeAuditLog(transaction, actor, { action: "sale.goods_collected", entityType: "saleCollection", entityId: collection.id, sourceFunction: "confirmPosSaleOrder", correlationId: cid, reason: "Physical collection", before: { collectionStatus: sale!.get("collectionStatus"), collectedQuantity: sale!.get("collectedQuantity") }, after: { saleId: saleRef.id, branchId, referenceNumber, collector: input.collector, totalQuantity, collectionStatus: status, inventoryTransactionId: movement.id, journalEntryId: cost > 0 ? journal.id : null } });
     result = { saleId: saleRef.id, collectionId: collection.id, collectionStatus: status, recorded: true };
   });

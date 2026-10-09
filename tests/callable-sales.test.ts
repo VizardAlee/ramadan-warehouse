@@ -19,6 +19,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { balanceDocumentId, uniquenessDocumentId } from "../functions/src/inventory/calculations";
 import { deliverInAppNotification, type InboxEvent } from "../functions/src/notifications/in-app";
 import { queueDebtReminders } from "../functions/src/notifications/debt-reminders";
+import { queueCollectionReminders } from "../functions/src/notifications/collection-reminders";
 
 const projectId = "demo-ramadan-warehouse";
 const adminApp =
@@ -1462,6 +1463,20 @@ describe.sequential("sales callables", () => {
     expect((await adminDb.doc(`saleReturns/${returned.returnId}`).get()).get("grossAmountMinor")).toBe(gross - cancellationAmount);
     expect((await balance.get()).data()).toMatchObject({ onHandQuantity: 10, reservedQuantity: 0, availableQuantity: 10, totalValueMinor: 50_000 });
   }, 120_000);
+  it("resumes bounded collection reminders, skips recent and undated goods, and never changes reservations", async () => {
+    const reminderOrg = "collection-reminder-test";
+    const date = new Date("2026-10-09T12:00:00Z");
+    const base = { organizationId: reminderOrg, branchId, status: "completed", collectionTracked: true, collectionStatus: "awaiting_collection", totalQuantity: 4, collectedQuantity: 1, cancelledQuantity: 1 };
+    await adminDb.doc("sales/reminder_a_old").set({ ...base, saleNumber: "OLD", reservedAt: Timestamp.fromDate(new Date("2026-10-01T12:00:00Z")) });
+    await adminDb.doc("sales/reminder_b_recent").set({ ...base, saleNumber: "RECENT", reservedAt: Timestamp.fromDate(new Date("2026-10-08T12:00:00Z")) });
+    await adminDb.doc("sales/reminder_c_undated").set({ ...base, saleNumber: "UNDATED" });
+    await adminDb.doc("sales/reminder_d_other_org").set({ ...base, organizationId: "unrelated", saleNumber: "OTHER", reservedAt: Timestamp.fromDate(new Date("2026-10-01T12:00:00Z")) });
+    for (let pass = 0; pass < 8; pass++) await queueCollectionReminders(reminderOrg, date, 1);
+    const events = await adminDb.collection("notificationEvents").where("organizationId", "==", reminderOrg).get();
+    expect(events.docs.map(record => record.get("entityId"))).toEqual(["reminder_a_old"]);
+    expect((await adminDb.doc("sales/reminder_a_old").get()).data()).toMatchObject(base);
+    expect((await adminDb.doc("organizations/collection-reminder-test/jobCursors/collections").get()).get("saleId")).toBeNull();
+  });
   it("reserves paid goods, releases partial collections atomically and rejects duplicate or excessive releases", async () => {
     const balance = adminDb.doc(`inventoryBalances/${balanceDocumentId(organizationId, productId, locationId)}`);
     await balance.update({ onHandQuantity: 10, reservedQuantity: 0, availableQuantity: 10, totalValueMinor: 50_000, averageUnitCostMinor: 5_000 });
@@ -1488,16 +1503,27 @@ describe.sequential("sales callables", () => {
     await expect(call(cashier, "confirmPosSaleOrder", payload)).rejects.toMatchObject({ code: "functions/permission-denied" });
     expect(await call(branchManager, "confirmPosSaleOrder", payload)).toMatchObject({ recorded: true, collectionStatus: "partially_collected" });
     expect(await call(branchManager, "confirmPosSaleOrder", payload)).toMatchObject({ recorded: false });
+    await expect(call(branchManager, "confirmPosSaleOrder", { ...payload, collector: "Different collector" })).rejects.toMatchObject({ code: "functions/invalid-argument" });
+    await expect(call(branchManager, "confirmPosSaleOrder", { ...payload, lines: [{ saleItemId, quantity: 2 }] })).rejects.toMatchObject({ code: "functions/invalid-argument" });
     expect((await balance.get()).data()).toMatchObject({ onHandQuantity: 9, reservedQuantity: 3, availableQuantity: 6, totalValueMinor: 45_000 });
     await expect(call(branchManager, "confirmPosSaleOrder", { ...payload, lines: [{ saleItemId, quantity: 4 }], idempotencyKey: crypto.randomUUID() })).rejects.toMatchObject({ code: "functions/failed-precondition" });
     const collections = await adminDb.collection("saleCollections").where("saleId", "==", completed.saleId).get();
     expect(collections.size).toBe(1);
     const costJournal = await adminDb.doc(`journalEntries/${collections.docs[0]!.get("journalEntryId")}`).get();
     expect(costJournal.data()).toMatchObject({ totalDebitMinor: 5_000, totalCreditMinor: 5_000 });
+    const reminderDate = new Date(Date.now() + 8 * 86400000);
+    for (let pass = 0; pass < 3; pass++) await queueCollectionReminders(organizationId, reminderDate, 1);
+    const reminderEvents = await adminDb.collection("notificationEvents").where("entityId", "==", completed.saleId).where("eventType", "==", "sale.collection_waiting").get();
+    expect(reminderEvents.size).toBe(1);
+    const reminderEvent = { id: reminderEvents.docs[0]!.id, ...reminderEvents.docs[0]!.data() } as InboxEvent;
+    expect(await deliverInAppNotification(reminderEvent)).toMatchObject({ delivered: true });
+    expect((await adminDb.doc(`users/${branchManager.auth.currentUser!.uid}/notifications/sale_collection_${completed.saleId}`).get()).get("title")).toBe("Goods still awaiting collection");
+    expect((await balance.get()).get("reservedQuantity")).toBe(3);
     const competing = await Promise.allSettled([1, 2].map(() => call(branchManager, "confirmPosSaleOrder", { ...payload, lines: [{ saleItemId, quantity: 3 }], idempotencyKey: crypto.randomUUID() })));
     expect(competing.filter((result) => result.status === "fulfilled")).toHaveLength(1);
     expect(competing.filter((result) => result.status === "rejected")).toHaveLength(1);
     expect((await balance.get()).data()).toMatchObject({ onHandQuantity: 6, reservedQuantity: 0, availableQuantity: 6, totalValueMinor: 30_000 });
+    expect(await deliverInAppNotification({ ...reminderEvent, id: `${reminderEvent.id}_late` })).toMatchObject({ delivered: true, providerMessageId: expect.stringContaining("superseded") });
     const saleDocument = await call<{ collections: Array<{ id: string; waybillNumber: string }> }>(branchManager, "getSaleDocument", { saleId: completed.saleId });
     expect(saleDocument).toMatchObject({ sale: { collectionStatus: "collected" }, items: [expect.objectContaining({ collectedQuantity: 4 })], collections: [expect.objectContaining({ waybillNumber: expect.stringMatching(/^WB-INV-/), releasedByName: expect.any(String), lines: [expect.objectContaining({ saleItemId, quantity: expect.any(Number), sku: "PANEL-620", unitOfMeasure: "unit" })] }), expect.any(Object)] });
     expect((await call<{ collections: Array<{ waybillNumber: string }> }>(branchManager, "getSaleDocument", { saleId: completed.saleId })).collections.map((record) => record.waybillNumber)).toEqual(saleDocument.collections.map((record) => record.waybillNumber));

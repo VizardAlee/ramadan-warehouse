@@ -12,6 +12,16 @@ const user = (overrides: Partial<InboxCandidate> = {}): InboxCandidate => ({
 });
 
 describe("in-app notification recipients", () => {
+  it("scopes collection reminders to active stock-release staff, including multi-role users", () => {
+    const event = { eventType: "sale.collection_waiting", organizationId: "org-1", branchId: "branch-1" };
+    expect(supportsInAppDelivery(event.eventType)).toBe(true);
+    expect(notificationActionFor(event, user({ roleIds: ["sales_cashier", "branch_manager"] })).eligible).toBe(true);
+    expect(notificationActionFor(event, user({ effectivePermissions: ["sales.stock.release", "sales.read.own_branch"] })).eligible).toBe(true);
+    expect(notificationActionFor(event, user({ effectivePermissions: ["sales.stock.release"] })).eligible).toBe(false);
+    expect(notificationActionFor(event, user({ roleId: "system_administrator", branchIds: [] })).eligible).toBe(true);
+    for (const overrides of [{ status: "inactive" }, { authDisabled: true }, { branchIds: ["branch-2"] }, { organizationId: "other" }, { effectivePermissions: ["customers.read"] as InboxCandidate["effectivePermissions"] }])
+      expect(notificationActionFor(event, user(overrides)).eligible).toBe(false);
+  });
   it("scopes debt reminders to active payment staff in the responsible store", () => {
     const event = { eventType: "customer.debt_overdue", organizationId: "org-1", branchId: "branch-1" };
     expect(notificationActionFor(event, user())).toEqual({ eligible: true, actionRequired: true });

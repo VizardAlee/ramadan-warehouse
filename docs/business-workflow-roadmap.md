@@ -2,6 +2,43 @@
 
 This roadmap extends the existing Firebase application and preserves historical users, stock entries, sales, journals and audit records. A requested capability is not marked complete merely because a screen or a partial workflow exists.
 
+### Collection follow-up — 9 October 2026 (implementation; release pending)
+
+The existing scheduled notification worker now performs a bounded, resumable
+25-sale scan for uncollected reservations. After seven complete days it queues
+one reminder per invoice per week to active, in-scope stock-release staff via
+the existing bell/browser-push delivery. Debt and collection reminders use
+separate inbox identities. Completed/cancelled collections supersede queued
+reminders. Missing historical reservation dates are not invented. No reminder
+cancels a reservation, posts a journal or changes inventory.
+
+Collection mutations now fingerprint submitted quantities, collector and notes;
+changed-payload retries are rejected. The UI locks an uncertain submission and
+retries the same payload/key, while definitive validation failures permit edits.
+Historical idempotency records retain their existing replay interpretation.
+
+The collection queue displays days waiting alongside the reservation date.
+Validation: 289 unit/interface tests passed (the live-audit baseline gate was
+explicitly excluded from this local run and remains blocking); focused final
+notification/collection tests passed. All 25 Firestore security tests passed.
+After an emulator reload interrupted the first combined run, a clean restart
+passed all 20 sales tests, including reminder cursor/deduplication, recipient
+scope, stale reminders, partial collection, changed-payload replay and competing
+release checks. Typecheck, lint, Functions compilation, production build, secret
+scan and diff checks passed.
+
+Release validation resumed after owner-controlled Firebase reauthentication:
+all 440 live query plans passed and all 224 indexes are READY. No new index is
+required; the guarded baseline has been refreshed. The full unit/interface suite
+now passes all 299 tests, including the live-audit baseline gate. Deployment pending: only
+`confirmPosSaleOrder`, `deliverPendingNotifications` and App Hosting are affected.
+No production stock/financial records or IAM settings were changed by validation.
+
+Next dependency: serial allocation through order/reservation/release and secure
+photo uploads. Current POS explicitly accepts quantity-tracked products only;
+Storage rules deny all uploads. Do not present a free-text serial or unverified
+photo URL as controlled serial evidence. Release-linked waybills already exist.
+
 ### Posted-order corrections — 9 October 2026 (deployed; full-reissue scope)
 
 Returns now has an expandable full return/cancellation-and-reissue correction
@@ -592,6 +629,6 @@ Historical sales default to already collected, so cannot acquire invented
 reservations. Fully cancelled invoices leave the collection queue; partial
 cancellations leave only the remaining quantities available for collection.
 
-Serial-evidence POS collection,
-long-uncollected reminders and release-linked waybills remain next steps. Do not
+Serial-evidence POS collection remains a next step; collection reminders are
+implemented above and release-linked waybills are available. Do not
 automatically expire reservations or use the collected-goods return option for uncollected stock.
