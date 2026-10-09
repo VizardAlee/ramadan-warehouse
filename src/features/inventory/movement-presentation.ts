@@ -31,6 +31,7 @@ const movementTitles: Record<string, string> = {
   held_return_restock: "Repaired return restored to stock",
   held_return_scrap: "Held returned goods scrapped",
   held_return_supplier_handover: "Held returned goods handed to supplier",
+  held_return_supplier_replacement: "Replacement goods received from supplier",
   sale_reservation: "Reserved for customer",
   sale_reservation_release: "Customer reservation cancelled",
   customer_collection: "Collected by customer",

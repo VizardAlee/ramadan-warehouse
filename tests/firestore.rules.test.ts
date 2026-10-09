@@ -804,6 +804,9 @@ describe("Firestore baseline rules", () => {
     await assertFails(adminDb.doc("saleReturnItems/sale-1-return-item").update({ aftersalesCaseLinks: [{ caseId: "forged-case", serialNumber: null, quantity: 1 }] }));
     await assertFails(adminDb.doc("saleReturnItems/sale-1-return-item").update({ heldDisposedQuantity: 1, heldDisposedCostMinor: 100 }));
     await assertFails(adminDb.doc("inventoryTransactions/branch-1-tx").update({ supplierSettledQuantity: 1, supplierSettledOriginalCostMinor: 100, supplierSettlementStatus: "settled" }));
+    await assertFails(adminDb.doc("inventoryTransactions/branch-1-tx").update({ supplierReplacementQuantity: 1, latestReplacementTransactionId: "forged" }));
+    await assertFails(adminDb.doc("inventoryTransactions/forged-replacement").set({ organizationId: "org-1", branchId: "branch-1", transactionType: "held_return_supplier_replacement", status: "posted", quantity: 1 }));
+    await assertFails(adminDb.doc("inventoryTransactions/branch-1-tx/evidence/forged").set({ organizationId: "org-1", kind: "supplier_replacement" }));
     await assertFails(adminDb.doc("supplierReturns/forged-held-credit").set({ organizationId: "org-1", branchId: "branch-1", heldHandoverId: "branch-1-tx", status: "posted", grossAmountMinor: 100 }));
     await assertFails(adminDb.doc("aftersalesCases/forged-disposition").set({ organizationId: "org-1", branchId: "branch-1", heldDisposedQuantity: 1, recentDispositions: [{ outcome: "restock" }] }));
     await assertFails(adminDb.doc("saleRefunds/forged-exchange-refund").set({ organizationId: "org-1", branchId: "branch-1", amountMinor: 5000, status: "recorded" }));

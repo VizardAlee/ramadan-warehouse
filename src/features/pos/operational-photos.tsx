@@ -7,12 +7,12 @@ import { callAdministration } from "@/features/administration/api";
 
 interface Evidence { evidenceId: string; stage: string; serialNumber: string | null; note: string; uploadedAt: string | null; recordedStatus: string }
 export function OperationalPhotos({ kind, recordId, stage, serials, canUpload, serialRequired = false }: {
-  kind: "supplier_return" | "aftersales" | "purchase_receipt" | "customer_return"; recordId: string;
+  kind: "supplier_return" | "aftersales" | "purchase_receipt" | "customer_return" | "supplier_replacement"; recordId: string;
   stage: "intake" | "diagnosis" | "handover" | "receiving" | "inspection"; serials: string[]; canUpload: boolean; serialRequired?: boolean;
 }) {
   const endpoint = kind === "aftersales" ? "getAftersalesWorkspace" : kind === "customer_return" ? "getSaleReturnWorkspace" : "getProcurementWorkspace";
-  const context = kind === "purchase_receipt" ? { evidenceKind: kind } : {};
-  const serialLabel = kind === "purchase_receipt" ? "Confirm received serial" : "Confirm returned serial";
+  const context = ["purchase_receipt", "supplier_replacement"].includes(kind) ? { evidenceKind: kind } : {};
+  const serialLabel = ["purchase_receipt", "supplier_replacement"].includes(kind) ? "Confirm received serial" : "Confirm returned serial";
   const [open, setOpen] = useState(false), [records, setRecords] = useState<Evidence[]>([]);
   const [busy, setBusy] = useState(false), [error, setError] = useState("");
   const [serialNumber, setSerialNumber] = useState(serials[0] ?? ""), [note, setNote] = useState("");

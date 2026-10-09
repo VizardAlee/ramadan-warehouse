@@ -53,6 +53,88 @@ beforeAll(async () => {
 afterAll(async () => Promise.all(apps.map((app) => deleteApp(app))));
 
 describe.sequential("aftersales and ledger-derived reports", () => {
+  it("receives partial supplier replacements at original cost with shared credit limits and safe concurrent retries", async () => {
+    const returnId = "replacement-return", itemId = "replacement-item", caseId = "replacement-case", handoverId = "replacement-handover", locationId = "replacement-location", product = "replacement-product";
+    const base = { organizationId, branchId, productId: product, saleId: "replacement-sale" };
+    await adminDb.doc(`products/${product}`).set({ organizationId, name: "Replacement unit", sku: "REP-1", active: true, trackingType: "quantity" });
+    // Use a separate store stock location to avoid ambiguous active sales-stock configuration.
+    await adminDb.doc(`inventoryLocations/${locationId}`).set({ organizationId, branchId, type: "branch", status: "active" });
+    await adminDb.doc(`suppliers/replacement-supplier`).set({ organizationId, name: "Warranty supplier", active: true, outstandingBalanceMinor: 1000 });
+    await adminDb.doc(`saleReturns/${returnId}`).set({ ...base, status: "approved", inspectionStatus: "completed" });
+    await adminDb.doc(`saleReturnItems/${itemId}`).set({ ...base, returnId, condition: "non_restockable", inspectionStatus: "completed", disposition: "warranty" });
+    await adminDb.doc(`aftersalesCases/${caseId}`).set({ ...base, returnId, returnItemId: itemId, status: "completed" });
+    const handover = adminDb.doc(`inventoryTransactions/${handoverId}`);
+    await handover.set({ ...base, saleReturnId: returnId, returnItemId: itemId, aftersalesCaseId: caseId, supplierId: "replacement-supplier", transactionType: "held_return_supplier_handover", status: "posted", trackingType: "quantity", quantity: 3, originalCostMinor: 100, effectiveAt: Timestamp.now() });
+    const balance = adminDb.doc(`inventoryBalances/${balanceDocumentId(organizationId, product, locationId)}`);
+    await balance.set({ ...base, locationId, onHandQuantity: 5, reservedQuantity: 2, availableQuantity: 3, totalValueMinor: 500, version: 1 });
+    const payload = { returnId, action: "receive_supplier_replacement", replacement: { handoverId, quantity: 1, supplierReference: "REPLACEMENT-01", confirmedResellable: true, reason: "Inspected supplier replacement safe for resale" }, idempotencyKey: crypto.randomUUID() };
+    await expect(call("approveSaleReturn", { ...payload, replacement: { ...payload.replacement, confirmedResellable: false } })).rejects.toMatchObject({ code: "functions/invalid-argument" });
+    const period = adminDb.doc(`accountingPeriods/${uniquenessDocumentId(organizationId, new Date().toISOString().slice(0, 7))}`);
+    await period.set({ organizationId, status: "closed" });
+    await expect(call("approveSaleReturn", payload)).rejects.toMatchObject({ code: "functions/failed-precondition" });
+    await period.delete();
+    const first = await call<{ transactionId: string; journalEntryId: string }>("approveSaleReturn", payload);
+    expect(await call("approveSaleReturn", payload)).toEqual(first);
+    const financeRecord = await adminAuth.createUser({ email: "replacement-finance@example.test", password: "Password!234567" });
+    await adminDb.doc(`users/${financeRecord.uid}`).set({ uid: financeRecord.uid, organizationId, roleId: "finance_officer", branchIds: [branchId], warehouseIds: [], status: "active", authDisabled: false, authorizationVersion: 1 });
+    const finance = client("replacement-finance");
+    await signInWithEmailAndPassword(finance.auth, "replacement-finance@example.test", "Password!234567");
+    // Return approval alone must not grant receiving, including replaying a known operation.
+    await expect(httpsCallable(finance.functions, "approveSaleReturn")(payload)).rejects.toMatchObject({ code: "functions/permission-denied" });
+    await expect(call("approveSaleReturn", { ...payload, replacement: { ...payload.replacement, quantity: 2 } })).rejects.toMatchObject({ code: "functions/already-exists" });
+    expect((await balance.get()).data()).toMatchObject({ onHandQuantity: 6, reservedQuantity: 2, availableQuantity: 4, totalValueMinor: 533 });
+    expect((await handover.get()).data()).toMatchObject({ supplierSettledQuantity: 1, supplierSettledOriginalCostMinor: 33, supplierReplacementQuantity: 1 });
+    const lines = (await adminDb.collection("journalLines").where("journalEntryId", "==", first.journalEntryId).get()).docs.map(doc => doc.data());
+    expect(lines.find(line => line.accountCode === "1200")?.debitMinor).toBe(33);
+    expect(lines.find(line => line.accountCode === "5000")?.creditMinor).toBe(33);
+    expect((await adminDb.doc("suppliers/replacement-supplier").get()).get("outstandingBalanceMinor")).toBe(1000);
+    await expect(call("reverseInventoryTransaction", { transactionId: first.transactionId, reason: "Cannot reverse just replacement stock", idempotencyKey: crypto.randomUUID() })).rejects.toThrow();
+    // An already credited unit consumes the same original-cost/quantity limit.
+    await handover.update({ supplierSettledQuantity: 2, supplierSettledOriginalCostMinor: 67 });
+    const next = { ...payload, idempotencyKey: crypto.randomUUID() };
+    const races = await Promise.allSettled([call("approveSaleReturn", next), call("approveSaleReturn", { ...next, idempotencyKey: crypto.randomUUID() })]);
+    expect(races.filter(result => result.status === "fulfilled")).toHaveLength(1);
+    expect((await handover.get()).data()).toMatchObject({ supplierSettledQuantity: 3, supplierSettledOriginalCostMinor: 100, supplierReplacementQuantity: 2, supplierSettlementStatus: "settled" });
+    expect((await balance.get()).data()).toMatchObject({ onHandQuantity: 7, reservedQuantity: 2, totalValueMinor: 566 });
+    await expect(call("approveSaleReturn", { ...payload, idempotencyKey: crypto.randomUUID() })).rejects.toMatchObject({ code: "functions/failed-precondition" });
+    // Leave one stock location for following tests.
+    await adminDb.doc(`inventoryLocations/${locationId}`).update({ status: "inactive" });
+  });
+
+  it("receives exact replacement serials without erasing the original unit's history", async () => {
+    const returnId = "replacement-serial-return", itemId = "replacement-serial-item", caseId = "replacement-serial-case", handoverId = "replacement-serial-handover", product = "replacement-serial-product", locationId = "replacement-serial-location";
+    const base = { organizationId, branchId, productId: product, saleId: "replacement-serial-sale" };
+    await adminDb.doc(`products/${product}`).set({ organizationId, name: "Serialized warranty unit", sku: "REP-S", active: true, trackingType: "serial" });
+    await adminDb.doc(`inventoryLocations/${locationId}`).set({ organizationId, branchId, type: "branch", status: "active" });
+    await adminDb.doc(`saleReturns/${returnId}`).set({ ...base, status: "approved", inspectionStatus: "completed" });
+    await adminDb.doc(`saleReturnItems/${itemId}`).set({ ...base, returnId, condition: "non_restockable", inspectionStatus: "completed", disposition: "warranty" });
+    await adminDb.doc(`aftersalesCases/${caseId}`).set({ ...base, returnId, returnItemId: itemId, status: "completed" });
+    const originalSerial = adminDb.doc(`serializedItems/${uniquenessDocumentId(organizationId, "OLD-REPLACED-1")}`);
+    await originalSerial.set({ ...base, serialNumber: "OLD-REPLACED-1", active: false, status: "returned_to_supplier", lastTransactionId: handoverId, currentUnitCostMinor: 125 });
+    await adminDb.doc(`inventoryTransactions/${handoverId}`).set({ ...base, saleReturnId: returnId, returnItemId: itemId, aftersalesCaseId: caseId, supplierId: "replacement-supplier", transactionType: "held_return_supplier_handover", status: "posted", trackingType: "serial", serialNumber: "OLD-REPLACED-1", serializedItemId: originalSerial.id, quantity: 1, originalCostMinor: 125, effectiveAt: Timestamp.now() });
+    const payload = { returnId, action: "receive_supplier_replacement", replacement: { handoverId, quantity: 1, supplierReference: "SERIAL-REPLACEMENT-01", confirmedResellable: true, reason: "New warranty unit inspected safe for sale", serialNumber: "NEW-REPLACEMENT-1" }, idempotencyKey: crypto.randomUUID() };
+    await expect(call("approveSaleReturn", { ...payload, replacement: { ...payload.replacement, serialNumber: undefined } })).rejects.toMatchObject({ code: "functions/invalid-argument" });
+    const duplicate = adminDb.doc(`serializedItems/${uniquenessDocumentId(organizationId, "NEW-REPLACEMENT-1")}`);
+    await duplicate.set({ organizationId, active: true });
+    await expect(call("approveSaleReturn", payload)).rejects.toMatchObject({ code: "functions/already-exists" });
+    await duplicate.delete();
+    await originalSerial.update({ status: "at_branch" });
+    await expect(call("approveSaleReturn", payload)).rejects.toMatchObject({ code: "functions/failed-precondition" });
+    await originalSerial.update({ status: "returned_to_supplier" });
+    const result = await call<{ transactionId: string }>("approveSaleReturn", payload);
+    expect((await duplicate.get()).data()).toMatchObject({ status: "at_branch", active: true, currentUnitCostMinor: 125, replacementForSerialId: originalSerial.id, lastTransactionId: result.transactionId });
+    expect((await originalSerial.get()).data()).toMatchObject({ status: "returned_to_supplier", active: false, saleId: "replacement-serial-sale", replacementSerialId: duplicate.id });
+    if (process.env.FIREBASE_STORAGE_EMULATOR_HOST) {
+      const photo = { action: "upload_evidence", evidenceKind: "supplier_replacement", recordId: result.transactionId, stage: "receiving", serialNumber: "NEW-REPLACEMENT-1", note: "Replacement serial and condition verified", contentType: "image/png", base64: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jDqkAAAAASUVORK5CYII=", idempotencyKey: crypto.randomUUID() };
+      await expect(call("getProcurementWorkspace", { ...photo, serialNumber: "OLD-REPLACED-1" })).rejects.toMatchObject({ code: "functions/invalid-argument" });
+      const evidence = await call<{ evidenceId: string }>("getProcurementWorkspace", photo);
+      expect(await call("getProcurementWorkspace", photo)).toMatchObject({ evidenceId: evidence.evidenceId, uploaded: false });
+      const recorded = await adminDb.doc(`inventoryTransactions/${result.transactionId}/evidence/${evidence.evidenceId}`).get();
+      expect(recorded.data()).toMatchObject({ kind: "supplier_replacement", productId: product, serialNumber: "NEW-REPLACEMENT-1", stage: "receiving" });
+    }
+    await adminDb.doc(`inventoryLocations/${locationId}`).update({ status: "inactive" });
+  });
+
   it("disposes held quantity returns atomically with partial cost allocation, no duplicate expense and safe retries", async () => {
     const returnId = "disposition-return", itemId = "disposition-item", locationId = "disposition-location";
     await adminDb.doc(`inventoryLocations/${locationId}`).set({ organizationId, branchId, type: "branch", status: "active", name: "Head Office stock" });
@@ -299,9 +381,9 @@ describe.sequential("aftersales and ledger-derived reports", () => {
     const trial = await call<{ totalDebitMinor: number; totalCreditMinor: number }>("generateFinancialStatement", { ...period, reportType: "trial_balance" });
     expect(trial.totalDebitMinor).toBe(trial.totalCreditMinor);
     const income = await call<{ profitMinor: number }>("generateFinancialStatement", { ...period, reportType: "income_statement" });
-    // Service income plus the two original-cost COGS restorations above.
+    // Service income plus restock and supplier-replacement original-cost restorations.
     // Neither restocking journal moves cash or creates taxable sales revenue.
-    expect(income.profitMinor).toBe(20_000 + 33 + 125);
+    expect(income.profitMinor).toBe(20_000 + 33 + 125 + 66 + 125);
     const balance = await call<{ balanced: boolean }>("generateFinancialStatement", { ...period, reportType: "balance_sheet" });
     expect(balance.balanced).toBe(true);
     const cashFlow = await call<{ netCashMovementMinor: number }>("generateFinancialStatement", { ...period, reportType: "cash_flow" });

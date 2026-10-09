@@ -42,6 +42,8 @@ const specialActions: Readonly<Record<string, string>> = {
   "sale_return.inspected": "Inspected returned goods and recorded their condition",
   "sale_return.sent_to_aftersales": "Opened a warranty or repair case for held returned goods",
   "sale_return.held_goods_disposed": "Recorded the final destination of held returned goods",
+  "sale_return.supplier_replacement_received": "Received inspected replacement goods from the supplier",
+  "supplier_replacement.photo_recorded": "Attached a private photo to a supplier replacement receipt",
   "sale_correction.requested": "Requested a correction to a completed sale",
   "sale_correction.approved": "Approved a sale correction for controlled processing",
   "sale_correction.rejected": "Rejected a sale correction request",

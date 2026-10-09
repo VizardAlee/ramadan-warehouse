@@ -437,7 +437,7 @@ export const getProcurementWorkspace = onCall(
     const actor = await requireAccess(request);
     requirePermission(actor, "procurement.read");
     if (["list_evidence", "read_evidence", "upload_evidence"].includes(request.data?.action))
-      return operationalEvidence(actor, request.data?.evidenceKind === "purchase_receipt" ? "purchase_receipt" : "supplier_return", parseInput(operationalEvidenceInput, request.data));
+      return operationalEvidence(actor, request.data?.evidenceKind === "purchase_receipt" ? "purchase_receipt" : request.data?.evidenceKind === "supplier_replacement" ? "supplier_replacement" : "supplier_return", parseInput(operationalEvidenceInput, request.data));
     const input = parseInput(procurementWorkspaceInput, request.data);
     if (input.view === "held_supplier_handover") {
       requirePermission(actor, "payables.read");
@@ -455,7 +455,7 @@ export const getProcurementWorkspace = onCall(
         page = page.startAfter(start);
       }
       const limit = Math.min(input.limit, 100), rows = await page.limit(limit + 1).get();
-      return { handover: { id: handover.id, transactionNumber: handover.get("transactionNumber"), supplierName: handover.get("supplierName"), quantity: handover.get("quantity"), settledQuantity: handover.get("supplierSettledQuantity") ?? 0, status: handover.get("supplierSettlementStatus") ?? "not_recorded", latestReturnId: handover.get("latestSupplierReturnId") ?? null }, invoices: rows.docs.slice(0, limit).map(doc => ({ id: doc.id, invoiceNumber: doc.get("supplierInvoiceNumber") })), nextCursor: rows.size > limit ? rows.docs[limit - 1]!.id : null };
+      return { handover: { id: handover.id, transactionNumber: handover.get("transactionNumber"), supplierName: handover.get("supplierName"), quantity: handover.get("quantity"), settledQuantity: handover.get("supplierSettledQuantity") ?? 0, replacementQuantity: handover.get("supplierReplacementQuantity") ?? 0, status: handover.get("supplierSettlementStatus") ?? "not_recorded", latestReturnId: handover.get("latestSupplierReturnId") ?? null, latestReplacementTransactionId: handover.get("latestReplacementTransactionId") ?? null }, invoices: rows.docs.slice(0, limit).map(doc => ({ id: doc.id, invoiceNumber: doc.get("supplierInvoiceNumber") })), nextCursor: rows.size > limit ? rows.docs[limit - 1]!.id : null };
     }
     if (input.branchId) requireBranchScope(actor, input.branchId);
     if (input.warehouseId) requireWarehouseScope(actor, input.warehouseId);

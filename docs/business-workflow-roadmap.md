@@ -1,5 +1,39 @@
 # Business workflow expansion (24 September 2026 baseline)
 
+## Linked supplier replacement receipts — 9 October 2026 (implementation)
+
+Extends the existing approved-return follow-up and handover settlement panel.
+Physically inspected same-product replacements restore stock and original held
+cost (Dr inventory / Cr cost of sales), preserving existing reservations and
+customer-sale history. No purchase invoice, payable, cash or VAT is invented.
+Partial replacement receipts and supplier credits share transactional quantity
+and cumulative-penny cost limits. Serial receipts verify original supplier custody,
+accept a new unique serial or the exact returned original unit, retain original
+serial history and link both units to the receipt. Existing private receiving
+photo controls support the replacement receipt; no direct client photo access.
+Server permission checks, open accounting periods, immutable linked stock/journal/
+audit evidence and payload-fingerprinted retries protect posting. Stock-only
+reversal is blocked. Additive fields only; no historical migration required.
+
+Scope: same product, verified handover, same store, quantity/serial tracking.
+Different-product/value exchanges and batch-specific receipts need reviewed
+corrections; this is not automatic fulfilment of a previously refunded sale.
+Latest receipt photos are surfaced in the panel; full product ledger retains
+all receipts. Validation: 328 unit/interface tests and 72 distinct procurement,
+POS/sales, aftersales/financial and Firestore/Storage security cases passed across
+the full runs and final targeted reruns (400 unique tests). Includes exact new
+serial custody, private receiving evidence, original-cost pennies, concurrency,
+credit-versus-replacement mutual exclusion, reservation preservation, accounting
+locks, stock-only reversal denial and receiving permission on idempotent replay.
+The new supplier-race test fixture required a contact number before it could
+exercise settlement; its corrected final run passed. Live read-only audit passed
+441/441 query shapes; all 224 indexes READY. Typecheck, lint, Functions compilation,
+production build, secret scan and diff checks passed. Release is not yet completed.
+
+Next dependency: remaining customer advance tender/refund and statements,
+then multi-line supplier correction documents, accounting/tax, services/provider
+payables, document conversions/analytics, budgets/HR and final acceptance.
+
 ## Supplier credit for held-goods handovers — 9 October 2026 (deployed)
 
 Aftersales handovers now offer a live, permission-controlled supplier credit

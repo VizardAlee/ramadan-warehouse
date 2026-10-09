@@ -4,13 +4,15 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { callAdministration } from "@/features/administration/api";
 import { SupplierReturns } from "@/features/procurement/supplier-returns";
+import { HeldSupplierReplacement } from "./held-supplier-replacement";
+import { OperationalPhotos } from "@/features/pos/operational-photos";
 
 interface Workspace {
-  handover: { quantity: number; settledQuantity: number; status: string };
+  handover: { quantity: number; settledQuantity: number; replacementQuantity?: number; latestReplacementTransactionId?: string | null; status: string };
   invoices: Array<{ id: string; invoiceNumber: string }>;
   nextCursor: string | null;
 }
-export function HeldSupplierCredit({ handoverId, productId, serialNumber, canPost }: { handoverId: string; productId: string; serialNumber?: string; canPost: boolean }) {
+export function HeldSupplierCredit({ handoverId, productId, serialNumber, canPost, canReceiveReplacement = false, returnId }: { handoverId: string; productId: string; serialNumber?: string; canPost: boolean; canReceiveReplacement?: boolean; returnId?: string }) {
   const [page, setPage] = useState<Workspace>(), [pages, setPages] = useState<Array<string | null>>([null]);
   const [busy, setBusy] = useState(false), [error, setError] = useState(""), [invoiceId, setInvoiceId] = useState("");
   const [dialogInvoice, setDialogInvoice] = useState("");
@@ -22,11 +24,13 @@ export function HeldSupplierCredit({ handoverId, productId, serialNumber, canPos
   }
   const remaining = page ? page.handover.quantity - page.handover.settledQuantity : 0;
   return <details className="mt-2 rounded-lg border p-3" onToggle={event => { if (event.currentTarget.open && !page && !busy) void load(); }}>
-    <summary className="cursor-pointer text-sm font-medium">Supplier credit settlement</summary>
+    <summary className="cursor-pointer text-sm font-medium">Supplier settlement · credits &amp; replacements</summary>
     {busy && <p role="status" className="mt-2 text-sm">Loading settlement…</p>}
     {error && <p role="alert" className="mt-2 text-sm text-red-800">{error} <button className="underline" onClick={() => void load(pages.at(-1))}>Retry</button></p>}
     {page && <>
-      <p className="mt-2 text-sm">{page.handover.settledQuantity} credited · {remaining} awaiting settlement. Credits reduce the original invoice’s debt first; excess stays on the supplier account. No cash refund is assumed.</p>
+      <p className="mt-2 text-sm">{page.handover.settledQuantity - (page.handover.replacementQuantity ?? 0)} credited · {page.handover.replacementQuantity ?? 0} replaced · {remaining} awaiting settlement. Credits reduce the original invoice’s debt first; excess stays on the supplier account. No cash refund is assumed.</p>
+      {page.handover.latestReplacementTransactionId && <div className="mt-3"><p className="text-sm font-medium">Latest replacement receipt — photos</p><OperationalPhotos key={page.handover.latestReplacementTransactionId} kind="supplier_replacement" recordId={page.handover.latestReplacementTransactionId} stage="receiving" serials={[]} serialRequired={Boolean(serialNumber)} canUpload={canReceiveReplacement} /></div>}
+      {canReceiveReplacement && returnId && remaining > 0 && <HeldSupplierReplacement returnId={returnId} handoverId={handoverId} remaining={remaining} serialized={Boolean(serialNumber)} onComplete={() => { setInvoiceId(""); setPages([null]); void load(); }} />}
       {canPost && remaining > 0 && <>
         <label className="mt-3 block text-sm">Original supplier invoice<select disabled={busy} className="mt-1 w-full rounded-lg border p-3" value={invoiceId} onChange={event => setInvoiceId(event.target.value)}><option value="">Choose original invoice</option>{page.invoices.map(invoice => <option key={invoice.id} value={invoice.id}>{invoice.invoiceNumber}</option>)}</select></label>
         <p className="mt-1 text-xs text-[var(--muted)]">Only approved invoices from this supplier and store are listed. Cross-store purchases or unverified historical receipts need accounting reconciliation.</p>

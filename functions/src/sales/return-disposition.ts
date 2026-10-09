@@ -5,7 +5,7 @@ import { db } from "../admin.js";
 import { accountingPeriodReference, assertAccountingPeriodOpen } from "../accounting/period-lock.js";
 import { writeAuditLog } from "../audit/write-audit-log.js";
 import { requireAccess, requirePermission } from "../auth/authorize.js";
-import { balanceDocumentId, uniquenessDocumentId } from "../inventory/calculations.js";
+import { balanceDocumentId, normalizeInventoryIdentifier, uniquenessDocumentId } from "../inventory/calculations.js";
 import { approveSaleReturnInput } from "../validation/sales.js";
 import { assertBalancedJournal } from "./calculations.js";
 
@@ -19,6 +19,97 @@ function integer(value: unknown, label: string) {
 export function allocatedHeldCost(total: number, quantity: number, disposed: number, next: number) {
   const rounded = (units: number) => Number((BigInt(total) * BigInt(units) * 2n + BigInt(quantity)) / (BigInt(quantity) * 2n));
   return rounded(disposed + next) - rounded(disposed);
+}
+
+/** A replacement restores original held cost, not a second purchase or supplier credit. */
+export async function receiveHeldSupplierReplacement(tx: Transaction, actor: Awaited<ReturnType<typeof requireAccess>>, record: DocumentSnapshot, request: NonNullable<z.infer<typeof approveSaleReturnInput>["replacement"]>, cid: string) {
+  requirePermission(actor, "inventory.receive");
+  requirePermission(actor, "procurement.receive");
+  const handover = await tx.get(db.doc(`inventoryTransactions/${request.handoverId}`));
+  if (!handover.exists || handover.get("organizationId") !== actor.organizationId || handover.get("saleReturnId") !== record.id || handover.get("branchId") !== record.get("branchId") || handover.get("transactionType") !== "held_return_supplier_handover" || handover.get("status") !== "posted")
+    throw new HttpsError("not-found", "Original supplier handover not found for this return.");
+  const effectiveAt = Timestamp.now(), now = FieldValue.serverTimestamp();
+  const transactionRef = db.collection("inventoryTransactions").doc();
+  const counterRef = db.doc(`inventoryCounters/${actor.organizationId}_transactions`);
+  const journalCounterRef = db.doc(`journalCounters/${uniquenessDocumentId(actor.organizationId, "general")}`);
+  const [service, item, product, branch, supplier, reversed, counter, journalCounter, period] = await tx.getAll(
+    db.doc(`aftersalesCases/${handover.get("aftersalesCaseId")}`), db.doc(`saleReturnItems/${handover.get("returnItemId")}`),
+    db.doc(`products/${handover.get("productId")}`), db.doc(`branches/${record.get("branchId")}`), db.doc(`suppliers/${handover.get("supplierId")}`),
+    db.doc(`inventoryReversals/${handover.id}`), counterRef, journalCounterRef, accountingPeriodReference(actor.organizationId, effectiveAt),
+  );
+  if (record.get("status") !== "approved" || record.get("inspectionStatus") !== "completed" ||
+      [service!, item!].some(doc => !doc.exists || doc.get("organizationId") !== actor.organizationId || doc.get("branchId") !== record.get("branchId")) ||
+      service!.get("returnId") !== record.id || service!.get("returnItemId") !== item!.id || item!.get("returnId") !== record.id ||
+      service!.get("saleId") !== record.get("saleId") || item!.get("saleId") !== record.get("saleId") ||
+      item!.get("productId") !== product!.id || service!.get("productId") !== product!.id ||
+      item!.get("condition") !== "non_restockable" || item!.get("inspectionStatus") !== "completed" ||
+      !["warranty", "repair"].includes(item!.get("disposition")) || !["completed", "cancelled"].includes(service!.get("status")) || reversed!.exists)
+    throw new HttpsError("failed-precondition", "Original inspected return and completed service evidence need reconciliation.");
+  if ([product!, branch!, supplier!].some(doc => !doc.exists || doc.get("organizationId") !== actor.organizationId) || product!.get("active") !== true || branch!.get("status") !== "active")
+    throw new HttpsError("failed-precondition", "Verify the original supplier, active product and store before receiving.");
+  assertAccountingPeriodOpen(period!);
+  if (!(handover.get("effectiveAt") instanceof Timestamp) || handover.get("effectiveAt").toMillis() > effectiveAt.toMillis())
+    throw new HttpsError("failed-precondition", "The handover date needs reconciliation.");
+  const total = integer(handover.get("quantity"), "handover quantity"), settled = integer(handover.get("supplierSettledQuantity") ?? 0, "settled quantity");
+  const totalCost = integer(handover.get("originalCostMinor"), "original handover cost"), settledCost = integer(handover.get("supplierSettledOriginalCostMinor") ?? 0, "settled original cost");
+  if (!total || settled + request.quantity > total || settledCost !== allocatedHeldCost(totalCost, total, 0, settled))
+    throw new HttpsError("failed-precondition", "These units are already credited or replaced, or their original costs need reconciliation.");
+  const tracking = handover.get("trackingType"), originalSerialNumber = handover.get("serialNumber");
+  if (!["quantity", "serial"].includes(tracking) || (product!.get("trackingType") ?? "quantity") !== tracking)
+    throw new HttpsError("failed-precondition", "Batch goods or changed tracking rules require reconciliation.");
+  const normalized = request.serialNumber ? normalizeInventoryIdentifier(request.serialNumber) : null;
+  let originalSerial: DocumentSnapshot | undefined, replacementSerial: DocumentSnapshot | undefined;
+  if (tracking === "serial") {
+    if (!originalSerialNumber || !normalized || total !== 1 || request.quantity !== 1)
+      throw new HttpsError("invalid-argument", "Capture the replacement unit's exact serial number.");
+    [originalSerial, replacementSerial] = await tx.getAll(db.doc(`serializedItems/${handover.get("serializedItemId")}`), db.doc(`serializedItems/${uniquenessDocumentId(actor.organizationId, normalized)}`));
+    if (!originalSerial!.exists || originalSerial!.get("organizationId") !== actor.organizationId || originalSerial!.get("productId") !== product!.id || originalSerial!.get("branchId") !== record.get("branchId") || originalSerial!.get("status") !== "returned_to_supplier" || originalSerial!.get("active") !== false || originalSerial!.get("lastTransactionId") !== handover.id)
+      throw new HttpsError("failed-precondition", "The original serial has changed custody; reconcile first.");
+    if (replacementSerial!.exists && replacementSerial!.id !== originalSerial!.id)
+      throw new HttpsError("already-exists", "This replacement serial already exists. Do not receive the same unit twice.");
+  } else if (normalized || originalSerialNumber) throw new HttpsError("invalid-argument", "Quantity-tracked replacements must not contain serial numbers.");
+  const locations = await tx.get(db.collection("inventoryLocations").where("organizationId", "==", actor.organizationId).where("branchId", "==", record.get("branchId")).where("type", "==", "branch").limit(5));
+  const active = locations.docs.filter(loc => loc.get("status") === "active" && !loc.get("warehouseId"));
+  if (active.length !== 1) throw new HttpsError("failed-precondition", "Configure one active sales-stock location for this store.");
+  const location = active[0]!, balance = await tx.get(db.doc(`inventoryBalances/${balanceDocumentId(actor.organizationId, product!.id, location.id)}`));
+  if (balance.exists && (balance.get("organizationId") !== actor.organizationId || balance.get("productId") !== product!.id || balance.get("locationId") !== location.id || balance.get("branchId") !== record.get("branchId")))
+    throw new HttpsError("failed-precondition", "Stock balance scope mismatch.");
+  const onHand = integer(balance.get("onHandQuantity") ?? 0, "physical quantity"), reserved = integer(balance.get("reservedQuantity") ?? 0, "reserved quantity"), value = integer(balance.get("totalValueMinor") ?? 0, "stock value");
+  if (reserved > onHand) throw new HttpsError("failed-precondition", "Reservations exceed physical stock; reconcile first.");
+  const cost = allocatedHeldCost(totalCost, total, settled, request.quantity);
+  const nextQuantity = integer(onHand + request.quantity, "resulting stock"), nextValue = integer(value + cost, "resulting stock value");
+  const sequence = integer(Number(counter!.get("value") ?? 0) + 1, "stock sequence"), year = effectiveAt.toDate().getUTCFullYear();
+  const transactionNumber = `INV-${year}-${String(sequence).padStart(6, "0")}`, transactionType = "held_return_supplier_replacement";
+  const journalRef = cost > 0 ? db.collection("journalEntries").doc() : null;
+  const base = { organizationId: actor.organizationId, branchId: record.get("branchId"), productId: product!.id, sku: product!.get("sku") ?? "", productName: product!.get("name"), trackingType: tracking, transactionId: transactionRef.id, transactionNumber, transactionType, referenceType: "aftersalesCase", referenceId: service!.id, aftersalesCaseId: service!.id, saleReturnId: record.id, returnItemId: item!.id, heldHandoverId: handover.id, supplierId: supplier!.id, supplierReference: request.supplierReference, serialNumber: request.serialNumber ?? null, originalSerialNumber: originalSerialNumber ?? null, journalEntryId: journalRef?.id ?? null, createdAt: now, effectiveAt, postedBy: actor.userId, createdBy: actor.userId, reason: request.reason, correlationId: cid, currency: "NGN" };
+  tx.set(balance.ref, { organizationId: actor.organizationId, branchId: record.get("branchId"), productId: product!.id, locationId: location.id, sku: base.sku, productName: base.productName, trackingType: tracking, categoryId: product!.get("categoryId") ?? null, brand: product!.get("brand") ?? null, onHandQuantity: nextQuantity, reservedQuantity: reserved, availableQuantity: nextQuantity - reserved, totalValueMinor: nextValue, averageUnitCostMinor: Math.round(nextValue / nextQuantity), currency: "NGN", version: integer(Number(balance.get("version") ?? 0) + 1, "balance version"), lastTransactionId: transactionRef.id, lastMovementAt: effectiveAt, createdAt: balance.get("createdAt") ?? now, updatedAt: now }, { merge: true });
+  for (const incoming of [true, false]) tx.create(db.collection("inventoryEntries").doc(), { ...base, locationId: incoming ? location.id : null, externalAccount: incoming ? null : `supplier:${supplier!.id}`, quantityDelta: incoming ? request.quantity : -request.quantity, valueDeltaMinor: incoming ? cost : -cost, unitCostMinor: Math.round(cost / request.quantity), balanceBefore: incoming ? onHand : 0, balanceAfter: incoming ? nextQuantity : 0 });
+  if (replacementSerial && normalized) {
+    const fields = { organizationId: actor.organizationId, productId: product!.id, sku: base.sku, productName: base.productName, serialNumber: request.serialNumber!, normalizedSerialNumber: normalized, currentLocationId: location.id, branchId: record.get("branchId"), status: "at_branch", currentUnitCostMinor: cost, currency: "NGN", active: true, lastTransactionId: transactionRef.id, lastMovementAt: effectiveAt, replacementForHandoverId: handover.id, replacementForSerialId: originalSerial!.id, updatedAt: now, updatedBy: actor.userId };
+    if (replacementSerial.exists) tx.update(replacementSerial.ref, { ...fields, saleId: FieldValue.delete(), saleItemId: FieldValue.delete() });
+    else {
+      tx.create(replacementSerial.ref, { ...fields, acquisitionUnitCostMinor: cost, createdAt: now, createdBy: actor.userId });
+      tx.update(originalSerial!.ref, { replacementSerialId: replacementSerial.id, replacementTransactionId: transactionRef.id, updatedAt: now, updatedBy: actor.userId });
+    }
+  }
+  if (journalRef) {
+    const journalSequence = integer(Number(journalCounter!.get("value") ?? 0) + 1, "journal sequence"), journalNumber = `JRN-${year}-${String(journalSequence).padStart(6, "0")}`;
+    const lines = [{ accountCode: "1200", accountName: "Inventory", debitMinor: cost, creditMinor: 0 }, { accountCode: "5000", accountName: "Cost of sales", debitMinor: 0, creditMinor: cost }];
+    assertBalancedJournal(lines);
+    tx.set(journalCounterRef, { organizationId: actor.organizationId, kind: "journalEntry", value: journalSequence, updatedAt: now }, { merge: true });
+    tx.create(journalRef, { ...base, journalNumber, journalType: transactionType, status: "posted", referenceType: "inventoryTransaction", referenceId: transactionRef.id, referenceNumber: transactionNumber, description: request.reason, totalDebitMinor: cost, totalCreditMinor: cost, postedAt: now });
+    for (const line of lines) {
+      const chart = db.doc(`chartOfAccounts/${uniquenessDocumentId(actor.organizationId, line.accountCode)}`);
+      tx.set(chart, { organizationId: actor.organizationId, code: line.accountCode, name: line.accountName, active: true, systemManaged: true, currency: "NGN", updatedAt: now }, { merge: true });
+      tx.create(db.collection("journalLines").doc(), { organizationId: actor.organizationId, branchId: record.get("branchId"), journalEntryId: journalRef.id, journalNumber, accountId: chart.id, ...line, currency: "NGN", effectiveAt, createdAt: now });
+    }
+  }
+  const result = { transactionId: transactionRef.id, transactionNumber, journalEntryId: journalRef?.id ?? null, quantity: request.quantity, originalCostMinor: cost, received: true };
+  tx.create(transactionRef, { ...base, ...result, status: "posted", postedAt: now, sourceLocationId: null, destinationLocationId: location.id, destinationBranchId: record.get("branchId"), quantity: request.quantity, originalCostMinor: cost, confirmedResellable: true, supplierName: supplier!.get("name") ?? "Supplier", serializedItemId: replacementSerial?.id ?? null });
+  tx.set(counterRef, { organizationId: actor.organizationId, kind: "inventoryTransaction", value: sequence, updatedAt: now }, { merge: true });
+  tx.update(handover.ref, { supplierSettledQuantity: settled + request.quantity, supplierSettledOriginalCostMinor: settledCost + cost, supplierReplacementQuantity: integer(Number(handover.get("supplierReplacementQuantity") ?? 0) + request.quantity, "replacement quantity"), supplierSettlementStatus: settled + request.quantity === total ? "settled" : "partially_settled", latestReplacementTransactionId: transactionRef.id, updatedAt: now, updatedBy: actor.userId });
+  writeAuditLog(tx, actor, { action: "sale_return.supplier_replacement_received", entityType: "saleReturn", entityId: record.id, sourceFunction: "approveSaleReturn", correlationId: cid, reason: request.reason, before: { unsettledQuantity: total - settled }, after: { ...result, heldHandoverId: handover.id, serialNumber: request.serialNumber ?? null, supplierReference: request.supplierReference, unsettledQuantity: total - settled - request.quantity } });
+  return result;
 }
 
 /** Called inside the return's existing idempotent transaction. All reads precede writes. */

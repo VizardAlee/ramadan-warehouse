@@ -11,9 +11,14 @@ import { normalizeInventoryIdentifier, uniquenessDocumentId } from "../inventory
 import { assertBalancedJournal } from "./calculations.js";
 import { correlationId } from "../utils/callable.js";
 import { approveSaleReturnInput } from "../validation/sales.js";
-import { disposeHeldReturn } from "./return-disposition.js";
+import { disposeHeldReturn, receiveHeldSupplierReplacement } from "./return-disposition.js";
 
 export async function followUpSaleReturn(actor: Awaited<ReturnType<typeof requireAccess>>, input: z.infer<typeof approveSaleReturnInput>) {
+  // Replays must not bypass current stage permissions after a role is removed.
+  if (input.action === "receive_supplier_replacement") {
+    requirePermission(actor, "inventory.receive");
+    requirePermission(actor, "procurement.receive");
+  }
   const returnRef = db.doc(`saleReturns/${input.returnId}`);
   const op = db.doc(`idempotencyKeys/${actor.organizationId}_${input.action}_${input.idempotencyKey}`);
   const fingerprint = createHash("sha256").update(JSON.stringify(input)).digest("hex");
@@ -29,6 +34,11 @@ export async function followUpSaleReturn(actor: Awaited<ReturnType<typeof requir
       return previous.get("result");
     }
     const now = FieldValue.serverTimestamp();
+    if (input.action === "receive_supplier_replacement") {
+      const result = await receiveHeldSupplierReplacement(tx, actor, record, input.replacement!, cid);
+      tx.create(op, { organizationId: actor.organizationId, fingerprint, result, createdAt: now, createdBy: actor.userId });
+      return result;
+    }
     if (input.action === "dispose_held") {
       const result = await disposeHeldReturn(tx, actor, record, input.disposition!, cid);
       tx.create(op, { organizationId: actor.organizationId, fingerprint, result, createdAt: now, createdBy: actor.userId });

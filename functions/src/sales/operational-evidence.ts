@@ -12,19 +12,23 @@ import { decodeCollectionPhoto, MAX_COLLECTION_PHOTO_BYTES } from "./collection-
 
 const id = z.string().trim().min(1).max(200).refine(value => !value.includes("/"));
 export const operationalEvidenceInput = z.discriminatedUnion("action", [
-  z.object({ action: z.literal("list_evidence"), recordId: id, evidenceKind: z.enum(["supplier_return", "purchase_receipt"]).optional() }),
-  z.object({ action: z.literal("read_evidence"), recordId: id, evidenceId: id, evidenceKind: z.enum(["supplier_return", "purchase_receipt"]).optional() }),
+  z.object({ action: z.literal("list_evidence"), recordId: id, evidenceKind: z.enum(["supplier_return", "purchase_receipt", "supplier_replacement"]).optional() }),
+  z.object({ action: z.literal("read_evidence"), recordId: id, evidenceId: id, evidenceKind: z.enum(["supplier_return", "purchase_receipt", "supplier_replacement"]).optional() }),
   z.object({ action: z.literal("upload_evidence"), recordId: id, stage: z.enum(["intake", "diagnosis", "handover", "receiving", "inspection"]),
-    evidenceKind: z.enum(["supplier_return", "purchase_receipt"]).optional(),
+    evidenceKind: z.enum(["supplier_return", "purchase_receipt", "supplier_replacement"]).optional(),
     serialNumber: z.string().trim().max(160).optional(), note: z.string().trim().min(3).max(500),
     contentType: z.enum(["image/jpeg", "image/png"]), base64: z.string().min(32).max(2796204), idempotencyKey: z.string().uuid() }),
 ]);
-type Kind = "supplier_return" | "aftersales" | "purchase_receipt" | "customer_return";
+type Kind = "supplier_return" | "aftersales" | "purchase_receipt" | "customer_return" | "supplier_replacement";
 type Input = z.infer<typeof operationalEvidenceInput>;
 
 function scope(actor: AccessProfile, parent: DocumentSnapshot, kind: Kind) {
   requirePermission(actor, ["aftersales", "customer_return"].includes(kind) ? "sales.returns.read" : "procurement.read");
   if (kind === "supplier_return") requirePermission(actor, "payables.read");
+  if (kind === "supplier_replacement") {
+    requirePermission(actor, "sales.returns.read");
+    if (parent.get("transactionType") !== "held_return_supplier_replacement" || parent.get("status") !== "posted") throw new HttpsError("not-found", "Replacement receipt not found.");
+  }
   if (!parent.exists || parent.get("organizationId") !== actor.organizationId) throw new HttpsError("not-found", "Evidence record not found.");
   if (parent.get("branchId")) requireBranchScope(actor, String(parent.get("branchId")));
   else if (["supplier_return", "purchase_receipt"].includes(kind) && parent.get("warehouseId")) requireWarehouseScope(actor, String(parent.get("warehouseId")));
@@ -35,7 +39,11 @@ async function uploadScope(actor: AccessProfile, parent: DocumentSnapshot, kind:
   scope(actor, parent, kind);
   let expected: string[] = [];
   let productId = parent.get("productId") ?? null;
-  if (kind === "purchase_receipt") {
+  if (kind === "supplier_replacement") {
+    requirePermission(actor, "inventory.receive"); requirePermission(actor, "procurement.receive"); requirePermission(actor, "sales.returns.approve");
+    if (input.stage !== "receiving" || !parent.get("heldHandoverId") || !parent.get("destinationLocationId")) throw new HttpsError("failed-precondition", "Replacement evidence requires a posted linked receipt.");
+    expected = [parent.get("serialNumber")].filter(Boolean);
+  } else if (kind === "purchase_receipt") {
     requirePermission(actor, "procurement.receive");
     if (input.stage !== "receiving" || !parent.get("inventoryTransactionId") || !parent.get("receivingLocationId")) throw new HttpsError("failed-precondition", "Receiving evidence requires a posted goods-received note with its stock reference.");
     const movement = await db.doc(`inventoryTransactions/${parent.get("inventoryTransactionId")}`).get();
@@ -68,8 +76,8 @@ async function uploadScope(actor: AccessProfile, parent: DocumentSnapshot, kind:
 
 /** Append-only evidence on existing operational records; never posts stock, cash or journals. */
 async function handleOperationalEvidence(actor: AccessProfile, kind: Kind, input: Input) {
-  const collections = { aftersales: "aftersalesCases", supplier_return: "supplierReturns", purchase_receipt: "purchaseReceipts", customer_return: "saleReturns" };
-  const entityTypes = { aftersales: "aftersalesCase", supplier_return: "supplierReturn", purchase_receipt: "purchaseReceipt", customer_return: "saleReturn" };
+  const collections = { aftersales: "aftersalesCases", supplier_return: "supplierReturns", purchase_receipt: "purchaseReceipts", customer_return: "saleReturns", supplier_replacement: "inventoryTransactions" };
+  const entityTypes = { aftersales: "aftersalesCase", supplier_return: "supplierReturn", purchase_receipt: "purchaseReceipt", customer_return: "saleReturn", supplier_replacement: "inventoryTransaction" };
   const parentRef = db.doc(`${collections[kind]}/${input.recordId}`);
   const parent = await parentRef.get(); scope(actor, parent, kind);
   const ids = (parent.get("evidenceIds") ?? []) as string[];
@@ -94,8 +102,9 @@ async function handleOperationalEvidence(actor: AccessProfile, kind: Kind, input
   const previous = await reference.get();
   // A successful but unacknowledged upload remains retryable after a status transition.
   if (previous.exists) {
-    requirePermission(actor, ["supplier_return", "purchase_receipt"].includes(kind) ? "procurement.receive" : input.stage === "intake" ? "sales.returns.create" : "sales.returns.approve");
+    requirePermission(actor, ["supplier_return", "purchase_receipt", "supplier_replacement"].includes(kind) ? "procurement.receive" : input.stage === "intake" ? "sales.returns.create" : "sales.returns.approve");
     if (kind === "supplier_return") requirePermission(actor, "payables.approve");
+    if (kind === "supplier_replacement") { requirePermission(actor, "inventory.receive"); requirePermission(actor, "sales.returns.approve"); }
     if (previous.get("fingerprint") !== fingerprint || !ids.includes(evidenceId)) throw new HttpsError("invalid-argument", "Retry the original photo without changes.");
     return { evidenceId, uploaded: false };
   }
