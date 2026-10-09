@@ -1,6 +1,6 @@
 # Business workflow expansion (24 September 2026 baseline)
 
-## Linked supplier replacement receipts — 9 October 2026 (implementation)
+## Linked supplier replacement receipts — 9 October 2026 (deployed)
 
 Extends the existing approved-return follow-up and handover settlement panel.
 Physically inspected same-product replacements restore stock and original held
@@ -28,7 +28,22 @@ locks, stock-only reversal denial and receiving permission on idempotent replay.
 The new supplier-race test fixture required a contact number before it could
 exercise settlement; its corrected final run passed. Live read-only audit passed
 441/441 query shapes; all 224 indexes READY. Typecheck, lint, Functions compilation,
-production build, secret scan and diff checks passed. Release is not yet completed.
+production build, secret scan and diff checks passed.
+
+Release proof for source `dae41ff`: Firebase explicitly completed all five
+affected Functions and App Hosting `build-2026-10-09-011` (READY, rollout SUCCEEDED,
+100% traffic, reconciling false). Live revisions `approvesalereturn-00017-ras`,
+`getprocurementworkspace-00015-buk`, `reverseinventorytransaction-00018-xow`,
+`getaftersalesworkspace-00009-haw`, `getsalereturnworkspace-00012-zif` are ACTIVE,
+100% traffic, APP_ENV production and App Check enabled. Existing invoker settings
+and runtime service account are unchanged. All five reject unauthenticated calls
+with Firebase HTTP 401. Aftersales, Procurement, Guide, POS and Returns and all
+18 referenced JavaScript assets return 200; replacement controls, settlement and
+guide markers are present. Two initial deployments failed before uploading due
+to intermittent Google API connectivity; the IPv4-first retry completed normally.
+No new IAM relaxation, indexes, migration or real stock/financial mutations.
+Authorized behavior was exercised in emulators, not live business records;
+physical staff acceptance remains separate.
 
 Next dependency: remaining customer advance tender/refund and statements,
 then multi-line supplier correction documents, accounting/tax, services/provider
