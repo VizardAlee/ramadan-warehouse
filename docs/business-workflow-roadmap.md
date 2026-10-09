@@ -2,7 +2,7 @@
 
 This roadmap extends the existing Firebase application and preserves historical users, stock entries, sales, journals and audit records. A requested capability is not marked complete merely because a screen or a partial workflow exists.
 
-### Serialized POS ownership — 9 October 2026 (implementation; release pending)
+### Serialized POS ownership — 9 October 2026 (deployed)
 
 Extends existing `serializedItems`, sales, collection and return transactions;
 there is no parallel stock or customer system. Online POS captures exact serials
@@ -30,7 +30,15 @@ Typecheck, lint, Functions compilation, production build, secret scan and diff
 checks passed. Live query planning passed 440/440; all 224 indexes are READY.
 Concurrent emulator temporary-file interference was resolved using isolated ports
 and a private temporary directory; no application checks were bypassed.
-Deployment evidence will be recorded below only after rollout completes.
+Release verified at 09:36 UTC: implementation `3f3ce31` is pushed. Firebase
+explicitly completed all 12 scoped Function updates and the web rollout. All are
+ACTIVE, `APP_ENV=production`, App Check enabled, with existing invoker-IAM-disabled
+settings unchanged. App Hosting `build-2026-10-09-004` is READY with 100% current
+traffic and no reconciliation pending. Live POS, Returns and Guide routes and
+their 12/11/11 JavaScript assets return HTTP 200 and contain the deployed serial
+workflow markers. Unauthenticated posting probes return 401 UNAUTHENTICATED;
+these establish reachability/auth rejection, not signed-in business acceptance.
+No real financial or inventory postings were made during live verification.
 No historical data migration or index/rules/IAM relaxation is required. Physical
 device/camera acceptance remains separate. Next: serial/photo evidence coverage
 for supplier returns and warranty/repair handoffs, reusing existing workflows.
