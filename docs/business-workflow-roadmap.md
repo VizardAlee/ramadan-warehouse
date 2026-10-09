@@ -1,6 +1,6 @@
 # Business workflow expansion (24 September 2026 baseline)
 
-## Supplier credit for held-goods handovers — 9 October 2026 (implementation)
+## Supplier credit for held-goods handovers — 9 October 2026 (deployed)
 
 Aftersales handovers now offer a live, permission-controlled supplier credit
 settlement panel, paged original invoices (including paid invoices), original
@@ -31,6 +31,20 @@ compilation and production build passed. Live read-only query audit: 441/441,
 all 224 indexes READY; existing indexes cover the paged invoice query.
 All 27 Firestore/Storage security cases also passed, including direct-write
 denial for forged handover counters and financial credits (395 unique tests).
+
+Release proof for implementation `6f41d04`: Firebase explicitly completed
+`postSupplierReturn`, `getProcurementWorkspace`, `approveSaleReturn` and App
+Hosting `build-2026-10-09-010`. The build is READY at 100% traffic, reconciling
+false. Live Function revisions `postsupplierreturn-00004-puv`,
+`getprocurementworkspace-00014-fiw`, `approvesalereturn-00016-quc` are ACTIVE at
+100% traffic, APP_ENV production, App Check true, same service account and
+unchanged invoker IAM-disabled settings; all reject unauthenticated calls (401).
+Aftersales, Procurement, Guide, POS and Returns return HTTP 200; all 18 referenced
+JavaScript assets return 200 and include the new settlement controls/guide text.
+No new IAM relaxation, index deployment, historical migration or real stock/
+financial posting was performed. Authorized business mutations were validated
+in isolated emulators, not against live customer/supplier records. Physical
+staff acceptance of the new workflow remains a separate operational check.
 
 ## Controlled held-return disposition — 9 October 2026 (deployed)
 
