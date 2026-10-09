@@ -61,7 +61,7 @@ export async function disposeHeldReturn(tx: Transaction, actor: Awaited<ReturnTy
   );
   if (!product!.exists || product!.get("organizationId") !== actor.organizationId || !branch!.exists || branch!.get("organizationId") !== actor.organizationId)
     throw new HttpsError("failed-precondition", "The original product or store could not be verified.");
-  if (product!.get("trackingType") === "lot") throw new HttpsError("failed-precondition", "Lot-tracked goods require a lot-specific disposition workflow.");
+  if (["lot", "batch"].includes(product!.get("trackingType"))) throw new HttpsError("failed-precondition", "Batch-tracked goods require a batch-specific disposition workflow.");
   const serials = (item.get("serialNumbers") ?? []) as string[];
   if (serialNumber ? request.quantity !== 1 || caseQuantity !== 1 || !serials.includes(serialNumber) || !serial!.exists || serial!.get("organizationId") !== actor.organizationId || serial!.get("productId") !== item.get("productId") || serial!.get("branchId") !== record.get("branchId") || serial!.get("saleId") !== record.get("saleId") || serial!.get("lastSaleReturnId") !== record.id || serial!.get("status") !== "returned_held" || serial!.get("active") !== false : serials.length > 0)
     throw new HttpsError("failed-precondition", "The exact returned serial is no longer held for this case.");

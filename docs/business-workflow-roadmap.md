@@ -1,5 +1,37 @@
 # Business workflow expansion (24 September 2026 baseline)
 
+## Supplier credit for held-goods handovers — 9 October 2026 (implementation)
+
+Aftersales handovers now offer a live, permission-controlled supplier credit
+settlement panel, paged original invoices (including paid invoices), original
+invoice lines/GRNs, partial credits and exact serial verification. Extends the
+existing supplier-return callable, credit-note locks, supplier account entries,
+receipt/invoice counters and balanced journals; no duplicate settlement system.
+Already handed-over goods are not issued from stock twice. Original-cost recovery
+credits COGS rather than inventory; original invoice VAT/price snapshots and
+cumulative rounding determine the credit. Payables reduce first, excess becomes
+supplier credit. No bank receipt or cash refund is invented. Handover settlement
+counters, financial records and audit events commit atomically with retry safety.
+Additive fields only; historical custody/stock/journal entries are preserved.
+
+Scope: verified same-store original purchase evidence, quantity/serial products.
+Cross-store/legacy warehouse evidence and differing negotiated credit values
+require accounting reconciliation; no automatic interbranch clearing is invented.
+Next: linked warranty replacement receipt (partial quantities, original-cost
+restoration, replacement serial evidence and mutual exclusion with credits).
+
+Validation: 326 unit/interface tests and 42 procurement, POS/sales and
+aftersales/financial emulator cases passed. Covers partial original-cost/VAT
+rounding, paid-invoice surplus credit, exact original GRN/serial evidence,
+concurrent settlement, retry fingerprints, closed periods, wrong-store denial,
+unchanged physical stock and shared purchase credit limits. The existing POS
+return test now selects the original sale's till instead of an arbitrary open
+till, preventing nondeterministic negative test cash. Typecheck, lint, Functions
+compilation and production build passed. Live read-only query audit: 441/441,
+all 224 indexes READY; existing indexes cover the paged invoice query.
+All 27 Firestore/Storage security cases also passed, including direct-write
+denial for forged handover counters and financial credits (395 unique tests).
+
 ## Controlled held-return disposition — 9 October 2026 (deployed)
 
 Extends the existing approved return → aftersales link, without migrating or

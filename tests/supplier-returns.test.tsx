@@ -10,6 +10,26 @@ function reads(_name: string, input: { view: string }) {
   return Promise.resolve(input.view === "supplier_return_receipts" ? { receipts: [{ id: "receipt-1", receiptNumber: "GRN-001", quantity: 3, returnedQuantity: 0, receivedAt: "2026-10-08T09:00:00Z" }], nextCursor: null } : history);
 }
 describe("supplier return dialog", () => {
+  it("links held credit to the existing handover, restricts product/quantity and preserves its exact serial", async () => {
+    api.call.mockImplementation((name: string, input: { view: string }) => name === "postSupplierReturn" ? Promise.resolve({ returnNumber: "SRT-HELD" }) : input.view === "supplier_returns" ? Promise.resolve({ ...history, lines: [{ ...history.lines[0], productId: "panel" }, { id: "other", productId: "other", productName: "Other product", quantity: 3, returnedQuantity: 0 }] }) : reads(name, input));
+    render(<SupplierReturns invoiceId="invoice-1" canPost heldHandover={{ id: "handover-1", remaining: 1, productId: "panel", serialNumber: "SERIAL-1" }} onClose={vi.fn()} onComplete={vi.fn()} />);
+    await screen.findByRole("option", { name: /Solar panel/ });
+    expect(screen.queryByRole("option", { name: /Other product/ })).toBeNull();
+    expect((screen.getByLabelText(/Serial numbers, if tracked/) as HTMLTextAreaElement).readOnly).toBe(true);
+    fireEvent.change(screen.getByLabelText("Invoice product"), { target: { value: "line-1" } });
+    await screen.findByRole("option", { name: /GRN-001/ });
+    fireEvent.change(screen.getByLabelText("Original goods-received note"), { target: { value: "receipt-1" } });
+    fireEvent.change(screen.getByLabelText("Supplier credit-note reference"), { target: { value: "HELD-CN-1" } });
+    fireEvent.change(screen.getByLabelText("Reason for return"), { target: { value: "Supplier approved held unit credit" } });
+    fireEvent.click(screen.getByRole("checkbox"));
+    const quantity = screen.getByLabelText(/Quantity returned/);
+    fireEvent.change(quantity, { target: { value: "2" } });
+    expect((screen.getByRole("button", { name: "Post return & credit note" }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.change(quantity, { target: { value: "1" } });
+    fireEvent.click(screen.getByRole("button", { name: "Post return & credit note" }));
+    await screen.findByText(/physical stock was not issued again/);
+    expect(api.call).toHaveBeenCalledWith("postSupplierReturn", expect.objectContaining({ heldHandoverId: "handover-1", quantity: 1, serialNumbers: ["SERIAL-1"] }));
+  });
   it("requires original receipt and acknowledgement; retries an uncertain posting with exactly the same key", async () => {
     let attempts = 0;
     api.call.mockImplementation((name: string, input: { view: string }) => name === "postSupplierReturn" ? ++attempts === 1 ? Promise.reject(new Error("Connection lost")) : Promise.resolve({ returnNumber: "SRT-001" }) : reads(name, input));

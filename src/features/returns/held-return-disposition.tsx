@@ -3,6 +3,7 @@
 import { useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { callAdministration } from "@/features/administration/api";
+import { HeldSupplierCredit } from "./held-supplier-credit";
 
 export interface HeldReturnCase {
   id: string;
@@ -15,9 +16,9 @@ export interface HeldReturnCase {
   heldDisposedQuantity?: number;
   recentDispositions?: Array<{ transactionId: string; transactionNumber: string; outcome: string; quantity: number; supplierName?: string }>;
 }
-export function HeldReturnDisposition({ record, suppliers, canDispose, canHandover, canReadHistory = false, onComplete }: {
+export function HeldReturnDisposition({ record, suppliers, canDispose, canHandover, canReadHistory = false, canReadSettlement = false, canSettle = false, onComplete }: {
   record: HeldReturnCase; suppliers: Array<{ id: string; name: string }>;
-  canDispose: boolean; canHandover: boolean; canReadHistory?: boolean; onComplete: () => void;
+  canDispose: boolean; canHandover: boolean; canReadHistory?: boolean; canReadSettlement?: boolean; canSettle?: boolean; onComplete: () => void;
 }) {
   const [outcome, setOutcome] = useState("restock"), [quantity, setQuantity] = useState("1"), [reason, setReason] = useState("");
   const [resellable, setResellable] = useState(false), [supplierId, setSupplierId] = useState(""), [reference, setReference] = useState("");
@@ -44,7 +45,7 @@ export function HeldReturnDisposition({ record, suppliers, canDispose, canHandov
   return <details className="mt-3 rounded-lg border p-3">
     <summary className="cursor-pointer font-medium">Held returned goods · {remaining} remaining</summary>
     <p className="mt-2 text-sm text-[var(--muted)]">Service completion alone does not release stock. Record each final destination here. Restock restores stock and its original cost; scrap and supplier handover do not expense goods twice. A supplier handover is custody only, not a supplier credit note or refund.</p>
-    {record.recentDispositions?.map(item => <p key={item.transactionId} className="mt-2 text-sm">{item.transactionNumber} · {item.quantity} unit(s) · {item.outcome === "restock" ? "Restocked" : item.outcome === "scrap" ? "Scrapped" : `Handed to ${item.supplierName ?? "supplier"} — financial settlement not recorded`}</p>)}
+    {record.recentDispositions?.map(item => <div key={item.transactionId}><p className="mt-2 text-sm">{item.transactionNumber} · {item.quantity} unit(s) · {item.outcome === "restock" ? "Restocked" : item.outcome === "scrap" ? "Scrapped" : `Handed to ${item.supplierName ?? "supplier"}`}</p>{item.outcome === "supplier_handover" && canReadSettlement && record.productId && <HeldSupplierCredit handoverId={item.transactionId} productId={record.productId} serialNumber={record.serialNumber} canPost={canSettle} />}</div>)}
     {record.productId && canReadHistory && <a className="mt-2 inline-block text-sm underline" href={`/products/${encodeURIComponent(record.productId)}`}>View full product stock history</a>}
     {remaining > 0 && !["completed", "cancelled"].includes(record.status) && <p className="mt-2 text-sm text-amber-800">Finish or cancel the service case first.</p>}
     {remaining > 0 && canDispose && ["completed", "cancelled"].includes(record.status) && <>

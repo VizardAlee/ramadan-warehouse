@@ -14,7 +14,7 @@ import {
   initializeApp as initializeAdminApp,
 } from "firebase-admin/app";
 import { getAuth as getAdminAuth } from "firebase-admin/auth";
-import { FieldValue, getFirestore } from "firebase-admin/firestore";
+import { FieldValue, Timestamp, getFirestore } from "firebase-admin/firestore";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { balanceDocumentId, uniquenessDocumentId } from "../functions/src/inventory/calculations";
 
@@ -179,6 +179,67 @@ beforeAll(async () => {
 afterAll(async () => Promise.all(apps.map((app) => deleteApp(app))));
 
 describe.sequential("procurement callables", () => {
+  it("settles partial held handovers without issuing stock twice and shares original purchase credit limits", async () => {
+    const supplier = await call<{ supplierId: string }>(administrator, "saveSupplier", { name: "Held goods supplier", phone: "07011112222", idempotencyKey: crypto.randomUUID() });
+    const product = "held-credit-product";
+    await adminDb.doc(`products/${product}`).set({ organizationId, name: "Held credit panel", sku: "HELD-CREDIT", unitOfMeasure: "unit", trackingType: "quantity", active: true });
+    await adminDb.doc(`productCosts/${product}`).set({ organizationId, productId: product, defaultUnitCostMinor: 10000 });
+    const order = await call<{ purchaseOrderId: string }>(headOfficeManager, "createPurchaseOrder", { supplierId: supplier.supplierId, branchId: headOfficeId, receivingLocationId: headOfficeLocationId, lines: [{ productId: product, quantity: 3, unitCostMinor: 10000, vatRateBasisPoints: 750 }], idempotencyKey: crypto.randomUUID() });
+    await call(headOfficeManager, "submitPurchaseOrder", { ...order, idempotencyKey: crypto.randomUUID() });
+    await call(headOfficeManager, "approvePurchaseOrder", { ...order, idempotencyKey: crypto.randomUUID() });
+    const item = (await adminDb.collection("purchaseOrderItems").where("purchaseOrderId", "==", order.purchaseOrderId).get()).docs[0]!;
+    const receipt = await call<{ receiptId: string }>(headOfficeManager, "receivePurchaseOrderItem", { ...order, purchaseOrderItemId: item.id, quantity: 3, receivedAt: new Date().toISOString(), serialNumbers: [], idempotencyKey: crypto.randomUUID() });
+    const invoice = await call<{ supplierInvoiceId: string }>(headOfficeManager, "submitSupplierInvoice", { ...order, supplierInvoiceNumber: "HELD-INV-001", invoiceDate: new Date().toISOString().slice(0, 10), lines: [{ purchaseOrderItemId: item.id, quantity: 3 }], idempotencyKey: crypto.randomUUID() });
+    await call(headOfficeManager, "approveSupplierInvoice", { ...invoice, idempotencyKey: crypto.randomUUID() });
+    await call(headOfficeManager, "recordSupplierPayment", { supplierId: supplier.supplierId, branchId: headOfficeId, method: "cash", allocations: [{ ...invoice, amountMinor: 25_000 }], paidAt: new Date().toISOString(), idempotencyKey: crypto.randomUUID() });
+    const line = (await adminDb.collection("supplierInvoiceItems").where("supplierInvoiceId", "==", invoice.supplierInvoiceId).get()).docs[0]!;
+    const base = { organizationId, branchId: headOfficeId, productId: product };
+    // Trusted fixtures represent an already-approved customer return and its posted physical handover.
+    await adminDb.doc("saleReturns/held-credit-return").set({ ...base, status: "approved" });
+    await adminDb.doc("saleReturnItems/held-credit-item").set({ ...base, returnId: "held-credit-return", condition: "non_restockable", inspectionStatus: "completed" });
+    await adminDb.doc("aftersalesCases/held-credit-case").set({ ...base, returnId: "held-credit-return", returnItemId: "held-credit-item" });
+    const handover = adminDb.doc("inventoryTransactions/held-credit-handover");
+    await handover.set({ ...base, transactionNumber: "INV-HELD-1", status: "posted", transactionType: "held_return_supplier_handover", trackingType: "quantity", supplierId: supplier.supplierId, supplierName: "Held goods supplier", quantity: 3, originalCostMinor: 10_001, aftersalesCaseId: "held-credit-case", returnItemId: "held-credit-item", saleReturnId: "held-credit-return", effectiveAt: Timestamp.now() });
+    const payload = { ...invoice, supplierInvoiceItemId: line.id, receiptId: receipt.receiptId, heldHandoverId: handover.id, quantity: 1, creditNoteReference: "HELD-CN-1", reason: "Supplier accepted previously handed-over goods", returnedAt: new Date().toISOString(), idempotencyKey: crypto.randomUUID() };
+    const balance = adminDb.doc(`inventoryBalances/${balanceDocumentId(organizationId, product, headOfficeLocationId)}`);
+    const before = (await balance.get()).data();
+    const entriesBefore = (await adminDb.collection("inventoryEntries").where("productId", "==", product).get()).size;
+    await expect(call(warehouseManager, "postSupplierReturn", payload)).rejects.toMatchObject({ code: "functions/permission-denied" });
+    await expect(call(administrator, "postSupplierReturn", { ...payload, heldHandoverId: "foreign-handover" })).rejects.toMatchObject({ code: "functions/not-found" });
+    await expect(call(headOfficeManager, "postSupplierReturn", { ...payload, serialNumbers: ["invented"] })).rejects.toMatchObject({ code: "functions/failed-precondition" });
+    const period = adminDb.doc(`accountingPeriods/${uniquenessDocumentId(organizationId, payload.returnedAt.slice(0, 7))}`);
+    await period.set({ organizationId, status: "closed" });
+    await expect(call(headOfficeManager, "postSupplierReturn", payload)).rejects.toMatchObject({ code: "functions/failed-precondition" });
+    await period.delete();
+    await handover.update({ branchId: "another-store" });
+    await expect(call(administrator, "postSupplierReturn", payload)).rejects.toMatchObject({ code: "functions/failed-precondition" });
+    await handover.update({ branchId: headOfficeId });
+    const result = await call<{ returnId: string; journalEntryId: string; posted: boolean }>(headOfficeManager, "postSupplierReturn", payload);
+    expect((await call(headOfficeManager, "postSupplierReturn", payload)).posted).toBe(false);
+    await expect(call(headOfficeManager, "postSupplierReturn", { ...payload, quantity: 2 })).rejects.toMatchObject({ code: "functions/already-exists" });
+    expect((await handover.get()).data()).toMatchObject({ supplierSettledQuantity: 1, supplierSettledOriginalCostMinor: 3334, supplierSettlementStatus: "partially_settled" });
+    expect((await adminDb.doc(`supplierReturns/${result.returnId}`).get()).data()).toMatchObject({ heldHandoverId: handover.id, physicalStockIssued: false, grossAmountMinor: 10750, payableReductionMinor: 7250, supplierCreditMinor: 3500, inventoryTransactionId: handover.id });
+    const journal = await adminDb.doc(`journalEntries/${result.journalEntryId}`).get();
+    expect(journal.get("totalDebitMinor")).toBe(journal.get("totalCreditMinor"));
+    const journalLines = (await adminDb.collection("journalLines").where("journalEntryId", "==", result.journalEntryId).get()).docs.map(doc => doc.data());
+    expect(journalLines.find(row => row.accountCode === "5000")?.creditMinor).toBe(3334);
+    expect(journalLines.find(row => row.accountCode === "1300")?.creditMinor).toBe(750);
+    expect(journalLines.some(row => row.accountCode === "1200")).toBe(false);
+    const workspace = await call<{ handover: { settledQuantity: number }; invoices: Array<{ id: string }> }>(headOfficeManager, "getProcurementWorkspace", { view: "held_supplier_handover", heldHandoverId: handover.id, limit: 1 });
+    expect(workspace.handover.settledQuantity).toBe(1); expect(workspace.invoices.map(row => row.id)).toContain(invoice.supplierInvoiceId);
+    await expect(call(headOfficeManager, "getProcurementWorkspace", { view: "held_supplier_handover", heldHandoverId: handover.id, cursor: "bad-cursor" })).rejects.toMatchObject({ code: "functions/invalid-argument" });
+    const next = { ...payload, quantity: 2, creditNoteReference: "HELD-CN-2", idempotencyKey: crypto.randomUUID() };
+    const races = await Promise.allSettled([call(headOfficeManager, "postSupplierReturn", next), call(headOfficeManager, "postSupplierReturn", { ...next, creditNoteReference: "HELD-CN-3", idempotencyKey: crypto.randomUUID() })]);
+    expect(races.filter(row => row.status === "fulfilled")).toHaveLength(1);
+    expect((await handover.get()).data()).toMatchObject({ supplierSettledQuantity: 3, supplierSettledOriginalCostMinor: 10001, supplierSettlementStatus: "settled" });
+    expect((await line.ref.get()).data()).toMatchObject({ returnedQuantity: 3, returnedNetMinor: 30000, returnedVatMinor: 2250 });
+    expect((await adminDb.doc(`suppliers/${supplier.supplierId}`).get()).data()).toMatchObject({ outstandingBalanceMinor: 0, advanceBalanceMinor: 25000 });
+    expect((await balance.get()).data()).toEqual(before);
+    expect((await adminDb.collection("inventoryEntries").where("productId", "==", product).get()).size).toBe(entriesBefore);
+    await expect(call(headOfficeManager, "postSupplierReturn", { ...payload, heldHandoverId: undefined, creditNoteReference: "DOUBLE-CREDIT", idempotencyKey: crypto.randomUUID() })).rejects.toThrow();
+    const movementId = (await adminDb.doc(`purchaseReceipts/${receipt.receiptId}`).get()).get("inventoryTransactionId");
+    await expect(call(administrator, "reverseInventoryTransaction", { transactionId: movementId, reason: "Cannot reverse credited purchase", idempotencyKey: crypto.randomUUID() })).rejects.toThrow();
+  });
   it("atomically returns goods, credits unpaid invoices, creates surplus credit and prevents duplicate or stock-only reversals", async () => {
     const supplier = await call<{ supplierId: string }>(administrator, "saveSupplier", { name: "Goods-return supplier", phone: "07077778888", idempotencyKey: crypto.randomUUID() });
     const returnProduct = "supplier-return-product";
@@ -377,6 +438,22 @@ describe.sequential("procurement callables", () => {
     await call(headOfficeManager, "postSupplierReturn", { ...payload, serialNumbers: ["GRN-SERIAL-1"] });
     expect((await serial.ref.get()).data()).toMatchObject({ status: "returned_to_supplier", active: false });
     expect((await balance.ref.get()).get("onHandQuantity")).toBe(1);
+    const heldSerial = (await adminDb.collection("serializedItems").where("productId", "==", serialProduct).where("serialNumber", "==", "GRN-SERIAL-2").get()).docs[0]!;
+    const base = { organizationId, branchId: headOfficeId, productId: serialProduct };
+    await adminDb.doc("saleReturns/serial-held-return").set({ ...base, status: "approved" });
+    await adminDb.doc("saleReturnItems/serial-held-item").set({ ...base, returnId: "serial-held-return", condition: "non_restockable", inspectionStatus: "completed" });
+    await adminDb.doc("aftersalesCases/serial-held-case").set({ ...base, returnId: "serial-held-return", returnItemId: "serial-held-item" });
+    await adminDb.doc("inventoryTransactions/serial-held-handover").set({ ...base, transactionNumber: "INV-SERIAL-HELD", status: "posted", transactionType: "held_return_supplier_handover", trackingType: "serial", serialNumber: "GRN-SERIAL-2", serializedItemId: heldSerial.id, supplierId: supplier.supplierId, quantity: 1, originalCostMinor: 10000, aftersalesCaseId: "serial-held-case", returnItemId: "serial-held-item", saleReturnId: "serial-held-return", effectiveAt: Timestamp.now() });
+    await heldSerial.ref.update({ branchId: headOfficeId, status: "returned_to_supplier", active: false, lastTransactionId: "serial-held-handover" });
+    const heldPayload = { ...payload, heldHandoverId: "serial-held-handover", receiptId: second.receiptId, creditNoteReference: "HELD-SERIAL-CN", returnedAt: new Date().toISOString(), idempotencyKey: crypto.randomUUID() };
+    await expect(call(headOfficeManager, "postSupplierReturn", { ...heldPayload, serialNumbers: ["GRN-SERIAL-1"] })).rejects.toMatchObject({ code: "functions/failed-precondition" });
+    await expect(call(headOfficeManager, "postSupplierReturn", { ...heldPayload, receiptId: first.receiptId })).rejects.toMatchObject({ code: "functions/failed-precondition" });
+    await heldSerial.ref.update({ status: "available", active: true });
+    await expect(call(headOfficeManager, "postSupplierReturn", heldPayload)).rejects.toMatchObject({ code: "functions/failed-precondition" });
+    await heldSerial.ref.update({ status: "returned_to_supplier", active: false });
+    await call(headOfficeManager, "postSupplierReturn", heldPayload);
+    expect((await balance.ref.get()).get("onHandQuantity")).toBe(1);
+    expect((await heldSerial.ref.get()).get("status")).toBe("returned_to_supplier");
   });
 
   it("matches approved purchasing, receipt, supplier invoice, AP, and payment without over-receipt", async () => {

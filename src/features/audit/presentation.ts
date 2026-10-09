@@ -38,6 +38,7 @@ const specialActions: Readonly<Record<string, string>> = {
   "supplier.advance_applied": "Applied a supplier advance to an invoice",
   "supplier.advance_refunded": "Received a refund of unused supplier advance",
   "supplier.return_posted": "Returned goods to a supplier and recorded their credit note",
+  "supplier.held_handover_credited": "Recorded supplier credit for goods already handed over",
   "sale_return.inspected": "Inspected returned goods and recorded their condition",
   "sale_return.sent_to_aftersales": "Opened a warranty or repair case for held returned goods",
   "sale_return.held_goods_disposed": "Recorded the final destination of held returned goods",

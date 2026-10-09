@@ -8,7 +8,7 @@ import { callAdministration } from "@/features/administration/api";
 import { formatNaira } from "@/features/inventory/format";
 import { OperationalPhotos } from "@/features/pos/operational-photos";
 
-interface ReturnLine { id: string; productName: string; quantity: number; returnedQuantity: number }
+interface ReturnLine { id: string; productId: string; productName: string; quantity: number; returnedQuantity: number }
 interface Receipt { id: string; receiptNumber: string; quantity: number; returnedQuantity: number; receivedAt: string }
 interface ReturnRecord { id: string; returnNumber: string; creditNoteReference: string; productName: string; quantity: number; grossAmountMinor: number; payableReductionMinor: number; supplierCreditMinor: number; inventoryTransactionNumber: string; journalNumber: string; returnedAt: string; reason: string; serialized?: boolean }
 interface ReturnPage { invoiceNumber: string; lines: ReturnLine[]; returns: ReturnRecord[]; nextCursor: string | null }
@@ -16,7 +16,7 @@ interface ReceiptPage { receipts: Receipt[]; nextCursor: string | null }
 const date = (value: string) => value ? new Date(value).toLocaleString("en-GB", { timeZone: "Africa/Lagos" }) : "Date not recorded";
 const errorText = (cause: unknown) => cause instanceof Error ? cause.message : "The request could not be completed.";
 
-export function SupplierReturns({ invoiceId, canPost, onClose, onComplete }: { invoiceId: string; canPost: boolean; onClose: () => void; onComplete: () => void }) {
+export function SupplierReturns({ invoiceId, canPost, onClose, onComplete, heldHandover }: { invoiceId: string; canPost: boolean; onClose: () => void; onComplete: () => void; heldHandover?: { id: string; remaining: number; productId: string; serialNumber?: string } }) {
   const [limit, setLimit] = useState(25), [pages, setPages] = useState<Array<string | null>>([null]);
   const [revision, setRevision] = useState(0);
   const [page, setPage] = useState<{ key: string; data?: ReturnPage; error?: string }>();
@@ -24,7 +24,7 @@ export function SupplierReturns({ invoiceId, canPost, onClose, onComplete }: { i
   const [receiptPages, setReceiptPages] = useState<Array<string | null>>([null]);
   const [receiptLimit, setReceiptLimit] = useState(25);
   const [receipts, setReceipts] = useState<{ key: string; data?: ReceiptPage; error?: string }>();
-  const [quantity, setQuantity] = useState("1"), [serials, setSerials] = useState("");
+  const [quantity, setQuantity] = useState("1"), [serials, setSerials] = useState(heldHandover?.serialNumber ?? "");
   const [creditNote, setCreditNote] = useState(""), [reason, setReason] = useState(""), [confirmed, setConfirmed] = useState(false);
   const [busy, setBusy] = useState(false), [error, setError] = useState(""), [message, setMessage] = useState("");
   const [uncertain, setUncertain] = useState(false);
@@ -37,7 +37,7 @@ export function SupplierReturns({ invoiceId, canPost, onClose, onComplete }: { i
   const receiptData = receipts?.key === receiptKey ? receipts.data : undefined;
   const line = data?.lines.find((item) => item.id === lineId);
   const receipt = receiptData?.receipts.find((item) => item.id === receiptId);
-  const maximum = Math.min(5000, line ? line.quantity - line.returnedQuantity : 0, receipt ? receipt.quantity - receipt.returnedQuantity : 0);
+  const maximum = Math.min(5000, heldHandover?.remaining ?? 5000, line ? line.quantity - line.returnedQuantity : 0, receipt ? receipt.quantity - receipt.returnedQuantity : 0);
   const valid = confirmed && Number.isInteger(Number(quantity)) && Number(quantity) > 0 && Number(quantity) <= maximum && creditNote.trim().length >= 2 && reason.trim().length >= 5;
   useEffect(() => {
     let active = true;
@@ -56,11 +56,11 @@ export function SupplierReturns({ invoiceId, canPost, onClose, onComplete }: { i
   }, [invoiceId, lineId, receiptLimit, receiptCursor, revision, receiptKey, canPost]);
   async function post() {
     if (!pending.current && !valid) return;
-    pending.current ??= { supplierInvoiceId: invoiceId, supplierInvoiceItemId: lineId, receiptId, quantity: Number(quantity), serialNumbers: serials.split(/[\n,]+/).map((value) => value.trim()).filter(Boolean), creditNoteReference: creditNote.trim(), reason: reason.trim(), returnedAt: new Date().toISOString(), idempotencyKey: crypto.randomUUID() };
+    pending.current ??= { ...(heldHandover ? { heldHandoverId: heldHandover.id } : {}), supplierInvoiceId: invoiceId, supplierInvoiceItemId: lineId, receiptId, quantity: Number(quantity), serialNumbers: serials.split(/[\n,]+/).map((value) => value.trim()).filter(Boolean), creditNoteReference: creditNote.trim(), reason: reason.trim(), returnedAt: new Date().toISOString(), idempotencyKey: crypto.randomUUID() };
     setBusy(true); setUncertain(false); setError(""); setMessage("");
     try {
       const result = await callAdministration<object, { returnNumber: string }>("postSupplierReturn", pending.current);
-      pending.current = null; setMessage(`Return ${result.returnNumber} recorded. Stock, supplier account and journal updated together.`);
+      pending.current = null; setMessage(heldHandover ? `Credit ${result.returnNumber} recorded. Supplier account and journal updated; physical stock was not issued again.` : `Return ${result.returnNumber} recorded. Stock, supplier account and journal updated together.`);
       setReceiptId(""); setLineId(""); setQuantity("1"); setSerials(""); setCreditNote(""); setReason(""); setConfirmed(false); setPages([null]); setReceiptPages([null]); setRevision((value) => value + 1); onComplete();
     } catch (cause) {
       const code = (cause as { code?: string; diagnosticCode?: string })?.diagnosticCode ?? (cause as { code?: string })?.code;
@@ -72,6 +72,7 @@ export function SupplierReturns({ invoiceId, canPost, onClose, onComplete }: { i
   const locked = busy || uncertain;
   return <AppDialog role="dialog" aria-modal="true" aria-label="Supplier returns and credit notes">
     <section className="app-dialog-panel max-w-4xl rounded-2xl bg-white shadow-2xl">
+      {heldHandover && <p className="border-b bg-blue-50 p-5 text-sm">Credit for goods already handed to the supplier · {heldHandover.remaining} unit(s) unsettled. No second stock deduction. Original invoice prices and tax snapshots determine the credit; differing negotiated values require accounting review.</p>}
       <header className="border-b p-5"><h2 className="text-xl font-semibold">Supplier returns & credit notes</h2><p className="text-sm text-[var(--muted)]">{data?.invoiceNumber || "Loading invoice…"} · Return one product / batch from one original receipt per note.</p></header>
       <div className="space-y-5 p-5">
         {(error || page?.key === key && page.error) && <p role="alert" className="rounded-lg bg-red-50 p-3 text-red-800">{error || page?.error}</p>}
@@ -80,11 +81,11 @@ export function SupplierReturns({ invoiceId, canPost, onClose, onComplete }: { i
           <legend className="px-2 font-semibold">Record goods returned</legend>
           <p className="text-sm text-[var(--muted)]">Use this after goods have been handed back and the supplier has accepted the credit. Credit reduces this invoice’s unpaid balance first; any excess becomes supplier credit for a later invoice or a separately recorded refund. No cash refund is assumed.</p>
           <div className="grid gap-4 sm:grid-cols-2">
-            <label className="text-sm">Invoice product<select className="mt-1 w-full rounded-lg border p-3" value={lineId} onChange={(event) => { setLineId(event.target.value); setReceiptId(""); setReceiptPages([null]); }}><option value="">Choose product</option>{data.lines.map((item) => <option key={item.id} value={item.id} disabled={item.returnedQuantity >= item.quantity}>{item.productName} · {item.quantity - item.returnedQuantity} not returned</option>)}</select></label>
+            <label className="text-sm">Invoice product<select className="mt-1 w-full rounded-lg border p-3" value={lineId} onChange={(event) => { setLineId(event.target.value); setReceiptId(""); setReceiptPages([null]); }}><option value="">Choose product</option>{data.lines.filter(item => !heldHandover || item.productId === heldHandover.productId).map((item) => <option key={item.id} value={item.id} disabled={item.returnedQuantity >= item.quantity}>{item.productName} · {item.quantity - item.returnedQuantity} not returned</option>)}</select></label>
             <label className="text-sm">Original goods-received note<select className="mt-1 w-full rounded-lg border p-3" value={receiptId} onChange={(event) => setReceiptId(event.target.value)} disabled={!receiptData}><option value="">Choose original receipt</option>{receiptData?.receipts.map((item) => <option key={item.id} value={item.id} disabled={item.returnedQuantity >= item.quantity}>{item.receiptNumber} · {date(item.receivedAt)} · {item.quantity - item.returnedQuantity} remaining</option>)}</select></label>
             <label className="text-sm">Quantity returned<input className="mt-1 w-full rounded-lg border p-3" type="number" min={1} max={maximum || 1} step={1} value={quantity} onChange={(event) => setQuantity(event.target.value)} /><small className="text-[var(--muted)]">Maximum for this receipt / invoice: {maximum}</small></label>
             <label className="text-sm">Supplier credit-note reference<input className="mt-1 w-full rounded-lg border p-3" maxLength={160} value={creditNote} onChange={(event) => setCreditNote(event.target.value)} required /></label>
-            <label className="text-sm">Serial numbers, if tracked<textarea className="mt-1 w-full rounded-lg border p-3" value={serials} onChange={(event) => setSerials(event.target.value)} /><small className="text-[var(--muted)]">One per line. Tracked goods require the exact serials from this receipt.</small></label>
+            <label className="text-sm">Serial numbers, if tracked<textarea readOnly={Boolean(heldHandover)} className="mt-1 w-full rounded-lg border p-3" value={serials} onChange={(event) => setSerials(event.target.value)} /><small className="text-[var(--muted)]">One per line. Tracked goods require the exact serials from this receipt.</small></label>
             <label className="text-sm">Reason for return<textarea className="mt-1 w-full rounded-lg border p-3" minLength={5} maxLength={500} value={reason} onChange={(event) => setReason(event.target.value)} required /></label>
           </div>
           {receipts?.key === receiptKey && receipts.error && <p role="alert" className="text-red-800">{receipts.error}</p>}

@@ -22,6 +22,7 @@ import {
   uniquenessDocumentId,
 } from "../inventory/calculations.js";
 import { postInventoryTransaction } from "../inventory/post-inventory-transaction.js";
+import { postSupplierStockOrHeldCredit } from "../inventory/held-supplier-credit.js";
 import { supplierReturnAmounts } from "../inventory/supplier-return-calculations.js";
 import { operationalEvidence, operationalEvidenceInput } from "../sales/operational-evidence.js";
 import { assertBalancedJournal } from "../sales/calculations.js";
@@ -46,6 +47,7 @@ const accountNames: Readonly<Record<string, string>> = {
   "1250": "Supplier advances and credits",
   "1300": "Input VAT recoverable",
   "2000": "Accounts payable",
+  "5000": "Cost of sales",
   "5010": "Supplier return inventory valuation variance",
 };
 function supplierMoney(value: unknown) {
@@ -424,7 +426,7 @@ async function supplierReturnWorkspace(actor: Awaited<ReturnType<typeof requireA
   }
   const history = await query.limit(limit + 1).get();
   return { invoiceNumber: invoice.get("supplierInvoiceNumber"), outstandingAmountMinor: invoice.get("outstandingAmountMinor"),
-    lines: lines.docs.map((line) => ({ id: line.id, productName: line.get("productName"), quantity: line.get("quantity"), returnedQuantity: line.get("returnedQuantity") ?? 0 })),
+    lines: lines.docs.map((line) => ({ id: line.id, productId: line.get("productId"), productName: line.get("productName"), quantity: line.get("quantity"), returnedQuantity: line.get("returnedQuantity") ?? 0 })),
     returns: history.docs.slice(0, limit).map((record) => ({ id: record.id, returnNumber: record.get("returnNumber"), creditNoteReference: record.get("creditNoteReference"), productName: record.get("productName"), quantity: record.get("quantity"), grossAmountMinor: record.get("grossAmountMinor"), payableReductionMinor: record.get("payableReductionMinor"), supplierCreditMinor: record.get("supplierCreditMinor"), inventoryTransactionNumber: record.get("inventoryTransactionNumber"), journalNumber: record.get("journalNumber"), returnedAt: record.get("effectiveAt")?.toDate?.().toISOString() ?? "", reason: record.get("reason"), serialized: Boolean(record.get("serialNumbers")?.length) })),
     nextCursor: history.size > limit ? history.docs[limit - 1]!.id : null };
 }
@@ -437,6 +439,24 @@ export const getProcurementWorkspace = onCall(
     if (["list_evidence", "read_evidence", "upload_evidence"].includes(request.data?.action))
       return operationalEvidence(actor, request.data?.evidenceKind === "purchase_receipt" ? "purchase_receipt" : "supplier_return", parseInput(operationalEvidenceInput, request.data));
     const input = parseInput(procurementWorkspaceInput, request.data);
+    if (input.view === "held_supplier_handover") {
+      requirePermission(actor, "payables.read");
+      requirePermission(actor, "sales.returns.read");
+      const handover = await db.doc(`inventoryTransactions/${input.heldHandoverId}`).get();
+      if (!handover.exists || handover.get("organizationId") !== actor.organizationId || handover.get("transactionType") !== "held_return_supplier_handover" || handover.get("status") !== "posted")
+        throw new HttpsError("not-found", "Supplier handover not found.");
+      const branchId = String(handover.get("branchId")), supplierId = String(handover.get("supplierId"));
+      requireBranchScope(actor, branchId);
+      const statuses = ["approved", "partially_paid", "paid"];
+      let page = db.collection("supplierInvoices").where("organizationId", "==", actor.organizationId).where("supplierId", "==", supplierId).where("branchId", "==", branchId).where("status", "in", statuses).orderBy(FieldPath.documentId());
+      if (input.cursor) {
+        const start = await db.doc(`supplierInvoices/${input.cursor}`).get();
+        if (!start.exists || start.get("organizationId") !== actor.organizationId || start.get("supplierId") !== supplierId || start.get("branchId") !== branchId || !statuses.includes(start.get("status"))) throw new HttpsError("invalid-argument", "Restart original invoice selection after changing the handover.");
+        page = page.startAfter(start);
+      }
+      const limit = Math.min(input.limit, 100), rows = await page.limit(limit + 1).get();
+      return { handover: { id: handover.id, transactionNumber: handover.get("transactionNumber"), supplierName: handover.get("supplierName"), quantity: handover.get("quantity"), settledQuantity: handover.get("supplierSettledQuantity") ?? 0, status: handover.get("supplierSettlementStatus") ?? "not_recorded", latestReturnId: handover.get("latestSupplierReturnId") ?? null }, invoices: rows.docs.slice(0, limit).map(doc => ({ id: doc.id, invoiceNumber: doc.get("supplierInvoiceNumber") })), nextCursor: rows.size > limit ? rows.docs[limit - 1]!.id : null };
+    }
     if (input.branchId) requireBranchScope(actor, input.branchId);
     if (input.warehouseId) requireWarehouseScope(actor, input.warehouseId);
     if (["supplier_returns", "supplier_return_receipts"].includes(input.view)) return supplierReturnWorkspace(actor, input);
@@ -1577,6 +1597,7 @@ export const postSupplierReturn = onCall({ enforceAppCheck, timeoutSeconds: 120 
   requirePermission(actor, "procurement.receive");
   requirePermission(actor, "payables.approve");
   const input = parseInput(postSupplierReturnInput, request.data);
+  if (input.heldHandoverId) requirePermission(actor, "sales.returns.approve");
   try {
   const invoiceRef = db.doc(`supplierInvoices/${input.supplierInvoiceId}`), lineRef = db.doc(`supplierInvoiceItems/${input.supplierInvoiceItemId}`), receiptRef = db.doc(`purchaseReceipts/${input.receiptId}`);
   const [initialInvoice, initialLine, initialReceipt] = await Promise.all([invoiceRef.get(), lineRef.get(), receiptRef.get()]);
@@ -1604,7 +1625,7 @@ export const postSupplierReturn = onCall({ enforceAppCheck, timeoutSeconds: 120 
   const accountingPeriod = accountingPeriodReference(actor.organizationId, effectiveAt);
   const referenceNumber = `SRT-${effectiveAt.toDate().getUTCFullYear()}-${returnRef.id.slice(0, 16).toUpperCase()}`;
   const correlation = correlationId();
-  const posted = await postInventoryTransaction(actor, {
+  const posted = await postSupplierStockOrHeldCredit(actor, {
     transactionType: "supplier_return", productId: String(initialLine.get("productId")), quantity: input.quantity,
     sourceLocationId: String(initialReceipt.get("receivingLocationId")), externalAccount: `supplier:${supplierRef.id}`,
     lotId, serialNumbers: input.serialNumbers, effectiveAt: input.returnedAt, reason: input.reason,
@@ -1641,7 +1662,7 @@ export const postSupplierReturn = onCall({ enforceAppCheck, timeoutSeconds: 120 
       const lines = [
         { accountCode: "2000", debitMinor: amounts.payableReductionMinor, creditMinor: 0 },
         { accountCode: "1250", debitMinor: amounts.supplierCreditMinor, creditMinor: 0 },
-        { accountCode: "1200", debitMinor: 0, creditMinor: movement.movementValueMinor },
+        { accountCode: input.heldHandoverId ? "5000" : "1200", debitMinor: 0, creditMinor: movement.movementValueMinor },
         { accountCode: "1300", debitMinor: 0, creditMinor: amounts.vatMinor },
         { accountCode: "5010", debitMinor: Math.max(0, -amounts.valuationVarianceMinor), creditMinor: Math.max(0, amounts.valuationVarianceMinor) },
       ].filter((entry) => entry.debitMinor || entry.creditMinor);
@@ -1651,8 +1672,14 @@ export const postSupplierReturn = onCall({ enforceAppCheck, timeoutSeconds: 120 
     apply(writer, state, movement) {
       const now = FieldValue.serverTimestamp();
       const journalNumber = writeJournal(writer, actor, { journal: journalRef, journalCounter, journalCounterValue: state.counterValue, journalType: "supplier_return", referenceType: "supplierReturn", referenceId: returnRef.id, referenceNumber, description: `Supplier return ${referenceNumber} · ${input.creditNoteReference}`, ...scope, effectiveAt, lines: state.lines });
+      // This settlement references an existing custody movement; it does not create another stock issue.
+      if (input.heldHandoverId) {
+        writer.set(journalRef, { heldHandoverId: input.heldHandoverId }, { merge: true });
+        writeAuditLog(writer, actor, { action: "supplier.held_handover_credited", entityType: "supplierReturn", entityId: returnRef.id, sourceFunction: "postSupplierReturn", correlationId: correlation, reason: input.reason, after: { heldHandoverId: input.heldHandoverId, quantity: input.quantity, originalCostRecoveredMinor: movement.movementValueMinor, journalEntryId: journalRef.id } });
+      }
       writer.create(returnRef, clean({ organizationId: actor.organizationId, ...scope, requestHash, returnNumber: referenceNumber, supplierId: supplierRef.id, supplierInvoiceId: invoiceRef.id, supplierInvoiceItemId: lineRef.id, purchaseOrderId: orderRef.id, purchaseOrderItemId: orderItemRef.id, receiptId: receiptRef.id, productId: movement.productId, productName: state.productName, quantity: input.quantity, serialNumbers: input.serialNumbers, lotId, sourceLocationId: movement.sourceLocationId, creditNoteReference: input.creditNoteReference, reason: input.reason, netAmountMinor: state.amounts.netMinor, vatAmountMinor: state.amounts.vatMinor, grossAmountMinor: state.amounts.grossMinor, payableReductionMinor: state.amounts.payableReductionMinor, supplierCreditMinor: state.amounts.supplierCreditMinor, inventoryValueMinor: movement.movementValueMinor, valuationVarianceMinor: state.amounts.valuationVarianceMinor, inventoryTransactionId: movement.transactionId, inventoryTransactionNumber: movement.transactionNumber, journalEntryId: journalRef.id, journalNumber, effectiveAt, createdAt: now, createdBy: actor.userId, correlationId: correlation, status: "posted", currency: "NGN" }));
       writer.create(creditLock, { organizationId: actor.organizationId, returnId: returnRef.id, createdAt: now });
+      if (input.heldHandoverId) writer.set(returnRef, { heldHandoverId: input.heldHandoverId, settlementKind: "held_goods_credit", physicalStockIssued: false }, { merge: true });
       writer.set(db.doc(`supplierReturnReceiptLocks/${originalMovementId}`), { organizationId: actor.organizationId, receiptId: receiptRef.id, originalInventoryTransactionId: originalMovementId, latestReturnId: returnRef.id, updatedAt: now }, { merge: true });
       writer.update(lineRef, { returnedQuantity: state.amounts.returnedQuantity, returnedNetMinor: state.amounts.returnedNetMinor, returnedVatMinor: state.amounts.returnedVatMinor, updatedAt: now });
       writer.update(receiptRef, { returnedQuantity: state.receiptReturnedQuantity, updatedAt: now });
@@ -1663,7 +1690,7 @@ export const postSupplierReturn = onCall({ enforceAppCheck, timeoutSeconds: 120 
       writeAuditLog(writer, actor, { action: "supplier.return_posted", entityType: "supplierReturn", entityId: returnRef.id, correlationId: correlation, sourceFunction: "postSupplierReturn", reason: input.reason, after: clean({ invoiceId: invoiceRef.id, receiptId: receiptRef.id, quantity: input.quantity, creditNoteReference: input.creditNoteReference, grossAmountMinor: state.amounts.grossMinor, payableReductionMinor: state.amounts.payableReductionMinor, supplierCreditMinor: state.amounts.supplierCreditMinor, inventoryTransactionId: movement.transactionId, journalEntryId: journalRef.id, ...scope }) });
       return undefined;
     },
-  });
+  }, input.heldHandoverId);
   return result(posted.posted);
   } catch (cause) {
     if (cause instanceof HttpsError && ["failed-precondition", "already-exists", "invalid-argument"].includes(cause.code))

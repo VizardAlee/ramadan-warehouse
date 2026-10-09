@@ -20,7 +20,8 @@ export const saveSupplierInput = z.object({
 });
 
 export const procurementWorkspaceInput = z.object({
-  view: z.enum(["workspace", "supplier_account", "supplier_payables", "purchase_receipts", "supplier_returns", "supplier_return_receipts"]).default("workspace"),
+  view: z.enum(["workspace", "supplier_account", "supplier_payables", "purchase_receipts", "supplier_returns", "supplier_return_receipts", "held_supplier_handover"]).default("workspace"),
+  heldHandoverId: id.refine(value => !value.includes("/"), "Invalid handover reference.").optional(),
   supplierInvoiceId: id.optional(),
   supplierInvoiceItemId: id.optional(),
   supplierId: id.optional(),
@@ -33,6 +34,8 @@ export const procurementWorkspaceInput = z.object({
   branchId: id.optional(),
   limit: z.number().int().min(1).max(200).default(100),
 }).superRefine((value, context) => {
+  if (value.view === "held_supplier_handover" && !value.heldHandoverId)
+    context.addIssue({ code: "custom", path: ["heldHandoverId"], message: "Select the original handover." });
   if (value.branchId && value.warehouseId)
     context.addIssue({ code: "custom", path: ["branchId"], message: "Choose one operating location." });
   if (["supplier_account", "supplier_payables"].includes(value.view) && !value.supplierId)
@@ -117,6 +120,7 @@ export const supplierInvoiceActionInput = z.object({
 });
 
 export const postSupplierReturnInput = z.object({
+  heldHandoverId: id.refine(value => !value.includes("/"), "Invalid handover reference.").optional(),
   supplierInvoiceId: id, supplierInvoiceItemId: id, receiptId: id,
   quantity: z.number().int().positive().max(5_000),
   serialNumbers: z.array(z.string().trim().min(1).max(160)).max(5_000).default([]),

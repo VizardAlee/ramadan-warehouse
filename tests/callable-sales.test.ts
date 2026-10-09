@@ -1074,13 +1074,10 @@ describe.sequential("sales callables", () => {
       returnJournal.docs[0]!.get("totalCreditMinor"),
     );
 
-    const openShift = await adminDb
-      .collection("posShifts")
-      .where("branchId", "==", branchId)
-      .where("status", "==", "open")
-      .limit(1)
-      .get();
-    const shift = openShift.docs[0]!;
+    // Other scenarios open independent tills. Refund/close the till that actually
+    // received this sale's cash, not an unordered, potentially empty open till.
+    const shift = await adminDb.doc(`posShifts/${originalSale.get("shiftId")}`).get();
+    expect(shift.get("status")).toBe("open");
     const replacement = await call<{ saleId: string; posted: boolean }>(
       branchManager,
       "commitPosSale",
