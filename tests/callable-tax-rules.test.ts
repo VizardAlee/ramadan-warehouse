@@ -32,6 +32,12 @@ beforeAll(async () => {
 });
 afterAll(async () => Promise.all(apps.map(app => deleteApp(app))));
 describe.sequential("trusted tax rule review", () => {
+  it("preserves encoded historical IDs for human version labels and pagination", async () => {
+    const created = await call<{ ruleId: string }>(propose({ scopeKey: "human-label", version: "Reviewed version 1.0 / Oct" }));
+    expect(created.ruleId).toContain("%20"); await call(review(created.ruleId));
+    expect(await call({ action: "preview", ruleId: created.ruleId, transactionDate: "2026-10-09", baseMinor: 1000 })).toMatchObject({ taxMinor: 75 });
+    await expect(call({ fromDate: "2026-01-01", toDate: "2026-12-31", ruleCursorId: created.ruleId }, accountant, "getTaxWorkspace")).resolves.toHaveProperty("rules");
+  });
   it("creates an immutable draft once and requires explicit review before calculating", async () => {
     const input = propose(), results = await Promise.all([call<{ ruleId: string }>(input), call<{ ruleId: string }>(input)]);
     ruleId = results[0]!.ruleId; expect(results[1]!.ruleId).toBe(ruleId);

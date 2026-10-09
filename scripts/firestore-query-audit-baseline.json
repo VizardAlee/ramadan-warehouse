@@ -1,18 +1,18 @@
 {
   "lastLiveAudit": {
     "project": "ramadan-warehouse-staging",
-    "verifiedAt": "2026-10-09T21:11:31.017Z",
-    "queryShapes": 452,
+    "verifiedAt": "2026-10-09T21:38:42.928Z",
+    "queryShapes": 454,
     "unsupportedQueries": 0,
     "readyIndexes": 226,
     "singleFieldOverrides": 0
   },
-  "catalogSha256": "726d2137700de1abeda21d2caecc5e55fdf310cfd4ba71328c40de2238227f4a",
+  "catalogSha256": "2c6486e216b2632676490c1c3092c38a4f4366dda310ab2140ca1ec32c0fdd31",
   "sourceFingerprints": {
     "functions/src/accounting/daily-close.ts": "88916698e8112584523b1770eb98be7e052761b4982e6f572df1e6f7221d617a",
     "functions/src/accounting/write-journal.ts": "0b43994685249fa5a7e39ec19cf8744768e11896a27c4b196b6a26423a334dd8",
     "functions/src/audit/write-audit-log.ts": "db7b9594fb7312ca692836ceb529dfe7785c52b36b53dab59743d4619af311a7",
-    "functions/src/auth/authorize.ts": "e7d9a186760449efee596aead7b55b8a42b5f32533f3d2591dbd2183f82f986f",
+    "functions/src/auth/authorize.ts": "25e6bbb38d80a01f07edde9e535ca0fdcd27393ffad27198c61aa11db87fde07",
     "functions/src/auth/custom-roles.ts": "f35e0e79877655caf11f0c4e97d747b4c40477911a8755028ef5a096295fc146",
     "functions/src/callable/accounting-close.ts": "8e632a28435541fc2d062b974a48ff81eab3a1164eb73614e297c49344b11c66",
     "functions/src/callable/accounting-journals.ts": "71f32baf30638c76a8cc58fd48541a9baf5726ba14a0c547a5727201da4470ea",
@@ -20,6 +20,7 @@
     "functions/src/callable/bank-reconciliation.ts": "0c6e4307093d15732a4aa8ba25ed8a8e058466c38d8e0a67a635e10fd6badf1e",
     "functions/src/callable/bootstrap-organization.ts": "b16a45cd7dea7f2070f4de7839514552c0dcb0fc34baeb08e5184a5c4abdadb4",
     "functions/src/callable/branch-requests.ts": "8db116b13014504b3e16557c5a5adbcdc1793cfd0351f97aef5ce76262707021",
+    "functions/src/callable/budgets.ts": "b567d0b61c503fb035f34c0f142e6e134a8da56b6c2da549e1aa1eeda06857cb",
     "functions/src/callable/csv-imports.ts": "1c74231c0ff969b8eaf68306b5c8feed1e8256f71fe2d5677f37d79f8d01c771",
     "functions/src/callable/customers.ts": "bdc2b538609770c067de07cdd62a2f10d832065be0159b79b6df311ded5f7c4c",
     "functions/src/callable/daily-close.ts": "f1d6177e7b02cb852adfcfa7ee66c1f5b850ac72f4f5e5929579d46de93113b5",

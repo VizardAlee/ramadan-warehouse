@@ -1,6 +1,38 @@
 # Business workflow expansion (24 September 2026 baseline)
 
-## Reviewed tax-rule configuration — 9 October 2026 (release validation)
+## Monthly budgets versus actuals — 9 October 2026 (implementation validation)
+
+Extends Accounting with monthly income/expense account targets scoped to one
+store or the organization. Consolidated targets are distinct from branch targets,
+not a double-counted automatic sum. Actuals use the existing journalLines ledger,
+paged server-side with Nigerian calendar-month boundaries. Only budgeted accounts
+appear; this is not a cash position or tax assessment. Favorable variance means
+higher income or lower expense; zero targets have no percentage. Registers page
+25/50/100, and revision history pages 25. Explicit finance.budget.manage controls
+mutations; read access remains finance.journal.read with scope checks. Current
+targets are summaries backed by immutable numbered revisions and reasoned audits;
+expected versions prevent stale concurrent edits, and exact retries replay one
+result. Saved uncertain UI instructions survive reload and scope switching.
+No journals, stock movements, automatic tax liabilities or historical edits.
+Guide, security regressions, RBAC tests and query catalog updated. Validation
+passes 370 unit/interface cases across 97 files, 41 accounting/tax/budget/security
+emulator cases (one Storage-only skip), typecheck, lint, Functions compilation,
+production build, secret scan and diff checks. The live audit passes 454/454
+query shapes with zero missing indexes and all 226 indexes READY; baseline was
+refreshed only against matching source/proof. Deployment is in progress.
+An initial emulator failure exposed encoded scope IDs that could not pass history
+validation; new budget IDs now use fixed-length SHA-256. Existing tax IDs remain
+unchanged, with validated encoded version labels supported in reviews, previews
+and page cursors. Explicit regressions cover these paths. A stale-baseline unit
+failure was resolved through the actual live audit, not by weakening the guard.
+Department budgets and multi-month planning remain
+extensions, not features claimed by this monthly account/store slice.
+Client confirms a limited-liability company but currently has no registered-name,
+TIN, financial-year or VAT-status evidence available. Company-specific tax profile
+and liability activation therefore remain unconfirmed; do not infer exemptions,
+taxable profit or filing obligations from entity type alone. Other work continues.
+
+## Reviewed tax-rule configuration — 9 October 2026 (deployed)
 
 Extends the existing Tax Centre and taxRules collection with immutable proposed
 versions, explicit approval/rejection, scope-specific bounded effective dates,
@@ -39,7 +71,19 @@ and diff checks. All 452 live query shapes passed with zero missing indexes;
 all 226 deployed indexes were independently verified READY before refreshing
 the guarded baseline. No additional indexes or rules changes are needed.
 Tax and manual-journal emulator suites are now included in the existing CI
-callable command. Production deployment and live verification remain pending.
+callable command. Source f3318b0 is committed and pushed. The four existing
+Functions updated successfully. The new taxRuleAdministration service is ACTIVE
+at taxruleadministration-00001-yoh. Google's invoker-policy setup failed, then the
+owner's standing approval was used to apply only that service's supported
+invoker-IAM-disabled annotation. All five affected services retain production
+mode, App Check, original runtime identity, 100% traffic and no reconciliation;
+unauthenticated probes return Firebase HTTP 401. No other IAM bindings changed.
+App Hosting build-2026-10-09-019 is READY, rollout SUCCEEDED, traffic 100%, with
+explicit Rollout complete / Deploy complete. Tax, Finance, Guide, POS and Banking
+routes returned HTTP 200; all 11 Tax scripts loaded and the register, proposal,
+review, preview and saved retry controls were found in deployed assets. Bounded
+retries recovered transient peer errors. No live tax or financial records were
+created; emulator cases establish the signed-in business-workflow evidence.
 
 ## Accountant journals and linked reversals — 9 October 2026 (deployed)
 

@@ -1,8 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { calculateReviewedTax, hasReviewedTaxCoverage, periodsOverlap, taxRuleDefinition } from "../functions/src/tax/rules";
+import { calculateReviewedTax, hasReviewedTaxCoverage, periodsOverlap, taxRuleDefinition, taxRuleDocumentId } from "../functions/src/tax/rules";
 const rule = { taxType: "VAT" as const, scopeKey: "standard", version: "test-v1", title: "Reviewed test fixture", effectiveFrom: "2026-01-01", effectiveTo: "2026-12-31", calculation: "flat_rate" as const, basis: "taxable_supplies" as const, rateBasisPoints: 750, applicability: "Test taxable supplies only", exemptions: "Review exemptions separately", source: "https://nass.gov.ng/documents/download/11249", sourceReference: "Test fixture: section 147" };
 const approved = { ...rule, status: "approved", sourceVerified: true };
 describe("versioned reviewed tax engine", () => {
+  it("accepts encoded version IDs without allowing document paths or oversized names", () => {
+    expect(taxRuleDocumentId.safeParse("ORG__VAT__STANDARD__REVIEWED%20VERSION%201.0%20%2F%20OCT").success).toBe(true);
+    for (const id of ["taxRules/nested", ".", "..", "x".repeat(1501)]) expect(taxRuleDocumentId.safeParse(id).success).toBe(false);
+  });
   it("uses exact minor-unit arithmetic and snapshots the chosen version/source", () => {
     expect(calculateReviewedTax(rule, "2026-10-09", 100000)).toMatchObject({ taxMinor: 7500, ruleVersion: "test-v1", source: rule.source, baseMinor: 100000 });
     const large = Number.MAX_SAFE_INTEGER;

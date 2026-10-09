@@ -6,7 +6,7 @@ import { hasPermission } from "../src/lib/permissions/roles";
 const actor = (roleId: AccessProfile["roleId"]): AccessProfile => ({ userId: "actor", organizationId: "org", roleId, branchIds: ["b1"], warehouseIds: ["w1"], authorizationVersion: 1 });
 describe("server authorization controls", () => {
   it("keeps manual accounting permissions explicit for custom and multiple roles", () => {
-    for (const permission of ["finance.journal.create", "finance.journal.reverse", "finance.accounts.manage", "finance.tax.manage"] as const) {
+    for (const permission of ["finance.journal.create", "finance.journal.reverse", "finance.accounts.manage", "finance.tax.manage", "finance.budget.manage"] as const) {
       expect(hasServerPermission({ ...actor("finance_officer"), directRoleIds: ["finance_officer"], effectivePermissions: [] }, permission)).toBe(true);
       expect(hasServerPermission({ ...actor("finance_officer"), directRoleIds: [], effectivePermissions: ["finance.journal.read"] }, permission)).toBe(false);
       expect(hasServerPermission(actor("sales_cashier"), permission)).toBe(false);

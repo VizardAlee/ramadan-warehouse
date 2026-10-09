@@ -2,6 +2,8 @@ import { z } from "zod";
 
 const date = z.string().date();
 const safeMinor = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
+// Existing IDs encode human version labels; keep them usable without rewriting records.
+export const taxRuleDocumentId = z.string().min(1).max(1500).refine(value => !value.includes("/") && value !== "." && value !== ".." && Buffer.byteLength(value, "utf8") <= 1500);
 export const taxRuleDefinition = z.object({
   taxType: z.enum(["VAT", "CIT", "DEVELOPMENT_LEVY", "WHT", "STAMP_DUTY", "OTHER"]),
   scopeKey: z.string().trim().regex(/^[a-z0-9][a-z0-9_-]{1,63}$/),
@@ -23,8 +25,8 @@ export type TaxRuleDefinition = z.infer<typeof taxRuleDefinition>;
 const mutation = { reason: z.string().trim().min(10).max(2000), idempotencyKey: z.string().uuid() };
 export const taxRuleAdministrationInput = z.discriminatedUnion("action", [
   z.object({ action: z.literal("propose"), definition: taxRuleDefinition, ...mutation }).strict(),
-  z.object({ action: z.literal("review"), ruleId: z.string().regex(/^[A-Za-z0-9_-]{1,128}$/), decision: z.enum(["approved", "rejected"]), sourceVerified: z.boolean(), ...mutation }).strict(),
-  z.object({ action: z.literal("preview"), ruleId: z.string().regex(/^[A-Za-z0-9_-]{1,128}$/), transactionDate: date, baseMinor: safeMinor }).strict(),
+  z.object({ action: z.literal("review"), ruleId: taxRuleDocumentId, decision: z.enum(["approved", "rejected"]), sourceVerified: z.boolean(), ...mutation }).strict(),
+  z.object({ action: z.literal("preview"), ruleId: taxRuleDocumentId, transactionDate: date, baseMinor: safeMinor }).strict(),
 ]);
 
 /** No statutory rates are embedded here. A caller must supply a reviewed base. */

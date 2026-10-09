@@ -17,6 +17,7 @@ function sentence(value: string) {
 const specialActions: Readonly<Record<string, string>> = {
   "accounting.account_saved": "Created or updated an accountant ledger account",
   "tax.rule_proposed": "Proposed a new tax rule version for review",
+  "budget.revised": "Created or revised a monthly budget, keeping the previous version",
   "tax.rule_approved": "Reviewed and approved a dated tax rule",
   "tax.rule_rejected": "Reviewed and rejected a tax rule proposal",
   "accounting.manual_journal_posted": "Posted a balanced accountant adjustment",

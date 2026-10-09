@@ -118,6 +118,7 @@ export const permissionIds = [
   "finance.journal.reverse",
   "finance.accounts.manage",
   "finance.tax.manage",
+  "finance.budget.manage",
   "suppliers.read",
   "suppliers.manage",
   "procurement.read",

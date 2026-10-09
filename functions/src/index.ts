@@ -188,6 +188,7 @@ export {
   getTaxWorkspace,
 } from "./callable/financial-reports.js";
 export { taxRuleAdministration } from "./callable/tax-rule-administration.js";
+export { budgetWorkspace } from "./callable/budgets.js";
 export {
   getAftersalesWorkspace,
   createAftersalesCase,
