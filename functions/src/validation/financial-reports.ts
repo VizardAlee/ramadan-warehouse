@@ -22,6 +22,8 @@ export const financialReportInput = z.object({
 export const taxWorkspaceInput = z.object({
   fromDate: z.string().date(),
   toDate: z.string().date(),
+  rulePageSize: z.union([z.literal(25), z.literal(50), z.literal(100)]).default(25),
+  ruleCursorId: z.string().regex(/^[A-Za-z0-9_-]{1,128}$/).optional(),
 }).superRefine((value, context) => {
   if (value.fromDate > value.toDate)
     context.addIssue({

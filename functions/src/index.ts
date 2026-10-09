@@ -187,6 +187,7 @@ export {
   generateFinancialStatement,
   getTaxWorkspace,
 } from "./callable/financial-reports.js";
+export { taxRuleAdministration } from "./callable/tax-rule-administration.js";
 export {
   getAftersalesWorkspace,
   createAftersalesCase,

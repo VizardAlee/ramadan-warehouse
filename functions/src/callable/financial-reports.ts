@@ -1,10 +1,11 @@
-import { Timestamp } from "firebase-admin/firestore";
+import { FieldPath, Timestamp } from "firebase-admin/firestore";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
 import { db } from "../admin.js";
 import { hasServerPermission, requireAccess, requireBranchScope, requirePermission } from "../auth/authorize.js";
 import { enforceAppCheck } from "../config.js";
 import { parseInput } from "../utils/callable.js";
 import { visitQueryPages } from "../utils/query-pages.js";
+import { hasReviewedTaxCoverage } from "../tax/rules.js";
 import {
   financialReportInput,
   taxWorkspaceInput,
@@ -203,15 +204,23 @@ export const getTaxWorkspace = onCall(
       throw new HttpsError("permission-denied", "The organization Tax Centre requires organization-wide finance access.");
     const input = parseInput(taxWorkspaceInput, request.data);
     const totals = new Map<string, LedgerTotal>();
-    const ruleDocuments: FirebaseFirestore.QueryDocumentSnapshot[] = [];
-    await Promise.all([
+    const coverageRules: Array<Record<string, unknown>> = [];
+    let ruleQuery: FirebaseFirestore.Query = db.collection("taxRules").where("organizationId", "==", actor.organizationId).orderBy(FieldPath.documentId());
+    if (input.ruleCursorId) {
+      const cursor = await db.doc(`taxRules/${input.ruleCursorId}`).get();
+      if (!cursor.exists || cursor.get("organizationId") !== actor.organizationId) throw new HttpsError("invalid-argument", "The tax-rule page cursor belongs to another register.");
+      ruleQuery = ruleQuery.startAfter(cursor);
+    }
+    const [rulePage] = await Promise.all([
+      ruleQuery.limit(input.rulePageSize + 1).get(),
       visitQueryPages(db.collection("journalLines")
         .where("organizationId", "==", actor.organizationId)
         .where("effectiveAt", ">=", startTimestamp(input.fromDate))
         .where("effectiveAt", "<=", endTimestamp(input.toDate)),
         (lines) => aggregateLines(lines, totals), { orderField: "effectiveAt" }),
-      visitQueryPages(db.collection("taxRules")
-        .where("organizationId", "==", actor.organizationId), (rules) => { ruleDocuments.push(...rules); }),
+      visitQueryPages(db.collection("taxRules").where("organizationId", "==", actor.organizationId)
+        .where("taxType", "==", "VAT").where("scopeKey", "==", "standard").where("status", "==", "approved"),
+        rules => { coverageRules.push(...rules.map(rule => rule.data())); }),
     ]);
     const outputVat = totals.get("2100");
     const inputVat = totals.get("1300");
@@ -226,14 +235,9 @@ export const getTaxWorkspace = onCall(
         calculatedLiabilityMinor: outputVatMinor - inputVatMinor,
         status: "calculated",
       },
-      rules: ruleDocuments.map((rule) => ({ id: rule.id, ...rule.data() })),
-      statutoryRuleReviewRequired: !ruleDocuments.some((rule) =>
-        String(rule.get("taxType") ?? "").toUpperCase() === "VAT" &&
-        ["approved", "active"].includes(String(rule.get("status"))) &&
-        Boolean(rule.get("effectiveFrom")) &&
-        String(rule.get("effectiveFrom") ?? "") <= input.toDate &&
-        (!rule.get("effectiveTo") || String(rule.get("effectiveTo")) >= input.fromDate) &&
-        Boolean(rule.get("source"))),
+      rules: rulePage.docs.slice(0, input.rulePageSize).map(rule => ({ id: rule.id, ...rule.data() })),
+      nextRuleCursorId: rulePage.size > input.rulePageSize ? rulePage.docs[input.rulePageSize - 1]!.id : null,
+      statutoryRuleReviewRequired: !hasReviewedTaxCoverage(coverageRules, "VAT", "standard", input.fromDate, input.toDate),
     };
   },
 );

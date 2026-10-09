@@ -1,11 +1,13 @@
 "use client";
 
-import { Calculator, Loader2, ShieldAlert } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { Loader2, ShieldAlert } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { callAdministration } from "@/features/administration/api";
 import { useAuth } from "@/features/auth/auth-context";
 import { formatNaira } from "@/features/inventory/format";
 import { hasPermission } from "@/lib/permissions/roles";
+import { TaxRuleWorkspace, type TaxRule } from "@/features/accounting/tax-rule-workspace";
+import { Button } from "@/components/ui/button";
 
 interface TaxWorkspace {
   fromDate: string;
@@ -17,15 +19,8 @@ interface TaxWorkspace {
     calculatedLiabilityMinor: number;
     status: "calculated";
   };
-  rules: Array<{
-    id: string;
-    taxType?: string;
-    version?: string;
-    effectiveFrom?: string;
-    effectiveTo?: string;
-    status?: string;
-    source?: string;
-  }>;
+  rules: TaxRule[];
+  nextRuleCursorId: string | null;
   statutoryRuleReviewRequired: boolean;
 }
 function monthStart() {
@@ -42,8 +37,13 @@ export default function TaxPage() {
   const [error, setError] = useState<string | null>(null);
   const [loadedKey, setLoadedKey] = useState<string | null>(null);
   const [errorKey, setErrorKey] = useState<string | null>(null);
+  const [rulePageSize, setRulePageSize] = useState(25);
+  const [cursors, setCursors] = useState<Array<string | undefined>>([undefined]);
+  const [refresh, setRefresh] = useState(0);
+  const reload = useCallback(() => setRefresh(value => value + 1), []);
+  const ruleCursorId = cursors.at(-1);
   const requestVersion = useRef(0);
-  const queryKey = JSON.stringify([fromDate, toDate]);
+  const queryKey = JSON.stringify([profile?.organizationId, profile?.uid, fromDate, toDate, rulePageSize, ruleCursorId, refresh]);
   const validDates = Boolean(fromDate && toDate && fromDate <= toDate);
   const currentWorkspace = loadedKey === queryKey ? workspace : null;
   useEffect(() => {
@@ -56,7 +56,7 @@ export default function TaxPage() {
       void (async () => {
         setError(null);
         try {
-          const result: TaxWorkspace = await callAdministration("getTaxWorkspace", { fromDate, toDate });
+          const result: TaxWorkspace = await callAdministration("getTaxWorkspace", { fromDate, toDate, rulePageSize, ruleCursorId });
           if (version !== requestVersion.current) return;
           setWorkspace(result);
           setLoadedKey(queryKey);
@@ -71,7 +71,7 @@ export default function TaxPage() {
       window.clearTimeout(timer);
       requestVersion.current += 1;
     };
-  }, [allowed, fromDate, queryKey, toDate, validDates]);
+  }, [allowed, fromDate, queryKey, toDate, validDates, rulePageSize, ruleCursorId]);
 
   if (!allowed)
     return <div className="rounded-xl border bg-white p-6">Your roles do not include Tax Centre access.</div>;
@@ -93,7 +93,7 @@ export default function TaxPage() {
       {currentWorkspace?.statutoryRuleReviewRequired && (
         <div className="flex gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950">
           <ShieldAlert className="mt-0.5 size-5 shrink-0" />
-          <p>No approved effective-dated statutory tax rule is configured. Ledger VAT is shown for review, but the system will not invent or silently activate a legal rate.</p>
+          <p>Reviewed standard VAT rules do not cover this entire period, or coverage is ambiguous. Ledger VAT remains evidence of posted transactions, not proof that rates, exemptions or input-tax recovery are correct. No legal rate is invented or silently activated.</p>
         </div>
       )}
       {currentWorkspace && (
@@ -103,14 +103,13 @@ export default function TaxPage() {
             <TaxCard label="Recoverable input VAT" value={currentWorkspace.vat.inputVatMinor} />
             <TaxCard label="Calculated VAT liability" value={currentWorkspace.vat.calculatedLiabilityMinor} strong />
           </section>
-          <section className="rounded-xl border bg-white p-5">
-            <h2 className="flex items-center gap-2 text-xl font-semibold"><Calculator className="size-5 text-[var(--brand)]" /> Tax rule register</h2>
-            {currentWorkspace.rules.length ? (
-              <div className="mt-3 responsive-table-wrap"><table className="responsive-table text-sm"><thead className="bg-slate-50"><tr><th className="px-3 py-2">Tax</th><th className="px-3 py-2">Version</th><th className="px-3 py-2">Effective period</th><th className="px-3 py-2">Status</th><th className="px-3 py-2">Source</th></tr></thead><tbody>{currentWorkspace.rules.map((rule) => <tr key={rule.id} className="border-t"><td data-label="Tax" className="px-3 py-2">{rule.taxType}</td><td data-label="Version" className="px-3 py-2">{rule.version}</td><td data-label="Effective period" className="px-3 py-2">{rule.effectiveFrom} – {rule.effectiveTo || "current"}</td><td data-label="Status" className="px-3 py-2 capitalize">{rule.status}</td><td data-label="Source" className="px-3 py-2">{rule.source}</td></tr>)}</tbody></table></div>
-            ) : <p className="mt-3 text-sm text-[var(--muted)]">No reviewed statutory rules have been activated.</p>}
-          </section>
         </>
       )}
+      <TaxRuleWorkspace key={`${profile!.organizationId}:${profile!.uid}`} ownerKey={`${profile!.organizationId}:${profile!.uid}`} rules={currentWorkspace?.rules ?? []} canManage={hasPermission(profile!, "finance.tax.manage")} onSaved={reload} />
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-white p-3">
+        <label className="text-sm">Rules per page<select className="ml-2 rounded-lg border p-2" value={rulePageSize} onChange={event => { setRulePageSize(Number(event.target.value)); setCursors([undefined]); }}>{[25, 50, 100].map(value => <option key={value}>{value}</option>)}</select></label>
+        <div className="flex items-center gap-3"><Button variant="secondary" disabled={cursors.length === 1 || !currentWorkspace} onClick={() => setCursors(value => value.slice(0, -1))}>Previous</Button><span className="text-sm">Page {cursors.length}</span><Button variant="secondary" disabled={!currentWorkspace?.nextRuleCursorId} onClick={() => setCursors(value => [...value, currentWorkspace!.nextRuleCursorId!])}>Next</Button></div>
+      </div>
     </div>
   );
 }

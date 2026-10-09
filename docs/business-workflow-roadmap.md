@@ -1,5 +1,46 @@
 # Business workflow expansion (24 September 2026 baseline)
 
+## Reviewed tax-rule configuration — 9 October 2026 (release validation)
+
+Extends the existing Tax Centre and taxRules collection with immutable proposed
+versions, explicit approval/rejection, scope-specific bounded effective dates,
+rate/basis/applicability/exemption/source evidence and reasoned audit events.
+The new finance.tax.manage permission is explicit for custom roles and additive
+for direct administrator/finance roles; preview still requires organization-wide
+finance read access. No parallel tax register or direct-client mutation path.
+Approval locks serialize concurrent reviews and reject overlapping approved
+periods for the same tax/scope. Exact retries replay their original result;
+changed instructions cannot reuse a key. Uncertain UI requests survive reload.
+No approved definition can be edited/deleted through this workflow. New legal
+changes require a separate version and non-overlapping dates, not historical
+recalculation. Legacy unbounded rules require reconciliation before conflicting
+new approvals, rather than silently changing their dates.
+
+The centralized flat-rate engine uses exact BigInt minor-unit rounding and
+returns rule ID/version, effective date, basis and statutory reference with its
+preview. Tax Centre pages 25/50/100 rules on the server; VAT coverage checks are
+independent of the visible page and require the entire selected period, with
+gaps/overlaps flagged. Existing ledger VAT remains posted-transaction evidence,
+not proof of lawful rates or recoverability. Source verification is a deliberate
+authorized reviewer attestation, not a fabricated automatic legal verification.
+
+Authoritative source inspected: the National Assembly's gazetted Nigeria Tax
+Act 2025, https://nass.gov.ng/documents/download/11249 (sections 56/59/147 and
+the small-company definition). No statutory rate is seeded or activated by
+deployment. This group does NOT claim automatic company-tax compliance:
+reviewed company/year profiles, exemptions, assessed taxable/assessable bases,
+liability assessment/payment/filing journals and future POS rule snapshots
+remain separate dependencies. A preview neither posts a tax liability/payment
+nor changes invoices, product prices, offline POS snapshots or historical VAT.
+Guide updated with these boundaries. Validation passed 364 unit/interface tests
+across 95 files, 41 accounting/tax/security emulator cases (one Storage-only
+skip), typecheck, lint, Functions compilation, production build, secret scan
+and diff checks. All 452 live query shapes passed with zero missing indexes;
+all 226 deployed indexes were independently verified READY before refreshing
+the guarded baseline. No additional indexes or rules changes are needed.
+Tax and manual-journal emulator suites are now included in the existing CI
+callable command. Production deployment and live verification remain pending.
+
 ## Accountant journals and linked reversals — 9 October 2026 (deployed)
 
 Extends the Accounting hub with a server-paged dated journal register (25/50/100),

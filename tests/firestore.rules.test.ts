@@ -940,10 +940,12 @@ describe("Firestore baseline rules", () => {
       await db.doc("dailyCloses/day-1/signOffs/1").set({ organizationId: "org-1", version: 1 });
       await db.doc("supplierReturns/return-1").set({ organizationId: "org-1", status: "posted" });
       await db.doc("supplierReturnCreditNoteLines/note-1").set({ organizationId: "org-1", returnId: "return-1" });
+      await db.doc("taxRules/rule-1").set({ organizationId: "org-1", status: "approved" });
+      await db.doc("taxRuleLocks/lock-1").set({ organizationId: "org-1" });
     });
     for (const identity of ["admin", "branch-manager", "finance", "foreign-user"]) {
       const db = environment.authenticatedContext(identity).firestore();
-      for (const path of ["supplierReturns/return-1", "supplierReturnCreditNoteLines/note-1"]) {
+      for (const path of ["supplierReturns/return-1", "supplierReturnCreditNoteLines/note-1", "taxRules/rule-1", "taxRuleLocks/lock-1"]) {
         await assertFails(db.doc(path).get());
         await assertFails(db.doc(path).set({ organizationId: "org-1" }));
         await assertFails(db.doc(path).delete());
