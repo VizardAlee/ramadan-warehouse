@@ -44,7 +44,7 @@ describe.sequential("trusted budget workflow", () => {
   });
   it("accepts the browser operating-context envelope for every action while retaining strict fields and store authority", async () => {
     const operatingContext = { type: "branch", id: "branch-a" };
-    const input = save({ month: "2027-04", operatingContext });
+    const input = { ...save({ month: "2027-04" }), operatingContext };
     const created = await call<{ budgetId: string }>(input);
     const { operatingContext: context, ...sameBusinessInstruction } = input;
     expect(context).toEqual(operatingContext);
