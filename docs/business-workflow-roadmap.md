@@ -27,7 +27,7 @@ Firebase CLI authentication is restored. The matching live planner audit passes
 refreshed against the exact reviewed sources. The combined customer/report and
 service-refund release below is deployed and verified.
 
-## Stock-count assignments and creation recovery — 10 October 2026 (validated; release pending)
+## Stock-count assignments and creation recovery — 10 October 2026 (deployed)
 
 Counter eligibility now uses the same current access-profile, multi-role,
 custom-permission and store-scope checks as authenticated operations. A global
@@ -49,9 +49,22 @@ The original isolated production build passes. This follow-up has now been
 integrated onto the combined customer/report release in a separate worktree:
 all 476 exact-source live planner checks pass, with no new index or Rules change.
 All 427 combined unit/interface cases, typecheck, lint, Functions compilation,
-the secret scan and combined production build pass. Coordinated deployment
-verification remains the release gate. The preceding combined release is verified;
-this follow-up is being integrated without changing its released features or evidence.
+the secret scan and combined production build pass. The preceding combined release
+and its evidence are preserved; no working feature was replaced or rebuilt.
+
+Release verification: source `e95df50` was deployed from clean, pushed main after
+production safeguards passed. Only `createStockCount` and App Hosting changed.
+The function is ACTIVE at `createstockcount-00013-bat`, serving 100% of traffic,
+with production mode, App Check and the original runtime identity preserved.
+Its unauthenticated probe returns Firebase 401 UNAUTHENTICATED. App Hosting
+`build-2026-10-10-004` is READY; its rollout is SUCCEEDED and not reconciling,
+with 100% web traffic on the latest ready revision. Counts, Guide, POS and the
+PWA manifest return HTTP 200; every referenced JavaScript asset returns 200.
+The served count bundles contain both the exact-draft retry control and persisted
+recovery-instruction marker. No live business test writes or IAM changes were
+performed. Authenticated business behavior is covered by emulator tests rather
+than live data mutations. Detailed verification is retained locally at
+`/tmp/ramadan-count-release-proof.json`.
 
 ## Service receipt refunds — 10 October 2026 (deployed)
 
