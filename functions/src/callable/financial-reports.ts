@@ -19,10 +19,10 @@ interface LedgerTotal {
 }
 
 function startTimestamp(date: string) {
-  return Timestamp.fromDate(new Date(`${date}T00:00:00.000Z`));
+  return Timestamp.fromDate(new Date(`${date}T00:00:00.000+01:00`));
 }
 function endTimestamp(date: string) {
-  return Timestamp.fromDate(new Date(`${date}T23:59:59.999Z`));
+  return Timestamp.fromDate(new Date(`${date}T23:59:59.999+01:00`));
 }
 function aggregateLines(lines: FirebaseFirestore.QueryDocumentSnapshot[], totals: Map<string, LedgerTotal>) {
   for (const line of lines) {
@@ -72,16 +72,18 @@ export const generateFinancialStatement = onCall(
       query = query.where("effectiveAt", ">=", startTimestamp(input.fromDate));
     const ledgerTotals = new Map<string, LedgerTotal>();
     const bankCodes = new Set(["1010", "1020", "1030"]);
+    const cashByEntry = new Map<string, { type: string; amountMinor: number }>();
+    const cashReport = input.reportType === "cash_flow" || input.reportType === "receipts_payments";
     const grouped = new Map<string, number>([["Operating activities", 0], ["Investing activities", 0], ["Financing activities", 0]]);
     const investingTypes = new Set(["asset_purchase", "asset_disposal"]);
     const financingTypes = new Set(["capital_contribution", "loan_receipt", "loan_repayment", "dividend"]);
-    if (input.reportType === "cash_flow")
+    if (cashReport)
       await visitQueryPages(db.collection("bankAccounts").where("organizationId", "==", actor.organizationId), (accounts) => {
         for (const account of accounts) if (account.get("ledgerAccountCode")) bankCodes.add(String(account.get("ledgerAccountCode")));
       });
     await visitQueryPages(query, async (lines) => {
       aggregateLines(lines, ledgerTotals);
-      if (input.reportType !== "cash_flow") return;
+      if (!cashReport) return;
       const cashLines = lines.filter((line) => bankCodes.has(String(line.get("accountCode"))));
       const entryIds = [...new Set(cashLines.map((line) => String(line.get("journalEntryId"))))];
       const typeByEntry = new Map<string, string>();
@@ -103,7 +105,11 @@ export const generateFinancialStatement = onCall(
         const activity = activityByEntry.get(String(line.get("journalEntryId")));
         const section = activity ? ({ operating: "Operating activities", investing: "Investing activities", financing: "Financing activities" } as Record<string, string>)[activity]!
           : investingTypes.has(journalType) ? "Investing activities" : financingTypes.has(journalType) ? "Financing activities" : "Operating activities";
-        grouped.set(section, grouped.get(section)! + Number(line.get("debitMinor") ?? 0) - Number(line.get("creditMinor") ?? 0));
+        const movement = Number(line.get("debitMinor") ?? 0) - Number(line.get("creditMinor") ?? 0);
+        grouped.set(section, grouped.get(section)! + movement);
+        const entryId = String(line.get("journalEntryId"));
+        const previous = cashByEntry.get(entryId);
+        cashByEntry.set(entryId, { type: journalType, amountMinor: (previous?.amountMinor ?? 0) + movement });
       }
     }, { orderField: "effectiveAt" });
     const totals = [...ledgerTotals.values()].sort((left, right) => left.accountCode.localeCompare(right.accountCode));
@@ -186,6 +192,20 @@ export const generateFinancialStatement = onCall(
       };
     }
 
+    if (input.reportType === "receipts_payments") {
+      const movements = new Map<string, { section: string; accountName: string; amountMinor: number }>();
+      for (const movement of cashByEntry.values()) {
+        if (!Number.isSafeInteger(movement.amountMinor)) throw new HttpsError("failed-precondition", "Cash movement exceeds safe minor-unit arithmetic.");
+        if (!movement.amountMinor) continue; // Internal transfers cancel across cash/bank accounts in this scope.
+        const section = movement.amountMinor > 0 ? "Receipts" : "Payments";
+        const key = `${section}:${movement.type}`;
+        const previous = movements.get(key);
+        movements.set(key, { section, accountName: movement.type.replaceAll("_", " "), amountMinor: (previous?.amountMinor ?? 0) + Math.abs(movement.amountMinor) });
+      }
+      const rows = [...movements.values()].sort((a, b) => a.accountName.localeCompare(b.accountName));
+      const sum = (section: string) => rows.filter(row => row.section === section).reduce((total, row) => total + row.amountMinor, 0);
+      return { ...input, branchId: branchId ?? null, rows, receiptsMinor: sum("Receipts"), paymentsMinor: sum("Payments"), netCashMovementMinor: sum("Receipts") - sum("Payments") };
+    }
     const rows = [...grouped].map(([section, amountMinor]) => ({ section, amountMinor }));
     return {
       ...input, branchId: branchId ?? null,

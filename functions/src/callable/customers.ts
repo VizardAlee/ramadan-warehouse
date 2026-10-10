@@ -17,6 +17,7 @@ import { uniquenessDocumentId } from "../inventory/calculations.js";
 import { assertBalancedJournal } from "../sales/calculations.js";
 import { customerArrangements, changeArrangementBalance, selectedArrangement, upsertArrangement } from "../sales/customer-arrangements.js";
 import { changeMoneyBalance, legacyDebt, moneyBalances, reduceInvoice, UNDATED_DEBT } from "../sales/receivables.js";
+import { visitQueryPages } from "../utils/query-pages.js";
 import { statementEntry } from "../sales/customer-statement.js";
 import { correlationId, parseInput } from "../utils/callable.js";
 import {
@@ -26,7 +27,7 @@ import {
   saveCustomerInput,
 } from "../validation/sales.js";
 
-export const getCustomerHistory = onCall({ enforceAppCheck }, async (request) => {
+export const getCustomerHistory = onCall({ enforceAppCheck, timeoutSeconds: 300 }, async (request) => {
   const actor = await requireAccess(request);
   requirePermission(actor, "customers.read");
   const input = parseInput(customerHistoryInput, request.data);
@@ -45,6 +46,26 @@ export const getCustomerHistory = onCall({ enforceAppCheck }, async (request) =>
     let query: FirebaseFirestore.Query = db.collection("customerAccountEntries")
       .where("organizationId", "==", actor.organizationId).where("customerId", "==", customer.id);
     if (branchId) query = query.where("branchId", "==", branchId);
+    const summary = { openingDebtMinor: 0, openingAdvanceMinor: 0, closingDebtMinor: 0, closingAdvanceMinor: 0, debtAddedMinor: 0, debtClearedMinor: 0, advanceReceivedMinor: 0, advanceUsedMinor: 0, needsReview: false };
+    if (input.includeSummary) await visitQueryPages(query, records => {
+      for (const record of records) {
+        const entry = statementEntry(record.data() as Parameters<typeof statementEntry>[0], input.customerAccountId);
+        if (!entry) continue;
+        const at = record.get("effectiveAt");
+        if (!(at instanceof Timestamp)) { summary.needsReview = true; continue; }
+        const date = new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Lagos", year: "numeric", month: "2-digit", day: "2-digit" }).format(at.toDate());
+        if (input.toDate && date > input.toDate) continue;
+        if (entry.needsReview) summary.needsReview = true;
+        const debt = entry.debtChangeMinor ?? 0, advance = entry.advanceChangeMinor ?? 0;
+        summary.closingDebtMinor += debt; summary.closingAdvanceMinor += advance;
+        if (input.fromDate && date < input.fromDate) { summary.openingDebtMinor += debt; summary.openingAdvanceMinor += advance; }
+        else { summary.debtAddedMinor += Math.max(0, debt); summary.debtClearedMinor += Math.max(0, -debt); summary.advanceReceivedMinor += Math.max(0, advance); summary.advanceUsedMinor += Math.max(0, -advance); }
+      }
+    }, { orderField: "effectiveAt", orderDirection: "desc" });
+    if (Object.values(summary).some(value => typeof value === "number" && !Number.isSafeInteger(value)))
+      throw new HttpsError("failed-precondition", "Statement exceeds safe minor-unit arithmetic.");
+    if (input.fromDate) query = query.where("effectiveAt", ">=", Timestamp.fromDate(new Date(`${input.fromDate}T00:00:00+01:00`)));
+    if (input.toDate) query = query.where("effectiveAt", "<=", Timestamp.fromDate(new Date(`${input.toDate}T23:59:59.999+01:00`)));
     query = query.orderBy("effectiveAt", "desc");
     if (input.cursor?.account) {
       const cursor = await db.doc(`customerAccountEntries/${input.cursor.account}`).get();
@@ -58,7 +79,7 @@ export const getCustomerHistory = onCall({ enforceAppCheck }, async (request) =>
     const scanned = entries.docs.slice(0, input.limit);
     const rows = scanned.flatMap(record => {
       const entry = statementEntry(record.data() as Parameters<typeof statementEntry>[0], input.customerAccountId);
-      return entry ? [{ id: `account:${record.id}`, kind: "account", reference: record.get("referenceNumber"),
+      return entry ? [{ id: `account:${record.id}`, kind: "account" as const, reference: record.get("referenceNumber"),
         branchId: record.get("branchId"), detail: String(record.get("entryType") ?? "account activity"),
         at: record.get("effectiveAt") instanceof Timestamp ? record.get("effectiveAt").toDate().toISOString() : null,
         journalEntryId: record.get("journalEntryId") ?? null, ...entry }] : [];
@@ -72,7 +93,7 @@ export const getCustomerHistory = onCall({ enforceAppCheck }, async (request) =>
         outstandingMinor: arrangement?.outstandingBalanceMinor ?? Number(customer.get("outstandingBalanceMinor") ?? 0),
         advanceMinor: arrangement ? (moneyBalances(customer.get("advanceBalances"))[arrangement.id] ?? 0)
           : Object.values(moneyBalances(customer.get("advanceBalances"))).reduce((sum, value) => sum + value, 0),
-        asOf: new Date().toISOString(), scannedCount: scanned.length },
+        ...summary, fromDate: input.fromDate ?? null, toDate: input.toDate ?? null, branchId: branchId ?? null, asOf: new Date().toISOString(), scannedCount: scanned.length },
       rows, moreAvailable: entries.size > input.limit,
       nextCursor: entries.size > input.limit ? { account: scanned.at(-1)!.id } : null,
     };
@@ -130,19 +151,37 @@ export const getCustomerHistory = onCall({ enforceAppCheck }, async (request) =>
     scoped("saleReturns", "createdAt", "return"),
     scoped("customerAccountEntries", "effectiveAt", "account"),
   ]);
+  const linked = new Map<string, FirebaseFirestore.DocumentSnapshot>();
+  const links = entries.docs.flatMap(record => {
+    const type = record.get("entryType");
+    const collection = ["credit_sale", "advance_sale"].includes(type) ? "sales" : type === "sale_return_credit" ? "saleReturns" : null;
+    const id = record.get("referenceId");
+    return collection && typeof id === "string" && /^[A-Za-z0-9_-]{1,128}$/.test(id) ? [{ entryId: record.id, ref: db.doc(`${collection}/${id}`) }] : [];
+  });
+  if (links.length) {
+    const records = await db.getAll(...links.map(link => link.ref));
+    records.forEach((record, index) => linked.set(links[index]!.entryId, record));
+  }
+  const duplicateEntry = (id: string) => {
+    const source = linked.get(id);
+    return Boolean(source?.exists && source.get("organizationId") === actor.organizationId && source.get("customerId") === customer.id && (!branchId || source.get("branchId") === branchId));
+  };
   const date = (value: unknown) => value instanceof Timestamp ? value.toDate().toISOString() : null;
   const sortTime = (value: unknown) => value instanceof Timestamp ? value : null;
   const rows = [
     ...sales.docs.map((record) => ({
-      id: `sale:${record.id}`, kind: "sale", reference: record.get("saleNumber"),
+      id: `sale:${record.id}`, kind: "sale" as const, reference: record.get("saleNumber"),
       branchId: record.get("branchId"), amountMinor: Number(record.get("grossAmountMinor") ?? 0),
       detail: String(record.get("paymentStatus") ?? "completed").replaceAll("_", " "),
       accountName: record.get("customerAccountName") ?? "General account",
+      invoiceNumber: record.get("invoiceNumber") ?? null, paidMinor: Number(record.get("amountPaidMinor") ?? 0),
+      creditMinor: Number(record.get("creditAmountMinor") ?? 0), itemCount: Number(record.get("itemCount") ?? 0),
+      quantity: Number(record.get("totalQuantity") ?? 0), journalEntryId: record.get("journalEntryId") ?? null,
       at: date(record.get("recordedAt")),
       sortAt: sortTime(record.get("recordedAt")),
     })),
     ...returns.docs.map((record) => ({
-      id: `return:${record.id}`, kind: "return", reference: record.get("returnNumber"),
+      id: `return:${record.id}`, kind: "return" as const, reference: record.get("returnNumber"),
       branchId: record.get("branchId"), amountMinor: -Number(record.get("grossAmountMinor") ?? 0),
       detail: `${record.get("resolution") ?? "return"} · ${record.get("status") ?? "submitted"}`.replaceAll("_", " "),
       accountName: record.get("customerAccountName") ?? "General account",
@@ -150,7 +189,7 @@ export const getCustomerHistory = onCall({ enforceAppCheck }, async (request) =>
       sortAt: sortTime(record.get("createdAt")),
     })),
     ...entries.docs.map((record) => ({
-      id: `account:${record.id}`, kind: "account", reference: record.get("referenceNumber"),
+      id: `account:${record.id}`, kind: "account" as const, reference: record.get("referenceNumber"),
       branchId: record.get("branchId"), amountMinor: Number(record.get("amountMinor") ?? 0),
       detail: String(record.get("entryType") ?? "account activity"),
       accountName: record.get("customerAccountName") ?? "General account",
@@ -164,10 +203,12 @@ export const getCustomerHistory = onCall({ enforceAppCheck }, async (request) =>
     (right.sortAt?.nanoseconds ?? 0) - (left.sortAt?.nanoseconds ?? 0) ||
     (left.id === right.id ? 0 : left.id < right.id ? 1 : -1),
   );
-  const page = rows.slice(0, input.limit);
-  const moreAvailable = rows.length > input.limit || [sales, returns, entries].some((result) => result.docs.length > input.limit);
+  const visibleRows = rows.filter(row => row.kind !== "account" || !duplicateEntry(row.id.slice("account:".length)));
+  const page = visibleRows.slice(0, input.limit);
+  const scannedPage = page.length === input.limit ? rows.slice(0, rows.indexOf(page.at(-1)!) + 1) : rows;
+  const moreAvailable = visibleRows.length > input.limit || [sales, returns, entries].some((result) => result.docs.length > input.limit);
   const nextCursor = { ...input.cursor };
-  for (const row of page) {
+  for (const row of scannedPage) {
     const [source, documentId] = row.id.split(":");
     if (source === "sale" || source === "return" || source === "account") nextCursor[source] = documentId;
   }
@@ -179,7 +220,8 @@ export const getCustomerHistory = onCall({ enforceAppCheck }, async (request) =>
       creditStatus: customer.get("creditStatus"), creditLimitMinor: Number(customer.get("creditLimitMinor") ?? 0),
       outstandingBalanceMinor: Number(customer.get("outstandingBalanceMinor") ?? 0),
       availableCreditMinor: Number(customer.get("availableCreditMinor") ?? 0), arrangements: customerArrangements(customer.data()!), advanceBalances: moneyBalances(customer.get("advanceBalances")) },
-    rows: page.map((row) => ({ id: row.id, kind: row.kind, reference: row.reference, branchId: row.branchId, amountMinor: row.amountMinor, detail: row.detail, at: row.at, accountName: row.accountName, allocations: "allocations" in row ? row.allocations : [], invoiceAllocations: "invoiceAllocations" in row ? row.invoiceAllocations : [] })),
+    rows: page.map((row) => ({ id: row.id, kind: row.kind, reference: row.reference, branchId: row.branchId, amountMinor: row.amountMinor, detail: row.detail, at: row.at, accountName: row.accountName, allocations: "allocations" in row ? row.allocations : [], invoiceAllocations: "invoiceAllocations" in row ? row.invoiceAllocations : [],
+      ...(row.kind === "sale" && "paidMinor" in row ? { invoiceNumber: row.invoiceNumber, paidMinor: row.paidMinor, creditMinor: row.creditMinor, itemCount: row.itemCount, quantity: row.quantity, journalEntryId: row.journalEntryId } : {}) })),
     moreAvailable,
     nextCursor: moreAvailable ? nextCursor : null,
   };

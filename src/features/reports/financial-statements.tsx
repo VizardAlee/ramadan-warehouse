@@ -11,11 +11,14 @@ import { formatNaira } from "@/features/inventory/format";
 import { hasPermission } from "@/lib/permissions/roles";
 import type { Branch } from "@/types/domain";
 
+import { ReportPeriodPicker, reportDateRange, type ReportPeriod } from "./date-range";
+
 type StatementType =
   | "trial_balance"
   | "income_statement"
   | "balance_sheet"
-  | "cash_flow";
+  | "cash_flow"
+  | "receipts_payments";
 interface StatementRow {
   section?: string;
   accountCode?: string;
@@ -42,22 +45,16 @@ interface StatementResult {
   netAssetsMinor?: number;
   balanced?: boolean;
   netCashMovementMinor?: number;
+  receiptsMinor?: number;
+  paymentsMinor?: number;
 }
 const labels: Record<StatementType, string> = {
   trial_balance: "Trial balance",
   income_statement: "Income statement",
   balance_sheet: "Balance sheet",
   cash_flow: "Cash-flow statement",
+  receipts_payments: "Receipts and payments",
 };
-function currentMonthStart() {
-  const now = new Date();
-  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1))
-    .toISOString()
-    .slice(0, 10);
-}
-function today() {
-  return new Date().toISOString().slice(0, 10);
-}
 function csvCell(value: unknown) {
   const raw = String(value ?? "");
   const safe = /^[=+\-@]/.test(raw) ? `'${raw}` : raw;
@@ -118,6 +115,12 @@ function StatementDocument({ statement, scope }: { statement: StatementResult; s
           <StatementLine label="Total liabilities and equity" value={(statement.liabilitiesMinor ?? 0) + (statement.equityMinor ?? 0)} kind="total" />
           {statement.balanced === false && <p className="financial-statement-warning">This statement does not balance. Investigate the ledger before relying on it.</p>}
         </>}
+        {statement.reportType === "receipts_payments" && <>
+          <StatementSection title="Receipts" rows={sectionRows("Receipts")} totalLabel="Total receipts" total={statement.receiptsMinor} tone="income" />
+          <StatementSection title="Payments" rows={sectionRows("Payments")} totalLabel="Total payments" total={statement.paymentsMinor} tone="outflow" />
+          <StatementLine label="Net cash movement" value={statement.netCashMovementMinor} kind="total" />
+          <p className="text-xs text-[var(--muted)]">Posted cash and bank movements. Transfers between accounts cancel within the selected scope. Advance applications and credit sales do not create receipts.</p>
+        </>}
         {statement.reportType === "cash_flow" && <>
           {statement.rows.map((row, index) => <section className="financial-statement-section" key={`${row.section}-${index}`} aria-label={row.section ?? "Other activities"}><h3>{row.section ?? "Other activities"}</h3><StatementLine label={`Net cash from ${row.section?.toLowerCase() ?? "other activities"}`} value={row.amountMinor} kind="subtotal" tone={(row.amountMinor ?? 0) < 0 ? "outflow" : "income"} /></section>)}
           <StatementLine label="Net increase / (decrease) in cash" value={statement.netCashMovementMinor} kind="total" tone={(statement.netCashMovementMinor ?? 0) < 0 ? "outflow" : "income"} />
@@ -137,8 +140,9 @@ export function FinancialStatements() {
   const branchId = selectedBranchId || (!canReadOrganization ?
     (operatingContext?.type === "branch" ? operatingContext.id : accessProfile?.branchIds[0] ?? "") : "");
   const [reportType, setReportType] = useState<StatementType>("income_statement");
-  const [fromDate, setFromDate] = useState(currentMonthStart);
-  const [toDate, setToDate] = useState(today);
+  const [period, setPeriod] = useState<ReportPeriod>("monthly");
+  const [fromDate, setFromDate] = useState(() => reportDateRange("monthly").fromDate);
+  const [toDate, setToDate] = useState(() => reportDateRange("monthly").toDate);
   const [result, setResult] = useState<StatementResult | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -197,6 +201,8 @@ export function FinancialStatements() {
       ["Equity", currentResult.equityMinor],
       ["Net assets", currentResult.netAssetsMinor],
       ["Net cash movement", currentResult.netCashMovementMinor],
+      ["Receipts", currentResult.receiptsMinor],
+      ["Payments", currentResult.paymentsMinor],
     ] as const).flatMap(([label, amount]) => amount === undefined ? [] :
       [["Summary", "", label, "", "", "", (amount / 100).toFixed(2)]]);
     const csv = [
@@ -214,20 +220,21 @@ export function FinancialStatements() {
 
   return (
     <div className="space-y-4">
-      <section className="grid gap-3 rounded-xl border bg-white p-4 md:grid-cols-4">
+      <section className="grid gap-3 rounded-xl border bg-white p-4 md:grid-cols-5" data-no-print>
         <label className="text-sm font-medium">
           Statement
           <select value={reportType} onChange={(event) => setReportType(event.target.value as StatementType)} className="mt-1 w-full rounded-lg border p-2.5">
             {Object.entries(labels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
           </select>
         </label>
+        <ReportPeriodPicker value={period} onChange={value => { setPeriod(value); if (value !== "custom") { const range = reportDateRange(value); setFromDate(range.fromDate); setToDate(range.toDate); } }} />
         <label className="text-sm font-medium">
           From date
-          <input type="date" value={fromDate} onChange={(event) => setFromDate(event.target.value)} className="mt-1 w-full rounded-lg border p-2.5" />
+          <input type="date" value={fromDate} onChange={(event) => { setPeriod("custom"); setFromDate(event.target.value); }} className="mt-1 w-full rounded-lg border p-2.5" />
         </label>
         <label className="text-sm font-medium">
           To date
-          <input type="date" value={toDate} onChange={(event) => setToDate(event.target.value)} className="mt-1 w-full rounded-lg border p-2.5" />
+          <input type="date" value={toDate} onChange={(event) => { setPeriod("custom"); setToDate(event.target.value); }} className="mt-1 w-full rounded-lg border p-2.5" />
         </label>
         <label className="text-sm font-medium">Scope
           <select value={branchId} onChange={(event) => setSelectedBranchId(event.target.value)} className="mt-1 w-full rounded-lg border p-2.5">

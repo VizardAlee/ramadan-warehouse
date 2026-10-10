@@ -13,3 +13,10 @@ export function serviceReceiptVat(paidBeforeMinor: number, paymentMinor: number,
   const allocated = (paid: number) => Number((BigInt(paid) * BigInt(vatMinor) + BigInt(grossMinor) / 2n) / BigInt(grossMinor));
   return allocated(paidBeforeMinor + paymentMinor) - allocated(paidBeforeMinor);
 }
+
+/** Reverse cumulative recognition, not a separately rounded percentage per refund. */
+export function serviceRefundVat(paidMinor: number, refundMinor: number, grossMinor: number, vatMinor: number): number {
+  if (!Number.isSafeInteger(refundMinor) || refundMinor <= 0 || refundMinor > paidMinor)
+    throw new Error("Invalid service refund allocation.");
+  return serviceReceiptVat(paidMinor - refundMinor, refundMinor, grossMinor, vatMinor);
+}

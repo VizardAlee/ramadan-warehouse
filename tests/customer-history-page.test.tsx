@@ -32,7 +32,7 @@ describe("customer full history", () => {
     await waitFor(() => expect(api.call).toHaveBeenCalledWith("getCustomerHistory", expect.objectContaining({ view: "statement", cursor: { account: "scan-end" } })));
     fireEvent.change(screen.getByLabelText("Statement arrangement"), { target: { value: "solar" } });
     await waitFor(() => expect(api.call).toHaveBeenCalledWith("getCustomerHistory", expect.objectContaining({ view: "statement", customerAccountId: "solar", cursor: undefined })));
-    expect(screen.getByText(/This page is not an opening\/closing balance reconciliation/)).toBeTruthy();
+    expect(screen.getByText(/Recorded ledger balances below cover the selected dates and store/)).toBeTruthy();
   });
   it("loads bounded pages and advances using the returned cursor", async () => {
     const customer = { id: "c1", name: "Amina Musa", customerNumber: "CUS-000001", creditStatus: "approved", creditLimitMinor: 100000, outstandingBalanceMinor: 25000, availableCreditMinor: 75000 };

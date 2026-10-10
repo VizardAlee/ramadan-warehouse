@@ -22,6 +22,8 @@ export default function CustomerHistoryPage() {
   const canAllStores = Boolean(profile && hasPermission(profile, "sales.read.all"));
   const [selectedBranchId, setSelectedBranchId] = useState("");
   const [view, setView] = useState<"activity" | "statement">("activity");
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
   const [accountId, setAccountId] = useState("");
   const [arrangementOptions, setArrangementOptions] = useState<NonNullable<CustomerHistory["customer"]["arrangements"]>>([]);
   const branchId = canAllStores ? selectedBranchId : selectedBranchId || (operatingContext?.type === "branch" ? operatingContext.id : accessProfile?.branchIds[0] ?? "");
@@ -30,7 +32,7 @@ export default function CustomerHistoryPage() {
   const [response, setResponse] = useState<{ key: string; result?: CustomerHistory; error?: string } | null>(null);
   const requestVersion = useRef(0);
   const cursor = pageStarts.at(-1) ?? null;
-  const queryKey = JSON.stringify([customerId, branchId, pageSize, cursor, canRead, view, accountId]);
+  const queryKey = JSON.stringify([customerId, branchId, pageSize, cursor, canRead, view, accountId, fromDate, toDate]);
   const currentResponse = response?.key === queryKey ? response : null;
   const result = currentResponse?.result;
   const loading = !currentResponse;
@@ -42,6 +44,8 @@ export default function CustomerHistoryPage() {
     void callAdministration<object, CustomerHistory>("getCustomerHistory", {
       customerId,
       view,
+      fromDate: view === "statement" ? fromDate || undefined : undefined,
+      toDate: view === "statement" ? toDate || undefined : undefined,
       customerAccountId: view === "statement" ? accountId || undefined : undefined,
       branchId: branchId || undefined,
       limit: pageSize,
@@ -55,13 +59,13 @@ export default function CustomerHistoryPage() {
       if (version === requestVersion.current) setResponse({ key: queryKey, error: cause instanceof Error ? cause.message : "Unable to load customer history." });
     });
     return () => { requestVersion.current += 1; };
-  }, [branchId, canAllStores, canRead, cursor, customerId, pageSize, queryKey, view, accountId]);
+  }, [branchId, canAllStores, canRead, cursor, customerId, pageSize, queryKey, view, accountId, fromDate, toDate]);
 
   if (!canRead) return <p className="rounded-xl border bg-white p-6">Your roles do not include customer-account access.</p>;
   const visibleBranches = branches.data.filter((branch) => branch.status === "active" && (canAllStores || accessProfile?.branchIds.includes(branch.id)));
   const rows = result?.rows ?? [];
 
-  return <div className="space-y-5">
+  return <div className="w-full space-y-5 customer-history-page">
     <div className="flex flex-wrap items-start justify-between gap-3">
       <div><Link href="/customers" className="text-sm font-semibold text-[var(--brand)]">← Customers</Link><h1 className="mt-2 text-3xl font-semibold">{result?.customer.name ?? "Customer history"}</h1><p className="font-mono text-sm text-[var(--muted)]">{result?.customer.customerNumber ?? "Loading account…"}</p></div>
     </div>
@@ -79,6 +83,7 @@ export default function CustomerHistoryPage() {
         <button type="button" aria-pressed={view === "activity"} className="rounded-lg border px-4 py-2 text-sm" onClick={() => { setView("activity"); setPageStarts([null]); }}>Activity</button>
         <button type="button" aria-pressed={view === "statement"} className="rounded-lg border px-4 py-2 text-sm" onClick={() => { setView("statement"); setPageStarts([null]); }}>Account statement</button>
       </div>
+      {view === "statement" && <div className="mb-3 grid gap-3 sm:grid-cols-2"><label className="text-sm font-medium">Statement from date<input type="date" className="mt-1 w-full rounded-lg border p-3" value={fromDate} onChange={event => { setFromDate(event.target.value); setPageStarts([null]); }} /></label><label className="text-sm font-medium">Statement to date<input type="date" className="mt-1 w-full rounded-lg border p-3" value={toDate} onChange={event => { setToDate(event.target.value); setPageStarts([null]); }} /></label></div>}
       {view === "statement" && <label className="mb-3 block max-w-sm text-sm font-medium">Statement arrangement
         <select className="mt-1 w-full rounded-lg border p-3" value={accountId} onChange={event => { setAccountId(event.target.value); setPageStarts([null]); }}>
           <option value="">All arrangements</option>
@@ -96,16 +101,16 @@ export default function CustomerHistoryPage() {
     <CustomerReceivablesPanel key={branchId} customerId={customerId} branchId={branchId || undefined} />
     {error && <p role="alert" className="rounded-xl bg-red-50 p-4 text-sm text-red-800">{error}</p>}
     {loading && <p role="status" className="text-sm text-[var(--muted)]">Loading customer transactions…</p>}
-    {view === "statement" && result && <CustomerAccountStatement result={result} />}
+    {view === "statement" && result && <CustomerAccountStatement key={queryKey} result={result} />}
     <section aria-label="Customer transactions" className={view === "statement" ? "hidden" : "hidden lg:block"}>
       <div className="responsive-table-wrap"><table className="responsive-table">
-        <thead className="bg-slate-50"><tr><th className="px-4 py-3">Date</th><th className="px-4 py-3">Activity</th><th className="px-4 py-3">Reference</th><th className="px-4 py-3 text-right">Amount</th></tr></thead>
-        <tbody>{rows.map((row) => <tr key={row.id} className="border-t"><td className="px-4 py-3">{row.at ? new Date(row.at).toLocaleString("en-NG") : "Date pending"}</td><td className="px-4 py-3 capitalize">{`${customerHistoryLabel(row.kind, row.detail, row.invoiceAllocations)} · ${row.accountName ?? "General account"}${row.allocations?.length ? " — " + row.allocations.map((allocation) => `${allocation.accountName}: ${formatNaira(allocation.amountMinor)}`).join("; ") : ""}`}</td><td className="px-4 py-3 font-mono text-xs">{row.reference}</td><td className={`px-4 py-3 text-right font-semibold finance-${customerHistoryTone(row.kind, row.detail)}`}>{formatNaira(Math.abs(row.amountMinor))}</td></tr>)}
-          {!loading && rows.length === 0 && <tr><td colSpan={4} className="p-8 text-center text-[var(--muted)]">No recorded transactions for this selection.</td></tr>}
+        <thead className="bg-slate-50"><tr><th className="px-4 py-3">Date</th><th className="px-4 py-3">Activity</th><th className="px-4 py-3">Reference</th><th className="px-4 py-3">Store / details</th><th className="px-4 py-3 text-right">Amount</th></tr></thead>
+        <tbody>{rows.map((row) => <tr key={row.id} className="border-t"><td className="px-4 py-3">{row.at ? new Date(row.at).toLocaleString("en-NG") : "Date pending"}</td><td className="px-4 py-3 capitalize">{`${customerHistoryLabel(row.kind, row.detail, row.invoiceAllocations)} · ${row.accountName ?? "General account"}${row.allocations?.length ? " — " + row.allocations.map((allocation) => `${allocation.accountName}: ${formatNaira(allocation.amountMinor)}`).join("; ") : ""}`}</td><td className="px-4 py-3 font-mono text-xs">{row.reference}</td><td className="px-4 py-3 text-sm">{branches.data.find(branch => branch.id === row.branchId)?.name ?? row.branchId}{row.kind === "sale" && <p className="mt-1 text-xs text-[var(--muted)]">{row.invoiceNumber} · {row.itemCount ?? 0} items / {row.quantity ?? 0} units<br />Paid: {formatNaira(row.paidMinor ?? 0)} · Credit at sale: {formatNaira(row.creditMinor ?? 0)}</p>}{row.journalEntryId && <p className="font-mono text-xs">Journal: {row.journalEntryId}</p>}</td><td className={`px-4 py-3 text-right font-semibold finance-${customerHistoryTone(row.kind, row.detail)}`}>{formatNaira(Math.abs(row.amountMinor))}</td></tr>)}
+          {!loading && rows.length === 0 && <tr><td colSpan={5} className="p-8 text-center text-[var(--muted)]">No recorded transactions for this selection.</td></tr>}
         </tbody>
       </table></div>
     </section>
-    <section aria-label="Customer transactions on compact screens" className={view === "statement" ? "hidden" : "space-y-3 lg:hidden"}>{rows.map((row) => <article key={row.id} className="rounded-xl border bg-white p-4"><div className="flex justify-between gap-3"><strong className="capitalize">{`${customerHistoryLabel(row.kind, row.detail, row.invoiceAllocations)} · ${row.accountName ?? "General account"}${row.allocations?.length ? " — " + row.allocations.map((allocation) => `${allocation.accountName}: ${formatNaira(allocation.amountMinor)}`).join("; ") : ""}`}</strong><strong className={`finance-${customerHistoryTone(row.kind, row.detail)}`}>{formatNaira(Math.abs(row.amountMinor))}</strong></div><p className="mt-1 text-xs text-[var(--muted)]">{row.reference} · {row.at ? new Date(row.at).toLocaleString("en-NG") : "Date pending"}</p></article>)}
+    <section aria-label="Customer transactions on compact screens" className={view === "statement" ? "hidden" : "space-y-3 lg:hidden"}>{rows.map((row) => <article key={row.id} className="rounded-xl border bg-white p-4"><div className="flex justify-between gap-3"><strong className="capitalize">{`${customerHistoryLabel(row.kind, row.detail, row.invoiceAllocations)} · ${row.accountName ?? "General account"}${row.allocations?.length ? " — " + row.allocations.map((allocation) => `${allocation.accountName}: ${formatNaira(allocation.amountMinor)}`).join("; ") : ""}`}</strong><strong className={`finance-${customerHistoryTone(row.kind, row.detail)}`}>{formatNaira(Math.abs(row.amountMinor))}</strong></div><p className="mt-1 text-xs text-[var(--muted)]">{row.reference} · {row.at ? new Date(row.at).toLocaleString("en-NG") : "Date pending"}</p><p className="mt-2 text-xs">Store: {branches.data.find(branch => branch.id === row.branchId)?.name ?? row.branchId}{row.kind === "sale" && <> · {row.itemCount ?? 0} items · Paid {formatNaira(row.paidMinor ?? 0)} · Credit at sale {formatNaira(row.creditMinor ?? 0)}</>}</p></article>)}
       {!loading && rows.length === 0 && <p className="rounded-xl border bg-white p-6 text-center text-[var(--muted)]">No recorded transactions for this selection.</p>}
     </section>
     <CursorTablePagination page={pageStarts.length} pageSize={pageSize} rowCount={rows.length} hasNextPage={Boolean(result?.nextCursor)} loading={loading} onPrevious={() => setPageStarts((current) => current.length > 1 ? current.slice(0, -1) : current)} onNext={() => { if (result?.nextCursor) setPageStarts((current) => [...current, result.nextCursor]); }} onPageSizeChange={(size) => { setPageSize(size); setPageStarts([null]); }} itemLabel="transactions" />

@@ -1,7 +1,7 @@
-import { FieldValue, Timestamp } from "firebase-admin/firestore";
+import { FieldPath, FieldValue, Timestamp } from "firebase-admin/firestore";
 import { createHash } from "node:crypto";
 import { calculateSaleLine } from "../sales/calculations.js";
-import { serviceChargeVat, serviceReceiptVat } from "../services/billing.js";
+import { serviceChargeVat, serviceReceiptVat, serviceRefundVat } from "../services/billing.js";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
 import { db } from "../admin.js";
 import { operationalEvidence, operationalEvidenceInput } from "../sales/operational-evidence.js";
@@ -22,6 +22,7 @@ import {
   aftersalesWorkspaceInput,
   createAftersalesCaseInput,
   recordAftersalesPaymentInput,
+  refundAftersalesPaymentInput,
   setAftersalesChargeInput,
   updateAftersalesCaseInput,
 } from "../validation/aftersales.js";
@@ -55,6 +56,23 @@ export const getAftersalesWorkspace = onCall(
       input.branchId = String(selectedCase.get("branchId"));
     }
     if (input.branchId) requireBranchScope(actor, input.branchId);
+    if (input.action === "list_payments") {
+      if (!selectedCase) throw new HttpsError("invalid-argument", "Select the service case whose receipts you want to view.");
+      let payments = db.collection("aftersalesPayments")
+        .where("organizationId", "==", actor.organizationId).where("caseId", "==", selectedCase.id)
+        .orderBy("recordedAt", "desc").orderBy(FieldPath.documentId(), "desc");
+      if (input.paymentCursor) {
+        const cursor = await db.doc(`aftersalesPayments/${input.paymentCursor}`).get();
+        if (!cursor.exists || cursor.get("organizationId") !== actor.organizationId || cursor.get("caseId") !== selectedCase.id || cursor.get("branchId") !== selectedCase.get("branchId"))
+          throw new HttpsError("invalid-argument", "This receipt page does not belong to the selected service case.");
+        payments = payments.startAfter(cursor);
+      }
+      const rows = await payments.limit(input.paymentLimit + 1).get();
+      if (rows.docs.some(row => row.get("branchId") !== selectedCase.get("branchId")))
+        throw new HttpsError("failed-precondition", "A service receipt requires authorized reconciliation.");
+      const page = rows.docs.slice(0, input.paymentLimit);
+      return { payments: page.map(row => ({ id: row.id, ...row.data() })), nextCursor: rows.size > input.paymentLimit ? page.at(-1)!.id : null };
+    }
     const organizationWide = [
       "system_administrator",
       "operations_administrator",
@@ -318,7 +336,10 @@ export const recordAftersalesPayment = onCall(
   async (request) => {
     const actor = await requireAccess(request);
     requirePermission(actor, "customers.payment.record");
-    const input = parseInput(recordAftersalesPaymentInput, request.data);
+    const refundInput = request.data?.action !== undefined ? parseInput(refundAftersalesPaymentInput, request.data) : null;
+    const refund = Boolean(refundInput);
+    const input = refundInput ?? parseInput(recordAftersalesPaymentInput, request.data);
+    if (refund) requirePermission(actor, "sales.returns.approve");
     const caseRef = db.doc(`aftersalesCases/${input.caseId}`);
     const operation = db.doc(`idempotencyKeys/${actor.organizationId}_recordAftersalesPayment_${input.idempotencyKey}`);
     const bankAccount = db.doc(`bankAccounts/${input.bankAccountId ?? "no-bank-account"}`);
@@ -339,6 +360,7 @@ export const recordAftersalesPayment = onCall(
         const original = await transaction.get(db.doc(`aftersalesPayments/${String(previous!.get("entityId"))}`));
         if (!original.exists || original.get("organizationId") !== actor.organizationId || original.get("branchId") !== current!.get("branchId") ||
           original.get("caseId") !== input.caseId ||
+          (original.get("entryType") === "refund") !== refund ||
           ["method", "amountMinor", "bankAccountId", "reference"].some(field =>
             (original.get(field) ?? null) !== (field === "bankAccountId" && input.method === "cash" ? null : (input as Record<string, unknown>)[field] ?? null)))
           throw new HttpsError("invalid-argument", "Retry the original service payment without changing its amount or account.");
@@ -347,32 +369,60 @@ export const recordAftersalesPayment = onCall(
       }
       assertAccountingPeriodOpen(periodSnapshot!);
       const outstanding = Number(current!.get("outstandingAmountMinor") ?? 0);
-      if (current!.get("chargeStatus") === "not_quoted" || input.amountMinor > outstanding || outstanding <= 0 || current!.get("status") === "cancelled")
+      const paidBefore = Number(current!.get("amountPaidMinor") ?? 0);
+      const charge = Number(current!.get("chargeAmountMinor") ?? 0);
+      if (![outstanding, paidBefore, charge].every(value => Number.isSafeInteger(value) && value >= 0) || paidBefore > charge || outstanding !== charge - paidBefore)
+        throw new HttpsError("failed-precondition", "The service balance requires reconciliation before another receipt or refund.");
+      let originalPayment: FirebaseFirestore.DocumentSnapshot | null = null;
+      if (refundInput) {
+        originalPayment = await transaction.get(db.doc(`aftersalesPayments/${refundInput.originalPaymentId}`));
+        if (!originalPayment.exists || originalPayment.get("organizationId") !== actor.organizationId || originalPayment.get("caseId") !== input.caseId ||
+          originalPayment.get("branchId") !== current!.get("branchId") || ![undefined, "receipt"].includes(originalPayment.get("entryType")) || originalPayment.get("currency") !== "NGN")
+          throw new HttpsError("failed-precondition", "Select an original receipt for this service case.");
+        const originalAmount = Number(originalPayment.get("amountMinor"));
+        const refunded = Number(originalPayment.get("refundedAmountMinor") ?? 0);
+        if (![originalAmount, refunded].every(value => Number.isSafeInteger(value) && value >= 0) || refunded > originalAmount || input.amountMinor > originalAmount - refunded || input.amountMinor > paidBefore)
+          throw new HttpsError("failed-precondition", "The refund exceeds the remaining amount of this receipt.");
+        const originalJournal = await transaction.get(db.doc(`journalEntries/${String(originalPayment.get("journalEntryId"))}`));
+        if (!originalJournal.exists || originalJournal.get("organizationId") !== actor.organizationId || originalJournal.get("referenceId") !== originalPayment.id || originalJournal.get("referenceType") !== "aftersalesPayment" ||
+          originalJournal.get("journalType") !== "aftersales_payment" || originalJournal.get("currency") !== "NGN" || originalJournal.get("branchId") !== current!.get("branchId") || originalJournal.get("status") !== "posted" ||
+          originalJournal.get("reversedByJournalEntryId") || originalJournal.get("reversalJournalEntryId") || originalJournal.get("totalDebitMinor") !== originalAmount || originalJournal.get("totalCreditMinor") !== originalAmount)
+          throw new HttpsError("failed-precondition", "The original receipt journal requires reconciliation before refunding.");
+      } else if (current!.get("chargeStatus") === "not_quoted" || input.amountMinor > outstanding || outstanding <= 0 || current!.get("status") === "cancelled")
         throw new HttpsError("failed-precondition", "The service has no payable balance for this amount.");
       const settlement = resolveSettlementAccount(actor.organizationId, input.method, input.bankAccountId, accountSnapshot);
+      if (!/^10\d{2}$/.test(settlement.accountCode))
+        throw new HttpsError("failed-precondition", "The selected payout or receiving account must be a company cash/bank ledger account.");
       const sequence = Number(counterSnapshot!.get("value") ?? 0) + 1;
+      if (!Number.isSafeInteger(sequence) || sequence < 1)
+        throw new HttpsError("failed-precondition", "The service journal counter requires reconciliation.");
       const journalNumber = `JRN-${effectiveAt.toDate().getUTCFullYear()}-${String(sequence).padStart(6, "0")}`;
       const now = FieldValue.serverTimestamp();
       if (current!.get("serviceBillingVersion") === 2 && Number(current!.get("recognizedVatMinor")) !== serviceReceiptVat(0, Number(current!.get("amountPaidMinor") ?? 0), Number(current!.get("chargeAmountMinor")), Number(current!.get("chargeVatMinor"))))
         throw new HttpsError("failed-precondition", "Service receipt tax allocation requires reconciliation before another payment.");
       const vatMinor = current!.get("serviceBillingVersion") === 2
-        ? serviceReceiptVat(Number(current!.get("amountPaidMinor") ?? 0), input.amountMinor, Number(current!.get("chargeAmountMinor")), Number(current!.get("chargeVatMinor"))) : 0;
+        ? (refund ? serviceRefundVat : serviceReceiptVat)(paidBefore, input.amountMinor, charge, Number(current!.get("chargeVatMinor"))) : 0;
       const accountLines = [
         { code: settlement.accountCode, name: settlement.accountName, debitMinor: input.amountMinor, creditMinor: 0 },
         { code: "4100", name: "Aftersales service income", debitMinor: 0, creditMinor: input.amountMinor - vatMinor },
         { code: "2100", name: "VAT payable", debitMinor: 0, creditMinor: vatMinor },
       ].filter(line => line.debitMinor > 0 || line.creditMinor > 0);
+      if (refund) for (const line of accountLines) [line.debitMinor, line.creditMinor] = [line.creditMinor, line.debitMinor];
+      const accounts = await transaction.getAll(...accountLines.map(line => db.doc(`chartOfAccounts/${uniquenessDocumentId(actor.organizationId, line.code)}`)));
+      if (accounts.some((account, index) => account.exists && (account.get("organizationId") !== actor.organizationId || account.get("code") !== accountLines[index]!.code || account.get("active") === false || (account.get("currency") && account.get("currency") !== "NGN"))))
+        throw new HttpsError("failed-precondition", "A service journal account requires authorized reconciliation.");
       transaction.set(journalCounter, { organizationId: actor.organizationId, kind: "journalEntry", value: sequence, updatedAt: now });
       transaction.create(journal, {
         organizationId: actor.organizationId,
         branchId: current!.get("branchId"),
         journalNumber,
-        journalType: "aftersales_payment",
+        journalType: refund ? "aftersales_refund" : "aftersales_payment",
         status: "posted",
         referenceType: "aftersalesPayment",
         referenceId: payment.id,
         referenceNumber: caseRef.id,
-        description: `Aftersales payment ${caseRef.id}`,
+        description: `Aftersales ${refund ? "receipt refund" : "payment"} ${caseRef.id}`,
+        ...(refundInput ? { details: { originalPaymentId: refundInput.originalPaymentId, originalJournalEntryId: originalPayment!.get("journalEntryId"), reason: refundInput.reason, allocationPolicy: "cumulative_net_receipts", paidBeforeMinor: paidBefore } } : {}),
         totalDebitMinor: input.amountMinor,
         totalCreditMinor: input.amountMinor,
         currency: "NGN",
@@ -381,9 +431,9 @@ export const recordAftersalesPayment = onCall(
         postedBy: actor.userId,
         createdAt: now,
       });
-      for (const line of accountLines) {
+      for (const [index, line] of accountLines.entries()) {
         const account = db.doc(`chartOfAccounts/${uniquenessDocumentId(actor.organizationId, line.code)}`);
-        transaction.set(account, { organizationId: actor.organizationId, code: line.code, name: line.name, currency: "NGN", active: true, systemManaged: true, updatedAt: now }, { merge: true });
+        if (!accounts[index]!.exists) transaction.create(account, { organizationId: actor.organizationId, code: line.code, name: line.name, currency: "NGN", active: true, systemManaged: true, updatedAt: now });
         transaction.create(db.collection("journalLines").doc(), {
           organizationId: actor.organizationId,
           branchId: current!.get("branchId"),
@@ -399,12 +449,13 @@ export const recordAftersalesPayment = onCall(
           createdAt: now,
         });
       }
-      const nextOutstanding = outstanding - input.amountMinor;
+      const nextPaid = paidBefore + (refund ? -input.amountMinor : input.amountMinor);
+      const nextOutstanding = charge - nextPaid;
       transaction.update(caseRef, {
-        amountPaidMinor: Number(current!.get("amountPaidMinor") ?? 0) + input.amountMinor,
-        ...(current!.get("serviceBillingVersion") === 2 ? { recognizedVatMinor: Number(current!.get("recognizedVatMinor") ?? 0) + vatMinor } : {}),
+        amountPaidMinor: nextPaid,
+        ...(current!.get("serviceBillingVersion") === 2 ? { recognizedVatMinor: Number(current!.get("recognizedVatMinor") ?? 0) + (refund ? -vatMinor : vatMinor) } : {}),
         outstandingAmountMinor: nextOutstanding,
-        chargeStatus: nextOutstanding === 0 ? "paid" : "partially_paid",
+        chargeStatus: nextOutstanding === 0 ? "paid" : nextPaid === 0 ? "due" : "partially_paid",
         updatedAt: now,
       });
       transaction.create(payment, {
@@ -414,6 +465,10 @@ export const recordAftersalesPayment = onCall(
         customerId: current!.get("customerId"),
         method: input.method,
         amountMinor: input.amountMinor,
+        entryType: refund ? "refund" : "receipt",
+        paidBeforeMinor: paidBefore,
+        paidAfterMinor: nextPaid,
+        ...(refundInput ? { originalPaymentId: refundInput.originalPaymentId, originalJournalEntryId: originalPayment!.get("journalEntryId"), reason: refundInput.reason, allocationPolicy: "cumulative_net_receipts" } : {}),
         ...(current!.get("serviceBillingVersion") === 2 ? { serviceBillingVersion: 2, netAmountMinor: input.amountMinor - vatMinor, vatAmountMinor: vatMinor, serviceCatalog: current!.get("serviceCatalog") } : {}),
         reference: input.reference ?? null,
         bankAccountId: settlement.bankAccountId ?? null,
@@ -421,18 +476,22 @@ export const recordAftersalesPayment = onCall(
         accountNumberLast4: settlement.accountNumberLast4 ?? null,
         ledgerAccountCode: settlement.accountCode,
         journalEntryId: journal.id,
+        journalNumber,
         currency: "NGN",
         recordedAt: now,
         recordedBy: actor.userId,
       });
+      if (originalPayment) transaction.update(originalPayment.ref, { refundedAmountMinor: Number(originalPayment.get("refundedAmountMinor") ?? 0) + input.amountMinor });
       transaction.create(operation, { organizationId: actor.organizationId, action: "recordAftersalesPayment", entityId: payment.id, requestFingerprint: fingerprint(input), status: "completed", createdAt: now, createdBy: actor.userId });
       writeAuditLog(transaction, actor, {
-        action: "aftersales_case.payment_recorded",
+        action: refund ? "aftersales_case.payment_refunded" : "aftersales_case.payment_recorded",
         entityType: "aftersalesCase",
         entityId: caseRef.id,
         correlationId: correlationId(),
         sourceFunction: "recordAftersalesPayment",
-        after: { paymentId: payment.id, journalEntryId: journal.id, amountMinor: input.amountMinor, bankAccountId: settlement.bankAccountId ?? null, outstandingAmountMinor: nextOutstanding },
+        ...(refundInput ? { reason: refundInput.reason } : {}),
+        before: { amountPaidMinor: paidBefore, outstandingAmountMinor: outstanding },
+        after: { paymentId: payment.id, journalEntryId: journal.id, amountMinor: input.amountMinor, entryType: refund ? "refund" : "receipt", originalPaymentId: originalPayment?.id ?? null, bankAccountId: settlement.bankAccountId ?? null, outstandingAmountMinor: nextOutstanding },
       });
     });
     return result;

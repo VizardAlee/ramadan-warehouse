@@ -61,6 +61,7 @@ const specialActions: Readonly<Record<string, string>> = {
   "inventory.supplier_return": "Released goods back to a supplier",
   "supplier.return_reversed": "Corrected a supplier return and restored stock and supplier balances",
   "aftersales_case.payment_recorded": "Recorded an aftersales payment",
+  "aftersales_case.payment_refunded": "Refunded a service receipt and restored its unpaid balance",
   "aftersales_case.staff_assigned": "Assigned or changed the staff responsible for service",
   "transfer.reservation_released": "Released reserved transfer stock",
   "transfer.discrepancy_created": "Reported a transfer discrepancy",

@@ -129,6 +129,11 @@ export function queryCatalog() {
     add("aftersales workspace", "aftersalesCases", filters);
     for (const [collection, date] of [["sales", "recordedAt"], ["saleReturns", "createdAt"], ["customerAccountEntries", "effectiveAt"]]) add("customer history", collection, [...filters, ["customerId", "=="]], [[date, "DESCENDING"]]);
     add("financial statements/tax", "journalLines", [...filters, ["effectiveAt", ">="], ["effectiveAt", "<="]], dateOrder("effectiveAt", "ASCENDING"));
+    add("financial cumulative balances", "journalLines", [...filters, ["effectiveAt", "<="]], dateOrder("effectiveAt", "ASCENDING"));
+    for (const range of [[], [["effectiveAt", ">="]], [["effectiveAt", "<="]], [["effectiveAt", ">="], ["effectiveAt", "<="]]])
+      add("customer statement rows and balances", "customerAccountEntries", [...filters, ["customerId", "=="], ...range], dateOrder("effectiveAt"));
+    for (const range of [[], [["recordedAt", ">="]], [["recordedAt", "<"]], [["recordedAt", ">="], ["recordedAt", "<"]]])
+      add("credit sales summary scan", "sales", [...filters, ...range], dateOrder("recordedAt", "ASCENDING"));
     for (const range of [[], [["recordedAt", ">="], ["recordedAt", "<"]]]) {
       add("sales report rows", "sales", [...filters, ...range], dateOrder("recordedAt"));
       for (const sums of [["subtotalAmountMinor", "discountAmountMinor", "netAmountMinor", "vatAmountMinor"], ["grossAmountMinor", "amountPaidMinor", "creditAmountMinor"], []]) add("sales report/dashboard totals", "sales", [...filters, ...range], [], sums);
@@ -137,6 +142,7 @@ export function queryCatalog() {
     for (const collection of ["transfers", "stockTransfers"]) for (const transferScope of scope.length ? ["sourceBranchId", "destinationBranchId"] : [null]) for (const status of [[], [["status", "in"]]]) add("dashboard transfer counts (OR arms)", collection, [org, ...(transferScope ? [[transferScope, "=="]] : []), ...status], [], []);
     for (const status of [[], [["status", "in"]]]) add("dashboard request counts", "branchRequests", [...filters, ...status], [], []);
   }
+  add("service receipt/refund history pages", "aftersalesPayments", [org, ["caseId", "=="]], dateOrder("recordedAt"));
   for (const field of ["sourceWarehouseId", "originWarehouseId"]) for (const status of [[], [["status", "in"]]]) add("legacy location dashboard", field === "sourceWarehouseId" ? "stockTransfers" : "transfers", [org, [field, "=="], ...status], [], []);
   add("dashboard active products", "products", [org, ["active", "=="]], [], []);
   for (const field of ["customerNumber", "normalizedName", "phone", "email"]) add("customer register/search", "customers", [org], [[field, "ASCENDING"]]);

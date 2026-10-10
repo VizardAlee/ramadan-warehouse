@@ -19,6 +19,7 @@ import {
   inventoryReportColumnLabel,
   readableInventoryCsvRows,
 } from "@/features/reports/inventory-report-presentation";
+import { ReportPeriodPicker, reportDateRange, type ReportPeriod } from "@/features/reports/date-range";
 import { FinancialStatements } from "@/features/reports/financial-statements";
 import { ProductHistoryPreview } from "@/features/reports/product-history-preview";
 import { hasPermission } from "@/lib/permissions/roles";
@@ -125,7 +126,7 @@ function salesCsvRows(rows: SalesReportRow[]): Record<string, unknown>[] {
     vat_naira: (row.vatAmountMinor / 100).toFixed(2),
     invoice_total_naira: (row.grossAmountMinor / 100).toFixed(2),
     amount_paid_naira: (row.amountPaidMinor / 100).toFixed(2),
-    outstanding_naira: (row.creditAmountMinor / 100).toFixed(2),
+    credit_issued_naira: (row.creditAmountMinor / 100).toFixed(2),
     currency: row.currency,
   }));
 }
@@ -164,8 +165,10 @@ export default function ReportsPage() {
   const [inventoryCursor, setInventoryCursor] = useState<string | null>(null);
   const [inventorySummary, setInventorySummary] = useState<InventoryReportResult["summary"]>(null);
   const [branchId, setBranchId] = useState("");
-  const [fromDate, setFromDate] = useState("");
-  const [toDate, setToDate] = useState("");
+  const [period, setPeriod] = useState<ReportPeriod>("monthly");
+  const [creditOnly, setCreditOnly] = useState(false);
+  const [fromDate, setFromDate] = useState(() => reportDateRange("monthly").fromDate);
+  const [toDate, setToDate] = useState(() => reportDateRange("monthly").toDate);
   const [salesRows, setSalesRows] = useState<SalesReportRow[]>([]);
   const [salesCursor, setSalesCursor] = useState<SalesCursor | null>(null);
   const [salesSummary, setSalesSummary] = useState<SalesReportResult["summary"]>(undefined);
@@ -194,7 +197,7 @@ export default function ReportsPage() {
     setFamilyMessages((current) => ({ ...current, [activeFamily]: value ?? undefined }));
   }, [activeFamily]);
   const inventoryQueryKey = JSON.stringify([kind, productId, locationId, includeCosts]);
-  const salesQueryKey = JSON.stringify([branchId, fromDate, toDate]);
+  const salesQueryKey = JSON.stringify([branchId, fromDate, toDate, creditOnly]);
   const inventoryReady = inventoryLoadedKey === inventoryQueryKey;
   const salesReady = salesLoadedKey === salesQueryKey;
   const inventoryLookups = useMemo(
@@ -291,6 +294,7 @@ export default function ReportsPage() {
         try {
           const result = await callAdministration<object, SalesReportResult>("generateSalesReport", {
             reportType: "sales_register",
+            creditOnly,
             branchId: branchId || undefined,
             fromDate: fromDate || undefined,
             toDate: toDate || undefined,
@@ -301,7 +305,7 @@ export default function ReportsPage() {
           setSalesSummary(result.summary);
           setSalesCursor(result.nextCursor);
           setSalesLoadedKey(salesQueryKey);
-          if (!result.rows.length) setMessage("No posted sales matched the selected filters.");
+          if (!result.rows.length) setMessage("No matching sales in this page. Load the next page if available.");
         } catch (cause) {
           if (version !== salesRequestVersion.current) return;
           setMessage(cause instanceof Error ? cause.message : "The sales report query was rejected.");
@@ -314,7 +318,7 @@ export default function ReportsPage() {
       window.clearTimeout(timer);
       salesRequestVersion.current += 1;
     };
-  }, [activeFamily, branchId, canReadSales, fromDate, salesQueryKey, setSalesPage, setMessage, toDate]);
+  }, [activeFamily, branchId, canReadSales, fromDate, salesQueryKey, setSalesPage, setMessage, toDate, creditOnly]);
 
   async function loadInventoryNext() {
     if (!inventoryCursor || !inventoryReady || loading) return;
@@ -348,9 +352,11 @@ export default function ReportsPage() {
     try {
       const result = await callAdministration<object, SalesReportResult>("generateSalesReport", {
         reportType: "sales_register",
+            creditOnly,
         branchId: branchId || undefined,
         fromDate: fromDate || undefined,
         toDate: toDate || undefined,
+        includeSummary: false,
         cursor: salesCursor,
         limit: 100,
       });
@@ -376,9 +382,11 @@ export default function ReportsPage() {
           "generateSalesReport",
           {
             reportType: "sales_register",
+            creditOnly,
             branchId: branchId || undefined,
             fromDate: fromDate || undefined,
             toDate: toDate || undefined,
+            includeSummary: false,
             cursor: cursor ?? undefined,
             limit: 500,
           },
@@ -391,7 +399,7 @@ export default function ReportsPage() {
           );
       } while (cursor);
       if (!allRows.length) {
-        setMessage("No posted sales matched the selected filters.");
+        setMessage("No matching sales in this page. Load the next page if available.");
         return;
       }
       const exportRows = salesCsvRows(allRows);
@@ -404,10 +412,10 @@ export default function ReportsPage() {
         vat_naira: (sum("vatAmountMinor") / 100).toFixed(2),
         invoice_total_naira: (sum("grossAmountMinor") / 100).toFixed(2),
         amount_paid_naira: (sum("amountPaidMinor") / 100).toFixed(2),
-        outstanding_naira: (sum("creditAmountMinor") / 100).toFixed(2),
+        credit_issued_naira: (sum("creditAmountMinor") / 100).toFixed(2),
       });
       downloadCsv(
-        `sales-register-${fromDate || "all"}-to-${toDate || "current"}.csv`,
+        `${creditOnly ? "credit-sales" : "sales-register"}-${fromDate || "all"}-to-${toDate || "current"}.csv`,
         Object.keys(exportRows[0]!),
         exportRows,
       );
@@ -495,7 +503,9 @@ export default function ReportsPage() {
         <FinancialStatements />
       ) : activeFamily === "sales" && canReadSales ? (
         <>
-          <section className="grid gap-3 rounded-xl border bg-white p-4 sm:grid-cols-2 lg:grid-cols-4">
+          <section className="grid gap-3 rounded-xl border bg-white p-4 sm:grid-cols-2 lg:grid-cols-6">
+            <ReportPeriodPicker value={period} onChange={value => { setPeriod(value); if (value !== "custom") { const range = reportDateRange(value); setFromDate(range.fromDate); setToDate(range.toDate); } }} />
+            <label className="text-sm font-medium">Sales record<select value={creditOnly ? "credit" : "all"} onChange={event => setCreditOnly(event.target.value === "credit")} className="mt-1 w-full rounded-lg border p-2.5"><option value="all">All sales summary</option><option value="credit">Credit sales summary</option></select></label>
             <label className="text-sm font-medium">
               Branch
               <select
@@ -516,7 +526,7 @@ export default function ReportsPage() {
               <input
                 type="date"
                 value={fromDate}
-                onChange={(event) => setFromDate(event.target.value)}
+                onChange={(event) => { setPeriod("custom"); setFromDate(event.target.value); }}
                 className="mt-1 w-full rounded-lg border p-2.5"
               />
             </label>
@@ -525,7 +535,7 @@ export default function ReportsPage() {
               <input
                 type="date"
                 value={toDate}
-                onChange={(event) => setToDate(event.target.value)}
+                onChange={(event) => { setPeriod("custom"); setToDate(event.target.value); }}
                 className="mt-1 w-full rounded-lg border p-2.5"
               />
             </label>
@@ -547,9 +557,10 @@ export default function ReportsPage() {
               ["VAT", formatNaira(salesSummary.vatAmountMinor)],
               ["Invoice total", formatNaira(salesSummary.grossAmountMinor)],
               ["Paid", formatNaira(salesSummary.amountPaidMinor)],
-              ["Outstanding", formatNaira(salesSummary.creditAmountMinor)],
-            ].map(([label, value]) => <div key={label} className="rounded-xl border bg-white p-3 text-sm"><span className="text-[var(--muted)]">{label}</span><strong className={`mt-1 block text-lg tabular-nums ${label === "Paid" || label === "Net sales" || label === "Invoice total" ? "finance-income" : label === "Outstanding" ? "finance-attention" : label === "Discounts" ? "finance-outflow" : "finance-balance"}`}>{value}</strong></div>)}
+              ["Credit issued at sale", formatNaira(salesSummary.creditAmountMinor)],
+            ].map(([label, value]) => <div key={label} className="rounded-xl border bg-white p-3 text-sm"><span className="text-[var(--muted)]">{label}</span><strong className={`mt-1 block text-lg tabular-nums ${label === "Paid" || label === "Net sales" || label === "Invoice total" ? "finance-income" : label === "Credit issued at sale" ? "finance-attention" : label === "Discounts" ? "finance-outflow" : "finance-balance"}`}>{value}</strong></div>)}
           </section>}
+          <p className="text-xs text-[var(--muted)]">{creditOnly ? "Credit sales include fully and partly unpaid invoices at the time of sale. " : ""}Totals cover the full selected range. Credit issued is the original amount at sale; customer statements show later repayments and returns.</p>
           <div className="responsive-table-wrap">
             <table className="responsive-table text-xs">
               <thead className="bg-slate-50">
@@ -562,7 +573,7 @@ export default function ReportsPage() {
                   <th className="px-3 py-2 text-right">Discount</th>
                   <th className="px-3 py-2 text-right">VAT</th>
                   <th className="px-3 py-2 text-right">Total</th>
-                  <th className="px-3 py-2 text-right">Outstanding</th>
+                  <th className="px-3 py-2 text-right">Credit at sale</th>
                   <th className="px-3 py-2">Document</th>
                 </tr>
               </thead>
@@ -600,7 +611,7 @@ export default function ReportsPage() {
                       {formatNaira(row.grossAmountMinor)}
                     </td>
                     <td
-                      data-label="Outstanding"
+                      data-label="Credit at sale"
                       className="px-3 py-2 text-right"
                     >
                       <span className={row.creditAmountMinor > 0 ? "finance-attention font-semibold" : "finance-neutral"}>{formatNaira(row.creditAmountMinor)}</span>

@@ -7,6 +7,7 @@ export const financialReportInput = z.object({
     "income_statement",
     "balance_sheet",
     "cash_flow",
+    "receipts_payments",
   ]),
   fromDate: z.string().date(),
   toDate: z.string().date(),

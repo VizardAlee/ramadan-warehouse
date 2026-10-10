@@ -122,6 +122,21 @@ describe("automatic reports", () => {
     expect(screen.getByText("(₦1,000.00)")).toBeTruthy();
   });
 
+  it("refreshes preset periods, credit records, and receipts/payments automatically", async () => {
+    api.call.mockImplementation(async (name: string, filters: Record<string, string>) => name === "generateFinancialStatement" ? { ...filters, rows: [{ section: "Receipts", accountName: "customer payment", amountMinor: 5000 }, { section: "Payments", accountName: "expense", amountMinor: 2000 }], receiptsMinor: 5000, paymentsMinor: 2000, netCashMovementMinor: 3000 } : { rows: [], nextCursor: null });
+    render(<ReportsPage />);
+    fireEvent.change(screen.getByLabelText("Period"), { target: { value: "daily" } });
+    fireEvent.change(screen.getByLabelText("Sales record"), { target: { value: "credit" } });
+    await waitFor(() => expect(api.call).toHaveBeenCalledWith("generateSalesReport", expect.objectContaining({ creditOnly: true })));
+    fireEvent.change(screen.getByLabelText("From date"), { target: { value: "2026-01-01" } });
+    expect((screen.getByLabelText("Period") as HTMLSelectElement).value).toBe("custom");
+    fireEvent.click(screen.getByRole("button", { name: "Financial statements" }));
+    fireEvent.change(screen.getByLabelText("Statement"), { target: { value: "receipts_payments" } });
+    expect(await screen.findByText("Total receipts")).toBeTruthy();
+    expect(screen.getByText("Total payments")).toBeTruthy();
+    expect(screen.getByText("customer payment")).toBeTruthy();
+  });
+
   it("does not carry an inventory error into another report tab", async () => {
     api.call.mockImplementation(async (name: string, filters: Record<string, string>) => {
       if (name === "generateStockPositionReport") throw new Error("Inventory index unavailable");

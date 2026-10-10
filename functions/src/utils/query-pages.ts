@@ -4,11 +4,12 @@ import { FieldPath } from "firebase-admin/firestore";
 export async function visitQueryPages(
   query: FirebaseFirestore.Query,
   visit: (documents: FirebaseFirestore.QueryDocumentSnapshot[]) => void | Promise<void>,
-  options: { orderField?: string; pageSize?: number } = {},
+  options: { orderField?: string; orderDirection?: "asc" | "desc"; pageSize?: number } = {},
 ) {
   const pageSize = options.pageSize ?? 500;
-  let ordered = options.orderField ? query.orderBy(options.orderField, "asc") : query;
-  ordered = ordered.orderBy(FieldPath.documentId(), "asc");
+  const direction = options.orderDirection ?? "asc";
+  let ordered = options.orderField ? query.orderBy(options.orderField, direction) : query;
+  ordered = ordered.orderBy(FieldPath.documentId(), direction);
   let cursor: FirebaseFirestore.QueryDocumentSnapshot | undefined;
   for (;;) {
     const page = await (cursor ? ordered.startAfter(cursor) : ordered).limit(pageSize).get();

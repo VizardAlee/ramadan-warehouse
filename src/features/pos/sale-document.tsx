@@ -1,5 +1,6 @@
 "use client";
 
+import { fitInvoiceToPage } from "./invoice-print";
 import { Printer, X } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
@@ -30,6 +31,16 @@ export function SaleDocumentDialog({
 
 function SaleDocumentContent({ document, onClose }: { document: SaleDocument; onClose: () => void }) {
   const { profile } = useAuth();
+  const printRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const fit = () => {
+      const element = printRef.current;
+      if (!element) return;
+      fitInvoiceToPage(element);
+    };
+    window.addEventListener("beforeprint", fit);
+    return () => window.removeEventListener("beforeprint", fit);
+  }, []);
   const [waybillId, setWaybillId] = useState<string | null>(null);
   const [page, setPage] = useState(document);
   const [cursors, setCursors] = useState<Array<string | undefined>>([undefined]);
@@ -74,6 +85,8 @@ function SaleDocumentContent({ document, onClose }: { document: SaleDocument; on
     >
       <section
         className="app-dialog-panel max-w-3xl rounded-2xl bg-white shadow-2xl"
+        ref={printRef}
+        data-invoice-document
         data-print-document
       >
         <header className="flex items-start justify-between gap-4 border-b p-5 sm:p-7">
@@ -131,7 +144,7 @@ function SaleDocumentContent({ document, onClose }: { document: SaleDocument; on
         )}
 
         <div className="space-y-6 p-5 sm:p-7">
-          <section className="rounded-xl border p-4 text-sm">
+          <section className="rounded-xl border p-4 text-sm" data-no-print>
             <p className="font-semibold">Collection: {label(document.sale.collectionStatus ?? "collected")}</p>
             {document.items.map((item) => <p key={item.id}>{item.productName}: sold {item.quantity}, collected {item.collectedQuantity ?? item.quantity}, cancelled {item.cancelledQuantity ?? 0}, awaiting collection {item.quantity - (item.collectedQuantity ?? item.quantity) - (item.cancelledQuantity ?? 0)}</p>)}
             {page.collections?.map((collection) => <div key={collection.id} className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t pt-3"><p>{collection.collectedAt ? new Date(collection.collectedAt).toLocaleString("en-NG") : "—"} · {collection.totalQuantity} collected by {collection.collector} · {collection.releasedByName || "Authorized staff"}</p>{document.official && <Button type="button" variant="outline" size="sm" data-no-print onClick={() => setWaybillId(collection.id)}>View waybill</Button>}{document.official && <CollectionPhotoViewer saleId={document.sale.id} evidenceIds={collection.evidenceIds ?? []} />}</div>)}

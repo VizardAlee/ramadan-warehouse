@@ -19,6 +19,12 @@ export function koboToNaira(kobo: number | undefined): number | undefined {
 export function formatNaira(minor: number | undefined): string { return minor === undefined ? "Restricted" : new Intl.NumberFormat("en-NG", { style: "currency", currency: "NGN", minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(minor / 100); }
 export function formatQuantity(quantity: number | undefined): string { return new Intl.NumberFormat("en-NG", { maximumFractionDigits: 0 }).format(quantity ?? 0); }
 const lagosDateTime = new Intl.DateTimeFormat("en-NG", { timeZone: "Africa/Lagos", dateStyle: "medium", timeStyle: "short" });
-export function formatDateTime(value: DateTimeValue | undefined): string { if (!value) return "—"; const date = typeof value === "string" ? new Date(value) : new Date(value.seconds * 1000); return Number.isNaN(date.valueOf()) ? "—" : lagosDateTime.format(date); }
+export function formatDateTime(value: DateTimeValue | { _seconds: number; _nanoseconds?: number } | undefined): string {
+  if (!value) return "—";
+  // Trusted callables encode Admin Timestamp's enumerable fields; browser
+  // Firestore reads expose seconds instead. Both describe the same instant.
+  const date = typeof value === "string" ? new Date(value) : new Date(("seconds" in value ? value.seconds : value._seconds) * 1000);
+  return Number.isNaN(date.valueOf()) ? "—" : lagosDateTime.format(date);
+}
 export function rowsToCsv(rows: readonly Record<string, unknown>[]): string { if (!rows.length) return ""; const columns = [...new Set(rows.flatMap((row) => Object.keys(row)))]; const quote = (value: unknown) => `"${String(value ?? "").replaceAll('"', '""')}"`; return [columns.map(quote).join(","), ...rows.map((row) => columns.map((column) => quote(row[column])).join(","))].join("\n"); }
 export function downloadCsv(filename: string, rows: readonly Record<string, unknown>[]) { const url = URL.createObjectURL(new Blob([rowsToCsv(rows)], { type: "text/csv;charset=utf-8" })); const anchor = document.createElement("a"); anchor.href = url; anchor.download = filename; anchor.click(); URL.revokeObjectURL(url); }

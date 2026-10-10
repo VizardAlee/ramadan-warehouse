@@ -44,6 +44,8 @@ export const listCollectionsInput = z.object({
 
 export const salesReportInput = z.object({
   reportType: z.literal("sales_register").default("sales_register"),
+  creditOnly: z.boolean().default(false),
+  includeSummary: z.boolean().default(true),
   branchId: id.optional(),
   fromDate: z.string().date().optional(),
   toDate: z.string().date().optional(),
@@ -125,15 +127,21 @@ export const customerPaymentInput = z.object({
 
 export const customerHistoryInput = z.object({
   view: z.enum(["activity", "receivables", "statement"]).default("activity"),
+  includeSummary: z.boolean().default(true),
   customerId: id,
   customerAccountId: id.optional(),
   branchId: id.optional(),
+  fromDate: z.string().date().optional(),
+  toDate: z.string().date().optional(),
   limit: z.number().int().min(1).max(100).default(50),
   cursor: z.object({
     sale: z.string().regex(/^[A-Za-z0-9_-]{1,128}$/).optional(),
     return: z.string().regex(/^[A-Za-z0-9_-]{1,128}$/).optional(),
     account: z.string().regex(/^[A-Za-z0-9_-]{1,128}$/).optional(),
   }).optional(),
+}).superRefine((value, context) => {
+  if (value.fromDate && value.toDate && value.fromDate > value.toDate)
+    context.addIssue({ code: "custom", path: ["toDate"], message: "The end date cannot be before the start date." });
 });
 
 export const openPosShiftInput = z.object({

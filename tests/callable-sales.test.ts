@@ -1854,6 +1854,47 @@ describe.sequential("sales callables", () => {
     expect(await deliverInAppNotification({ ...reminder.data(), id: `${reminder.id}_retry` } as InboxEvent)).toMatchObject({ delivered: true, providerMessageId: expect.stringContaining("superseded") });
   });
 
+  it("reports credit sales, scoped statement balances, and external receipts/payments without duplicate activity", async () => {
+    const saved = await call<{ customerId: string }>(administrator, "saveCustomer", { name: "Report regression customer", phone: "08077665549", idempotencyKey: crypto.randomUUID() });
+    const customerId = saved.customerId;
+    const at = Timestamp.fromDate(new Date("2032-02-10T23:30:00Z")); // February 11 in Lagos.
+    const batch = adminDb.batch();
+    for (const [id, credit] of [["report-credit", 6000], ["report-cash", 0]] as const) batch.set(adminDb.doc(`sales/${id}`), {
+      organizationId, branchId, customerId, saleNumber: id, invoiceNumber: `INV-${id}`, receiptNumber: `REC-${id}`, paymentStatus: credit ? "part_paid" : "paid", recordedAt: at,
+      grossAmountMinor: 10000, netAmountMinor: 10000, subtotalAmountMinor: 10000, vatAmountMinor: 0, discountAmountMinor: 0, amountPaidMinor: 10000 - credit, creditAmountMinor: credit, itemCount: 2, totalQuantity: 3,
+    });
+    batch.set(adminDb.doc("customerAccountEntries/report-opening"), { organizationId, branchId, customerId, entryType: "credit_sale", referenceNumber: "OLD", amountMinor: 2000, effectiveAt: Timestamp.fromDate(new Date("2032-02-09T12:00:00Z")) });
+    batch.set(adminDb.doc("customerAccountEntries/report-credit-entry"), { organizationId, branchId, customerId, entryType: "credit_sale", referenceType: "sale", referenceId: "report-credit", referenceNumber: "report-credit", amountMinor: 6000, effectiveAt: at });
+    batch.set(adminDb.doc("customerAccountEntries/report-repayment"), { organizationId, branchId, customerId, entryType: "payment", referenceNumber: "REPAY", amountMinor: -1000, effectiveAt: at });
+    for (const [id, type, movements] of [["report-receipt", "customer_payment", [["1010", 5000, 0]]], ["report-payment", "expense", [["1020", 0, 2000]]], ["report-transfer", "funds_transfer", [["1010", 0, 3000], ["1020", 3000, 0]]]] as const) {
+      batch.set(adminDb.doc(`journalEntries/${id}`), { organizationId, branchId, journalType: type, status: "posted", effectiveAt: at });
+      movements.forEach(([accountCode, debitMinor, creditMinor], index) => batch.set(adminDb.doc(`journalLines/${id}-${index}`), { organizationId, branchId, journalEntryId: id, effectiveAt: at, accountCode, debitMinor, creditMinor }));
+    }
+    await batch.commit();
+    const scope = { branchId, fromDate: "2032-02-11", toDate: "2032-02-11" };
+    const sales = await call<{ rows: Array<{ id: string }>; summary: { count: number; creditAmountMinor: number } }>(branchManager, "generateSalesReport", { ...scope, creditOnly: true });
+    expect(sales.rows.map(row => row.id)).toEqual(["report-credit"]);
+    expect(sales.summary).toMatchObject({ count: 1, creditAmountMinor: 6000 });
+    const cash = await call(branchManager, "generateFinancialStatement", { ...scope, reportType: "receipts_payments" });
+    expect(cash).toMatchObject({ receiptsMinor: 5000, paymentsMinor: 2000, netCashMovementMinor: 3000 });
+    const statement = await call(branchManager, "getCustomerHistory", { ...scope, customerId, view: "statement" });
+    expect(statement).toMatchObject({ statement: { openingDebtMinor: 2000, closingDebtMinor: 7000, debtAddedMinor: 6000, debtClearedMinor: 1000 } });
+    const seen: string[] = [];
+    let cursor: Record<string, string> | undefined;
+    for (let page = 0; page < 8; page++) {
+      const activity = await call<{ rows: Array<{ id: string }>; nextCursor: Record<string, string> | null }>(branchManager, "getCustomerHistory", { branchId, customerId, limit: 1, ...(cursor ? { cursor } : {}) });
+      seen.push(...activity.rows.map(row => row.id));
+      if (!activity.nextCursor) break;
+      cursor = activity.nextCursor;
+    }
+    expect(seen).toContain("sale:report-credit");
+    expect(seen).toContain("account:report-repayment");
+    expect(seen).not.toContain("account:report-credit-entry");
+    expect(new Set(seen).size).toBe(seen.length);
+    await expect(call(cashier, "generateFinancialStatement", { ...scope, reportType: "receipts_payments" })).rejects.toMatchObject({ code: "functions/permission-denied" });
+    await expect(call(branchManager, "getCustomerHistory", { ...scope, customerId, view: "statement", branchId: "outside-assignment" })).rejects.toMatchObject({ code: "functions/permission-denied" });
+  });
+
   it("pages arrangement statements across unmatched entries and scopes every cursor", async () => {
     const accountId = crypto.randomUUID();
     const saved = await call<{ customerId: string }>(administrator, "saveCustomer", { name: "Statement customer", phone: "08077665550", idempotencyKey: crypto.randomUUID() });

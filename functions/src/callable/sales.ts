@@ -1,3 +1,4 @@
+import { visitQueryPages } from "../utils/query-pages.js";
 import { AggregateField, FieldPath, FieldValue, Timestamp } from "firebase-admin/firestore";
 import { logger } from "firebase-functions";
 import { createHash } from "node:crypto";
@@ -735,11 +736,24 @@ export const generateSalesReport = onCall(
       .where("organizationId", "==", actor.organizationId);
     if (branchId) query = query.where("branchId", "==", branchId);
     if (input.fromDate)
-      query = query.where("recordedAt", ">=", Timestamp.fromDate(new Date(`${input.fromDate}T00:00:00.000Z`)));
+      query = query.where("recordedAt", ">=", Timestamp.fromDate(new Date(`${input.fromDate}T00:00:00.000+01:00`)));
     if (input.toDate) {
-      const exclusiveEnd = new Date(`${input.toDate}T00:00:00.000Z`);
+      const exclusiveEnd = new Date(`${input.toDate}T00:00:00.000+01:00`);
       exclusiveEnd.setUTCDate(exclusiveEnd.getUTCDate() + 1);
       query = query.where("recordedAt", "<", Timestamp.fromDate(exclusiveEnd));
+    }
+    let creditSummary: Record<string, number> | undefined;
+    if (input.creditOnly && input.includeSummary) {
+      creditSummary = Object.fromEntries(["count", "subtotalAmountMinor", "discountAmountMinor", "netAmountMinor", "vatAmountMinor", "grossAmountMinor", "amountPaidMinor", "creditAmountMinor"].map(key => [key, 0]));
+      await visitQueryPages(query, records => {
+        for (const sale of records) {
+          if (Number(sale.get("creditAmountMinor") ?? 0) <= 0) continue;
+          for (const key of Object.keys(creditSummary!)) {
+            creditSummary![key] = creditSummary![key]! + (key === "count" ? 1 : Number(sale.get(key) ?? 0));
+            if (!Number.isSafeInteger(creditSummary![key])) throw new HttpsError("failed-precondition", "Sales total exceeds safe minor-unit arithmetic.");
+          }
+        }
+      }, { orderField: "recordedAt" });
     }
     const commercialTotalsQuery = query.aggregate({
       count: AggregateField.count(),
@@ -768,7 +782,7 @@ export const generateSalesReport = onCall(
     ]);
     const totals = { ...commercialTotalsSnapshot.data(), ...settlementTotalsSnapshot.data() };
     const page = result.docs.slice(0, input.limit);
-    const rows = page.map((sale) => ({
+    const rows = page.filter(sale => !input.creditOnly || Number(sale.get("creditAmountMinor") ?? 0) > 0).map((sale) => ({
       id: sale.id,
       saleNumber: sale.get("saleNumber"),
       receiptNumber: sale.get("receiptNumber"),
@@ -796,7 +810,7 @@ export const generateSalesReport = onCall(
     const last = page.at(-1);
     return {
       reportType: input.reportType,
-      summary: Object.fromEntries(Object.entries(totals).map(([key, value]) => [key, Number(value ?? 0)])),
+      summary: !input.includeSummary ? undefined : input.creditOnly ? creditSummary : Object.fromEntries(Object.entries(totals).map(([key, value]) => [key, Number(value ?? 0)])),
       rows,
       nextCursor: result.docs.length > input.limit && last
         ? { recordedAt: iso(last.get("recordedAt")), saleId: last.id }

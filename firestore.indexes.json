@@ -1,5 +1,6 @@
 {
   "indexes": [
+    {"collectionGroup":"aftersalesPayments","queryScope":"COLLECTION","fields":[{"fieldPath":"caseId","order":"ASCENDING"},{"fieldPath":"organizationId","order":"ASCENDING"},{"fieldPath":"recordedAt","order":"DESCENDING"},{"fieldPath":"__name__","order":"DESCENDING"}]},
     {"collectionGroup":"sales","queryScope":"COLLECTION","fields":[{"fieldPath":"customerId","order":"ASCENDING"},{"fieldPath":"organizationId","order":"ASCENDING"},{"fieldPath":"receivableStatus","order":"ASCENDING"},{"fieldPath":"receivableDueDate","order":"ASCENDING"},{"fieldPath":"__name__","order":"ASCENDING"}]},
     {"collectionGroup":"sales","queryScope":"COLLECTION","fields":[{"fieldPath":"customerId","order":"ASCENDING"},{"fieldPath":"organizationId","order":"ASCENDING"},{"fieldPath":"receivableStatus","order":"ASCENDING"},{"fieldPath":"receivableDueDate","order":"ASCENDING"},{"fieldPath":"receivableOutstandingMinor","order":"ASCENDING"},{"fieldPath":"__name__","order":"ASCENDING"}]},
     {"collectionGroup":"sales","queryScope":"COLLECTION","fields":[{"fieldPath":"branchId","order":"ASCENDING"},{"fieldPath":"customerId","order":"ASCENDING"},{"fieldPath":"organizationId","order":"ASCENDING"},{"fieldPath":"receivableStatus","order":"ASCENDING"},{"fieldPath":"receivableDueDate","order":"ASCENDING"},{"fieldPath":"__name__","order":"ASCENDING"}]},
