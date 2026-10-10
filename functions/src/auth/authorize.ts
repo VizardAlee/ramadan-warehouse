@@ -797,17 +797,8 @@ export async function requireAccess(
       "No warehouse access profile exists.",
     );
   const record = snapshot.data() as Record<string, unknown>;
-  if (
-    record.status !== "active" ||
-    record.authDisabled === true ||
-    typeof record.organizationId !== "string" ||
-    normalizeRoleIds(record.roleIds, record.roleId).length === 0
-  )
-    throw new HttpsError(
-      "permission-denied",
-      "The warehouse access profile is inactive or invalid.",
-    );
-  const organization = await db.collection("organizations").doc(String(record.organizationId)).get();
+  const profile = accessProfileFromRecord(userId, record);
+  const organization = await db.collection("organizations").doc(profile.organizationId).get();
   if (!organization.exists || organization.get("status") !== "active")
     throw new HttpsError(
       "failed-precondition",
@@ -834,27 +825,39 @@ export async function requireAccess(
       "Your authorization has changed. Refresh your session.",
       { code: "OUTDATED_VERSION", retryable: true },
     );
+  return applyOperatingContext(profile, requestedOperatingContext(request.data));
+}
+
+/** Read a current stored user profile without impersonating an authenticated request. */
+export function accessProfileFromRecord(userId: string, record: Record<string, unknown>): AccessProfile {
+  if (
+    record.status !== "active" ||
+    record.authDisabled === true ||
+    typeof record.organizationId !== "string" ||
+    normalizeRoleIds(record.roleIds, record.roleId).length === 0
+  )
+    throw new HttpsError(
+      "permission-denied",
+      "The warehouse access profile is inactive or invalid.",
+    );
   const roleIds = normalizeRoleIds(record.roleIds, record.roleId);
-  return applyOperatingContext(
-    {
-      userId,
-      organizationId: record.organizationId,
-      roleId: roleIds[0]!,
-      roleIds,
-      directRoleIds: Array.isArray(record.directRoleIds) ? normalizeRoleIds(record.directRoleIds) : (Array.isArray(record.customRoleIds) && record.customRoleIds.length ? [] : roleIds),
-      effectivePermissions: Array.isArray(record.effectivePermissions)
-        ? record.effectivePermissions.filter((value: unknown): value is Permission =>
-            typeof value === "string" && Object.values(rolePermissions).some((permissions) => permissions.includes(value as Permission)))
-        : undefined,
-      branchIds: stringArray(record.branchIds),
-      warehouseIds: stringArray(record.warehouseIds),
-      authorizationVersion:
-        typeof record.authorizationVersion === "number"
-          ? record.authorizationVersion
-          : 1,
-    },
-    requestedOperatingContext(request.data),
-  );
+  return {
+    userId,
+    organizationId: record.organizationId,
+    roleId: roleIds[0]!,
+    roleIds,
+    directRoleIds: Array.isArray(record.directRoleIds) ? normalizeRoleIds(record.directRoleIds) : (Array.isArray(record.customRoleIds) && record.customRoleIds.length ? [] : roleIds),
+    effectivePermissions: Array.isArray(record.effectivePermissions)
+      ? record.effectivePermissions.filter((value: unknown): value is Permission =>
+          typeof value === "string" && Object.values(rolePermissions).some((permissions) => permissions.includes(value as Permission)))
+      : undefined,
+    branchIds: stringArray(record.branchIds),
+    warehouseIds: stringArray(record.warehouseIds),
+    authorizationVersion:
+      typeof record.authorizationVersion === "number"
+        ? record.authorizationVersion
+        : 1,
+  };
 }
 export function requirePermission(
   actor: AccessProfile,
