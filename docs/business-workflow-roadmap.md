@@ -27,6 +27,29 @@ Firebase CLI authentication is restored. The matching live planner audit passes
 refreshed against the exact reviewed sources; deployment completion is still a
 separate release gate.
 
+## Stock-count assignments and creation recovery — 10 October 2026 (under validation)
+
+Counter eligibility now uses the same current access-profile, multi-role,
+custom-permission and store-scope checks as authenticated operations. A global
+system administrator needs no artificial store assignment. Disabled users,
+users without counting permission and out-of-scope users cannot be assigned.
+Location and counter eligibility are read inside the creation transaction.
+Exact retries, including simultaneous requests, return the original count ID;
+changed payloads or another creator cannot reuse the key. Legacy retries compare
+the preserved original count instead of changing history. Creation rechecks
+current permissions and scope before returning a prior result.
+The form shows only eligible counters, labels its fields, clears stale selections
+after a store change and persists an uncertain creation instruction for exact
+recovery after reload. Definitive initial rejections remain editable. Draft dates
+use Africa/Lagos. No stock or financial posting is added by draft creation.
+All 418 unit/interface cases, four focused inventory emulator cases and 28 focused
+authorization/interface checks pass. Typecheck, Functions compilation, the
+full lint, secret scan and diff checks pass.
+All 458 matching live planner checks pass; no new index or Rules change is needed.
+Production build and coordinated deployment verification remain
+pending. The main checkout is reserved for the other chat's combined release;
+this follow-up stays isolated until that release is verified.
+
 ## Service receipt refunds — 10 October 2026 (validated; release pending)
 
 Extends the existing aftersales workspace, payment callable, receipt collection
@@ -54,8 +77,9 @@ run intentionally excludes Storage. The suite includes competing refunds,
 exact-key replay, source journal validation, period/scope/permission denials,
 cumulative VAT rounding, legacy receipts, cursor isolation and the existing
 10,000-line ledger stress case. The new receipt-history index is deployed and
-READY; all 458 matching live query planner checks pass. Production build and
-dependent Functions/web deployment remain release gates. Concurrent customer,
+READY; all 458 matching live query planner checks pass. The isolated production
+build has passed; dependent Functions/web deployment remains a release gate.
+Concurrent customer,
 invoice and report changes in the shared checkout are preserved, not implicitly
 included in this isolated release.
 

@@ -20,7 +20,8 @@ import type { AccessProfile } from "../functions/src/auth/authorize";
 import type { InventoryPostingExtension, PostingRequest } from "../functions/src/inventory/post-inventory-transaction";
 import { balanceDocumentId, uniquenessDocumentId } from "../functions/src/inventory/calculations";
 
-const projectId = "demo-ramadan-warehouse";
+const projectId = process.env.TEST_FIREBASE_PROJECT_ID ?? "demo-ramadan-warehouse";
+if (!projectId.startsWith("demo-")) throw new Error("Inventory acceptance requires an isolated demo project.");
 const adminApp =
   getAdminApps().find((app) => app.name === "inventory-callable-tests") ??
   initializeAdminApp({ projectId }, "inventory-callable-tests");
@@ -135,6 +136,42 @@ beforeAll(async () => {
 afterAll(async () => Promise.all(apps.map((app) => deleteApp(app))));
 
 describe.sequential("inventory callables", () => {
+  it("assigns unbound multi-role administrators safely and protects count creation retries", async () => {
+    const global = await createActor("global-count-admin@example.test", "sales_cashier");
+    const globalId = global.auth.currentUser!.uid;
+    await adminDb.doc(`users/${globalId}`).update({ roleIds: ["sales_cashier", "system_administrator"], warehouseIds: [], branchIds: [] });
+    await adminDb.doc("inventoryLocations/hq-count-location").set({ organizationId, branchId: "branch-a", name: "HQ store", type: "branch", status: "active" });
+    const instruction = { locationId: "hq-count-location", assignedUserIds: [globalId], blindCount: true, countDate: "2026-10-10", notes: "Global admin physical count", idempotencyKey: crypto.randomUUID() };
+    const [first, retry] = await Promise.all([
+      call<{ stockCountId: string; created: boolean }>(administrator, "createStockCount", instruction),
+      call<{ stockCountId: string; created: boolean }>(administrator, "createStockCount", instruction),
+    ]);
+    expect(first.stockCountId).toBe(retry.stockCountId);
+    expect([first.created, retry.created].sort()).toEqual([false, true]);
+    await expect(call(administrator, "createStockCount", { ...instruction, notes: "Different details" })).rejects.toMatchObject({ code: "functions/already-exists" });
+    const cashier = await createActor("count-no-permission@example.test", "sales_cashier");
+    const cashierId = cashier.auth.currentUser!.uid;
+    await adminDb.doc(`users/${cashierId}`).update({ branchIds: ["branch-a"], effectivePermissions: [] });
+    await expect(call(administrator, "createStockCount", { ...instruction, assignedUserIds: [cashierId], idempotencyKey: crypto.randomUUID() })).rejects.toMatchObject({ code: "functions/permission-denied" });
+    await adminDb.doc(`users/${cashierId}`).update({ customRoleIds: ["count-only"], effectivePermissions: ["inventory.count"] });
+    expect(await call(administrator, "createStockCount", { ...instruction, assignedUserIds: [cashierId], idempotencyKey: crypto.randomUUID() })).toMatchObject({ created: true });
+    await adminDb.doc(`users/${cashierId}`).update({ branchIds: ["other-store"] });
+    await expect(call(administrator, "createStockCount", { ...instruction, assignedUserIds: [cashierId], idempotencyKey: crypto.randomUUID() })).rejects.toMatchObject({ code: "functions/permission-denied" });
+    await adminDb.doc(`users/${globalId}`).update({ authDisabled: true });
+    await expect(call(administrator, "createStockCount", instruction)).rejects.toMatchObject({ code: "functions/permission-denied" });
+    await adminDb.doc(`users/${globalId}`).update({ authDisabled: false });
+    await expect(call(global, "createStockCount", instruction)).rejects.toMatchObject({ code: "functions/already-exists" });
+    const scopedManager = await createActor("count-scoped-manager@example.test", "branch_manager");
+    const scopedInstruction = { ...instruction, idempotencyKey: crypto.randomUUID() };
+    await call(scopedManager, "createStockCount", scopedInstruction);
+    await adminDb.doc(`users/${scopedManager.auth.currentUser!.uid}`).update({ branchIds: ["other-store"] });
+    await expect(call(scopedManager, "createStockCount", scopedInstruction)).rejects.toMatchObject({ code: "functions/permission-denied" });
+    const operation = adminDb.doc(`idempotencyKeys/${organizationId}_createStockCount_${instruction.idempotencyKey}`);
+    await operation.update({ payloadFingerprint: FieldValue.delete() });
+    expect(await call(administrator, "createStockCount", instruction)).toMatchObject({ stockCountId: first.stockCountId, created: false });
+    await expect(call(administrator, "createStockCount", { ...instruction, blindCount: false })).rejects.toMatchObject({ code: "functions/already-exists" });
+    await expect(call(administrator, "createStockCount", { ...instruction, assignedUserIds: [globalId, globalId], idempotencyKey: crypto.randomUUID() })).rejects.toMatchObject({ code: "functions/invalid-argument" });
+  });
   it("pages blind counts, saves progress without posting and blocks incomplete or duplicate submissions", async () => {
     const counter = await createActor("paged-count-officer@example.test", "warehouse_officer");
     const countId = "paged-blind-count", uid = counter.auth.currentUser!.uid;

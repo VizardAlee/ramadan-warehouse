@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { AppDialog } from "@/components/ui/app-dialog";
 import {
@@ -34,6 +34,21 @@ export default function CountsPage() {
   const [locationId, setLocationId] = useState("");
   const [assignedUserId, setAssignedUserId] = useState("");
   const [message, setMessage] = useState<string | null>(null);
+  const [draftInstruction, setDraftInstruction] = useState<Record<string, unknown> | null>(null);
+  const [draftReadyOwner, setDraftReadyOwner] = useState("");
+  const [draftBusy, setDraftBusy] = useState(false);
+  const draftFlight = useRef(false);
+  const draftStorageKey = `abr-pending-count-create:${profile?.organizationId}:${profile?.id}`;
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      try {
+        const saved = sessionStorage.getItem(draftStorageKey);
+        setDraftInstruction(saved ? JSON.parse(saved) : null);
+        setDraftReadyOwner(draftStorageKey);
+      } catch { setMessage("Saved count instructions could not be read. Check the count register before creating another count."); }
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [draftStorageKey]);
   const [pendingAction, setPendingAction] = useState<string | null>(null);
   const [workspace, setWorkspace] = useState<{
     count: StockCount;
@@ -56,23 +71,44 @@ export default function CountsPage() {
     : false;
   const canEditWorkspace = Boolean(workspace?.count.status === "in_progress" && profile &&
     (workspace.count.assignedUserIds?.includes(profile.id) || hasRole(profile, "system_administrator")));
+  const selectedLocation = locations.data.find(item => item.id === locationId);
   const counterOptions = [
     ...(profile ? [profile] : []),
     ...users.data.filter((item) => item.id !== profile?.id),
-  ].filter((item) => item.status === "active");
+  ].filter((item) => {
+    if (!hasPermission(item, "inventory.count") || item.authDisabled === true) return false;
+    if (!selectedLocation) return true;
+    if (["system_administrator", "operations_administrator", "auditor", "finance_officer"].some(role => hasRole(item, role as UserProfile["roleId"]))) return true;
+    return (!selectedLocation.warehouseId || item.warehouseIds.includes(selectedLocation.warehouseId)) &&
+      (!selectedLocation.branchId || item.branchIds.includes(selectedLocation.branchId)) &&
+      Boolean(selectedLocation.warehouseId || selectedLocation.branchId);
+  });
   async function create() {
+    if (draftFlight.current || draftReadyOwner !== draftStorageKey) return;
+    if (!navigator.onLine) { setMessage("Reconnect before creating or checking a stock count."); return; }
+    draftFlight.current = true;
+    setDraftBusy(true);
+    const retry = draftInstruction;
     try {
-      await callAdministration("createStockCount", {
+      const input = retry ?? {
         locationId,
         assignedUserIds: [assignedUserId],
         blindCount: true,
-        countDate: new Date().toISOString().slice(0, 10),
+        countDate: new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Lagos", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date()),
         idempotencyKey: crypto.randomUUID(),
-      });
+      };
+      sessionStorage.setItem(draftStorageKey, JSON.stringify(input));
+      setDraftInstruction(input);
+      await callAdministration("createStockCount", input);
+      sessionStorage.removeItem(draftStorageKey);
+      setDraftInstruction(null);
       setMessage("Draft count created.");
-    } catch {
-      setMessage("Count creation was rejected.");
-    }
+    } catch (error) {
+      const diagnostic = error as { diagnosticCode?: string; code?: string };
+      const rejected = !retry && ["functions/invalid-argument", "functions/permission-denied", "functions/failed-precondition"].includes(diagnostic.diagnosticCode ?? diagnostic.code ?? "");
+      if (rejected) { sessionStorage.removeItem(draftStorageKey); setDraftInstruction(null); }
+      setMessage(`${error instanceof Error ? error.message : "Count creation could not be confirmed."}${rejected ? " Correct the details and try again." : " Use Retry same draft; do not create another count. Return to the original working store if access was denied."}`);
+    } finally { draftFlight.current = false; setDraftBusy(false); }
   }
   async function action(name: string, stockCountId: string) {
     if (pendingAction) return;
@@ -159,10 +195,11 @@ export default function CountsPage() {
         <p className="rounded-lg bg-amber-50 p-3 text-sm">{message}</p>
       )}
       {canCount && (
-        <section className="grid gap-3 rounded-xl border bg-white p-4 md:grid-cols-[1fr_1fr_auto]">
-          <select
+        <section className="grid items-end gap-3 rounded-xl border bg-white p-4 md:grid-cols-[1fr_1fr_auto]">
+          <label className="grid gap-1 text-sm font-medium">Stock location
+          <select disabled={draftBusy || Boolean(draftInstruction) || draftReadyOwner !== draftStorageKey}
             value={locationId}
-            onChange={(event) => setLocationId(event.target.value)}
+            onChange={(event) => { setLocationId(event.target.value); setAssignedUserId(""); }}
             className="rounded-lg border p-2.5"
           >
             <option value="">Count location…</option>
@@ -172,7 +209,9 @@ export default function CountsPage() {
               </option>
             ))}
           </select>
-          <select
+          </label>
+          <label className="grid gap-1 text-sm font-medium">Counter
+          <select disabled={draftBusy || Boolean(draftInstruction) || draftReadyOwner !== draftStorageKey}
             value={assignedUserId}
             onChange={(event) => setAssignedUserId(event.target.value)}
             className="rounded-lg border p-2.5"
@@ -184,9 +223,11 @@ export default function CountsPage() {
               </option>
             ))}
           </select>
-          <Button disabled={!locationId || !assignedUserId} onClick={create}>
-            Create draft
+          </label>
+          <Button disabled={draftBusy || draftReadyOwner !== draftStorageKey || (!draftInstruction && (!locationId || !counterOptions.some(item => item.id === assignedUserId)))} onClick={create}>
+            {draftBusy ? "Checking draft…" : draftInstruction ? "Retry same draft" : "Create draft"}
           </Button>
+          {draftInstruction && <p className="text-sm md:col-span-3">An earlier draft request is awaiting confirmation. Retry its saved details, including after reloading, before creating another count.</p>}
         </section>
       )}
       <div className="responsive-table-wrap">

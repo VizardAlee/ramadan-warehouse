@@ -6,6 +6,7 @@ import { logger } from "firebase-functions";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
 import { db } from "../admin.js";
 import {
+  accessProfileFromRecord,
   canSelfAuthorize,
   hasRole,
   hasServerPermission,
@@ -110,13 +111,28 @@ export const createStockCount = onCall({ enforceAppCheck }, async (request) => {
   const operation = db
     .collection("idempotencyKeys")
     .doc(`${actor.organizationId}_createStockCount_${input.idempotencyKey}`);
-  const prior = await operation.get();
-  if (prior.exists)
-    return { stockCountId: prior.get("entityId") as string, created: false };
-  const location = await db
+  const locationReference = db
     .collection("inventoryLocations")
-    .doc(input.locationId)
-    .get();
+    .doc(input.locationId);
+  const countReference = db.collection("stockCounts").doc();
+  const counterReference = db
+    .collection("inventoryCounters")
+    .doc(`${actor.organizationId}_stockCounts`);
+  const assignedUserIds = [...input.assignedUserIds].sort();
+  if (new Set(assignedUserIds).size !== assignedUserIds.length)
+    throw new HttpsError("invalid-argument", "Select each counter only once.");
+  const payloadFingerprint = createHash("sha256").update(JSON.stringify({
+    locationId: input.locationId, assignedUserIds, blindCount: input.blindCount,
+    countDate: input.countDate, notes: input.notes ?? null,
+  })).digest("hex");
+  const requestId = correlationId();
+  return db.runTransaction(async (transaction) => {
+  const snapshots = await transaction.getAll(
+    operation, counterReference, locationReference,
+    ...assignedUserIds.map((id) => db.collection("users").doc(id)),
+  );
+  const existingOperation = snapshots[0]!, counter = snapshots[1]!, location = snapshots[2]!;
+  const users = snapshots.slice(3);
   if (
     !location.exists ||
     location.get("organizationId") !== actor.organizationId ||
@@ -127,41 +143,31 @@ export const createStockCount = onCall({ enforceAppCheck }, async (request) => {
       "Count location is unavailable.",
     );
   requireCountScope(actor, location);
-  const users = await db.getAll(
-    ...input.assignedUserIds.map((id) => db.collection("users").doc(id)),
-  );
-  if (
-    users.some(
-      (user) =>
-        !user.exists ||
-        user.get("organizationId") !== actor.organizationId ||
-        user.get("status") !== "active" ||
-        (typeof location.get("warehouseId") === "string" &&
-          !(user.get("warehouseIds") as string[] | undefined)?.includes(
-            String(location.get("warehouseId")),
-          )) ||
-        (typeof location.get("branchId") === "string" &&
-          !(user.get("branchIds") as string[] | undefined)?.includes(
-            String(location.get("branchId")),
-          )),
-    )
-  )
-    throw new HttpsError(
-      "failed-precondition",
-      "All counters must be active users in this organization.",
-    );
-  const countReference = db.collection("stockCounts").doc();
-  const counterReference = db
-    .collection("inventoryCounters")
-    .doc(`${actor.organizationId}_stockCounts`);
-  const requestId = correlationId();
-  await db.runTransaction(async (transaction) => {
-    const [existingOperation, counter] = await Promise.all([
-      transaction.get(operation),
-      transaction.get(counterReference),
-    ]);
-    if (existingOperation.exists) return;
+  for (const user of users) {
+    if (!user.exists || user.get("organizationId") !== actor.organizationId)
+      throw new HttpsError("failed-precondition", "Every counter must be an active user with stock-count access to this store.");
+    const counterProfile = accessProfileFromRecord(user.id, user.data()!);
+    requirePermission(counterProfile, "inventory.count");
+    requireCountScope(counterProfile, location);
+  }
+    if (existingOperation.exists) {
+      if (existingOperation.get("organizationId") !== actor.organizationId || existingOperation.get("createdBy") !== actor.userId || existingOperation.get("action") !== "createStockCount")
+        throw new HttpsError("already-exists", "This retry reference belongs to another stock-count instruction.");
+      const existingCount = await transaction.get(db.collection("stockCounts").doc(String(existingOperation.get("entityId"))));
+      if (!existingCount.exists || existingCount.get("organizationId") !== actor.organizationId)
+        throw new HttpsError("failed-precondition", "The original count requires reconciliation before this request can be retried.");
+      requireCountScope(actor, existingCount);
+      const originalFingerprint = existingOperation.get("payloadFingerprint") ?? createHash("sha256").update(JSON.stringify({
+        locationId: existingCount.get("locationId"), assignedUserIds: [...(existingCount.get("assignedUserIds") as string[])].sort(),
+        blindCount: existingCount.get("blindCount"), countDate: existingCount.get("countDate"), notes: existingCount.get("notes") ?? null,
+      })).digest("hex");
+      if (originalFingerprint !== payloadFingerprint)
+        throw new HttpsError("already-exists", "This retry reference was already used for different count details.");
+      return { stockCountId: existingCount.id, created: false };
+    }
     const sequence = Number(counter.get("value") ?? 0) + 1;
+    if (!Number.isSafeInteger(sequence) || sequence < 1)
+      throw new HttpsError("failed-precondition", "The stock-count sequence requires reconciliation.");
     const countNumber = `CNT-${new Date(input.countDate).getUTCFullYear()}-${String(sequence).padStart(5, "0")}`;
     const now = FieldValue.serverTimestamp();
     transaction.set(
@@ -193,6 +199,7 @@ export const createStockCount = onCall({ enforceAppCheck }, async (request) => {
     transaction.create(operation, {
       organizationId: actor.organizationId,
       action: "createStockCount",
+      payloadFingerprint,
       entityId: countReference.id,
       status: "completed",
       createdAt: now,
@@ -210,8 +217,8 @@ export const createStockCount = onCall({ enforceAppCheck }, async (request) => {
         blindCount: input.blindCount,
       },
     });
+    return { stockCountId: countReference.id, created: true };
   });
-  return { stockCountId: countReference.id, created: true };
 });
 
 export const startStockCount = onCall(

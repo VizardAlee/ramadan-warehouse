@@ -16,7 +16,10 @@ describe("stock count resumption", () => {
     render(<CountsPage />);
     fireEvent.click(screen.getByRole("button", { name: "Open" }));
     const input = await screen.findByLabelText("Counted quantity for RETAIN");
+    input.focus();
     fireEvent.change(input, { target: { value: "4" } });
+    fireEvent.blur(input);
+    await waitFor(() => expect((screen.getByRole("button", { name: "Next items" }) as HTMLButtonElement).disabled).toBe(false));
     fireEvent.click(screen.getByRole("button", { name: "Next items" }));
     await waitFor(() => expect(screen.getAllByText("Connection interrupted; retry this page.").length).toBeGreaterThan(0));
     expect((input as HTMLInputElement).value).toBe("4");
@@ -36,6 +39,7 @@ describe("stock count resumption", () => {
     await waitFor(() => expect(screen.getAllByText(/Enter a physical count for every line/).length).toBeGreaterThan(0));
     expect(mocks.call.mock.calls.some(call => call[0] === "submitStockCount")).toBe(false);
     fireEvent.change(screen.getByLabelText("Counted quantity for FIRST"), { target: { value: "0" } });
+    await waitFor(() => expect((screen.getByRole("button", { name: "Next items" }) as HTMLButtonElement).disabled).toBe(false));
     fireEvent.click(screen.getByRole("button", { name: "Next items" }));
     expect(await screen.findByLabelText("Counted quantity for SECOND")).toBeTruthy();
     expect(mocks.call).toHaveBeenCalledWith("submitStockCount", expect.objectContaining({ saveOnly: true, items: [{ itemId: "line-1", countedQuantity: 0, serialNumbers: [] }] }));

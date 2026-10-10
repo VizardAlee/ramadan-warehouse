@@ -1,10 +1,26 @@
 import { describe, expect, it } from "vitest";
-import { applyOperatingContext, assertAssignableRole, assertAssignableRoles, assertAssignmentScope, canAssignRole, hasServerPermission, type AccessProfile } from "../functions/src/auth/authorize";
+import { accessProfileFromRecord, applyOperatingContext, assertAssignableRole, assertAssignableRoles, assertAssignmentScope, canAssignRole, hasServerPermission, requireBranchScope, requireWarehouseScope, type AccessProfile } from "../functions/src/auth/authorize";
 import { buildRoleAssignment } from "../functions/src/auth/custom-roles";
 import { hasPermission } from "../src/lib/permissions/roles";
 
 const actor = (roleId: AccessProfile["roleId"]): AccessProfile => ({ userId: "actor", organizationId: "org", roleId, branchIds: ["b1"], warehouseIds: ["w1"], authorizationVersion: 1 });
 describe("server authorization controls", () => {
+  it("uses all current roles and explicit custom permissions for stored counter profiles", () => {
+    const record = { organizationId: "org", status: "active", roleId: "sales_cashier", roleIds: ["sales_cashier", "system_administrator"], branchIds: [], warehouseIds: [] };
+    const global = accessProfileFromRecord("counter", record);
+    expect(hasServerPermission(global, "inventory.count")).toBe(true);
+    expect(() => requireBranchScope(global, "hq")).not.toThrow();
+    expect(() => requireWarehouseScope(global, "historical-hq")).not.toThrow();
+    const restricted = accessProfileFromRecord("restricted", { ...record, roleIds: ["warehouse_officer"], customRoleIds: ["limited-counter"], effectivePermissions: [], warehouseIds: ["historical-hq"] });
+    expect(hasServerPermission(restricted, "inventory.count")).toBe(false);
+    expect(() => requireBranchScope(restricted, "hq")).toThrow();
+    expect(accessProfileFromRecord("custom", { ...record, roleIds: ["branch_requester"], customRoleIds: ["count-only"], effectivePermissions: ["inventory.count", "not-a-permission"], branchIds: ["hq"] }).effectivePermissions).toEqual(["inventory.count"]);
+  });
+  it("rejects deactivated, Auth-disabled or invalid stored profiles", () => {
+    const record = { organizationId: "org", status: "active", roleId: "system_administrator" };
+    for (const change of [{ status: "inactive" }, { authDisabled: true }, { organizationId: null }, { roleId: "unknown" }])
+      expect(() => accessProfileFromRecord("counter", { ...record, ...change })).toThrow();
+  });
   it("keeps manual accounting permissions explicit for custom and multiple roles", () => {
     for (const permission of ["finance.journal.create", "finance.journal.reverse", "finance.accounts.manage", "finance.tax.manage", "finance.budget.manage"] as const) {
       expect(hasServerPermission({ ...actor("finance_officer"), directRoleIds: ["finance_officer"], effectivePermissions: [] }, permission)).toBe(true);
