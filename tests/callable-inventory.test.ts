@@ -135,6 +135,72 @@ beforeAll(async () => {
 afterAll(async () => Promise.all(apps.map((app) => deleteApp(app))));
 
 describe.sequential("inventory callables", () => {
+  it("pages blind counts, saves progress without posting and blocks incomplete or duplicate submissions", async () => {
+    const counter = await createActor("paged-count-officer@example.test", "warehouse_officer");
+    const countId = "paged-blind-count", uid = counter.auth.currentUser!.uid;
+    const batch = adminDb.batch();
+    batch.set(adminDb.doc(`stockCounts/${countId}`), { organizationId, locationId: "location-a", warehouseId: "warehouse-a", countNumber: "COUNT-PAGES", status: "in_progress", blindCount: true, assignedUserIds: [uid] });
+    for (let i = 0; i < 26; i++) batch.set(adminDb.doc(`stockCountItems/${countId}-${String(i).padStart(3, "0")}`), { organizationId, stockCountId: countId, sku: `SKU-${i}`, trackingType: "quantity", expectedQuantity: 3, expectedSerialNumbers: [], countedQuantity: null, variance: null });
+    await batch.commit();
+    const action = { stockCountId: countId, reason: "Physical count page test", idempotencyKey: crypto.randomUUID() };
+    type Page = { items: { id: string; expectedQuantity?: number; variance?: number }[]; nextCursor: string | null };
+    const first = await call<Page>(counter, "getStockCountWorkspace", { ...action, limit: 25 });
+    expect(first.items).toHaveLength(25); expect(first.nextCursor).toBeTruthy();
+    expect(first.items.every(item => item.expectedQuantity === undefined && item.variance === undefined)).toBe(true);
+    const lines = first.items.map(item => ({ itemId: item.id, countedQuantity: 2, serialNumbers: [] }));
+    await expect(call(counter, "submitStockCount", { ...action, items: lines })).rejects.toMatchObject({ code: "functions/failed-precondition" });
+    expect((await adminDb.doc(`stockCountItems/${lines[0]!.itemId}`).get()).get("countedQuantity")).toBeNull();
+    await expect(call(counter, "submitStockCount", { ...action, saveOnly: true, items: [lines[0], lines[0]] })).rejects.toMatchObject({ code: "functions/invalid-argument" });
+    await expect(call(counter, "submitStockCount", { ...action, saveOnly: true, items: lines })).resolves.toMatchObject({ saved: true, submitted: false });
+    expect((await adminDb.doc(`stockCounts/${countId}`).get()).get("status")).toBe("in_progress");
+    const second = await call<Page>(counter, "getStockCountWorkspace", { ...action, limit: 25, cursor: first.nextCursor });
+    expect(second.items).toHaveLength(1); expect(second.nextCursor).toBeNull();
+    await expect(call(counter, "getStockCountWorkspace", { ...action, cursor: "not-this-count" })).rejects.toMatchObject({ code: "functions/invalid-argument" });
+    await expect(call(counter, "submitStockCount", { ...action, items: [{ itemId: second.items[0]!.id, countedQuantity: 0, serialNumbers: [] }] })).resolves.toMatchObject({ submitted: true });
+    expect((await adminDb.doc(`stockCounts/${countId}`).get()).get("status")).toBe("submitted");
+    expect((await adminDb.collection("inventoryEntries").where("referenceId", "==", countId).get()).empty).toBe(true);
+    await adminDb.doc("stockCountItems/zz-foreign-count-line").set({ organizationId: "foreign-org", stockCountId: countId, sku: "DO-NOT-EXPOSE", countedQuantity: 0 });
+    await expect(call(counter, "getStockCountWorkspace", { ...action, cursor: first.nextCursor, limit: 25 })).rejects.toMatchObject({ code: "functions/failed-precondition" });
+  });
+
+  it("snapshots more than 500 positions atomically, safely retries and rejects oversized snapshots without omission", async () => {
+    const locationId = "oversized-count-location", countId = "oversized-draft-count";
+    const batch = adminDb.batch();
+    batch.set(adminDb.doc(`stockCounts/${countId}`), { organizationId, locationId, warehouseId: "warehouse-a", status: "draft", assignedUserIds: [administrator.auth.currentUser!.uid] });
+    await batch.commit();
+    for (let start = 0; start < 501; start += 400) {
+      const positions = adminDb.batch();
+      for (let i = start; i < Math.min(start + 400, 501); i++) positions.set(adminDb.doc(`inventoryBalances/${locationId}-${i}`), { organizationId, locationId, warehouseId: "warehouse-a", productId: `oversized-${i}`, sku: `BIG-${i}`, onHandQuantity: 1, availableQuantity: 1, reservedQuantity: 0, totalValueMinor: 0, version: 1 });
+      await positions.commit();
+    }
+    const input = { stockCountId: countId, reason: "Do not truncate the snapshot", idempotencyKey: crypto.randomUUID() };
+    await expect(call(administrator, "startStockCount", input)).resolves.toMatchObject({ started: true, itemCount: 501 });
+    await expect(call(administrator, "startStockCount", input)).resolves.toMatchObject({ started: false, itemCount: 501 });
+    expect((await adminDb.collection("stockCountItems").where("stockCountId", "==", countId).get()).size).toBe(501);
+    const oversizeId = `${countId}-rejected`;
+    await adminDb.doc(`stockCounts/${oversizeId}`).set({ organizationId, locationId, warehouseId: "warehouse-a", status: "draft", assignedUserIds: [administrator.auth.currentUser!.uid] });
+    for (let start = 501; start < 2001; start += 400) {
+      const positions = adminDb.batch();
+      for (let i = start; i < Math.min(start + 400, 2001); i++) positions.set(adminDb.doc(`inventoryBalances/${locationId}-${i}`), { organizationId, locationId, warehouseId: "warehouse-a", productId: `oversized-${i}`, sku: `BIG-${i}`, onHandQuantity: 1, availableQuantity: 1, reservedQuantity: 0, totalValueMinor: 0, version: 1 });
+      await positions.commit();
+    }
+    await expect(call(administrator, "startStockCount", { ...input, stockCountId: oversizeId, idempotencyKey: crypto.randomUUID() })).rejects.toMatchObject({ code: "functions/resource-exhausted" });
+    expect((await adminDb.doc(`stockCounts/${oversizeId}`).get()).get("status")).toBe("draft");
+    expect((await adminDb.collection("stockCountItems").where("stockCountId", "==", oversizeId).get()).empty).toBe(true);
+  });
+
+  it("blocks review and posting of historical incomplete counts", async () => {
+    const countId = "historical-incomplete-count";
+    const reference = adminDb.doc(`stockCounts/${countId}`);
+    await reference.set({ organizationId, locationId: "location-a", warehouseId: "warehouse-a", status: "submitted", assignedUserIds: [administrator.auth.currentUser!.uid] });
+    await adminDb.doc(`stockCountItems/${countId}-line`).set({ organizationId, stockCountId: countId, expectedQuantity: 2, countedQuantity: null, variance: null });
+    const input = { stockCountId: countId, reason: "Do not post an unfinished count", idempotencyKey: crypto.randomUUID() };
+    await expect(call(administrator, "reviewStockCount", input)).rejects.toMatchObject({ code: "functions/failed-precondition" });
+    await reference.update({ status: "reviewed" });
+    await expect(call(administrator, "postStockCount", input)).rejects.toMatchObject({ code: "functions/failed-precondition" });
+    expect((await reference.get()).get("postingEffectiveAt")).toBeUndefined();
+  });
+
   it("links stock valuation to balanced non-cash journals and reverses both exactly once", async () => {
     const created = await call<{ productId: string }>(administrator, "saveProduct", product({ sku: "JOURNAL-STOCK" }));
     const payload = { productId: created.productId, destinationLocationId: "location-a", quantity: 3, unitCostMinor: 1000, serialNumbers: [], effectiveAt: "2026-08-02T10:00:00.000Z", reason: "Verified opening stock valuation", externalAccount: "migration", idempotencyKey: crypto.randomUUID() };

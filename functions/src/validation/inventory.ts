@@ -157,7 +157,12 @@ export const stockCountActionInput = z.object({
   reason: z.string().trim().min(3).max(500),
   idempotencyKey,
 });
+export const stockCountWorkspaceInput = stockCountActionInput.extend({
+  cursor: id.refine(value => !value.includes("/"), "Invalid count page reference.").optional(),
+  limit: z.union([z.literal(25), z.literal(50), z.literal(100), z.literal(200)]).default(50),
+});
 export const stockCountSubmitInput = stockCountActionInput.extend({
+  saveOnly: z.boolean().default(false),
   items: z
     .array(
       z.object({
@@ -165,11 +170,14 @@ export const stockCountSubmitInput = stockCountActionInput.extend({
         countedQuantity: z.number().int().nonnegative(),
         serialNumbers: z
           .array(z.string().trim().min(1).max(160))
-          .max(500)
+          .max(5000)
           .default([]),
         notes: optionalText(500),
       }),
     )
     .min(1)
     .max(200),
+}).superRefine((input, context) => {
+  if (new Set(input.items.map(item => item.itemId)).size !== input.items.length)
+    context.addIssue({ code: "custom", path: ["items"], message: "Each count line may appear only once." });
 });

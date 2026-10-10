@@ -10,7 +10,7 @@ import { useDialogFocus } from "@/components/ui/use-dialog-focus";
 import { callAdministration } from "@/features/administration/api";
 import { useOrganizationCollection } from "@/features/administration/use-organization-collection";
 import { useAuth } from "@/features/auth/auth-context";
-import { hasPermission } from "@/lib/permissions/roles";
+import { hasPermission, hasRole } from "@/lib/permissions/roles";
 import type {
   InventoryLocation,
   StockCount,
@@ -38,7 +38,12 @@ export default function CountsPage() {
   const [workspace, setWorkspace] = useState<{
     count: StockCount;
     items: CountItem[];
+    nextCursor?: string | null;
   } | null>(null);
+  const [workspaceBusy, setWorkspaceBusy] = useState(false);
+  const [pageSize, setPageSize] = useState(25);
+  const [pageCursors, setPageCursors] = useState<(string | undefined)[]>([undefined]);
+  const [workspacePage, setWorkspacePage] = useState(0);
   const [quantities, setQuantities] = useState<Record<string, string>>({});
   const [serialText, setSerialText] = useState<Record<string, string>>({});
   const countPagination = useTablePagination(counts.data);
@@ -49,6 +54,8 @@ export default function CountsPage() {
   const canReview = profile
     ? hasPermission(profile, "inventory.count_review")
     : false;
+  const canEditWorkspace = Boolean(workspace?.count.status === "in_progress" && profile &&
+    (workspace.count.assignedUserIds?.includes(profile.id) || hasRole(profile, "system_administrator")));
   const counterOptions = [
     ...(profile ? [profile] : []),
     ...users.data.filter((item) => item.id !== profile?.id),
@@ -85,47 +92,59 @@ export default function CountsPage() {
   }
   async function openWorkspace(stockCountId: string) {
     try {
+      setQuantities({}); setSerialText({}); setWorkspacePage(0); setPageCursors([undefined]);
       setWorkspace(
         await callAdministration("getStockCountWorkspace", {
           stockCountId,
           reason: "Open workspace",
           idempotencyKey: crypto.randomUUID(),
+          limit: pageSize,
         }),
       );
     } catch {
       setMessage("Unable to open count workspace.");
     }
   }
-  async function submit() {
-    if (!workspace) return;
+  async function savePage(saveOnly: boolean) {
+    if (!workspace) return false;
+    const filled = workspace.items.filter(item => String(quantities[item.id] ?? item.countedQuantity ?? "").trim() !== "");
+    if (!saveOnly && filled.length !== workspace.items.length) throw new Error("Enter a physical count for every line on this page. Enter 0 explicitly when none are found.");
+    if (!filled.length) { if (saveOnly) return true; throw new Error("There are no quantities to submit."); }
+    await callAdministration("submitStockCount", {
+      stockCountId: workspace.count.id, reason: saveOnly ? "Physical count page saved" : "Physical count submitted",
+      idempotencyKey: crypto.randomUUID(), saveOnly,
+      items: filled.map(item => ({
+        itemId: item.id, countedQuantity: Number(quantities[item.id] ?? item.countedQuantity),
+        serialNumbers: item.trackingType === "serial" ? (serialText[item.id] ?? item.countedSerialNumbers?.join("\n") ?? "").split(/[\n,]+/).map(value => value.trim()).filter(Boolean) : [],
+      })),
+    });
+    return true;
+  }
+  async function changePage(nextPage: number, size = pageSize) {
+    if (!workspace || workspaceBusy) return;
+    setWorkspaceBusy(true);
     try {
-      await callAdministration("submitStockCount", {
+      if (canEditWorkspace) await savePage(true);
+      const cursor = size !== pageSize ? undefined : nextPage > workspacePage ? workspace.nextCursor ?? undefined : pageCursors[nextPage];
+      const result = await callAdministration<object, NonNullable<typeof workspace>>("getStockCountWorkspace", {
         stockCountId: workspace.count.id,
-        reason: "Physical count submitted",
+        reason: "Open count page", limit: size, ...(cursor ? { cursor } : {}),
         idempotencyKey: crypto.randomUUID(),
-        items: workspace.items.map((item) => ({
-          itemId: item.id,
-          countedQuantity: Number(
-            quantities[item.id] ?? item.countedQuantity ?? 0,
-          ),
-          serialNumbers:
-            item.trackingType === "serial"
-              ? (
-                  serialText[item.id] ??
-                  item.countedSerialNumbers?.join("\n") ??
-                  ""
-                )
-                  .split(/[\n,]+/)
-                  .map((value) => value.trim())
-                  .filter(Boolean)
-              : [],
-        })),
       });
-      setMessage("Count submitted without changing inventory.");
-      setWorkspace(null);
-    } catch {
-      setMessage("Count submission was rejected.");
-    }
+      setPageCursors(current => size !== pageSize ? [undefined] : Object.assign([...current], { [nextPage]: cursor }));
+      setWorkspace(result); setWorkspacePage(nextPage); setPageSize(size);
+    } catch (error) { setMessage(error instanceof Error ? error.message : "Unable to save or open this count page. Your inputs are retained."); }
+    finally { setWorkspaceBusy(false); }
+  }
+  async function submit(saveOnly = false) {
+    if (!workspace || workspaceBusy) return;
+    setWorkspaceBusy(true);
+    try {
+      await savePage(saveOnly);
+      setMessage(saveOnly ? "This page is saved. Continue counting the other pages." : "Complete count submitted without changing inventory.");
+      if (!saveOnly) setWorkspace(null);
+    } catch (error) { setMessage(error instanceof Error ? error.message : "Count submission was rejected. Your inputs are retained."); }
+    finally { setWorkspaceBusy(false); }
   }
   return (
     <div className="space-y-5">
@@ -274,6 +293,8 @@ export default function CountsPage() {
                 : "Visible expected quantities"}{" "}
               · {workspace.count.status}
             </p>
+            <p className="mt-2 text-sm text-[var(--muted)]">Save progress by page. Blank quantities are not counted as zero. Submit only after every item has been counted.</p>
+            {message && <p role="status" className="mt-2 rounded-lg bg-amber-50 p-3 text-sm">{message}</p>}
             <div className="responsive-table-wrap mt-4 max-h-[55vh] overflow-auto">
               <table className="responsive-table">
                 <thead>
@@ -313,7 +334,8 @@ export default function CountsPage() {
                               [item.id]: event.target.value,
                             }))
                           }
-                          disabled={workspace.count.status !== "in_progress"}
+                          disabled={workspaceBusy || !canEditWorkspace}
+                          aria-label={`Counted quantity for ${item.sku}`}
                           className="w-24 rounded border p-2"
                         />
                       </td>
@@ -332,7 +354,7 @@ export default function CountsPage() {
                                 [item.id]: event.target.value,
                               }))
                             }
-                            disabled={workspace.count.status !== "in_progress"}
+                            disabled={workspaceBusy || !canEditWorkspace}
                             placeholder="One serial per line"
                             className="min-w-48 rounded border p-2"
                           />
@@ -345,12 +367,17 @@ export default function CountsPage() {
                 </tbody>
               </table>
             </div>
+            <nav aria-label="Count item pages" className="mt-3 flex flex-wrap items-center justify-between gap-2 text-sm">
+              <label>Items per page <select aria-label="Count items per page" value={pageSize} disabled={workspaceBusy} onChange={event => changePage(0, Number(event.target.value))} className="rounded-lg border p-2">{[25, 50, 100].map(size => <option key={size} value={size}>{size}</option>)}</select></label>
+              <span>Page {workspacePage + 1} · {workspace.items.length} items</span>
+              <div className="flex gap-2"><Button variant="secondary" disabled={workspaceBusy || workspacePage === 0} onClick={() => changePage(workspacePage - 1)}>Previous items</Button><Button variant="secondary" disabled={workspaceBusy || !workspace.nextCursor} onClick={() => changePage(workspacePage + 1)}>Next items</Button></div>
+            </nav>
             <div className="mt-4 flex justify-end gap-2">
-              <Button variant="secondary" onClick={() => setWorkspace(null)}>
+              <Button variant="secondary" disabled={workspaceBusy} onClick={() => setWorkspace(null)}>
                 Close
               </Button>
-              {workspace.count.status === "in_progress" && (
-                <Button onClick={submit}>Submit count</Button>
+              {canEditWorkspace && (
+                <><Button variant="secondary" disabled={workspaceBusy} onClick={() => submit(true)}>Save this page</Button><Button disabled={workspaceBusy} onClick={() => submit(false)}>Submit complete count</Button></>
               )}
             </div>
           </section>

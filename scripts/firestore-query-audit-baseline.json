@@ -1,13 +1,13 @@
 {
   "lastLiveAudit": {
     "project": "ramadan-warehouse-staging",
-    "verifiedAt": "2026-10-10T07:34:05.575Z",
-    "queryShapes": 456,
+    "verifiedAt": "2026-10-10T07:54:32.743Z",
+    "queryShapes": 457,
     "unsupportedQueries": 0,
     "readyIndexes": 226,
     "singleFieldOverrides": 0
   },
-  "catalogSha256": "52b7f5066a9ba278ad50afb08dd6295cf649388e4a4f943ca451512aa0ec6453",
+  "catalogSha256": "cf7da37150323d20c9d0b738c3b6058745744b17216151bca856990544e04639",
   "sourceFingerprints": {
     "functions/src/accounting/daily-close.ts": "88916698e8112584523b1770eb98be7e052761b4982e6f572df1e6f7221d617a",
     "functions/src/accounting/stock-postings.ts": "005230ec2a728e426d435a3574e4ccd3e08928f30db4f8c710069da12137f24e",
@@ -42,7 +42,7 @@
     "functions/src/callable/sales-corrections.ts": "6a81ad6d02442729f5a390a4184739fd4f3f3a450b8951e51c543a09bcdd95ff",
     "functions/src/callable/sales-returns.ts": "554ea6865dde83ad7f589ef27324a1904f5fba9e45dd0bf260b777981679b3c8",
     "functions/src/callable/sales.ts": "fc0419129afc6b6d536ec173dbccfa032a9ab68d08bd9a60f03ca7fcfd132cdc",
-    "functions/src/callable/stock-counts.ts": "0122278d59cdced3b4790b45edde36a18149c68e5c24e7bf9e6329db72431b48",
+    "functions/src/callable/stock-counts.ts": "248a2f42680794797431064f470936a8ef280043fcc5da4f57e1cbb4f5b82b80",
     "functions/src/callable/stock-transfers.ts": "24d6674c091bc7a9934f450237cf301ae12a782c629f98e01d3e5aa6ca7ee191",
     "functions/src/callable/tax-rule-administration.ts": "0cf2adcf160160bcd0a15b2d23f6e98053e2a0b472ef7a761185b532926b9034",
     "functions/src/callable/transfers.ts": "40f6059886b760b10f6dcec2f08ad3b53070db51b384454d8eb96fe58de59497",
@@ -71,7 +71,7 @@
     "src/app/(protected)/customers/[customer_id]/page.tsx": "cbc0f5b63381c28b0d0d5e0edfb13cbd2c1e603c0f576ecc59a8188485b0503c",
     "src/app/(protected)/customers/page.tsx": "5d40a4c02593d732e8f9aebeeb16aa0d7bd9c42ad914692f91b521fa71f0e3d8",
     "src/app/(protected)/hr/page.tsx": "888d986dc8942cf59b15deaf16d3d1f3f82fd5168f27d987fc1647f85c5ce614",
-    "src/app/(protected)/inventory/counts/page.tsx": "01a19a0de2b00cdeedc46e5490251fcf93fa23bf734775f6c69199ae1e884dd2",
+    "src/app/(protected)/inventory/counts/page.tsx": "5e8e71f9e039863341abda923289a99c89bca5c21c54cc49f1b6eb41515096b2",
     "src/app/(protected)/inventory/page.tsx": "587c809b9be1fb0c4975f08de51131ae3448023b20ee862b71e81b2802998be0",
     "src/app/(protected)/pos/page.tsx": "53fd7e75a2490a7880fedc0efc5943ba4d970bf23456dfa1d680660f538897a0",
     "src/app/(protected)/products/[product_id]/page.tsx": "25ffd4523e31a20ecd1c8bb7c8689d0e4484addfdf07e69234761b56ca950039",

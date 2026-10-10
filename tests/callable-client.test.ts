@@ -26,10 +26,12 @@ describe("callAdministration", () => {
     await callAdministration("getTaxWorkspace", {});
     await callAdministration("createSaleReturn", {});
     await callAdministration("postStockCount", {});
+    await callAdministration("startStockCount", {});
     expect(mocks.httpsCallable).toHaveBeenNthCalledWith(1, {}, "generateFinancialStatement", { timeout: 300_000 });
     expect(mocks.httpsCallable).toHaveBeenNthCalledWith(2, {}, "getTaxWorkspace", { timeout: 300_000 });
     expect(mocks.httpsCallable).toHaveBeenNthCalledWith(3, {}, "createSaleReturn", { timeout: 70_000 });
     expect(mocks.httpsCallable).toHaveBeenNthCalledWith(4, {}, "postStockCount", { timeout: 300_000 });
+    expect(mocks.httpsCallable).toHaveBeenNthCalledWith(5, {}, "startStockCount", { timeout: 180_000 });
   });
   beforeEach(() => {
     vi.clearAllMocks();

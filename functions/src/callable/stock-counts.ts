@@ -1,4 +1,4 @@
-import { FieldValue, Timestamp } from "firebase-admin/firestore";
+import { FieldPath, FieldValue, Timestamp } from "firebase-admin/firestore";
 import { createHash } from "node:crypto";
 import { stockAccounting } from "../accounting/stock-postings.js";
 import { visitQueryPages } from "../utils/query-pages.js";
@@ -8,6 +8,7 @@ import { db } from "../admin.js";
 import {
   canSelfAuthorize,
   hasRole,
+  hasServerPermission,
   requireBranchScope,
   requireAccess,
   requirePermission,
@@ -23,6 +24,7 @@ import {
   stockCountActionInput,
   stockCountCreateInput,
   stockCountSubmitInput,
+  stockCountWorkspaceInput,
 } from "../validation/inventory.js";
 
 function requireCountScope(
@@ -50,7 +52,7 @@ export const getStockCountWorkspace = onCall(
   async (request) => {
     const actor = await requireAccess(request);
     requirePermission(actor, "inventory.count");
-    const input = parseInput(stockCountActionInput, request.data);
+    const input = parseInput(stockCountWorkspaceInput, request.data);
     const count = await db
       .collection("stockCounts")
       .doc(input.stockCountId)
@@ -61,27 +63,34 @@ export const getStockCountWorkspace = onCall(
     const assigned = (count.get("assignedUserIds") as string[]).includes(
       actor.userId,
     );
-    const canReview =
-      hasRole(actor, "system_administrator") ||
-      hasRole(actor, "warehouse_manager") ||
-      hasRole(actor, "branch_manager");
+    const canReview = hasServerPermission(actor, "inventory.count_review");
     if (!assigned && !canReview)
       throw new HttpsError(
         "permission-denied",
         "You cannot access this stock count.",
       );
-    const items = await db
+    let query = db
       .collection("stockCountItems")
       .where("stockCountId", "==", count.id)
-      .limit(200)
-      .get();
+      .orderBy(FieldPath.documentId());
+    if (input.cursor) {
+      const cursor = await db.doc(`stockCountItems/${input.cursor}`).get();
+      if (!cursor.exists || cursor.get("organizationId") !== actor.organizationId || cursor.get("stockCountId") !== count.id)
+        throw new HttpsError("invalid-argument", "This page reference does not belong to the selected count.");
+      query = query.startAfter(cursor);
+    }
+    const items = await query.limit(input.limit + 1).get();
+    if (items.docs.some(item => item.get("organizationId") !== actor.organizationId))
+      throw new HttpsError("failed-precondition", "A count line requires authorized reconciliation before this count can be opened.");
+    const page = items.docs.slice(0, input.limit);
     const hideExpected =
       count.get("blindCount") === true &&
       count.get("status") === "in_progress" &&
       !canReview;
     return {
       count: { id: count.id, ...count.data() },
-      items: items.docs.map((item) => {
+      nextCursor: items.size > input.limit ? page.at(-1)!.id : null,
+      items: page.map((item) => {
         const data = { id: item.id, ...item.data() } as Record<string, unknown>;
         if (hideExpected) {
           delete data.expectedQuantity;
@@ -206,7 +215,7 @@ export const createStockCount = onCall({ enforceAppCheck }, async (request) => {
 });
 
 export const startStockCount = onCall(
-  { enforceAppCheck, timeoutSeconds: 60 },
+  { enforceAppCheck, timeoutSeconds: 180 },
   async (request) => {
     const actor = await requireAccess(request);
     requirePermission(actor, "inventory.count");
@@ -216,77 +225,65 @@ export const startStockCount = onCall(
     if (!count.exists || count.get("organizationId") !== actor.organizationId)
       throw new HttpsError("not-found", "Stock count not found.");
     requireCountScope(actor, count);
-    if (count.get("status") !== "draft")
-      throw new HttpsError(
-        "failed-precondition",
-        "Only draft counts can be started.",
-      );
-    const balances = await db
-      .collection("inventoryBalances")
-      .where("organizationId", "==", actor.organizationId)
-      .where("locationId", "==", count.get("locationId"))
-      .limit(200)
-      .get();
-    const serials = await db
-      .collection("serializedItems")
-      .where("organizationId", "==", actor.organizationId)
-      .where("currentLocationId", "==", count.get("locationId"))
-      .where("active", "==", true)
-      .limit(1000)
-      .get();
-    const serialsByProduct = new Map<string, string[]>();
-    serials.docs.forEach((item) => {
-      const values = serialsByProduct.get(String(item.get("productId"))) ?? [];
-      values.push(String(item.get("normalizedSerialNumber")));
-      serialsByProduct.set(String(item.get("productId")), values);
-    });
     const requestId = correlationId();
-    await db.runTransaction(async (transaction) => {
+    const instructions = createHash("sha256").update(JSON.stringify(input)).digest("hex");
+    return db.runTransaction(async (transaction) => {
       const fresh = await transaction.get(countReference);
+      if (!fresh.exists || fresh.get("organizationId") !== actor.organizationId)
+        throw new HttpsError("not-found", "Stock count not found.");
+      requireCountScope(actor, fresh);
+      if (fresh.get("startFingerprint") === instructions)
+        return { stockCountId: countReference.id, itemCount: Number(fresh.get("itemCount")), started: false };
       if (fresh.get("status") !== "draft")
         throw new HttpsError(
           "failed-precondition",
           "Stock count state changed.",
         );
-      const currentBalances = await transaction.getAll(
-        ...balances.docs.map((balance) => balance.ref),
-      );
-      for (let index = 0; index < balances.size; index++)
-        if (
-          currentBalances[index]?.get("version") !==
-          balances.docs[index]?.get("version")
-        )
-          throw new HttpsError(
-            "aborted",
-            "Inventory moved while the count snapshot was being created. Retry.",
-          );
+      // Both queries share the transaction snapshot; nothing is silently omitted.
+      // Firestore removed the old 500-write limit; request/document size limits remain.
+      const [balances, serials] = await Promise.all([
+        transaction.get(db.collection("inventoryBalances").where("organizationId", "==", actor.organizationId)
+          .where("locationId", "==", fresh.get("locationId")).limit(2001)),
+        transaction.get(db.collection("serializedItems").where("organizationId", "==", actor.organizationId)
+          .where("currentLocationId", "==", fresh.get("locationId")).where("active", "==", true).limit(5001)),
+      ]);
+      if (balances.size > 2000 || serials.size > 5000)
+        throw new HttpsError("resource-exhausted", "This location exceeds the atomic count snapshot capacity (2000 stock positions / 5000 active serials). Nothing was started or changed. Larger locations require a staged snapshot.");
+      const serialsByProduct = new Map<string, string[]>();
+      for (const serial of serials.docs) {
+        const productId = String(serial.get("productId"));
+        const values = serialsByProduct.get(productId) ?? [];
+        values.push(String(serial.get("normalizedSerialNumber")));
+        serialsByProduct.set(productId, values);
+      }
       const now = FieldValue.serverTimestamp();
-      for (const balance of balances.docs) {
+      let snapshotBytes = 0;
+      const records = balances.docs.map(balance => {
+        const data = {
+          organizationId: actor.organizationId, stockCountId: countReference.id,
+          productId: balance.get("productId"), sku: balance.get("sku"),
+          trackingType: balance.get("trackingType") ?? "quantity",
+          locationId: fresh.get("locationId"), warehouseId: fresh.get("warehouseId") ?? null,
+          branchId: fresh.get("branchId") ?? null, lotId: balance.get("lotId") ?? null,
+          expectedQuantity: balance.get("onHandQuantity"),
+          expectedSerialNumbers: serialsByProduct.get(String(balance.get("productId"))) ?? [],
+          countedQuantity: null, countedSerialNumbers: [], variance: null, createdAt: now, updatedAt: now,
+        };
+        const bytes = Buffer.byteLength(JSON.stringify(data)); snapshotBytes += bytes;
+        if (bytes > 700_000 || snapshotBytes > 5_000_000)
+          throw new HttpsError("resource-exhausted", "The count snapshot exceeds its safe document/request size. Nothing was started or changed.");
+        return { balance, data };
+      });
+      for (const { balance, data } of records) {
         const item = db
           .collection("stockCountItems")
           .doc(`${countReference.id}__${balance.id}`);
-        transaction.create(item, {
-          organizationId: actor.organizationId,
-          stockCountId: countReference.id,
-          productId: balance.get("productId"),
-          sku: balance.get("sku"),
-          trackingType: balance.get("trackingType") ?? "quantity",
-          locationId: count.get("locationId"),
-          warehouseId: count.get("warehouseId") ?? null,
-          branchId: count.get("branchId") ?? null,
-          lotId: balance.get("lotId") ?? null,
-          expectedQuantity: balance.get("onHandQuantity"),
-          expectedSerialNumbers:
-            serialsByProduct.get(String(balance.get("productId"))) ?? [],
-          countedQuantity: null,
-          countedSerialNumbers: [],
-          variance: null,
-          createdAt: now,
-          updatedAt: now,
-        });
+        transaction.create(item, data);
       }
       transaction.update(countReference, {
         status: "in_progress",
+        itemCount: balances.size,
+        startFingerprint: instructions,
         snapshotAt: now,
         startedAt: now,
         startedBy: actor.userId,
@@ -302,12 +299,8 @@ export const startStockCount = onCall(
         reason: input.reason,
         after: { itemCount: balances.size },
       });
+      return { stockCountId: countReference.id, itemCount: balances.size, started: true };
     });
-    return {
-      stockCountId: countReference.id,
-      itemCount: balances.size,
-      started: true,
-    };
   },
 );
 
@@ -345,10 +338,19 @@ export const submitStockCount = onCall({ enforceAppCheck }, async (request) => {
         "permission-denied",
         "You are not assigned to this count.",
       );
+    // All reads precede writes. A page save must never submit the whole count.
+    if (!input.saveOnly) {
+      const unfinished = await transaction.get(db.collection("stockCountItems")
+        .where("stockCountId", "==", countReference.id)
+        .where("countedQuantity", "==", null).limit(201));
+      const submittedIds = new Set(input.items.map(item => item.itemId));
+      if (unfinished.docs.some(item => !submittedIds.has(item.id)))
+        throw new HttpsError("failed-precondition", "Save the counted quantities on every page before submitting the complete count.");
+    }
     for (let index = 0; index < input.items.length; index++) {
       const submitted = input.items[index]!;
       const item = items[index]!;
-      if (!item.exists || item.get("stockCountId") !== countReference.id)
+      if (!item.exists || item.get("organizationId") !== actor.organizationId || item.get("stockCountId") !== countReference.id)
         throw new HttpsError(
           "invalid-argument",
           "Stock count item does not belong to this count.",
@@ -364,6 +366,8 @@ export const submitStockCount = onCall({ enforceAppCheck }, async (request) => {
           "invalid-argument",
           "Counted serial numbers must be unique and equal counted quantity.",
         );
+      if (Buffer.byteLength(JSON.stringify({ ...item.data(), countedSerialNumbers: serials.normalized, notes: submitted.notes ?? null })) > 700_000)
+        throw new HttpsError("resource-exhausted", "This serial count exceeds the safe count-line size. No progress on this page was saved.");
       transaction.update(item.ref, {
         countedQuantity: submitted.countedQuantity,
         countedSerialNumbers: serials.normalized,
@@ -376,14 +380,12 @@ export const submitStockCount = onCall({ enforceAppCheck }, async (request) => {
     }
     const now = FieldValue.serverTimestamp();
     transaction.update(countReference, {
-      status: "submitted",
-      submittedAt: now,
-      submittedBy: actor.userId,
+      ...(input.saveOnly ? {} : { status: "submitted", submittedAt: now, submittedBy: actor.userId }),
       updatedAt: now,
       updatedBy: actor.userId,
     });
     writeAuditLog(transaction, actor, {
-      action: "stock_count.submitted",
+      action: input.saveOnly ? "stock_count.progress_saved" : "stock_count.submitted",
       entityType: "stockCount",
       entityId: countReference.id,
       correlationId: requestId,
@@ -392,7 +394,7 @@ export const submitStockCount = onCall({ enforceAppCheck }, async (request) => {
       after: { submittedItems: input.items.length },
     });
   });
-  return { stockCountId: input.stockCountId, submitted: true };
+  return { stockCountId: input.stockCountId, submitted: !input.saveOnly, saved: true };
 });
 
 export const reviewStockCount = onCall({ enforceAppCheck }, async (request) => {
@@ -422,6 +424,10 @@ export const reviewStockCount = onCall({ enforceAppCheck }, async (request) => {
         "permission-denied",
         "This role cannot review its own stock count.",
       );
+    const unfinished = await transaction.get(db.collection("stockCountItems")
+      .where("stockCountId", "==", reference.id).where("countedQuantity", "==", null).limit(1));
+    if (!unfinished.empty)
+      throw new HttpsError("failed-precondition", "This count still has uncounted items and cannot be reviewed.");
     const now = FieldValue.serverTimestamp();
     transaction.update(reference, {
       status: "reviewed",
@@ -466,6 +472,12 @@ export const postStockCount = onCall(
         "permission-denied",
         "The reviewer cannot also post the count.",
       );
+    if (count.get("status") !== "posted") {
+      const unfinished = await db.collection("stockCountItems")
+        .where("stockCountId", "==", count.id).where("countedQuantity", "==", null).limit(1).get();
+      if (!unfinished.empty)
+        throw new HttpsError("failed-precondition", "This count still has uncounted items and cannot be posted.");
+    }
     const posting = await db.runTransaction(async transaction => {
       const fresh = await transaction.get(countReference);
       requireCountScope(actor, fresh);
