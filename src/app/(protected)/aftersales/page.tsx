@@ -11,6 +11,7 @@ import { formatNaira, nairaToKobo } from "@/features/inventory/format";
 import { hasPermission } from "@/lib/permissions/roles";
 import { OperationalPhotos } from "@/features/pos/operational-photos";
 import { HeldReturnDisposition, type HeldReturnCase } from "@/features/returns/held-return-disposition";
+import { ServicePayments } from "@/features/returns/service-payments";
 
 interface Case extends HeldReturnCase {
   id: string;
@@ -125,7 +126,7 @@ function AftersalesWorkspace() {
   }, [load]);
 
   async function run(name: string, input: Record<string, unknown>, success: string, retry = false) {
-    if (!ready || mutationFlight.current || (pending && !retry)) return;
+    if (!ready || mutationFlight.current || (pending && !retry)) return false;
     mutationFlight.current = true;
     const instruction = retry && pending ? pending : { name, input };
     setBusy(true);
@@ -139,12 +140,14 @@ function AftersalesWorkspace() {
       setCaseDrafts({});
       if (instruction.name === "createAftersalesCase") setDraft(current => ({ ...current, customerId: "", saleId: "", productId: "", serviceItemId: "", serialNumber: "", complaint: "", notes: "" }));
       await load();
+      return true;
     } catch (cause) {
       const diagnostic = cause as { diagnosticCode?: string; code?: string };
       if (!retry && ["functions/invalid-argument", "functions/permission-denied", "functions/failed-precondition", "functions/not-found", "functions/already-exists"].includes(diagnostic.diagnosticCode ?? diagnostic.code ?? "")) {
         sessionStorage.removeItem(storageKey); setPending(null);
       }
       setError(cause instanceof Error ? cause.message : "The aftersales action could not be completed.");
+      return false;
     } finally {
       mutationFlight.current = false;
       setBusy(false);
@@ -225,6 +228,7 @@ function AftersalesWorkspace() {
               </div>
               <OperationalPhotos kind="aftersales" recordId={item.id} stage={item.status === "open" ? "intake" : ["diagnosed", "in_service"].includes(item.status) ? "diagnosis" : "handover"} serials={item.serialNumber ? [item.serialNumber] : []} canUpload={item.status !== "cancelled" && can(item.status === "open" ? "sales.returns.create" : "sales.returns.approve")} />
               <HeldReturnDisposition record={item} suppliers={workspace.suppliers ?? []} canDispose={can("sales.returns.approve") && can("inventory.adjust")} canHandover={can("procurement.receive") && can("suppliers.read")} canReadHistory={can("inventory.read")} canReadSettlement={can("procurement.read") && can("payables.read")} canSettle={can("procurement.receive") && can("payables.approve") && can("sales.returns.approve")} canReceiveReplacement={can("procurement.receive") && can("inventory.receive") && can("sales.returns.approve")} onComplete={() => void load()} />
+              <ServicePayments key={`${item.id}:${item.amountPaidMinor ?? 0}`} caseId={item.id} accounts={workspace.bankAccounts} mutationError={error} disabled={busy || !ready || Boolean(pending)} canRefund={can("sales.returns.approve") && can("customers.payment.record")} onRefund={input => run("recordAftersalesPayment", input, "Service receipt refunded; the charge remains due. The refund and journal are recorded.")} />
               {can("sales.returns.approve") && !["completed", "cancelled"].includes(item.status) && <details className="mt-4 rounded-lg border p-3">
                 <summary className="cursor-pointer text-sm font-semibold">Assign / change service staff</summary>
                 <p className="mt-2 text-sm text-[var(--muted)]">Use the employee&apos;s staff ID from HR. They need not have an app account. Only active staff in this store, or organization-wide staff, can be assigned. Leave the ID blank to remove the assignment.</p>

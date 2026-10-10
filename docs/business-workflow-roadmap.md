@@ -8,26 +8,58 @@ release history, not a claim that the same work still needs rebuilding.
 | Workstream | Implemented foundation | Remaining completion gate |
 | --- | --- | --- |
 | 1. Locations / UI / RBAC | HQ/store model, historical location preservation, multi-role/custom roles, user deactivation/reactivation, responsive shared dialogs and navigation | Final role/device acceptance and larger-register usability checks |
-| 2. Sales / customers / payments | Controlled stages, split/credit/advance payments, customer arrangements/statements, corrections, reservations and partial collections | Mixed goods/service billing and associated service accrual/refund integration |
-| 3. Inventory / returns / serials | Stock ledger, collection evidence, inspection/disposition, supplier handovers/replacements, private serial photos and linked stock journals | Paged count progress/completeness release below; staged snapshot scalability and final device acceptance |
+| 2. Sales / customers / payments | Controlled stages, split/credit/advance payments, customer arrangements/statements, corrections, reservations and partial collections | Mixed goods/service billing and associated accrual/commercial-credit integration |
+| 3. Inventory / returns / serials | Stock ledger, collection evidence, inspection/disposition, supplier handovers/replacements, private serial photos, linked stock journals and paged complete counts | Staged snapshot scalability beyond atomic admission limits and final device acceptance |
 | 4. Procurement / suppliers | PO/GRN/invoice, advances, credits/refunds, supplier statements/aging and linked return corrections | Final cross-module financial acceptance, not a duplicate supplier ledger |
 | 5. Accounting / tax | Statements, journal controls/reversals, financial accounts/transfers, reconciliations, linked stock accounting and reviewed versioned tax configuration | Accountant opening balances/classification review; company tax facts and authorized statutory activation/filing |
-| 6. Services / aftersales / delivery | Case workflow, employee ownership, non-stock service catalogue/case pricing, receipts and linked outsourced bills | Mixed service invoicing, parts/costs, accrual/refunds, collected delivery fee versus provider payable/retained-income split |
+| 6. Services / aftersales / delivery | Case workflow, employee ownership, non-stock service catalogue/case pricing, receipts/refund corrections and linked outsourced bills | Mixed service invoicing, parts/costs, accrual/commercial credit notes, collected delivery fee versus provider payable/retained-income split |
 | 7. Documents / reports / dashboard | Official invoices/receipts, partial-collection A4 waybills, filtered reports, ledger statements and server aggregates | Issued quotation/proforma conversion, additional product/profit/aging analytics and larger-report processing |
 | 8. Budgets / HR / hardening | Monthly account/store budgets, independent employees, attendance connector contract, salary terms, notifications and audit | Broader budget dimensions, payroll when commissioned, real biometric-device integration and final acceptance |
 
-Dependency order: finish count page/completeness safeguards; then service
+Dependency order: count page/completeness safeguards are released; continue service
 billing/parts and delivery allocation; commercial-document
 conversion; analytics/report scaling; remaining HR/budget extensions and final
 cross-module acceptance. Preserve existing goods invoices, receipts and history
 at each step. Tax activation and hardware-specific biometric acceptance remain
 external gates because the company tax profile and device are unavailable.
 Firebase CLI authentication is restored. The matching live planner audit passes
-457/457 shapes and all 226 deployed indexes are READY. The guarded baseline is
+458/458 shapes and all 227 deployed indexes are READY. The guarded baseline is
 refreshed against the exact reviewed sources; deployment completion is still a
 separate release gate.
 
-## Paged count progress and completeness — 10 October 2026 (validated; release pending)
+## Service receipt refunds — 10 October 2026 (validated; release pending)
+
+Extends the existing aftersales workspace, payment callable, receipt collection
+and accounting journal. Receipt history is lazy and cursor-paged (25/50/100).
+Full/partial receipt corrections identify the original receipt and journal,
+require a payout account and reason, and retain the original posted amounts.
+An aggregate refunded counter prevents over-refunding the original receipt;
+new refund records and balanced journals remain append-only. Case balances,
+configured cumulative VAT and the refunded counter update atomically, with
+exact-payload retry protection, current permissions/scope and period locks.
+Legacy non-catalogue receipts keep their original zero-VAT treatment.
+Refunds restore the amount due; they do not waive the original service charge,
+cancel work, restock goods or rewrite a goods invoice. Commercial service-credit
+notes/charge cancellation and mixed POS service accrual remain separate work.
+The existing aftersales Auth/App Check and Rules boundaries are unchanged.
+Browser operating-context metadata is validated and removed from strict
+assignment/refund business instructions, avoiding rejection of legitimate
+requests from the app without weakening authorization. The shared history
+formatter accepts both browser Firestore and Admin callable timestamps, keeping
+Lagos dates readable across registers. No historical amounts are rewritten.
+Validation: all 413 unit/interface tests, typecheck, lint, Functions compilation,
+secret scan and diff checks pass in the isolated release worktree. All 14 affected
+financial emulator cases pass; four Storage-only cases are skipped because this
+run intentionally excludes Storage. The suite includes competing refunds,
+exact-key replay, source journal validation, period/scope/permission denials,
+cumulative VAT rounding, legacy receipts, cursor isolation and the existing
+10,000-line ledger stress case. The new receipt-history index is deployed and
+READY; all 458 matching live query planner checks pass. Production build and
+dependent Functions/web deployment remain release gates. Concurrent customer,
+invoice and report changes in the shared checkout are preserved, not implicitly
+included in this isolated release.
+
+## Paged count progress and completeness — 10 October 2026 (deployed)
 
 Extends the existing count workspace and submit callable, not a second count
 module. The server returns stable count-scoped cursor pages; the UI offers
@@ -54,6 +86,12 @@ a complete 501-position atomic snapshot, exact start replay and fail-closed
 2001-position snapshot admission. All 457 live planner checks pass; no new
 index is required. Existing role/rule denial coverage is retained; no Rules or
 Storage policy change or historical migration is needed.
+Release b8dfea7 is pushed and deployed. All five selected count callables are
+ACTIVE with App Check enabled, the original runtime identity, 100% updated
+revision traffic and unauthenticated HTTP 401 barriers. App Hosting
+build-2026-10-10-002 is READY and its rollout SUCCEEDED. Counts, Guide, POS and
+manifest return HTTP 200. The live count asset includes Save this page,
+Submit complete count and Count items per page. No live business data was posted.
 
 ## Stock valuation journals and complete count posting — 10 October 2026 (deployed)
 

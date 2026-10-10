@@ -137,6 +137,7 @@ export function queryCatalog() {
     for (const collection of ["transfers", "stockTransfers"]) for (const transferScope of scope.length ? ["sourceBranchId", "destinationBranchId"] : [null]) for (const status of [[], [["status", "in"]]]) add("dashboard transfer counts (OR arms)", collection, [org, ...(transferScope ? [[transferScope, "=="]] : []), ...status], [], []);
     for (const status of [[], [["status", "in"]]]) add("dashboard request counts", "branchRequests", [...filters, ...status], [], []);
   }
+  add("service receipt/refund history pages", "aftersalesPayments", [org, ["caseId", "=="]], dateOrder("recordedAt"));
   for (const field of ["sourceWarehouseId", "originWarehouseId"]) for (const status of [[], [["status", "in"]]]) add("legacy location dashboard", field === "sourceWarehouseId" ? "stockTransfers" : "transfers", [org, [field, "=="], ...status], [], []);
   add("dashboard active products", "products", [org, ["active", "=="]], [], []);
   for (const field of ["customerNumber", "normalizedName", "phone", "email"]) add("customer register/search", "customers", [org], [[field, "ASCENDING"]]);
