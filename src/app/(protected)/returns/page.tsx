@@ -8,12 +8,13 @@ import { Button } from "@/components/ui/button";
 import { callAdministration } from "@/features/administration/api";
 import { useOrganizationCollection } from "@/features/administration/use-organization-collection";
 import { useAuth } from "@/features/auth/auth-context";
-import { formatNaira } from "@/features/inventory/format";
+import { formatNaira, nairaToKobo } from "@/features/inventory/format";
 import { canSelfAuthorize, hasPermission } from "@/lib/permissions/roles";
 import type { Branch, SaleReturn } from "@/types/domain";
 import { ReturnFollowUp } from "@/features/returns/return-follow-up";
 import { ReturnAftersales } from "@/features/returns/return-aftersales";
 import { OperationalPhotos } from "@/features/pos/operational-photos";
+import { BillingReceiptCorrections } from "@/features/accounting/billing-receipt-corrections";
 import { SaleCorrections } from "@/features/returns/sale-corrections";
 import { CursorTablePagination } from "@/components/ui/table-pagination";
 
@@ -28,9 +29,16 @@ interface ReturnWorkspace {
     customerName: string | null;
     customerOutstandingMinor: number;
     grossAmountMinor: number;
+    mixedBilling?: boolean;
+    invoiceOutstandingMinor?: number;
+    netReceivedMinor?: number;
   };
   items: Array<{
     id: string;
+    itemKind?: "goods" | "service";
+    serviceCreditableQuantity?: number;
+    providerCreditableMinor?: number;
+    providerFunds?: { supplierName: string } | null;
     productId: string;
     trackingType?: "quantity" | "serial";
     returnableSerialNumbers?: string[];
@@ -62,7 +70,8 @@ type Resolution =
   | "card"
   | "bank_transfer"
   | "customer_account"
-  | "exchange_credit";
+  | "exchange_credit"
+  | "split";
 
 export default function ReturnsPage() {
   const { user, profile, accessProfile, operatingContext } = useAuth();
@@ -73,11 +82,16 @@ export default function ReturnsPage() {
   const [showCorrections, setShowCorrections] = useState(false);
   const [quantities, setQuantities] = useState<Record<string, number>>({});
   const [serialText, setSerialText] = useState<Record<string, string>>({});
-  const [kind, setKind] = useState<"goods_return" | "reservation_cancellation">("goods_return");
+  const [kind, setKind] = useState<"goods_return" | "reservation_cancellation" | "service_credit">("goods_return");
   const [conditions, setConditions] = useState<
     Record<string, "restockable" | "non_restockable">
   >({});
   const [resolution, setResolution] = useState<Resolution>("exchange_credit");
+  const [providerCredits, setProviderCredits] = useState<Record<string, string>>({});
+  const [splitAmount, setSplitAmount] = useState("");
+  const [splitMethod, setSplitMethod] = useState<"cash" | "card" | "bank_transfer" | "exchange_credit">("cash");
+  const fundingMethod = resolution === "split" ? splitMethod : resolution;
+  const splitMinor = (() => { try { return nairaToKobo(Number(splitAmount)); } catch { return NaN; } })();
   const [refundShiftId, setRefundShiftId] = useState("");
   const [refundBankAccountId, setRefundBankAccountId] = useState("");
   const [bankAccounts, setBankAccounts] = useState<ReturnWorkspace["bankAccounts"]>([]);
@@ -159,7 +173,7 @@ export default function ReturnsPage() {
         receiptNumber: receiptNumber.trim(),
       });
       setWorkspace(result);
-      setSerialText({});
+      setSerialText({}); setProviderCredits({}); setSplitAmount("");
       setQuantities(
         Object.fromEntries(result.items.map((item) => [item.id, 0])),
       );
@@ -187,6 +201,8 @@ export default function ReturnsPage() {
       workspace?.items.filter((item) => (quantities[item.id] ?? 0) > 0) ?? [],
     [workspace, quantities],
   );
+  const selectedProviders = Object.entries(providerCredits).flatMap(([saleItemId, value]) => { try { const amountMinor = nairaToKobo(Number(value)); return amountMinor > 0 ? [{ saleItemId, amountMinor }] : []; } catch { return []; } });
+  const invalidProviderAmount = Object.values(providerCredits).some(value => { if (value === "") return false; try { nairaToKobo(Number(value)); return false; } catch { return true; } });
   const estimatedGross = selectedLines.reduce((sum, item) => {
     const quantity = quantities[item.id] ?? 0;
     const previous = item.returnedQuantity + (item.cancelledQuantity ?? 0);
@@ -194,10 +210,10 @@ export default function ReturnsPage() {
       - (item.reversedNetAmountMinor ?? Math.round(item.netAmountMinor * previous / item.soldQuantity))
       + Math.round(item.vatAmountMinor * (previous + quantity) / item.soldQuantity)
       - (item.reversedVatAmountMinor ?? Math.round(item.vatAmountMinor * previous / item.soldQuantity));
-  }, 0);
+  }, selectedProviders.reduce((sum, line) => sum + line.amountMinor, 0));
 
   async function submitReturn() {
-    if (!workspace || selectedLines.length === 0) return;
+    if (!workspace || (!selectedLines.length && !selectedProviders.length) || invalidProviderAmount) return;
     if (selectedLines.some(item => item.trackingType === "serial" && !validSaleSerials(parseSaleSerials(serialText[item.id] ?? ""), quantities[item.id]!, kind === "reservation_cancellation" ? item.cancellableSerialNumbers : item.returnableSerialNumbers))) {
       setError("Enter the exact eligible serial numbers, one per selected unit and one per line.");
       return;
@@ -208,9 +224,10 @@ export default function ReturnsPage() {
     try {
       const payload = {
         kind, branchId, saleId: workspace.sale.id,
-        lines: selectedLines.map((item) => ({ saleItemId: item.id, quantity: quantities[item.id], ...(item.trackingType === "serial" ? { serialNumbers: parseSaleSerials(serialText[item.id] ?? "") } : {}), condition: kind === "reservation_cancellation" ? "non_restockable" : conditions[item.id] })),
-        resolution, refundShiftId: resolution === "cash" ? refundShiftId : undefined,
-        bankAccountId: ["card", "bank_transfer"].includes(resolution) ? refundBankAccountId : undefined,
+        lines: selectedLines.map((item) => ({ saleItemId: item.id, quantity: quantities[item.id], ...(item.trackingType === "serial" ? { serialNumbers: parseSaleSerials(serialText[item.id] ?? "") } : {}), condition: kind !== "goods_return" ?  "non_restockable" : conditions[item.id] })),
+        ...(kind === "service_credit" ? { providerCredits: selectedProviders } : {}),
+        resolution, ...(resolution === "split" ? { refundAmountMinor: splitMinor, refundMethod: splitMethod } : {}), refundShiftId: fundingMethod === "cash" ? refundShiftId : undefined,
+        bankAccountId: ["card", "bank_transfer"].includes(fundingMethod) ? refundBankAccountId : undefined,
         reason,
       };
       const fingerprint = JSON.stringify(payload);
@@ -363,15 +380,18 @@ export default function ReturnsPage() {
             </div>
             <RotateCcw className="size-7 text-[var(--brand)]" />
           </div>
+          {workspace.sale.mixedBilling && workspace.sale.customerId && profile && user && hasPermission(profile, "sales.returns.approve") && hasPermission(profile, "finance.journal.reverse") && <BillingReceiptCorrections ownerKey={`${profile.organizationId}:${user.uid}`} saleId={workspace.sale.id} accounts={workspace.bankAccounts} shifts={workspace.openShifts}/>}
           <div className="mt-5 space-y-3">
             <label className="block text-sm font-medium">What happened?
-              <select value={kind} onChange={(event) => { setKind(event.target.value as typeof kind); setQuantities({}); setSerialText({}); }} className="mt-1 w-full rounded-lg border p-3">
+              <select value={kind} onChange={(event) => { setKind(event.target.value as typeof kind); setQuantities({}); setSerialText({}); setProviderCredits({}); }} className="mt-1 w-full rounded-lg border p-3">
+                {workspace.sale.mixedBilling && <option value="service_credit">Credit service fees / provider charges</option>}
                 <option value="goods_return">Return goods already collected</option>
                 <option value="reservation_cancellation">Cancel goods not collected</option>
               </select>
             </label>
             {kind === "reservation_cancellation" && <p className="rounded-lg bg-blue-50 p-3 text-sm">These goods never left the store. Approval releases their reservation for sale again, without adding physical stock. Choose how the customer is refunded or their account adjusted.</p>}
-            {workspace.items.map((item) => (
+            {kind === "service_credit" && <p className="rounded bg-blue-50 p-3 text-sm">A commercial credit reduces the charge. Included service parts remain consumed; no inspection or restocking applies. Recover any provider payment before crediting its settled obligation. A receipt correction keeps the charge and restores debt instead.</p>}
+            {workspace.items.filter(item => (item.itemKind === "service") === (kind === "service_credit")).map((item) => (
               <div
                 key={item.id}
                 className="grid gap-3 rounded-xl border p-4 md:grid-cols-[minmax(0,1fr)_8rem_12rem]"
@@ -382,7 +402,7 @@ export default function ReturnsPage() {
                     {item.sku}
                   </p>
                   <p className="mt-1 text-sm">
-                    {kind === "reservation_cancellation" ? (item.cancellableQuantity ?? 0) : item.returnableQuantity} of {item.soldQuantity} {kind === "reservation_cancellation" ? "awaiting collection and cancellable" : "still returnable"}
+                    {kind === "service_credit" ? (item.serviceCreditableQuantity ?? 0) : kind === "reservation_cancellation" ? (item.cancellableQuantity ?? 0) : item.returnableQuantity} of {item.soldQuantity} {kind === "reservation_cancellation" ? "awaiting collection and cancellable" : "still returnable"}
                   </p>
                 </div>
                 <label className="text-sm">
@@ -390,13 +410,13 @@ export default function ReturnsPage() {
                   <input
                     type="number"
                     min="0"
-                    max={kind === "reservation_cancellation" ? (item.cancellableQuantity ?? 0) : item.returnableQuantity}
+                    max={kind === "service_credit" ? (item.serviceCreditableQuantity ?? 0) : kind === "reservation_cancellation" ? (item.cancellableQuantity ?? 0) : item.returnableQuantity}
                     value={quantities[item.id] ?? 0}
                     onChange={(event) =>
                       setQuantities({
                         ...quantities,
                         [item.id]: Math.min(
-                          kind === "reservation_cancellation" ? (item.cancellableQuantity ?? 0) : item.returnableQuantity,
+                          kind === "service_credit" ? (item.serviceCreditableQuantity ?? 0) : kind === "reservation_cancellation" ? (item.cancellableQuantity ?? 0) : item.returnableQuantity,
                           Math.max(0, Number(event.target.value) || 0),
                         ),
                       })
@@ -427,6 +447,7 @@ export default function ReturnsPage() {
                 {item.trackingType === "serial" && <label className="block text-sm md:col-span-3">Exact serial numbers<textarea rows={3} value={serialText[item.id] ?? ""} onChange={event => setSerialText(values => ({ ...values, [item.id]: event.target.value }))} className="mt-1 w-full rounded-lg border p-3" /><span className="block break-all text-xs text-[var(--muted)]">One per selected unit, one per line. Eligible: {(kind === "reservation_cancellation" ? item.cancellableSerialNumbers : item.returnableSerialNumbers)?.join(", ") || "None"}</span></label>}
               </div>
             ))}
+            {kind === "service_credit" && workspace.items.filter(item => (item.providerCreditableMinor ?? 0) > 0).map(item => <label className="block rounded border p-3 text-sm" key={`provider:${item.id}`}>Provider credit for {item.productName} · {item.providerFunds?.supplierName} · up to {formatNaira(item.providerCreditableMinor!)}<input className="input ml-2" type="number" min="0" step="0.01" max={item.providerCreditableMinor! / 100} value={providerCredits[item.id] ?? ""} onChange={event => setProviderCredits(current => ({ ...current, [item.id]: event.target.value }))}/></label>)}
           </div>
           <div className="mt-5 grid gap-4 md:grid-cols-2">
             <label className="text-sm font-medium">
@@ -438,6 +459,7 @@ export default function ReturnsPage() {
                 }
                 className="mt-1 w-full rounded-lg border p-3"
               >
+                {workspace.sale.mixedBilling && workspace.sale.customerId && <option value="split">Part refund / exchange credit and part debt reduction</option>}
                 <option value="exchange_credit">
                   Exchange credit for new POS sale
                 </option>
@@ -461,14 +483,15 @@ export default function ReturnsPage() {
                 placeholder="Why is the customer returning these goods?"
               />
             </label>
-            {["card", "bank_transfer"].includes(resolution) && <label className="text-sm font-medium">Refund from company account
+            {resolution === "split" && <><label className="text-sm">Refund / exchange portion (₦)<input className="input block w-full" type="number" min="0.01" step="0.01" value={splitAmount} onChange={event => setSplitAmount(event.target.value)}/><span>Remaining credit reduces invoice debt.</span></label><label className="text-sm">Refund / exchange method<select className="input block w-full" value={splitMethod} onChange={event => setSplitMethod(event.target.value as typeof splitMethod)}><option value="cash">Cash</option><option value="card">Card</option><option value="bank_transfer">Bank transfer</option><option value="exchange_credit">Exchange credit</option></select></label></>}
+            {["card", "bank_transfer"].includes(fundingMethod) && <label className="text-sm font-medium">Refund from company account
               <select value={refundBankAccountId} onChange={(event) => setRefundBankAccountId(event.target.value)} className="mt-1 w-full rounded-lg border p-3">
                 <option value="">Select funding account</option>
                 {workspace.bankAccounts?.map((account) => <option key={account.id} value={account.id}>{account.bankName} · {account.accountName} · ••••{account.accountNumberLast4}</option>)}
               </select>
               <span className="mt-1 block text-xs text-[var(--muted)]">The refund is posted against this account, not the generic bank-clearing balance.</span>
             </label>}
-            {resolution === "cash" && (
+            {fundingMethod === "cash" && (
               <label className="text-sm font-medium">
                 Refund from open till
                 <select
@@ -498,15 +521,16 @@ export default function ReturnsPage() {
             <Button
               disabled={
                 busy ||
-                selectedLines.length === 0 ||
+                (!selectedLines.length && !selectedProviders.length) || invalidProviderAmount ||
+                (resolution === "split" && (!Number.isSafeInteger(splitMinor) || splitMinor <= 0 || splitMinor >= estimatedGross || estimatedGross - splitMinor > (workspace.sale.invoiceOutstandingMinor ?? 0))) ||
                 reason.trim().length < 5 ||
                 (resolution === "customer_account" && estimatedGross > workspace.sale.customerOutstandingMinor) ||
-                (resolution === "cash" && !refundShiftId) ||
-                (["card", "bank_transfer"].includes(resolution) && !refundBankAccountId)
+                (fundingMethod === "cash" && !refundShiftId) ||
+                (["card", "bank_transfer"].includes(fundingMethod) && !refundBankAccountId)
               }
               onClick={() => void submitReturn()}
             >
-              {kind === "reservation_cancellation" ? "Submit cancellation for approval" : "Submit return for approval"}
+              {kind === "service_credit" ? "Submit commercial credit for approval" : kind === "reservation_cancellation" ? "Submit cancellation for approval" : "Submit return for approval"}
             </Button>
           </div>
         </section>
@@ -535,6 +559,7 @@ export default function ReturnsPage() {
             >
               <div>
                 <strong>{record.returnNumber}</strong>
+                {record.kind === "service_credit" && <p className="text-sm font-medium">Service / provider commercial credit · no physical restocking</p>}
                 {record.kind === "reservation_cancellation" && <p className="text-sm font-medium">Cancellation of uncollected goods</p>}
                 <p className="text-sm text-[var(--muted)]">
                   {record.receiptNumber} · {record.reason}
@@ -543,7 +568,7 @@ export default function ReturnsPage() {
                   {formatNaira(record.grossAmountMinor)} ·{" "}
                   {record.resolution.replaceAll("_", " ")}
                 </p>
-                {record.kind !== "reservation_cancellation" && <p className="mt-1 text-sm">{record.inspectionStatus === "completed" ? "Inspection recorded" : record.status === "approved" ? "Historical posted return — unchanged" : "Inspection required before approval"}</p>}
+                {record.kind !== "reservation_cancellation" && record.kind !== "service_credit" && <p className="mt-1 text-sm">{record.inspectionStatus === "completed" ? "Inspection recorded" : record.status === "approved" ? "Historical posted return — unchanged" : "Inspection required before approval"}</p>}
                 {["card", "bank_transfer"].includes(record.resolution) && <label className="mt-2 block text-sm">Refund from company account
                   <select disabled={Boolean(record.bankAccountId)} value={record.bankAccountId || legacyRefundAccounts[record.id] || ""} onChange={(event) => setLegacyRefundAccounts((current) => ({ ...current, [record.id]: event.target.value }))} className="mt-1 w-full rounded-lg border p-3">
                     <option value="">Select funding account for this earlier return</option>
@@ -553,7 +578,7 @@ export default function ReturnsPage() {
               </div>
               {record.status === "submitted" && canApprove &&
               (record.createdBy !== user?.uid || canApproveOwnWork) ? (
-                <Button disabled={busy || (record.kind !== "reservation_cancellation" && record.inspectionStatus !== "completed") || (record.kind === "reservation_cancellation" && (!profile || !hasPermission(profile, "sales.stock.release"))) || (["card", "bank_transfer"].includes(record.resolution) && !record.bankAccountId && !legacyRefundAccounts[record.id])} onClick={() => void approve(record)}>
+                <Button disabled={busy || (record.kind !== "reservation_cancellation" && record.kind !== "service_credit" && record.inspectionStatus !== "completed") || (record.kind === "reservation_cancellation" && (!profile || !hasPermission(profile, "sales.stock.release"))) || (["card", "bank_transfer"].includes(record.resolution) && !record.bankAccountId && !legacyRefundAccounts[record.id])} onClick={() => void approve(record)}>
                   <CheckCircle2 className="mr-2 size-4" /> Approve and post
                 </Button>
               ) : (
@@ -564,8 +589,8 @@ export default function ReturnsPage() {
                 </span>
               )}
               {canApprove && <ReturnFollowUp record={record} accounts={bankAccounts} shifts={openShifts} onComplete={() => void refreshPending()} />}
-              <ReturnAftersales record={record} canRoute={Boolean(canApprove && profile && hasPermission(profile, "sales.returns.create"))} onComplete={() => void refreshPending()} />
-              {record.kind !== "reservation_cancellation" && <div className="w-full"><OperationalPhotos kind="customer_return" recordId={record.id} stage="inspection" serials={record.items?.flatMap(item => item.serialNumbers ?? []) ?? []} canUpload={canApprove && record.status === "submitted"} /></div>}
+              {record.kind !== "service_credit" && <ReturnAftersales record={record} canRoute={Boolean(canApprove && profile && hasPermission(profile, "sales.returns.create"))} onComplete={() => void refreshPending()} />}
+              {record.kind !== "reservation_cancellation" && record.kind !== "service_credit" && <div className="w-full"><OperationalPhotos kind="customer_return" recordId={record.id} stage="inspection" serials={record.items?.flatMap(item => item.serialNumbers ?? []) ?? []} canUpload={canApprove && record.status === "submitted"} /></div>}
             </article>
           ))}
           {pending.length === 0 && (

@@ -159,5 +159,11 @@ export function queryCatalog() {
   for (const scope of [[], [["branchId", "=="]]]) add("paged accounting journal register", "journalEntries", [org, ...scope, ["effectiveAt", ">="], ["effectiveAt", "<="]], dateOrder("effectiveAt"));
   add("daily close stock evidence", "stockCounts", eq(["organizationId", "branchId", "countDate"]), [["__name__", "ASCENDING"]]);
   add("daily close till evidence", "posShifts", eq(["organizationId", "branchId"]), [["__name__", "ASCENDING"]]);
+  for (const [collection, field, endOperator] of [["attendanceEvents", "occurredAt", "<"], ["employeeActivityEvents", "occurredOn", "<="]])
+    add("HR date-range history", collection, [org, [field, ">="], [field, endOperator]], dateOrder(field));
+  for (const scope of [[], [["branchId", "=="]]]) {
+    add("multi-month budget ledger actuals", "journalLines", [org, ...scope, ["effectiveAt", ">="], ["effectiveAt", "<"]], dateOrder("effectiveAt", "ASCENDING"));
+    add("product invoice-cohort margin scan", "sales", [org, ...scope, ["recordedAt", ">="], ["recordedAt", "<"]], dateOrder("recordedAt", "ASCENDING"));
+  }
   return [...shapes.values()];
 }

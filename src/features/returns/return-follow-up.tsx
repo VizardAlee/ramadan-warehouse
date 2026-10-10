@@ -16,7 +16,7 @@ export function ReturnFollowUp({ record, accounts, shifts, onComplete }: { recor
   const [accountId, setAccountId] = useState("");
   const [busy, setBusy] = useState(false), [uncertain, setUncertain] = useState(false), [error, setError] = useState("");
   const pending = useRef<Record<string, unknown> | null>(null);
-  const inspection = record.status === "submitted" && record.kind !== "reservation_cancellation" && record.inspectionStatus !== "completed";
+  const inspection = record.status === "submitted" && record.kind !== "reservation_cancellation" && record.kind !== "service_credit" && record.inspectionStatus !== "completed";
   const credit = record.exchangeCredit;
   const refund = record.status === "approved" && credit?.status === "active" && credit.remainingAmountMinor > 0;
   const amountMinor = (() => { try { return nairaToKobo(Number(amount)); } catch { return NaN; } })();

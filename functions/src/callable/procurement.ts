@@ -253,6 +253,7 @@ export const saveSupplier = onCall({ enforceAppCheck }, async (request) => {
         supplierNumber,
         sequence,
         name: input.name,
+        supplierType: input.supplierType ?? current.get("supplierType") ?? "goods",
         phone: input.phone,
         email: input.email,
         address: input.address,

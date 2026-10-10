@@ -16,6 +16,8 @@ export const expenseWorkspaceInput = z.object({
 export const createExpenseInput = z.object({
   categoryName: z.string().trim().min(2).max(120),
   payeeName: z.string().trim().min(2).max(160),
+  supplierId: id.optional(),
+  independentObligationReference: z.string().trim().min(5).max(200).optional(),
   costPurpose: z.enum(["service", "logistics"]).optional(),
   costReferenceType: z.enum(["sale", "aftersales"]).optional(),
   costReferenceId: id.optional(),

@@ -179,7 +179,7 @@ export const listSaleReturnsInput = z.object({
 });
 
 export const createSaleReturnInput = z.object({
-  kind: z.enum(["goods_return", "reservation_cancellation"]).default("goods_return"),
+  kind: z.enum(["goods_return", "reservation_cancellation", "service_credit"]).default("goods_return"),
   branchId: id,
   saleId: id,
   lines: z.array(z.object({
@@ -187,18 +187,27 @@ export const createSaleReturnInput = z.object({
     quantity: z.number().int().positive().max(100_000),
     serialNumbers: saleSerialNumbers,
     condition: z.enum(["restockable", "non_restockable"]),
-  })).min(1).max(50),
-  resolution: z.enum(["cash", "card", "bank_transfer", "customer_account", "exchange_credit"]),
+  })).min(0).max(50),
+  providerCredits: z.array(z.object({ saleItemId: id, amountMinor: positiveMoney })).min(1).max(50).optional(),
+  resolution: z.enum(["cash", "card", "bank_transfer", "customer_account", "exchange_credit", "split"]),
+  refundAmountMinor: positiveMoney.optional(),
+  refundMethod: z.enum(["cash", "card", "bank_transfer", "exchange_credit"]).optional(),
   refundShiftId: id.optional(),
   bankAccountId: id.optional(),
   reason: z.string().trim().min(5).max(500),
   idempotencyKey: z.string().uuid(),
 }).superRefine((value, context) => {
+  if (!value.lines.length && !(value.kind === "service_credit" && value.providerCredits?.length)) context.addIssue({ code: "custom", path: ["lines"], message: "Select at least one charge to credit." });
+  if (value.kind !== "service_credit" && value.providerCredits) context.addIssue({ code: "custom", path: ["providerCredits"], message: "Provider credits belong to a service commercial credit." });
+  if (value.kind === "service_credit" && value.lines.some(line => line.condition !== "non_restockable" || line.serialNumbers?.length)) context.addIssue({ code: "custom", path: ["lines"], message: "Service credits never inspect, return or restock physical goods." });
+  if (value.resolution === "split" ? !value.refundAmountMinor || !value.refundMethod : value.refundAmountMinor !== undefined || value.refundMethod !== undefined) context.addIssue({ code: "custom", path: ["resolution"], message: "Split resolution needs an explicit refund amount and method; the remainder reduces invoice debt." });
+  const refundMethod = value.resolution === "split" ? value.refundMethod : value.resolution;
+  if (new Set(value.providerCredits?.map(line => line.saleItemId)).size !== (value.providerCredits?.length ?? 0)) context.addIssue({ code: "custom", path: ["providerCredits"], message: "Use each provider obligation once." });
   if (new Set(value.lines.map((line) => line.saleItemId)).size !== value.lines.length)
     context.addIssue({ code: "custom", path: ["lines"], message: "Select each sale item only once." });
-  if (["card", "bank_transfer"].includes(value.resolution) && !value.bankAccountId)
+  if (["card", "bank_transfer"].includes(refundMethod ?? "") && !value.bankAccountId)
     context.addIssue({ code: "custom", path: ["bankAccountId"], message: "Select the company account funding this refund." });
-  if (value.resolution === "cash" && !value.refundShiftId)
+  if (refundMethod === "cash" && !value.refundShiftId)
     context.addIssue({
       code: "custom",
       path: ["refundShiftId"],
@@ -276,6 +285,10 @@ export const commitSaleInput = z.object({
     .array(
       z.object({
         productId: id,
+        itemKind: z.enum(["goods", "service"]).optional(),
+        includedParts: z.array(z.object({ productId: id, quantity: z.number().int().positive().max(100_000), serialNumbers: saleSerialNumbers })).min(1).max(10).optional(),
+        providerFunds: z.object({ supplierId: id, amountMinor: positiveMoney }).optional(),
+        aftersalesCaseId: id.optional(),
         serialNumbers: saleSerialNumbers,
         priceTier: z.enum(["retail", "wholesale"]).optional(),
         quantity: z.number().int().positive().max(100_000),
@@ -324,6 +337,14 @@ export const commitSaleInput = z.object({
   notes: z.string().trim().max(500).optional(),
   idempotencyKey: z.string().uuid(),
 }).superRefine((value, context) => {
+  const mixed = value.lines.some(line => line.itemKind === "service" || line.includedParts || line.providerFunds || line.aftersalesCaseId);
+  if (mixed && (value.offline || value.calculationVersion !== 2)) context.addIssue({ code: "custom", path: ["offline"], message: "Mixed billing requires online confirmation with current calculations." });
+  if (value.lines.reduce((sum, line) => sum + (line.includedParts?.length ?? 0), 0) > 50) context.addIssue({ code: "custom", path: ["lines"], message: "Use at most 50 included physical parts per bill." });
+  value.lines.forEach((line, index) => {
+    if ((line.includedParts || line.providerFunds || line.aftersalesCaseId) && line.itemKind !== "service") context.addIssue({ code: "custom", path: ["lines", index], message: "Parts included in the fee, provider funds and linked cases belong to a service line." });
+    if (line.aftersalesCaseId && (line.quantity !== 1 || line.sellingPriceMinor !== undefined || line.priceTier === "wholesale")) context.addIssue({ code: "custom", path: ["lines", index], message: "A linked confirmed case has one immutable charge; price overrides and wholesale are unavailable." });
+    if (line.includedParts && new Set(line.includedParts.map(part => part.productId)).size !== line.includedParts.length) context.addIssue({ code: "custom", path: ["lines", index], message: "Each included part appears once per service." });
+  });
   const advances = value.payments.filter(payment => payment.method === "customer_advance");
   if (advances.length && (value.offline || !value.customerId || advances.length > 1 || advances.some(payment => payment.bankAccountId || payment.reference)))
     context.addIssue({ code: "custom", path: ["payments"], message: "Use one customer advance component, online, for a named customer. Advances are not new bank receipts." });
@@ -363,7 +384,7 @@ export const commitSaleInput = z.object({
   const creditReferences = value.payments.filter((payment) => payment.method === "exchange_credit").map((payment) => payment.reference);
   if (new Set(creditReferences).size !== creditReferences.length)
     context.addIssue({ code: "custom", path: ["payments"], message: "An exchange credit may be used only once per sale." });
-  if (value.creditAmountMinor === 0 && value.payments.length === 0)
+  if (value.creditAmountMinor === 0 && value.payments.length === 0 && !value.lines.some(line => line.aftersalesCaseId))
     context.addIssue({
       code: "custom",
       path: ["payments"],

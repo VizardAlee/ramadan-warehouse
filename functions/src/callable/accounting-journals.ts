@@ -75,7 +75,7 @@ export const accountingJournals = onCall({ enforceAppCheck }, async request => {
       const matches = await transaction.get(db.collection("chartOfAccounts").where("organizationId", "==", actor.organizationId).where("code", "==", input.code).limit(2));
       if (matches.size > 1) fail("Duplicate account codes require reconciliation before editing.");
       const existing = matches.docs[0];
-      if (existing?.get("systemManaged") === true) fail("This account is managed by its operational workflow.");
+      if (existing?.get("systemManaged") === true || existing?.get("billingControlPurpose")) fail("This account is managed by its operational workflow.");
       const account = existing?.ref ?? db.doc(`chartOfAccounts/${uniquenessDocumentId(actor.organizationId, input.code)}`);
       const canonical = existing ?? await transaction.get(account);
       if (canonical.exists && canonical.get("organizationId") !== actor.organizationId) fail("The account reference is unavailable.");
@@ -108,6 +108,8 @@ export const accountingJournals = onCall({ enforceAppCheck }, async request => {
       const originalLines = await transaction.get(db.collection("journalLines").where("organizationId", "==", actor.organizationId).where("journalEntryId", "==", original.id).limit(41));
       if (originalLines.size < 2 || originalLines.size > 40) fail("The original journal requires reconciliation.");
       lines = originalLines.docs.map(line => ({ accountId: String(line.get("accountId")), accountCode: String(line.get("accountCode")), accountName: String(line.get("accountName")), debitMinor: Number(line.get("creditMinor")), creditMinor: Number(line.get("debitMinor")), ...(line.get("bankAccountId") ? { bankAccountId: String(line.get("bankAccountId")) } : {}) }));
+      const originalAccounts = await Promise.all(lines.map(line => transaction.get(db.doc(`chartOfAccounts/${line.accountId}`))));
+      if (originalAccounts.some(account => account.get("billingControlPurpose"))) fail("Billing control accounts can only be reversed in their operational workflow.");
       if (lines.some(line => isOperationalControlCode(line.accountCode))) fail("Operational control accounts cannot be reversed outside their workflow.");
       cashFlowActivity = original.get("cashFlowActivity");
       if (!["operating", "investing", "financing"].includes(cashFlowActivity)) fail("The original cash-flow classification requires review.");
@@ -126,7 +128,7 @@ export const accountingJournals = onCall({ enforceAppCheck }, async request => {
         const account = accounts[index]!;
         if (!account.exists || account.get("organizationId") !== actor.organizationId || account.get("active") !== true || !/^[1-9]\d{3}$/.test(String(account.get("code"))) || (account.get("currency") && account.get("currency") !== "NGN") || !String(account.get("name") ?? "").trim()) fail("Choose active company NGN ledger accounts.");
         const accountCode = String(account.get("code"));
-        if (isOperationalControlCode(accountCode)) fail("Use the operational workflow for inventory, customer/supplier balances, tax and retained earnings.");
+        if (account.get("billingControlPurpose") || isOperationalControlCode(accountCode)) fail("Use the operational workflow for inventory, customer/supplier balances, tax and retained earnings.");
         const bank = banks[index];
         if (/^10\d{2}$/.test(accountCode) && accountCode !== "1010") {
           if (!bank?.exists || bank.get("organizationId") !== actor.organizationId || bank.get("active") !== true || bank.get("ledgerAccountCode") !== accountCode) fail("Select the active company financial account for this money line.");

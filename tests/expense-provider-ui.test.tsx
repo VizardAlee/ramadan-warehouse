@@ -5,7 +5,7 @@ import ExpensesPage from "@/app/(protected)/expenses/page";
 const state = vi.hoisted(() => ({ call: vi.fn(), params: new URLSearchParams("caseId=service-job&branchId=store-a"), auth: { user: { uid: "user" }, profile: { organizationId: "org" }, operatingContext: { type: "branch", id: "store-a" } } }));
 vi.mock("next/navigation", () => ({ useSearchParams: () => state.params }));
 vi.mock("@/features/auth/auth-context", () => ({ useAuth: () => state.auth }));
-vi.mock("@/features/administration/api", () => ({ callAdministration: state.call }));
+vi.mock("@/features/administration/api", () => ({ callAdministration: (name: string, input: Record<string, unknown>) => name === "getServiceBillingCase" ? Promise.resolve({ providers: [], nextCursorId: null }) : name === "providerFunds" ? Promise.resolve({ rows: [], nextCursorId: null, summary: null, scannedInvoices: 0 }) : state.call(name, input) }));
 vi.mock("@/lib/permissions/roles", () => ({ hasPermission: () => true, canSelfAuthorize: () => true }));
 const workspace = { categories: [], branches: [{ id: "store-a", name: "Head Office", code: "HQ" }], warehouses: [], expenses: [], bankAccounts: [] };
 afterEach(() => { cleanup(); sessionStorage.clear(); vi.resetAllMocks(); state.auth.operatingContext.id = "store-a"; });

@@ -196,3 +196,10 @@ export {
   setAftersalesCharge,
   recordAftersalesPayment,
 } from "./callable/aftersales.js";
+export { getHrHistory } from "./callable/hr-history.js";
+export { getProductMargins } from "./callable/product-margins.js";
+export { billingControls } from "./callable/billing-controls.js";
+export { providerFunds } from "./callable/provider-funds.js";
+export { getServiceBillingCase } from "./callable/service-billing-case.js";
+
+export { billingReceiptCorrections } from "./callable/billing-receipt-corrections.js";

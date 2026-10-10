@@ -1,3 +1,5 @@
+export interface ServiceCaseCharge { id: string; caseNumber: string; grossMinor: number; vatMinor: number; paidMinor: number }
+export interface ServiceLineDetails { includedParts?: Array<{ productId: string; quantity: number; serialNumbers?: string[] }>; providerFunds?: { supplierId: string; amountMinor: number }; serviceCase?: ServiceCaseCharge; caseVerified?: boolean }
 export type PosPaymentMethod = "cash" | "card" | "bank_transfer" | "exchange_credit" | "customer_advance";
 export type PosCheckoutMethod = PosPaymentMethod | "customer_credit" | "split";
 
@@ -31,6 +33,7 @@ export interface PosSalesCredit {
 }
 
 export interface PosProduct {
+  itemKind?: "goods" | "service";
   id: string;
   sku: string;
   name: string;
@@ -74,6 +77,8 @@ export interface PosPendingOrder {
 }
 
 export interface PosWorkspace {
+  providerNextCursorId?: string | null;
+  providers?: Array<{ id: string; name: string; supplierType: string }>;
   branch: { id: string; name: string; code: string };
   location: { id: string; name: string };
   products: PosProduct[];
@@ -91,7 +96,7 @@ export interface PosWorkspace {
   refreshedAt: string;
 }
 
-export interface PosCartLine {
+export interface PosCartLine extends ServiceLineDetails {
   serialNumbers?: string[];
   product: PosProduct;
   quantity: number;
@@ -106,7 +111,7 @@ export interface HeldPosSale {
   id: string;
   userId: string;
   branchId: string;
-  lines: Array<{
+  lines: Array<ServiceLineDetails & {
     productId: string;
     serialNumbers?: string[];
     quantity: number;
@@ -142,8 +147,10 @@ export interface PosSalePayload {
   recordedAt: string;
   offline: boolean;
   provisionalReceiptReference?: string;
-  lines: Array<{
+  lines: Array<ServiceLineDetails & {
     productId: string;
+    itemKind?: "goods" | "service";
+    aftersalesCaseId?: string;
     serialNumbers?: string[];
     quantity: number;
     priceVersion?: number;
@@ -224,6 +231,8 @@ export interface SaleDocument {
     vatAmountMinor: number;
     grossAmountMinor: number;
     amountPaidMinor: number;
+    providerFundsMinor?: number;
+    priorServicePaidMinor?: number;
     creditAmountMinor: number;
     currency: "NGN";
     recordedAt: string | null;
@@ -231,6 +240,10 @@ export interface SaleDocument {
   };
   items: Array<{
     id: string;
+    itemKind?: "goods" | "service";
+    providerFunds?: { supplierId: string; supplierName: string; amountMinor: number } | null;
+    includedParts?: Array<{ productName: string; quantity: number; serialNumbers?: string[] }>;
+    aftersalesCaseId?: string | null;
     sku: string;
     productName: string;
     unitOfMeasure: string;

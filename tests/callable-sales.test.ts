@@ -2305,3 +2305,169 @@ describe.sequential("sales callables", () => {
     expect(page.records.some(item => item.id === accepted.correctionId)).toBe(true);
   }, 120000);
 });
+
+describe.sequential("mixed billing controls and recognition", () => {
+  const serviceId = "mixed-service", partId = "mixed-part", providerId = "mixed-provider";
+  async function seedMixed() {
+    for (const [id, kind, price] of [[serviceId, "service", 1000], [partId, "goods", 2000]] as const) {
+      await adminDb.doc(`products/${id}`).set({ organizationId, name: id, sku: id, active: true, itemKind: kind, trackingType: "quantity", unitOfMeasure: kind === "service" ? "job" : "piece" });
+      await adminDb.doc(`productSalesPrices/${id}`).set({ organizationId, productId: id, active: true, basePriceMinor: price, vatRateBasisPoints: 750, version: 1 });
+    }
+    await adminDb.doc(`inventoryBalances/${balanceDocumentId(organizationId, partId, locationId)}`).set({ organizationId, productId: partId, locationId, branchId, onHandQuantity: 10, reservedQuantity: 0, availableQuantity: 10, totalValueMinor: 10000, averageUnitCostMinor: 1000, version: 1 });
+    await adminDb.doc(`suppliers/${providerId}`).set({ organizationId, name: "Test logistics provider", active: true, supplierType: "logistics" });
+    for (const [id, code] of [["mixed-deferred", "2451"], ["mixed-payable", "2452"]]) await adminDb.doc(`chartOfAccounts/${id}`).set({ organizationId, code, name: id, active: true, currency: "NGN" });
+    await call(administrator, "billingControls", { action: "save", deferredServiceAccountId: "mixed-deferred", providerPayableAccountId: "mixed-payable", expectedVersion: 0, reason: "Explicitly reviewed emulator-only account mapping", idempotencyKey: crypto.randomUUID() });
+  }
+  async function openMixed() {
+    const deviceId = `mixed-${crypto.randomUUID()}`, input = { branchId, deviceId, deviceName: "Mixed bill test", openingCashMinor: 0, idempotencyKey: crypto.randomUUID() };
+    const shift = await call<{ shiftId: string }>(administrator, "openPosShift", input);
+    expect(await call(administrator, "openPosShift", input)).toMatchObject({ shiftId: shift.shiftId, opened: false });
+    return { deviceId, shiftId: shift.shiftId };
+  }
+  async function checkout(lines: unknown[], payments: unknown[], extra = {}, deferCollection = false) {
+    const shift = await openMixed();
+    const input = { calculationVersion: 2, branchId, ...shift, recordedAt: new Date().toISOString(), lines, payments, idempotencyKey: crypto.randomUUID(), ...extra };
+    const order = await call<{ orderId: string }>(administrator, "createPosSaleOrder", input);
+    await expect(call(administrator, "createPosSaleOrder", { ...input, notes: "Changed retry instructions" })).rejects.toMatchObject({ code: "functions/invalid-argument" });
+    await call(administrator, "acceptPosSaleOrderPayment", { orderId: order.orderId, ...shift, idempotencyKey: crypto.randomUUID() });
+    const confirm = { orderId: order.orderId, deferCollection, idempotencyKey: crypto.randomUUID() };
+    const result = await call<{ saleId: string }>(administrator, "confirmPosSaleOrder", confirm);
+    expect(await call(administrator, "confirmPosSaleOrder", confirm)).toMatchObject({ saleId: result.saleId, posted: false });
+    return { ...result, ...shift };
+  }
+  it("posts a service-only cash bill with no stock/collection record and protects mapped controls", async () => {
+    await seedMixed();
+    const result = await checkout([{ productId: serviceId, itemKind: "service", quantity: 1 }], [{ method: "cash", amountMinor: 1075 }]);
+    const sale = await adminDb.doc(`sales/${result.saleId}`).get();
+    const components = sale.get("billing.components"); expect(components[0].paidMinor).toBe(1075);
+    const journals = await adminDb.collection("journalLines").where("journalEntryId", "==", sale.get("journalEntryId")).get();
+    expect(journals.docs.find(doc => doc.get("accountCode") === "4100")?.get("creditMinor")).toBe(1000);
+    expect(journals.docs.find(doc => doc.get("accountCode") === "2100")?.get("creditMinor")).toBe(75);
+    expect((await adminDb.collection("inventoryTransactions").where("referenceId", "==", result.saleId).get()).empty).toBe(true);
+    expect((await adminDb.collection("saleCollections").where("saleId", "==", result.saleId).get()).empty).toBe(true);
+    await expect(call(administrator, "accountingJournals", { action: "save_account", code: "2451", name: "Changed control", active: false, reason: "Attempt forbidden control edit", idempotencyKey: crypto.randomUUID() })).rejects.toMatchObject({ code: "functions/failed-precondition" });
+  });
+  it("consumes included parts once while reserving separately charged units of the same product", async () => {
+    const result = await checkout([{ productId: serviceId, itemKind: "service", quantity: 1, includedParts: [{ productId: partId, quantity: 1 }], providerFunds: { supplierId: providerId, amountMinor: 500 } }, { productId: partId, quantity: 1 }], [{ method: "cash", amountMinor: 3725 }], {}, true);
+    const balance = await adminDb.doc(`inventoryBalances/${balanceDocumentId(organizationId, partId, locationId)}`).get();
+    expect(balance.get("onHandQuantity")).toBe(9); expect(balance.get("reservedQuantity")).toBe(1); expect(balance.get("availableQuantity")).toBe(8);
+    const sale = await adminDb.doc(`sales/${result.saleId}`).get(); expect(sale.get("costAmountMinor")).toBe(1000); expect(sale.get("providerFundsMinor")).toBe(500);
+    const lines = await adminDb.collection("journalLines").where("journalEntryId", "==", sale.get("journalEntryId")).get();
+    expect(lines.docs.find(doc => doc.get("accountId") === "mixed-payable")?.get("creditMinor")).toBe(500);
+    const items = await adminDb.collection("saleItems").where("saleId", "==", result.saleId).get();
+    const service = items.docs.find(doc => doc.get("itemKind") === "service")!;
+    const credit = await call<{ returnId: string }>(administrator, "createSaleReturn", { kind: "service_credit", branchId, saleId: result.saleId, lines: [{ saleItemId: service.id, quantity: 1, condition: "non_restockable" }], resolution: "cash", refundShiftId: result.shiftId, reason: "Service fee commercial cancellation", idempotencyKey: crypto.randomUUID() });
+    await call(administrator, "approveSaleReturn", { returnId: credit.returnId, idempotencyKey: crypto.randomUUID() });
+    const after = await adminDb.doc(`inventoryBalances/${balanceDocumentId(organizationId, partId, locationId)}`).get(); expect(after.get("onHandQuantity")).toBe(9); expect(after.get("reservedQuantity")).toBe(1);
+    const goods = items.docs.find(doc => doc.get("itemKind") !== "service")!;
+    await expect(call(administrator, "confirmPosSaleOrder", { action: "collect", saleId: result.saleId, lines: [{ saleItemId: service.id, quantity: 1 }], collector: "Mixed test customer", idempotencyKey: crypto.randomUUID() })).rejects.toMatchObject({ code: "functions/failed-precondition" });
+    await call(administrator, "confirmPosSaleOrder", { action: "collect", saleId: result.saleId, lines: [{ saleItemId: goods.id, quantity: 1 }], collector: "Mixed test customer", idempotencyKey: crypto.randomUUID() });
+    expect((await adminDb.doc(`sales/${result.saleId}`).get()).get("collectionStatus")).toBe("collected");
+    expect((await adminDb.collection("saleCollections").where("saleId", "==", result.saleId).get()).docs[0]!.get("totalQuantity")).toBe(1);
+  });
+  async function mixedCustomer() {
+    const saved = await call<{ customerId: string }>(administrator, "saveCustomer", { name: `Mixed customer ${crypto.randomUUID()}`, phone: "08099887712", idempotencyKey: crypto.randomUUID() });
+    await adminDb.doc(`customers/${saved.customerId}`).update({ creditStatus: "approved", creditLimitMinor: 100000, availableCreditMinor: 100000 }); return saved.customerId;
+  }
+  it("defers unpaid services, releases on advance and repayment, then corrects a receipt without waiving charges", async () => {
+    const customerId = await mixedCustomer();
+    await call(administrator, "recordCustomerPayment", { customerId, branchId, method: "cash", amountMinor: 300, purpose: "advance", idempotencyKey: crypto.randomUUID() });
+    const result = await checkout([{ productId: serviceId, itemKind: "service", quantity: 1 }], [{ method: "customer_advance", amountMinor: 300 }, { method: "cash", amountMinor: 200 }], { customerId, creditAmountMinor: 575, creditDueDate: "2026-12-31" });
+    let sale = await adminDb.doc(`sales/${result.saleId}`).get(); expect(sale.get("receivableOutstandingMinor")).toBe(575); expect(sale.get("billing.paidMinor")).toBe(500);
+    const repayment = { customerId, branchId, method: "bank_transfer", bankAccountId, amountMinor: 575, purpose: "repayment", allocations: [{ accountId: "general", amountMinor: 575 }], invoiceAllocations: [{ saleId: result.saleId, amountMinor: 575 }], reference: "Mixed later receipt", idempotencyKey: crypto.randomUUID() };
+    const paid = await call<{ paymentId: string }>(administrator, "recordCustomerPayment", repayment);
+    expect(await call(administrator, "recordCustomerPayment", repayment)).toMatchObject({ paymentId: paid.paymentId, recorded: false });
+    sale = await adminDb.doc(`sales/${result.saleId}`).get(); expect(sale.get("billing.paidMinor")).toBe(1075); expect(sale.get("receivableOutstandingMinor")).toBe(0);
+    const correction = { action: "refund", saleId: result.saleId, sourceType: "customerPayments", sourceId: paid.paymentId, amountMinor: 75, method: "bank_transfer", bankAccountId, reference: "Actual returned overpayment", reason: "Receipt correction keeps service charges due", idempotencyKey: crypto.randomUUID() };
+    await expect(call(cashier, "billingReceiptCorrections", correction)).rejects.toMatchObject({ code: "functions/permission-denied" });
+    const corrected = await Promise.all([call(administrator, "billingReceiptCorrections", correction), call(administrator, "billingReceiptCorrections", correction)]); expect(corrected[0]).toEqual(corrected[1]);
+    sale = await adminDb.doc(`sales/${result.saleId}`).get(); expect(sale.data()).toMatchObject({ grossAmountMinor: 1075, receivableOutstandingMinor: 75, receivablePaidMinor: 1000 });
+    expect((await adminDb.doc(`customers/${customerId}`).get()).get("outstandingBalanceMinor")).toBe(75);
+    const statement = await adminDb.collection("customerAccountEntries").where("customerId", "==", customerId).get(); expect(statement.docs.map(doc => doc.data())).toContainEqual(expect.objectContaining({ entryType: "receipt_refund", debtAmountMinor: 75, advanceAmountMinor: 0 }));
+    await expect(call(administrator, "billingReceiptCorrections", { ...correction, amountMinor: 501, idempotencyKey: crypto.randomUUID() })).rejects.toMatchObject({ code: "functions/failed-precondition" });
+  });
+  it("settles and recovers provider liabilities without income or expenses and credits only recoverable obligations", async () => {
+    const result = await checkout([{ productId: serviceId, itemKind: "service", quantity: 1, providerFunds: { supplierId: providerId, amountMinor: 500 } }], [{ method: "bank_transfer", bankAccountId, amountMinor: 1575 }]);
+    const service = (await adminDb.collection("saleItems").where("saleId", "==", result.saleId).get()).docs[0]!;
+    const settle = { action: "settle", saleId: result.saleId, componentId: `provider:${service.id}`, method: "bank_transfer", bankAccountId, amountMinor: 300, reference: "Provider settlement evidence", reason: "Pay part of independent provider obligation", idempotencyKey: crypto.randomUUID() };
+    const paid = await call<{ paymentId: string; journalEntryId: string }>(administrator, "providerFunds", settle); expect(await call(administrator, "providerFunds", settle)).toEqual(paid);
+    const lines = await adminDb.collection("journalLines").where("journalEntryId", "==", paid.journalEntryId).get(); expect(lines.docs.map(doc => doc.get("accountCode")).sort()).toEqual(["1040", "2452"].sort());
+    await expect(call(administrator, "createExpense", { categoryName: "Delivery", payeeName: "Test logistics provider", supplierId: providerId, costPurpose: "logistics", costReferenceType: "sale", costReferenceId: result.saleId, branchId, expenseDate: new Date().toISOString().slice(0, 10), description: "Attempt duplicate pass-through provider expense", netAmountMinor: 500, vatAmountMinor: 0, idempotencyKey: crypto.randomUUID() })).rejects.toMatchObject({ code: "functions/failed-precondition" });
+    const credit = { kind: "service_credit", branchId, saleId: result.saleId, lines: [], providerCredits: [{ saleItemId: service.id, amountMinor: 500 }], resolution: "bank_transfer", bankAccountId, reason: "Cancel provider charge after funds recovered", idempotencyKey: crypto.randomUUID() };
+    await expect(call(administrator, "createSaleReturn", credit)).rejects.toMatchObject({ code: "functions/failed-precondition" });
+    await call(administrator, "providerFunds", { ...settle, action: "recover", originalPaymentId: paid.paymentId, idempotencyKey: crypto.randomUUID() });
+    const submitted = await call<{ returnId: string }>(administrator, "createSaleReturn", { ...credit, idempotencyKey: crypto.randomUUID() }); await call(administrator, "approveSaleReturn", { returnId: submitted.returnId, idempotencyKey: crypto.randomUUID() });
+    const sale = await adminDb.doc(`sales/${result.saleId}`).get(), provider = sale.get("billing.components").find((c: { kind: string }) => c.kind === "provider"); expect(provider).toMatchObject({ creditedGrossMinor: 500, settledMinor: 0, paidMinor: 0 });
+    expect((await adminDb.collection("expenses").where("costReferenceId", "==", result.saleId).get()).empty).toBe(true);
+    await expect(call(administrator, "approveSaleReturn", { returnId: submitted.returnId, action: "inspect", inspection: { notes: "No physical service inspection", lines: [{ returnItemId: service.id, disposition: "resellable" }] }, idempotencyKey: crypto.randomUUID() })).rejects.toMatchObject({ code: "functions/failed-precondition" });
+  });
+  it("splits a service credit into actual refund and debt reduction without restocking", async () => {
+    const customerId = await mixedCustomer();
+    const result = await checkout([{ productId: serviceId, itemKind: "service", quantity: 1 }], [{ method: "cash", amountMinor: 500 }], { customerId, creditAmountMinor: 575, creditDueDate: "2026-12-31" });
+    const service = (await adminDb.collection("saleItems").where("saleId", "==", result.saleId).get()).docs[0]!;
+    const submitted = await call<{ returnId: string }>(administrator, "createSaleReturn", { kind: "service_credit", branchId, saleId: result.saleId, lines: [{ saleItemId: service.id, quantity: 1, condition: "non_restockable" }], resolution: "split", refundAmountMinor: 500, refundMethod: "cash", refundShiftId: result.shiftId, reason: "Cancel service fee and refund collected portion", idempotencyKey: crypto.randomUUID() });
+    await call(administrator, "approveSaleReturn", { returnId: submitted.returnId, idempotencyKey: crypto.randomUUID() });
+    const sale = await adminDb.doc(`sales/${result.saleId}`).get(); expect(sale.data()).toMatchObject({ receivableOutstandingMinor: 0, receivablePaidMinor: 0, receivableCreditedMinor: 1075 }); expect(sale.get("billing.components")[0].creditedVatMinor).toBe(75);
+    expect((await adminDb.doc(`customers/${customerId}`).get()).get("outstandingBalanceMinor")).toBe(0);
+    expect((await adminDb.doc(`posShifts/${result.shiftId}`).get()).get("cashRefundsMinor")).toBe(500);
+  });
+  it("links existing paid service evidence without collecting or recognizing it twice", async () => {
+    const customerId = await mixedCustomer(), caseId = `mixed-case-${crypto.randomUUID()}`;
+    await adminDb.doc(`aftersalesCases/${caseId}`).set({ organizationId, branchId, customerId, caseNumber: "AF-MIXED-CARRY", status: "open", serviceCatalog: { itemId: serviceId }, serviceBillingVersion: 2, chargeAmountMinor: 1075, chargeVatMinor: 75, amountPaidMinor: 1075, recognizedVatMinor: 75, outstandingAmountMinor: 0, chargeStatus: "paid" });
+    const result = await checkout([{ productId: serviceId, itemKind: "service", quantity: 1, aftersalesCaseId: caseId }], [], { customerId });
+    const sale = await adminDb.doc(`sales/${result.saleId}`).get(); expect(sale.data()).toMatchObject({ journalEntryId: null, priorServicePaidMinor: 1075, receivablePaidMinor: 1075, receivableOutstandingMinor: 0 });
+    expect((await adminDb.collection("salePayments").where("saleId", "==", result.saleId).get()).empty).toBe(true);
+    await expect(checkout([{ productId: serviceId, itemKind: "service", quantity: 1, aftersalesCaseId: caseId }], [], { customerId })).rejects.toMatchObject({ code: "functions/failed-precondition" });
+  });
+
+  it("retains original invoice accounts after a reviewed remap and respects closed periods", async () => {
+    const customerId = await mixedCustomer();
+    const result = await checkout([{ productId: serviceId, itemKind: "service", quantity: 1 }], [], { customerId, creditAmountMinor: 1075, creditDueDate: "2026-12-31" });
+    for (const [id, code] of [["mixed-deferred-next", "2453"], ["mixed-payable-next", "2454"]]) await adminDb.doc(`chartOfAccounts/${id}`).set({ organizationId, code, name: id, active: true, currency: "NGN" });
+    const config = { action: "save", deferredServiceAccountId: "mixed-deferred-next", providerPayableAccountId: "mixed-payable-next", expectedVersion: 1, reason: "Reviewed later control configuration in emulator", idempotencyKey: crypto.randomUUID() };
+    await call(administrator, "billingControls", config); expect(await call(administrator, "billingControls", config)).toMatchObject({ mapping: { version: 2 } });
+    const receipt = { customerId, branchId, method: "cash", amountMinor: 1075, purpose: "repayment", allocations: [{ accountId: "general", amountMinor: 1075 }], invoiceAllocations: [{ saleId: result.saleId, amountMinor: 1075 }], idempotencyKey: crypto.randomUUID() };
+    const periodKey = new Date().toISOString().slice(0, 7), period = adminDb.doc(`accountingPeriods/${uniquenessDocumentId(organizationId, periodKey)}`);
+    await period.set({ organizationId, periodKey, status: "closed" });
+    await expect(call(administrator, "recordCustomerPayment", receipt)).rejects.toMatchObject({ code: "functions/failed-precondition" }); await period.delete();
+    const paid = await call<{ paymentId: string }>(administrator, "recordCustomerPayment", receipt), payment = await adminDb.doc(`customerPayments/${paid.paymentId}`).get();
+    const journalLines = await adminDb.collection("journalLines").where("journalEntryId", "==", payment.get("journalEntryId")).get(); expect(journalLines.docs.some(line => line.get("accountId") === "mixed-deferred" && line.get("debitMinor") === 1075)).toBe(true); expect(journalLines.docs.some(line => line.get("accountCode") === "2453")).toBe(false);
+    expect((await adminDb.doc(`sales/${result.saleId}`).get()).get("billing.mapping.version")).toBe(1);
+    await expect(call(cashier, "billingControls", { action: "workspace" })).rejects.toMatchObject({ code: "functions/permission-denied" });
+  });
+  it("blocks services with missing mappings while ordinary goods still post", async () => {
+    const configuration = await adminDb.collection("billingConfigurations").where("organizationId", "==", organizationId).get();
+    expect(configuration.size).toBe(1); const config = configuration.docs[0]!; await config.ref.delete();
+    try {
+      await expect(checkout([{ productId: serviceId, itemKind: "service", quantity: 1 }], [{ method: "cash", amountMinor: 1075 }])).rejects.toMatchObject({ code: "functions/failed-precondition" });
+      const result = await checkout([{ productId: partId, quantity: 1 }], [{ method: "cash", amountMinor: 2150 }]); expect((await adminDb.doc(`sales/${result.saleId}`).get()).get("billing")).toBeUndefined();
+    } finally { await config.ref.set(config.data()); }
+  });
+
+  it("does not reactivate an original receipt after commercial refund and later repayment", async () => {
+    const customerId = await mixedCustomer(), result = await checkout([{ productId: serviceId, itemKind: "service", quantity: 2 }], [{ method: "cash", amountMinor: 1075 }], { customerId, creditAmountMinor: 1075, creditDueDate: "2026-12-31" });
+    const service = (await adminDb.collection("saleItems").where("saleId", "==", result.saleId).get()).docs[0]!, original = (await adminDb.collection("salePayments").where("saleId", "==", result.saleId).get()).docs[0]!;
+    const credit = await call<{ returnId: string }>(administrator, "createSaleReturn", { kind: "service_credit", branchId, saleId: result.saleId, lines: [{ saleItemId: service.id, quantity: 1, condition: "non_restockable" }], resolution: "cash", refundShiftId: result.shiftId, reason: "Refund original collected service fee", idempotencyKey: crypto.randomUUID() });
+    await call(administrator, "approveSaleReturn", { returnId: credit.returnId, idempotencyKey: crypto.randomUUID() });
+    const later = await call<{ paymentId: string }>(administrator, "recordCustomerPayment", { customerId, branchId, method: "cash", purpose: "repayment", amountMinor: 1075, allocations: [{ accountId: "general", amountMinor: 1075 }], invoiceAllocations: [{ saleId: result.saleId, amountMinor: 1075 }], reference: "Later actual receipt", idempotencyKey: crypto.randomUUID() });
+    const workspace = await call<{ receipts: Array<{ id: string }>; provenanceNotice: string }>(administrator, "billingReceiptCorrections", { action: "workspace", saleId: result.saleId }); expect(workspace.receipts.map(item => item.id)).toEqual([later.paymentId]); expect(workspace.provenanceNotice).toContain("reconciliation");
+    const correction = { action: "refund", saleId: result.saleId, sourceType: "salePayments", sourceId: original.id, amountMinor: 1, method: "cash", shiftId: result.shiftId, reference: "Provenance correction", reason: "Original money must not become eligible again", idempotencyKey: crypto.randomUUID() };
+    await expect(call(administrator, "billingReceiptCorrections", correction)).rejects.toMatchObject({ code: "functions/failed-precondition" });
+    await call(administrator, "billingReceiptCorrections", { ...correction, sourceType: "customerPayments", sourceId: later.paymentId, idempotencyKey: crypto.randomUUID() });
+    expect((await adminDb.doc(`sales/${result.saleId}`).get()).get("receivableOutstandingMinor")).toBe(1);
+  });
+
+  it("owns serial parts exactly once across charged goods and included service consumption", async () => {
+    const productId = "mixed-serial-part", serialA = "MIXED-INCLUDED-A", serialB = "MIXED-CHARGED-B";
+    await adminDb.doc(`products/${productId}`).set({ organizationId, name: "Mixed serial part", sku: "MIX-SERIAL", active: true, itemKind: "goods", trackingType: "serial", unitOfMeasure: "unit" });
+    await adminDb.doc(`productSalesPrices/${productId}`).set({ organizationId, productId, basePriceMinor: 1000, vatRateBasisPoints: 0, version: 1, active: true });
+    const balance = adminDb.doc(`inventoryBalances/${balanceDocumentId(organizationId, productId, locationId)}`); await balance.set({ organizationId, branchId, locationId, productId, onHandQuantity: 2, reservedQuantity: 0, availableQuantity: 2, totalValueMinor: 300, averageUnitCostMinor: 150, version: 1 });
+    for (const [serial, cost] of [[serialA, 100], [serialB, 200]] as const) await adminDb.doc(`serializedItems/${uniquenessDocumentId(organizationId, serial)}`).set({ organizationId, productId, serialNumber: serial, normalizedSerialNumber: serial, currentLocationId: locationId, branchId, status: "at_branch", active: true, currentUnitCostMinor: cost });
+    const service = { productId: serviceId, itemKind: "service", quantity: 1, includedParts: [{ productId, quantity: 1, serialNumbers: [serialA] }] };
+    await expect(checkout([service, { productId, quantity: 1, serialNumbers: [serialA] }], [{ method: "cash", amountMinor: 2075 }], {}, true)).rejects.toMatchObject({ code: "functions/invalid-argument" }); expect((await balance.get()).get("onHandQuantity")).toBe(2);
+    const result = await checkout([service, { productId, quantity: 1, serialNumbers: [serialB] }], [{ method: "cash", amountMinor: 2075 }], {}, true);
+    expect((await balance.get()).data()).toMatchObject({ onHandQuantity: 1, reservedQuantity: 1, totalValueMinor: 200 }); expect((await adminDb.doc(`sales/${result.saleId}`).get()).get("costAmountMinor")).toBe(100);
+    expect((await adminDb.doc(`serializedItems/${uniquenessDocumentId(organizationId, serialA)}`).get()).get("status")).toBe("sold"); expect((await adminDb.doc(`serializedItems/${uniquenessDocumentId(organizationId, serialB)}`).get()).get("status")).toBe("reserved");
+  });
+
+});

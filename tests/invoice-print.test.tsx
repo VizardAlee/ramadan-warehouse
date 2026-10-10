@@ -29,6 +29,13 @@ describe("invoice printing", () => {
     fitInvoiceToPage(element);
     expect(element.style.getPropertyValue("--invoice-print-scale")).toBe("1");
   });
+  it("retains service, provider and included-part evidence on a mixed printable invoice", () => {
+    const mixed = invoice(35); mixed.sale.providerFundsMinor = 50000; mixed.sale.priorServicePaidMinor = 107500; mixed.sale.grossAmountMinor += 50000;
+    mixed.items[0] = { ...mixed.items[0]!, itemKind: "service", aftersalesCaseId: "CASE-ORIGINAL", includedParts: [{ productName: "Included cable", quantity: 2, serialNumbers: [] }], providerFunds: { supplierId: "provider", supplierName: "Existing carrier", amountMinor: 50000 } };
+    render(<SaleDocumentDialog document={mixed} onClose={() => {}}/>); const printable = document.querySelector<HTMLElement>("[data-invoice-document]")!;
+    expect(printable.textContent).toContain("CASE-ORIGINAL"); expect(printable.textContent).toContain("Included cable × 2"); expect(printable.textContent).toContain("Existing carrier"); expect(printable.querySelectorAll("tbody tr")).toHaveLength(35);
+    if (process.env.INVOICE_PRINT_FIXTURE_DIR) { mkdirSync(process.env.INVOICE_PRINT_FIXTURE_DIR, { recursive: true }); writeFileSync(`${process.env.INVOICE_PRINT_FIXTURE_DIR}/invoice-mixed.html`, `<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="invoice.css"></head><body>${document.querySelector("[data-sale-document-overlay]")!.outerHTML}<script>window.addEventListener('beforeprint', () => (${fitInvoiceToPage.toString()})(document.querySelector('[data-invoice-document]')))</script></body></html>`); }
+  });
   it.each([3, 15, 35])("keeps all %i invoice items in the printable document", count => {
     render(<SaleDocumentDialog document={invoice(count)} onClose={() => {}} />);
     const element = document.querySelector<HTMLElement>("[data-invoice-document]")!;

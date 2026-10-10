@@ -1,3 +1,5 @@
+import { receiveBilling, type MixedBilling, type BillingJournalLine } from "../billing/allocations.js";
+import { prepareBillingTransition, writeBillingTransition } from "../billing/transitions.js";
 import { createHash } from "node:crypto";
 import { AggregateField, FieldValue, Timestamp } from "firebase-admin/firestore";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
@@ -560,6 +562,7 @@ export const recordCustomerPayment = onCall(
         if (invoicePayments.some((item) => !allocations.some((allocation) => allocation.accountId === item.accountId)))
           throw new HttpsError("invalid-argument", "Include each invoice's arrangement in the receipt allocation.");
       }
+      const mixedTransitions = await Promise.all(invoicePayments.filter(item => item.sale.get("billing")).map(async item => ({ sale: item.sale, prepared: await prepareBillingTransition(transaction, item.sale, receiveBilling(item.sale.get("billing") as MixedBilling, item.amountMinor)) })));
       let invoiceDebtByAccount = moneyBalances(current!.get("invoiceDebtByAccount"));
       let advanceBalances = moneyBalances(current!.get("advanceBalances"));
       for (const item of invoicePayments) {
@@ -571,16 +574,18 @@ export const recordCustomerPayment = onCall(
       }
       const creditLimit = Number(current!.get("creditLimitMinor") ?? 0);
       const account = input.source === "advance_balance" ? { accountCode: "2210", accountName: "Customer advances", bankAccountId: undefined, bankName: undefined, bankAccountName: undefined, accountNumberLast4: undefined } : resolveSettlementAccount(actor.organizationId, input.method, input.bankAccountId, bankAccountSnapshot);
-      const journalLines = refund ? [
+      const journalLines: BillingJournalLine[] = refund ? [
         { accountCode: "2210", accountName: "Customer advances", debitMinor: input.amountMinor, creditMinor: 0 },
         { accountCode: account.accountCode, accountName: account.accountName, debitMinor: 0, creditMinor: input.amountMinor },
       ] : [
         { accountCode: account.accountCode, accountName: account.accountName, debitMinor: input.amountMinor, creditMinor: 0 },
         { accountCode: input.purpose === "advance" ? "2210" : "1100", accountName: input.purpose === "advance" ? "Customer advances" : "Accounts receivable", debitMinor: 0, creditMinor: input.amountMinor },
       ];
+      journalLines.push(...mixedTransitions.flatMap(item => item.prepared.lines));
       assertBalancedJournal(journalLines);
       const now = FieldValue.serverTimestamp();
       const invoiceAllocations = invoicePayments.map((item) => ({ saleId: item.sale.id, saleNumber: item.sale.get("saleNumber"), accountId: item.accountId, amountMinor: item.amountMinor }));
+      mixedTransitions.forEach(item => writeBillingTransition(transaction, item.sale.ref, item.prepared, actor.userId));
       for (const item of invoicePayments) transaction.update(item.sale.ref, { ...reduceInvoice(Number(item.sale.get("receivableOutstandingMinor")), item.amountMinor), receivablePaidMinor: Number(item.sale.get("receivablePaidMinor") ?? 0) + item.amountMinor, receivableUpdatedAt: now });
       transaction.update(customer, {
         arrangements,
@@ -666,8 +671,8 @@ export const recordCustomerPayment = onCall(
         referenceId: payment.id,
         referenceNumber: paymentNumber,
         description: `Customer ${refund ? "unused advance refund" : "payment"} ${paymentNumber}`,
-        totalDebitMinor: input.amountMinor,
-        totalCreditMinor: input.amountMinor,
+        totalDebitMinor: journalLines.reduce((sum, line) => sum + line.debitMinor, 0),
+        totalCreditMinor: journalLines.reduce((sum, line) => sum + line.creditMinor, 0),
         currency: "NGN",
         effectiveAt,
         postedAt: now,
@@ -677,9 +682,9 @@ export const recordCustomerPayment = onCall(
       });
       for (const line of journalLines) {
         const chartAccount = db.doc(
-          `chartOfAccounts/${uniquenessDocumentId(actor.organizationId, line.accountCode)}`,
+          `chartOfAccounts/${line.accountId ?? uniquenessDocumentId(actor.organizationId, line.accountCode)}`,
         );
-        transaction.set(chartAccount, {
+        if (!line.accountId) transaction.set(chartAccount, {
           organizationId: actor.organizationId,
           code: line.accountCode,
           name: line.accountName,

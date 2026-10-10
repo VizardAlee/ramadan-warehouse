@@ -144,6 +144,10 @@ for both warehouse locations and store/branch stock locations.
 12. Resolve every offline review item before closing the shift, count the cash,
    and enter the closing amount for variance recording.
 
+The printed invoice shows **Credit issued at checkout**, the original unpaid
+amount at issue. Later repayments do not rewrite that historical amount. Use the
+customer statement and verified invoice allocations for current debt.
+
 ## Customer and credit forms
 
 1. Create the customer once with a name and either an 11-digit Nigerian phone
@@ -272,3 +276,160 @@ for both warehouse locations and store/branch stock locations.
    independently**. The app rechecks the evidence before recording the close.
 5. If a historical correction is later required, record an authorized
    correcting transaction in an open month. Never alter closed evidence.
+
+
+## Customer account statement
+
+Open **Customers → full history → Account statement**. Select **From / To**
+dates, a store, and a named arrangement or **All arrangements**. Each movement
+appears once. **Debt balance** and **Advance balance** show independent running
+balances after each transaction; unused advances are not subtracted from debt.
+**Opening recorded balance** and **Closing recorded balance** describe the
+selected period and entry scope. Current balance cards remain across all stores.
+For example, a ₦10,000 credit invoice followed by a ₦4,000 allocated repayment
+leaves ₦6,000 debt; an unused advance remains separately visible.
+
+Choose **Print / Save complete statement** or **Export complete statement** to
+retrieve every page and include opening, chronological movements and closing
+balances. More than 10,000 entries requires a shorter range. **Needs review**
+means historical evidence or classifications require reconciliation. Never treat
+unknown balances as zero or claim a reconciled account from those records.
+A concurrent change may require refreshing and retrying the export.
+
+## Reporting tools
+
+This update adds product margin reports, full-range HR history and multi-month
+budget comparisons alongside the existing customer account statement. Mixed
+billing software does not create or select production ledger accounts. An
+authorized accountant must review and configure dedicated controls before
+service billing can post.
+
+### Product sales and recorded gross margins
+
+1. Open **Reports → Sales register** and set dates and store. Existing **Daily**,
+   **Weekly**, **Monthly** and **Custom** ranges are available. **All sales summary**
+   and **Credit sales summary** already report full-range sales; original credit
+   issued is different from remaining debt after repayments and returns.
+2. With both sales-report and inventory-cost access, choose **Calculate product
+   margins**. This includes all payment statuses and invoices issued in the range.
+3. Review **Net sales**, **Recorded cost**, **Restock credits**, **Gross margin**
+   and **Cost evidence**. Returns and collections belong to those invoices and
+   can have happened after the selected dates. This is an invoice-cohort view,
+   not a posted-period profit and loss statement. Net sales exclude VAT; costs
+   exclude overhead and operating expenses. For period profit use **Financial
+   statements**.
+4. **Unknown** means missing costs, pending collection or held-return recovery
+   requiring further allocation. Explicit recorded zero cost differs from missing
+   cost. Approved restock returns credit cost; damaged returns do not automatically
+   restore inventory or clear cost. Unapproved returns do not change this report.
+5. Choose **Export product CSV** for all returned product totals. More than 2,000
+   products requires a smaller range; no partial totals are presented as complete.
+
+### Attendance and staff activity history
+
+1. Open **HR & attendance → Attendance and staff activity history**. HR read
+   permission is required; salary permission remains separate.
+2. Choose **Attendance** or **Staff activity**, **From**, **To**, and **Rows**.
+   Dates use Nigerian business time. For example September 1–30 includes all
+   recorded events in those dates, including the final instant of September 30.
+3. Use **Next / Previous** for older records. This extends the existing recent
+   25-event previews; employee names are resolved even outside the staff page.
+4. Choose **Export full range CSV** for every page in that range. Ranges above
+   10,000 events require narrowing; no truncated file is exported. Refresh and
+   retry if history changes during export.
+5. These reports show recorded events only. They do not infer worked hours,
+   lateness, overtime, attendance approvals or payroll entitlements.
+
+### Compare monthly budgets
+
+1. Open **Finance → Budgets versus actuals → Compare monthly budgets**.
+   Finance journal read access is required. Existing target changes still require
+   budget management permission, a reason and a recorded revision.
+2. Set **From month / To month** to a range of up to 12 months and choose
+   **Compare months**. Actuals come from posted journals using Nigerian calendar
+   months. Store and organization targets remain distinct; they are not added
+   together.
+3. Review each saved account target against its actuals. For example a ₦100,000
+   income target with ₦120,000 recorded income has ₦20,000 favorable variance.
+   For expenses, spending below target is favorable. Missing targets are labelled
+   **no saved targets**, not invented as zero. Comparisons do not post journals.
+4. Choose **Export comparison CSV** to export all comparison rows. Department
+   allocations and payroll budgets have not been introduced by this extension.
+
+
+## Mixed goods and service invoices
+
+1. In **Finance → Mixed billing account controls**, an accountant with account
+   management permission selects two existing reviewed, dedicated liability
+   accounts: **Deferred service control** and **Provider funds payable**. Enter a
+   review reason and choose **Save reviewed account mappings**. The accounts must
+   be distinct, active NGN liabilities with no unrelated posting history. This
+   does not create account numbers or change customer advances. Revisions are
+   audited; prior invoices keep their original mappings and those accounts remain
+   protected from manual changes and journals. Missing mappings block services;
+   ordinary goods retain their existing workflow.
+2. In online **POS**, add catalogue services alongside goods. Expand **Service
+   billing details**. Add separately charged parts as normal goods in the basket.
+   Use **Physical part included in fee** only for stock consumed within the service
+   price. Included parts consume stock and cost once at confirmation, even when
+   other goods are reserved for later collection. Services have no collection or
+   waybill quantity. Serial parts require exact owned available serials; one
+   serial cannot be both charged and included.
+3. Select an existing supplier under **Delivery/service provider**, enter
+   **Provider funds (₦), separate from company fee**, then **Apply provider funds**.
+   Use **Load more existing suppliers** for later supplier pages. Provider funds
+   are a separate payable, excluded from company income and VAT; the company fee
+   retains its configured VAT. Register suppliers in Purchasing using goods,
+   service, logistics or mixed classification. Bank details are not required just
+   to register a provider.
+4. Optionally enter a compatible confirmed aftersales case ID and choose
+   **Link / refresh confirmed case**. Its fixed charge, VAT and prior receipts are
+   carried once. The remaining amount shown for allocation excludes those prior
+   receipts. A held basket must refresh linked cases before checkout. Historical
+   cases that need reconciliation cannot be silently converted. Once billed,
+   use the invoice for subsequent receipts, corrections and credits; aftersales
+   retains its original receipt history and service status workflow.
+5. Accept and confirm payment through the existing controlled order workflow.
+   Goods retain invoice recognition. Unpaid service gross remains in deferred
+   service control; allocated cash/card/bank receipts and applied advances release
+   the corresponding service income and VAT. Partial payments allocate minor
+   units cumulatively with stable line-order rounding. Completion of service work
+   alone does not release income. Later customer repayments must select invoice
+   allocations. Split tenders and customer advances do not create another receipt.
+6. In **Expenses → Provider funds**, select invoice dates and store, then
+   **History / payment**. **Pay provider** records actual partial or full settlement
+   against the payable using the company account used. **Record recovered /
+   returned provider funds** requires the original settlement and reversal access.
+   Neither operation recognizes another expense or income. The dates select
+   invoices; current collections, credits and settlements may include later
+   activity. **Export full provider CSV** reads every page, up to 10,000 obligations.
+   An empty scanned page may still have a **Next** page.
+7. In **Returns**, load the receipt and choose **Credit service fees / provider
+   charges** to reduce a commercial charge. Select quantities and any provider
+   credit, a reason, and refund, exchange credit, debt reduction or **Part refund /
+   exchange credit and part debt reduction**. A split must leave a valid unpaid
+   debt portion. Manager approval posts the credit; service credits require no
+   physical inspection and never restock included parts. Recover settled provider
+   funds before crediting that part of the obligation.
+8. For a returned payment where the charge is still owed, authorized staff with
+   returns approval and journal reversal access use **Correct a mixed invoice
+   receipt**. Select the original actual receipt, amount, reference, reason and
+   funding till/company account. **Record actual receipt refund and restore debt**
+   preserves charges and creates a separate journal and customer statement debt
+   movement. It reverses the corresponding service recognition and restores debt;
+   it does not credit a charge or restock stock. Advances/exchange credits use
+   their original non-cash workflows. Receipt selectors reject source histories
+   over 200 records instead of silently hiding records. A commercial refund
+   makes earlier receipt funding ambiguous: those older receipts require
+   reconciliation and cannot be corrected again. Later repayments remain
+   separately identifiable; they never reactivate the refunded original money.
+9. If a response is interrupted, retry the saved billing instructions, including
+   after reloading the same browser tab. Do not pay again or change the amount of
+   an uncertain request. Store, permission, accounting-period and original account
+   controls apply to every posting. No payroll or HR approval policy changes.
+
+Product margin reports identify goods/services. Included parts form recorded
+service cost once; separately billed goods keep their own cost. Provider amounts
+and credits are shown separately and excluded from company margins. Service net
+sales are invoice charges, not receipt-recognized period income. Use posted
+financial statements for period income and VAT. Unknown cost remains unknown.

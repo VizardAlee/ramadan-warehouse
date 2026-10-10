@@ -92,7 +92,7 @@ export function writeJournal(
     const account = db.doc(
       `chartOfAccounts/${line.accountId ?? uniquenessDocumentId(actor.organizationId, line.accountCode)}`,
     );
-    if (values.manageAccounts !== false) transaction.set(
+    if (values.manageAccounts !== false && !line.accountId) transaction.set(
       account,
       {
         organizationId: actor.organizationId,

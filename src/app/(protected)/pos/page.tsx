@@ -1,5 +1,7 @@
 "use client";
 
+import { ServiceLineOptions } from "@/features/pos/service-line-options";
+
 import { parseSaleSerials, validSaleSerials } from "@/features/pos/serial-selection";
 
 import {
@@ -208,7 +210,7 @@ export default function PosPage() {
   }, [discountAmount]);
   const discountIsValid =
     discountAmountMinor >= 0 &&
-    discountAmountMinor <= baseTotals.subtotalAmountMinor;
+    discountAmountMinor <= (baseTotals.discountableSubtotalMinor ?? baseTotals.subtotalAmountMinor);
   const totals = useMemo(
     () =>
       calculatePosCart(
@@ -217,6 +219,7 @@ export default function PosPage() {
       ),
     [cart, discountAmountMinor, discountIsValid],
   );
+  const amountToAllocateMinor = totals.grossAmountMinor - (totals.priorServicePaidMinor ?? 0);
   const creditPaidAmountMinor = useMemo(() => {
     try {
       return nairaToKobo(Number(creditPaidAmount || 0));
@@ -232,13 +235,13 @@ export default function PosPage() {
     splitPayments.length >= 2 && splitPayments.length <= 5 &&
     splitAmounts.every((amount) => amount > 0) &&
     splitPayments.every((payment) => ["cash", "customer_advance"].includes(payment.method) || Boolean(payment.bankAccountId)) &&
-    (splitAllowCredit ? splitPaidMinor < totals.grossAmountMinor : splitPaidMinor === totals.grossAmountMinor)
+    (splitAllowCredit ? splitPaidMinor < amountToAllocateMinor : splitPaidMinor === amountToAllocateMinor)
   );
   const creditAmountMinor =
     paymentMethod === "customer_credit"
-      ? totals.grossAmountMinor - Math.max(0, creditPaidAmountMinor)
+      ? amountToAllocateMinor - Math.max(0, creditPaidAmountMinor)
       : paymentMethod === "split" && splitAllowCredit
-        ? Math.max(0, totals.grossAmountMinor - splitPaidMinor)
+        ? Math.max(0, amountToAllocateMinor - splitPaidMinor)
       : 0;
   const selectedCustomer = workspace?.customers.find(
     (customer) => customer.id === customerId,
@@ -246,7 +249,7 @@ export default function PosPage() {
   const availableAdvanceMinor = selectedCustomer?.advanceBalances?.[customerAccountId] ?? 0;
   const advanceComponents = paymentMethod === "customer_advance" ? 1
     : paymentMethod === "split" ? splitPayments.filter(payment => payment.method === "customer_advance").length : 0;
-  const requestedAdvanceMinor = paymentMethod === "customer_advance" ? totals.grossAmountMinor
+  const requestedAdvanceMinor = paymentMethod === "customer_advance" ? amountToAllocateMinor
     : paymentMethod === "split" ? splitPayments.reduce((sum, payment, index) => sum + (payment.method === "customer_advance" ? Math.max(0, splitAmounts[index]!) : 0), 0) : 0;
   const advanceValid = advanceComponents === 0 || (advanceComponents === 1 && online && Boolean(selectedCustomer) && requestedAdvanceMinor > 0 && requestedAdvanceMinor <= availableAdvanceMinor);
   const creditIsAuthorized = Boolean(selectedCustomer &&
@@ -380,10 +383,11 @@ export default function PosPage() {
   function addProduct(productId: string) {
     const product = workspace?.products.find((item) => item.id === productId);
     if (!product) return;
+    if (product.itemKind === "service" && !online) { setError("Services require online payment confirmation."); return; }
     const alreadyQueued = queuedQuantityByProduct.get(product.id) ?? 0;
     const current =
       cart.find((line) => line.product.id === product.id)?.quantity ?? 0;
-    if (current + alreadyQueued >= product.availableQuantity) {
+    if (product.itemKind !== "service" && current + alreadyQueued >= product.availableQuantity) {
       setError(
         `Only ${Math.max(0, product.availableQuantity - alreadyQueued)} ${product.unitOfMeasure} of ${product.name} remain for this device.`,
       );
@@ -412,7 +416,7 @@ export default function PosPage() {
         if (line.product.id !== productId) return [line];
         const quantity = line.quantity + delta;
         if (quantity <= 0) return [];
-        const available =
+        const available = line.serviceCase ? 1 : line.product.itemKind === "service" ? 100_000 :
           line.product.availableQuantity -
           (queuedQuantityByProduct.get(productId) ?? 0);
         return [{ ...line, quantity: Math.min(quantity, available) }];
@@ -426,7 +430,7 @@ export default function PosPage() {
       lines.flatMap((line) => {
         if (line.product.id !== productId) return [line];
         if (requestedQuantity <= 0) return [];
-        const available = Math.max(
+        const available = line.serviceCase ? 1 : line.product.itemKind === "service" ? 100_000 : Math.max(
           0,
           line.product.availableQuantity -
             (queuedQuantityByProduct.get(productId) ?? 0),
@@ -478,6 +482,9 @@ export default function PosPage() {
         lines: cart.map((line) => ({
           productId: line.product.id,
           quantity: line.quantity,
+          ...(line.includedParts ? { includedParts: line.includedParts } : {}),
+          ...(line.providerFunds ? { providerFunds: line.providerFunds } : {}),
+          ...(line.serviceCase ? { serviceCase: line.serviceCase } : {}),
           ...(line.serialNumbers ? { serialNumbers: line.serialNumbers } : {}),
           priceTier: line.priceTier ?? "retail",
           ...(line.sellingPriceMinor !== undefined ? {
@@ -693,9 +700,11 @@ export default function PosPage() {
       !canReceiveOrder ||
       !workspace?.openShift ||
       cart.length === 0 ||
-      totals.grossAmountMinor <= 0
+      amountToAllocateMinor < 0
     )
       return;
+    if (cart.some(line => line.product.itemKind === "service") && !online) { setError("Services and mixed billing require online confirmation."); return; }
+    if (cart.some(line => line.serviceCase && !line.caseVerified)) { setError("Refresh every linked case before receiving this order."); return; }
     if (cart.some((line) => line.sellingPriceMinor !== undefined &&
       (line.sellingPriceMinor <= 0 ||
         (line.priceOverrideReason?.trim().length ?? 0) < 3))) {
@@ -744,7 +753,7 @@ export default function PosPage() {
       paymentMethod === "customer_credit" &&
       (creditPaidAmountMinor < 0 ||
         (creditIntent === "part" && creditPaidAmountMinor <= 0) ||
-        creditPaidAmountMinor >= totals.grossAmountMinor)
+        creditPaidAmountMinor >= amountToAllocateMinor)
     ) {
       setError(
         creditIntent === "part"
@@ -785,7 +794,7 @@ export default function PosPage() {
     );
     const exchangeCreditAmount = Math.min(
       selectedExchangeCredit?.remainingAmountMinor ?? 0,
-      totals.grossAmountMinor,
+      amountToAllocateMinor,
     );
     const payload: PosSalePayload = {
       calculationVersion: 2,
@@ -795,8 +804,12 @@ export default function PosPage() {
       recordedAt: new Date().toISOString(),
       offline: !online,
       provisionalReceiptReference: !online ? provisional : undefined,
-      lines: cart.map(({ product, quantity, serialNumbers, sellingPriceMinor, priceOverrideReason, priceTier }) => ({
+      lines: cart.map(({ product, quantity, serialNumbers, sellingPriceMinor, priceOverrideReason, priceTier, includedParts, providerFunds, serviceCase }) => ({
         productId: product.id,
+        ...(product.itemKind === "service" ? { itemKind: "service" as const } : {}),
+        ...(includedParts ? { includedParts } : {}),
+        ...(providerFunds ? { providerFunds } : {}),
+        ...(serviceCase ? { aftersalesCaseId: serviceCase.id } : {}),
         quantity,
         ...(product.trackingType === "serial" ? { serialNumbers: parseSaleSerials((serialNumbers ?? []).join("\n")) } : {}),
         priceTier: priceTier ?? "retail",
@@ -832,7 +845,7 @@ export default function PosPage() {
               ]
             : []
           : paymentMethod === "customer_advance"
-            ? [{ method: "customer_advance" as const, amountMinor: totals.grossAmountMinor }]
+            ? [{ method: "customer_advance" as const, amountMinor: amountToAllocateMinor }]
           : paymentMethod === "exchange_credit"
             ? [
                 {
@@ -840,12 +853,12 @@ export default function PosPage() {
                   amountMinor: exchangeCreditAmount,
                   reference: paymentReference,
                 },
-                ...(exchangeCreditAmount < totals.grossAmountMinor
+                ...(exchangeCreditAmount < amountToAllocateMinor
                   ? [
                       {
                         method: "cash" as const,
                         amountMinor:
-                          totals.grossAmountMinor - exchangeCreditAmount,
+                          amountToAllocateMinor - exchangeCreditAmount,
                       },
                     ]
                   : []),
@@ -853,7 +866,7 @@ export default function PosPage() {
             : [
                 {
                   method: paymentMethod as PosPaymentMethod,
-                  amountMinor: totals.grossAmountMinor,
+                  amountMinor: amountToAllocateMinor,
                   reference: paymentReference.trim() || undefined,
                   bankAccountId: paymentBankAccountId || undefined,
                 },
@@ -867,6 +880,7 @@ export default function PosPage() {
         discountAmountMinor > 0 ? discountReason.trim() : undefined,
       idempotencyKey,
     };
+    payload.payments = payload.payments.filter(payment => payment.amountMinor > 0);
     try {
       if (online) {
         const result = await callAdministration<
@@ -888,7 +902,7 @@ export default function PosPage() {
           branchId: workspace.branch.id,
           provisionalReceiptReference: provisional,
           payload,
-          grossAmountMinor: totals.grossAmountMinor,
+          grossAmountMinor: amountToAllocateMinor,
           createdAt: payload.recordedAt,
           status: "queued",
         };
@@ -896,7 +910,7 @@ export default function PosPage() {
         await refreshQueue();
         setReceipt({
           reference: provisional,
-          totalMinor: totals.grossAmountMinor,
+          totalMinor: amountToAllocateMinor,
           queued: true,
         });
       }
@@ -1471,7 +1485,7 @@ export default function PosPage() {
             </div>
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
               {visibleProducts.map((product) => {
-                const available = Math.max(
+                const available = product.itemKind === "service" ? 100_000 : Math.max(
                   0,
                   product.availableQuantity -
                     (queuedQuantityByProduct.get(product.id) ?? 0),
@@ -1502,7 +1516,7 @@ export default function PosPage() {
                     </span>
                     <div className="mt-3 flex items-center justify-between gap-2 text-sm">
                       <span>
-                        {available} {product.unitOfMeasure} available
+                        {product.itemKind === "service" ? "Service · online confirmation" : `${available} ${product.unitOfMeasure} available`}
                       </span>
                       <span
                         className={`size-2.5 rounded-full ${available > 0 ? "bg-emerald-500" : "bg-red-400"}`}
@@ -1522,7 +1536,7 @@ export default function PosPage() {
                     <div className="mt-3 flex gap-2">
                       <Button
                         className="flex-1"
-                        disabled={available <= 0}
+                        disabled={available <= 0 || (product.itemKind === "service" && !online)}
                         onClick={() => addProduct(product.id)}
                       >
                         Add
@@ -1653,7 +1667,7 @@ export default function PosPage() {
                     {line.product.trackingType === "serial" && <label className="mt-3 block text-sm">Serial numbers — one per unit<textarea aria-label={`Serial numbers for ${line.product.name}`} rows={3} value={(line.serialNumbers ?? []).join("\n")} onChange={event => setCart(lines => lines.map(item => item.product.id === line.product.id ? { ...item, serialNumbers: event.target.value.split(/\r?\n/) } : item))} className="mt-1 w-full rounded-lg border p-2" /><span className="text-xs text-[var(--muted)]">Enter {line.quantity} exact serials, one per line. Online only; units are reserved at final payment confirmation, not while holding a basket.</span></label>}
                     <label className="mt-2 block text-xs font-medium">
                       Price level
-                      <select className="mt-1 w-full rounded-lg border p-2" value={line.priceTier ?? "retail"}
+                      <select className="mt-1 w-full rounded-lg border p-2" value={line.priceTier ?? "retail"} disabled={Boolean(line.serviceCase)}
                         onChange={(event) => {
                           const tier = event.target.value as "retail" | "wholesale";
                           const original = workspace.products.find((product) => product.id === line.product.id)!;
@@ -1687,7 +1701,8 @@ export default function PosPage() {
                           id={`quantity-${line.product.id}`}
                           type="number"
                           min="1"
-                          max={Math.max(
+                          disabled={Boolean(line.serviceCase)}
+                          max={line.product.itemKind === "service" ? 100_000 : Math.max(
                             1,
                             line.product.availableQuantity -
                               (queuedQuantityByProduct.get(line.product.id) ?? 0),
@@ -1716,7 +1731,8 @@ export default function PosPage() {
                         </Button>
                       </div>
                     </div>
-                    {canReceiveOrder && (
+                    {line.product.itemKind === "service" && <ServiceLineOptions line={line} workspace={workspace} customerId={customerId} online={online} onChange={updated => setCart(lines => lines.map(item => item.product.id === updated.product.id ? updated : item))} />}
+                    {canReceiveOrder && !line.serviceCase && (
                       <Button
                         type="button"
                         variant="outline"
@@ -1761,12 +1777,14 @@ export default function PosPage() {
               </div>
             </dl>
             <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
+              {!!totals.providerFundsMinor && <p className="text-sm">Includes provider funds {formatNaira(totals.providerFundsMinor)}, separate from company sales.</p>}
+              {!!totals.priorServicePaidMinor && <p className="text-sm">Previously received on linked cases: {formatNaira(totals.priorServicePaidMinor)}. Allocate now: {formatNaira(amountToAllocateMinor)}.</p>}
               <label className="block text-sm font-medium">
                 Discount (₦)
                 <input
                   type="number"
                   min="0"
-                  max={baseTotals.subtotalAmountMinor / 100}
+                  max={(baseTotals.discountableSubtotalMinor ?? baseTotals.subtotalAmountMinor) / 100}
                   step="0.01"
                   inputMode="decimal"
                   value={discountAmount}
@@ -1934,7 +1952,7 @@ export default function PosPage() {
                 <Button type="button" variant="outline" disabled={splitPayments.length >= 5} onClick={() => setSplitPayments((items) => [...items, emptySplitPayment("cash")])}>Add payment method</Button>
                 {canCreateCredit && online && <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={splitAllowCredit} onChange={(event) => setSplitAllowCredit(event.target.checked)} /> Leave unpaid balance on named customer credit</label>}
                 <div className="flex justify-between border-t pt-2 text-sm"><span>Entered payments</span><strong className="finance-income">{formatNaira(splitPaidMinor)}</strong></div>
-                <div className="flex justify-between text-sm"><span>{splitAllowCredit ? "Customer balance due" : "Still to allocate"}</span><strong className="finance-attention">{formatNaira(Math.max(0, totals.grossAmountMinor - splitPaidMinor))}</strong></div>
+                <div className="flex justify-between text-sm"><span>{splitAllowCredit ? "Customer balance due" : "Still to allocate"}</span><strong className="finance-attention">{formatNaira(Math.max(0, amountToAllocateMinor - splitPaidMinor))}</strong></div>
                 {!splitValid && <p className="text-xs font-medium text-red-800">Enter at least two positive payments. Their total must equal the sale, unless the remainder is approved customer credit.</p>}
               </div>
             ) : paymentMethod === "customer_credit" ? (
@@ -1962,7 +1980,7 @@ export default function PosPage() {
                     <input
                       type="number"
                       min="0.01"
-                      max={Math.max(0, totals.grossAmountMinor - 1) / 100}
+                      max={Math.max(0, amountToAllocateMinor - 1) / 100}
                       step="0.01"
                       inputMode="decimal"
                       required
@@ -1973,7 +1991,7 @@ export default function PosPage() {
                     />
                   </label>
                 )}
-                {creditIntent === "part" && (creditPaidAmountMinor <= 0 || creditPaidAmountMinor >= totals.grossAmountMinor) && (
+                {creditIntent === "part" && (creditPaidAmountMinor <= 0 || creditPaidAmountMinor >= amountToAllocateMinor) && (
                   <p className="text-xs font-medium text-red-800">Enter an amount greater than ₦0.00 and less than the sale total.</p>
                 )}
                 {!canGrantCreditDirectly && selectedCustomer?.creditStatus === "approved" && creditAmountMinor > selectedCustomer.availableCreditMinor && (
@@ -2101,7 +2119,7 @@ export default function PosPage() {
                     !customerId ||
                     creditPaidAmountMinor < 0 ||
                     (creditIntent === "part" && creditPaidAmountMinor <= 0) ||
-                    creditPaidAmountMinor >= totals.grossAmountMinor ||
+                    creditPaidAmountMinor >= amountToAllocateMinor ||
                     !creditIsAuthorized)) ||
                 (paymentMethod === "exchange_credit" &&
                   (!online || !paymentReference)) ||
@@ -2117,7 +2135,7 @@ export default function PosPage() {
               onClick={() => void checkout()}
             >
               {online ? "Receive order" : "Save order offline"} ·{" "}
-              {formatNaira(totals.grossAmountMinor)}
+              {formatNaira(amountToAllocateMinor)}
             </Button>
             <p className="mt-2 text-center text-xs text-[var(--muted)]">
               {online
@@ -2155,7 +2173,7 @@ export default function PosPage() {
       {workspace?.openShift && (
         <button type="button" onClick={() => setCartOpen(true)} className="fixed inset-x-4 bottom-[calc(4.6rem+env(safe-area-inset-bottom))] z-30 flex min-h-12 items-center justify-between rounded-xl bg-[var(--brand)] px-4 font-semibold text-white shadow-xl lg:hidden">
           <span className="flex items-center gap-2"><ShoppingCart className="size-5" /> Current sale · {totals.totalQuantity} items</span>
-          <span>{formatNaira(totals.grossAmountMinor)}</span>
+          <span>{formatNaira(amountToAllocateMinor)}</span>
         </button>
       )}
 

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { BudgetComparison } from "./budget-comparison";
 import { Button } from "@/components/ui/button";
 import { callAdministration } from "@/features/administration/api";
 import { formatDateTime, formatNaira, nairaToKobo } from "@/features/inventory/format";
@@ -74,6 +75,7 @@ export function BudgetWorkspace({ ownerKey, branchId, canManage }: { ownerKey: s
       {!data?.rows.length && <tr><td colSpan={6} className="p-5 text-center">{loading ? "Loading budget comparisons…" : error ? "Budget data is unavailable." : "No targets saved for this month and scope."}</td></tr>}
     </tbody></table></div>
     <div className="flex flex-wrap justify-between gap-3"><Button variant="outline" disabled={loading || locked || cursors.length < 2} onClick={() => setCursors(cursors.slice(0, -1))}>Previous</Button><span>Page {cursors.length}{loading ? " · Refreshing…" : ""}</span><Button variant="outline" disabled={loading || locked || !data?.nextCursorId} onClick={() => setCursors([...cursors, data!.nextCursorId!])}>Next</Button></div>
+    <BudgetComparison key={branchId ?? "organization"} branchId={branchId} month={month} />
     {canManage && <details className="rounded-xl border bg-white p-4" open><summary className="cursor-pointer font-semibold">Create or revise a monthly target</summary><p className="my-3 text-sm text-[var(--muted)]">Targets are not accounting postings. To revise an existing target, choose Revise in its row. Saving a changed target preserves the old version and your reason. Positive variance is favorable: higher income or lower expenses.</p>
       <fieldset disabled={locked || loading || !data} className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <label>Income or expense account<select className={field} value={form.accountId} disabled={form.expectedVersion > 0} onChange={event => { const existing = data?.rows.find(row => row.accountId === event.target.value); setForm({ ...form, accountId: event.target.value, amount: existing ? String(existing.amountMinor / 100) : "", expectedVersion: existing?.version ?? 0 }); }}><option value="">Choose ledger account</option>{data?.accounts.filter(account => account.active).map(account => <option key={account.id} value={account.id}>{account.code} · {account.name}</option>)}</select></label>

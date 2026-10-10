@@ -1,3 +1,5 @@
+import { creditBilling, type MixedBilling, type BillingJournalLine } from "../billing/allocations.js";
+import { prepareBillingTransition, writeBillingTransition } from "../billing/transitions.js";
 import { FieldValue, Timestamp } from "firebase-admin/firestore";
 import { createHash } from "node:crypto";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
@@ -138,11 +140,18 @@ export const getSaleReturnWorkspace = onCall(
         customerId: sale.get("customerId") ?? null,
         customerName: sale.get("customerName") ?? null,
         customerOutstandingMinor: Number(customer?.get("outstandingBalanceMinor") ?? 0),
+        mixedBilling: Boolean(sale.get("billing")),
+        invoiceOutstandingMinor: Number(sale.get("receivableOutstandingMinor") ?? 0),
+        netReceivedMinor: (sale.get("billing") as MixedBilling | undefined)?.paidMinor ?? null,
         grossAmountMinor: Number(sale.get("grossAmountMinor") ?? 0),
         recordedAt: sale.get("recordedAt"),
       },
       items: items.docs.map((item, index) => ({
         id: item.id,
+        itemKind: item.get("itemKind") ?? "goods",
+        providerFunds: item.get("providerFunds") ?? null,
+        serviceCreditableQuantity: item.get("itemKind") === "service" ? Number(item.get("quantity")) - Number(counters[index]!.get("returnedQuantity") ?? 0) : 0,
+        providerCreditableMinor: (sale.get("billing") as MixedBilling | undefined)?.components.filter(component => component.id === `provider:${item.id}`).reduce((sum, component) => sum + component.grossMinor - component.creditedGrossMinor - (component.settledMinor ?? 0), 0) ?? 0,
         trackingType: item.get("trackingType") ?? "quantity",
         returnableSerialNumbers: (item.get("collectedSerialNumbers") ?? []).filter((serial: string) => !(counters[index]!.get("returnedSerialNumbers") ?? []).includes(serial)),
         cancellableSerialNumbers: (item.get("serialNumbers") ?? []).filter((serial: string) => !(item.get("collectedSerialNumbers") ?? []).includes(serial) && !(item.get("cancelledSerialNumbers") ?? []).includes(serial)),
@@ -226,12 +235,15 @@ export const createSaleReturn = onCall({ enforceAppCheck }, async (request) => {
       "failed-precondition",
       "The original completed sale is unavailable.",
     );
-  if (input.resolution === "customer_account" && !sale.get("customerId"))
+  const serviceCredit = input.kind === "service_credit";
+  const refundMethod = input.resolution === "split" ? input.refundMethod! : input.resolution;
+  if ((serviceCredit || input.resolution === "split") && !sale.get("billing")) throw new HttpsError("failed-precondition", "Service credits and split resolution require a tracked mixed invoice.");
+  if (["customer_account", "split"].includes(input.resolution) && !sale.get("customerId"))
     throw new HttpsError(
       "failed-precondition",
       "Only a named customer sale can be credited to Accounts Receivable.",
     );
-  if (input.resolution === "cash") {
+  if (refundMethod === "cash") {
     const shift = await db.doc(`posShifts/${input.refundShiftId}`).get();
     if (
       !shift.exists ||
@@ -275,8 +287,8 @@ export const createSaleReturn = onCall({ enforceAppCheck }, async (request) => {
       };
       return;
     }
-    if (input.resolution === "card" || input.resolution === "bank_transfer")
-      resolveSettlementAccount(actor.organizationId, input.resolution, input.bankAccountId, bankAccountSnapshot);
+    if (refundMethod === "card" || refundMethod === "bank_transfer")
+      resolveSettlementAccount(actor.organizationId, refundMethod, input.bankAccountId, bankAccountSnapshot);
     const items = snapshots.slice(1, 1 + input.lines.length);
     const counters = snapshots.slice(1 + input.lines.length);
     const saleSerials = await readSaleSerials(transaction, { organizationId: actor.organizationId, locationId: String(sale.get("locationId")), saleId: sale.id }, input.lines.map((line, index) => ({ ...line, productId: String(items[index]!.get("productId")), trackingType: String(items[index]!.get("trackingType")) })), input.kind === "reservation_cancellation" ? "cancel" : "return");
@@ -291,8 +303,9 @@ export const createSaleReturn = onCall({ enforceAppCheck }, async (request) => {
           "invalid-argument",
           "A return line does not belong to this sale.",
         );
+      if ((item.get("itemKind") === "service") !== serviceCredit) throw new HttpsError("invalid-argument", "Use Service commercial credit for service fees, and the physical returns/cancellation modes for goods.");
       const cancellation = input.kind === "reservation_cancellation";
-      const remaining = cancellation
+      const remaining = serviceCredit ? Number(item.get("quantity")) - Number(counters[index]!.get("returnedQuantity") ?? 0) : cancellation
         ? Number(item.get("quantity")) - Number(item.get("collectedQuantity") ?? item.get("quantity")) - Number(item.get("cancelledQuantity") ?? 0)
         : Number(item.get("collectedQuantity") ?? item.get("quantity")) - Number(counters[index]!.get("returnedQuantity") ?? 0);
       if (line.quantity > remaining)
@@ -318,11 +331,21 @@ export const createSaleReturn = onCall({ enforceAppCheck }, async (request) => {
         vat,
         gross: net + vat,
         serials: saleSerials[index]!,
-        cost: cancellation ? 0 : saleSerials[index]!.length ? serialCost(saleSerials[index]!) : item.get("collectionTracked") === true
+        cost: serviceCredit || cancellation ? 0 : saleSerials[index]!.length ? serialCost(saleSerials[index]!) : item.get("collectionTracked") === true
           ? Math.round(Math.max(0, collectedCost - returnedCost) * line.quantity / (collectedQuantity - returnedQuantity))
           : allocated(Number(item.get("costAmountMinor") ?? soldQuantity * Number(item.get("unitCostMinor") ?? 0))),
       };
     });
+    const lockedSale = await transaction.get(sale.ref);
+    if (!lockedSale.exists || lockedSale.get("organizationId") !== actor.organizationId || lockedSale.get("branchId") !== input.branchId) throw new HttpsError("not-found", "Invoice not found.");
+    const providerCredits = (input.providerCredits ?? []).map(line => {
+      const component = (lockedSale.get("billing") as MixedBilling | undefined)?.components.find(c => c.id === `provider:${line.saleItemId}`);
+      if (!component || line.amountMinor > component.grossMinor - component.creditedGrossMinor - (component.settledMinor ?? 0)) throw new HttpsError("failed-precondition", "Recover settled provider funds before crediting this obligation.");
+      return { ...line, supplierId: component.supplierId!, supplierName: component.supplierName! };
+    });
+    const providerCreditMinor = providerCredits.reduce((sum, line) => sum + line.amountMinor, 0);
+    const gross = calculated.reduce((sum, line) => sum + line.gross, 0) + providerCreditMinor;
+    if (!Number.isSafeInteger(gross) || gross <= 0 || (input.resolution === "split" && input.refundAmountMinor! >= gross)) throw new HttpsError("invalid-argument", "The credit must be positive and a split refund must leave an amount for invoice debt.");
     const now = FieldValue.serverTimestamp();
     const returnNumber = `RTN-${String(sale.get("branchCode"))}-${new Date().getUTCFullYear()}-${returnRecord.id.slice(0, 8).toUpperCase()}`;
     const total = (key: "net" | "vat" | "gross" | "cost") =>
@@ -339,15 +362,19 @@ export const createSaleReturn = onCall({ enforceAppCheck }, async (request) => {
       customerAccountId: sale.get("customerAccountId") ?? "general",
       customerAccountName: sale.get("customerAccountName") ?? "General account",
       status: "submitted",
-      inspectionStatus: input.kind === "reservation_cancellation" ? "not_required" : "required",
+      inspectionStatus: input.kind !== "goods_return" ? "not_required" : "required",
       kind: input.kind,
       resolution: input.resolution,
+      refundAmountMinor: input.refundAmountMinor ?? null,
+      refundMethod: input.refundMethod ?? null,
+      providerCredits,
+      providerCreditMinor,
       refundShiftId: input.refundShiftId ?? null,
       bankAccountId: input.bankAccountId ?? null,
       reason: input.reason,
       netAmountMinor: total("net"),
       vatAmountMinor: total("vat"),
-      grossAmountMinor: total("gross"),
+      grossAmountMinor: gross,
       restockCostMinor: calculated
         .filter((line) => line.input.condition === "restockable")
         .reduce((sum, line) => sum + line.cost, 0),
@@ -370,7 +397,7 @@ export const createSaleReturn = onCall({ enforceAppCheck }, async (request) => {
         serialNumbers: line.serials.map(serial => String(serial.get("serialNumber"))),
         condition: "non_restockable",
         requestedCondition: line.input.condition,
-        inspectionStatus: input.kind === "reservation_cancellation" ? "not_required" : "required",
+        inspectionStatus: input.kind !== "goods_return" ? "not_required" : "required",
         unitPriceMinor: line.item.get("unitPriceMinor"),
         vatRateBasisPoints: line.item.get("vatRateBasisPoints"),
         unitCostMinor: line.item.get("unitCostMinor"),
@@ -436,9 +463,10 @@ export const approveSaleReturn = onCall(
       .collection("saleReturnItems")
       .where("returnId", "==", input.returnId)
       .get();
-    if (returnItemsQuery.empty)
+    if (returnItemsQuery.empty && !(initial.get("kind") === "service_credit" && initial.get("providerCredits")?.length))
       throw new HttpsError("failed-precondition", "The return has no items.");
     const cancellation = initial.get("kind") === "reservation_cancellation";
+    const serviceCredit = initial.get("kind") === "service_credit";
     if (cancellation) requirePermission(actor, "sales.stock.release");
     const saleRef = db.doc(`sales/${initial.get("saleId")}`);
     const saleBeforeApproval = await saleRef.get();
@@ -545,7 +573,7 @@ export const approveSaleReturn = onCall(
           "failed-precondition",
           "Only a submitted return can be approved.",
         );
-      if (!cancellation && (current.get("inspectionStatus") !== "completed" || current.get("inspectionVersion") !== initial.get("inspectionVersion") || returnItemsQuery.docs.some(line => line.get("inspectionStatus") !== "completed")))
+      if (!cancellation && !serviceCredit && (current.get("inspectionStatus") !== "completed" || current.get("inspectionVersion") !== initial.get("inspectionVersion") || returnItemsQuery.docs.some(line => line.get("inspectionStatus") !== "completed")))
         throw new HttpsError("failed-precondition", "Inspect every returned item before posting. Only items confirmed resellable will return to available stock.");
       if (current.get("createdBy") === actor.userId && !canSelfAuthorize(actor))
         throw new HttpsError(
@@ -559,7 +587,8 @@ export const approveSaleReturn = onCall(
           counter = counters[index]!,
           balance = balances[index]!;
         const quantity = Number(line.get("quantity"));
-        const remaining = cancellation
+        if ((original.get("itemKind") === "service") !== serviceCredit || (serviceCredit && (line.get("condition") !== "non_restockable" || Number(line.get("costAmountMinor")) !== 0))) throw new HttpsError("failed-precondition", "Service credits cannot alter physical stock or included parts cost.");
+        const remaining = serviceCredit ? Number(original.get("quantity")) - Number(counter.get("returnedQuantity") ?? 0) : cancellation
           ? Number(original.get("quantity")) - Number(original.get("collectedQuantity") ?? original.get("quantity")) - Number(original.get("cancelledQuantity") ?? 0)
           : Number(original.get("collectedQuantity") ?? original.get("quantity")) - Number(counter.get("returnedQuantity") ?? 0);
         if (
@@ -603,8 +632,18 @@ export const approveSaleReturn = onCall(
         net = Number(current.get("netAmountMinor")),
         vat = Number(current.get("vatAmountMinor"));
       const resolution = String(current.get("resolution"));
+      const fundingMethod = resolution === "split" ? String(current.get("refundMethod")) : resolution;
+      const refundGross = resolution === "customer_account" ? 0 : resolution === "split" ? Number(current.get("refundAmountMinor")) : gross;
+      const debtGross = gross - refundGross;
+      if (![gross, net, vat, refundGross, debtGross].every(value => Number.isSafeInteger(value) && value >= 0) || gross <= 0 || (resolution === "split" && (!originalSale.get("billing") || !refundGross || !debtGross || !["cash", "card", "bank_transfer", "exchange_credit"].includes(fundingMethod)))) throw new HttpsError("failed-precondition", "Credit funding evidence requires reconciliation.");
+      const providerCredits = current.get("providerCredits") ?? [];
+      const providerCreditMinor = providerCredits.reduce((sum: number, line: { amountMinor: number }) => sum + line.amountMinor, 0);
+      if (originalSale.get("billing") && (net !== lines.reduce((sum, line) => sum + Number(line.line.get("netAmountMinor")), 0) || vat !== lines.reduce((sum, line) => sum + Number(line.line.get("vatAmountMinor")), 0) || gross !== net + vat + providerCreditMinor)) throw new HttpsError("failed-precondition", "The credit header and charge evidence do not agree.");
+      if (!serviceCredit && providerCredits.length) throw new HttpsError("failed-precondition", "Provider credits require a service commercial credit.");
+      const mixedAfter = (() => { try { return originalSale.get("billing") ? creditBilling(originalSale.get("billing") as MixedBilling, [...lines.map(line => ({ id: line.original.id, grossMinor: Number(line.line.get("grossAmountMinor")), vatMinor: Number(line.line.get("vatAmountMinor")) })), ...providerCredits.map((line: { saleItemId: string; amountMinor: number }) => ({ id: `provider:${line.saleItemId}`, grossMinor: line.amountMinor, vatMinor: 0 }))], refundGross) : null; } catch (cause) { throw new HttpsError("failed-precondition", cause instanceof Error ? cause.message : "Credit funding requires reconciliation."); } })();
+      const mixedTransition = mixedAfter ? await prepareBillingTransition(transaction, originalSale, mixedAfter) : null;
       if (
-        resolution === "cash" &&
+        fundingMethod === "cash" &&
         (!refundShiftSnapshot.exists ||
           refundShiftSnapshot.get("organizationId") !== actor.organizationId ||
           refundShiftSnapshot.get("branchId") !== current.get("branchId") ||
@@ -614,21 +653,21 @@ export const approveSaleReturn = onCall(
           "failed-precondition",
           "The selected cash-refund POS shift is no longer open.",
         );
-      if (resolution === "customer_account") {
+      if (debtGross > 0) {
         if (
           !customerSnapshot.exists ||
           customerSnapshot.get("organizationId") !== actor.organizationId ||
-          Number(customerSnapshot.get("outstandingBalanceMinor") ?? 0) < gross
+          Number(customerSnapshot.get("outstandingBalanceMinor") ?? 0) < debtGross
         )
           throw new HttpsError(
             "failed-precondition",
             "The customer receivable is insufficient for this return credit.",
           );
         const account = selectedArrangement(customerSnapshot.data()!, originalSale.get("customerAccountId") ?? "general", true);
-        if (account.outstandingBalanceMinor < gross)
+        if (account.outstandingBalanceMinor < debtGross)
           throw new HttpsError("failed-precondition", "The original customer account has insufficient outstanding debt for this return credit. Choose an authorized refund or exchange instead.");
-        if (originalSale.get("receivableVersion") === 1) reduceInvoice(Number(originalSale.get("receivableOutstandingMinor")), gross);
-        else if (legacyDebt(account.outstandingBalanceMinor, customerSnapshot.get("invoiceDebtByAccount"), account.id) < gross)
+        if (originalSale.get("receivableVersion") === 1) reduceInvoice(Number(originalSale.get("receivableOutstandingMinor")), debtGross);
+        else if (legacyDebt(account.outstandingBalanceMinor, customerSnapshot.get("invoiceDebtByAccount"), account.id) < debtGross)
           throw new HttpsError("failed-precondition", "This historical return cannot reduce debt belonging to newer invoices.");
       }
       const restockCost = lines
@@ -640,18 +679,20 @@ export const approveSaleReturn = onCall(
       const hasRestock = lines.some(line => line.line.get("condition") === "restockable");
       if (current.get("bankAccountId") && input.bankAccountId && current.get("bankAccountId") !== input.bankAccountId)
         throw new HttpsError("invalid-argument", "The refund account must match the submitted return.");
-      const settlement = resolution === "card" || resolution === "bank_transfer"
-        ? resolveSettlementAccount(actor.organizationId, resolution, refundBankAccountId || undefined, bankAccountSnapshot)
+      const settlement = fundingMethod === "card" || fundingMethod === "bank_transfer"
+        ? resolveSettlementAccount(actor.organizationId, fundingMethod, refundBankAccountId || undefined, bankAccountSnapshot)
         : null;
-      const refundAccount = settlement ? { code: settlement.accountCode, name: settlement.accountName } : refundAccounts[resolution]!;
-      const journalLines = [
-        { accountCode: "4010", debitMinor: net, creditMinor: 0 },
-        { accountCode: "2100", debitMinor: vat, creditMinor: 0 },
-        { accountCode: refundAccount.code, debitMinor: 0, creditMinor: gross },
+      const refundAccount = settlement ? { code: settlement.accountCode, name: settlement.accountName } : refundAccounts[fundingMethod]!;
+      const journalLines: BillingJournalLine[] = [
+        ...(!serviceCredit ? [{ accountCode: "4010", accountName: accountNames["4010"]!, debitMinor: net, creditMinor: 0 }, { accountCode: "2100", accountName: accountNames["2100"]!, debitMinor: vat, creditMinor: 0 }] : []),
+        ...(refundGross ? [{ accountCode: refundAccount.code, accountName: refundAccount.name, debitMinor: 0, creditMinor: refundGross }] : []),
+        ...(debtGross ? [{ accountCode: "1100", accountName: "Accounts receivable", debitMinor: 0, creditMinor: debtGross }] : []),
+        ...(mixedTransition?.lines ?? []),
+        ...(providerCreditMinor && mixedAfter ? [{ accountCode: mixedAfter.mapping.providerPayable.code, accountId: mixedAfter.mapping.providerPayable.id, accountName: mixedAfter.mapping.providerPayable.name, debitMinor: providerCreditMinor, creditMinor: 0 }] : []),
         ...(restockCost > 0
           ? [
-              { accountCode: "1200", debitMinor: restockCost, creditMinor: 0 },
-              { accountCode: "5000", debitMinor: 0, creditMinor: restockCost },
+              { accountCode: "1200", accountName: accountNames["1200"]!, debitMinor: restockCost, creditMinor: 0 },
+              { accountCode: "5000", accountName: accountNames["5000"]!, debitMinor: 0, creditMinor: restockCost },
             ]
           : []),
       ].filter((line) => line.debitMinor || line.creditMinor);
@@ -726,7 +767,7 @@ export const approveSaleReturn = onCall(
             returnedQuantity:
               Number(line.counter.get("returnedQuantity") ?? 0) + line.quantity,
             ...(serialNumbers.length ? { returnedSerialNumbers: FieldValue.arrayUnion(...serialNumbers) } : {}),
-            returnedCostAmountMinor: Number(line.counter.get("returnedCostAmountMinor") ?? Math.round(Number(line.original.get("costAmountMinor") ?? 0) * Number(line.counter.get("returnedQuantity") ?? 0) / Number(line.original.get("collectedQuantity") ?? line.original.get("quantity")))) + Number(line.line.get("costAmountMinor")),
+            returnedCostAmountMinor: serviceCredit ? 0 : Number(line.counter.get("returnedCostAmountMinor") ?? Math.round(Number(line.original.get("costAmountMinor") ?? 0) * Number(line.counter.get("returnedQuantity") ?? 0) / Number(line.original.get("collectedQuantity") ?? line.original.get("quantity")))) + Number(line.line.get("costAmountMinor")),
             updatedAt: now,
           },
           { merge: true },
@@ -792,7 +833,7 @@ export const approveSaleReturn = onCall(
       if (cancellation) {
         const cancelledQuantity = Number(originalSale.get("cancelledQuantity") ?? 0) + lines.reduce((sum, line) => sum + line.quantity, 0);
         const collected = Number(originalSale.get("collectedQuantity") ?? 0);
-        const remaining = Number(originalSale.get("totalQuantity")) - cancelledQuantity - collected;
+        const remaining = Number(originalSale.get("physicalQuantity") ?? originalSale.get("totalQuantity")) - cancelledQuantity - collected;
         transaction.update(saleRef, { cancelledQuantity, collectionStatus: remaining > 0 ? (collected > 0 ? "partially_collected" : "awaiting_collection") : (collected > 0 ? "collected" : "cancelled"), updatedAt: now });
       }
       if (hasRestock || cancellation)
@@ -814,7 +855,7 @@ export const approveSaleReturn = onCall(
           createdAt: now,
           createdBy: actor.userId,
         });
-      if (resolution === "exchange_credit") {
+      if (fundingMethod === "exchange_credit" && refundGross > 0) {
         transaction.create(credit, {
           organizationId: actor.organizationId,
           branchId: current.get("branchId"),
@@ -822,8 +863,8 @@ export const approveSaleReturn = onCall(
           saleId: current.get("saleId"),
           creditNumber: `EXC-${String(current.get("returnNumber")).replace(/^RTN-/, "")}`,
           customerId: current.get("customerId") ?? null,
-          originalAmountMinor: gross,
-          remainingAmountMinor: gross,
+          originalAmountMinor: refundGross,
+          remainingAmountMinor: refundGross,
           status: "active",
           currency: "NGN",
           createdAt: now,
@@ -831,15 +872,16 @@ export const approveSaleReturn = onCall(
         });
         transaction.update(returnRef, { exchangeCreditId: credit.id });
         result.creditId = credit.id;
-      } else if (resolution === "customer_account") {
+      }
+      if (debtGross > 0) {
         const outstanding = Number(
             customerSnapshot.get("outstandingBalanceMinor"),
           ),
-          next = outstanding - gross,
+          next = outstanding - debtGross,
           limit = Number(customerSnapshot.get("creditLimitMinor") ?? 0);
         transaction.update(customer, {
-          arrangements: changeArrangementBalance(customerSnapshot.data()!, [{ accountId: originalSale.get("customerAccountId") ?? "general", amountMinor: -gross }]),
-          ...(originalSale.get("receivableVersion") === 1 ? { invoiceDebtByAccount: changeMoneyBalance(customerSnapshot.get("invoiceDebtByAccount"), originalSale.get("customerAccountId") ?? "general", -gross) } : {}),
+          arrangements: changeArrangementBalance(customerSnapshot.data()!, [{ accountId: originalSale.get("customerAccountId") ?? "general", amountMinor: -debtGross }]),
+          ...(originalSale.get("receivableVersion") === 1 ? { invoiceDebtByAccount: changeMoneyBalance(customerSnapshot.get("invoiceDebtByAccount"), originalSale.get("customerAccountId") ?? "general", -debtGross) } : {}),
           outstandingBalanceMinor: next,
           availableCreditMinor:
             customerSnapshot.get("creditStatus") === "approved"
@@ -848,7 +890,7 @@ export const approveSaleReturn = onCall(
           updatedAt: now,
           updatedBy: actor.userId,
         });
-        if (originalSale.get("receivableVersion") === 1) transaction.update(originalSale.ref, { ...reduceInvoice(Number(originalSale.get("receivableOutstandingMinor")), gross), receivableCreditedMinor: Number(originalSale.get("receivableCreditedMinor") ?? 0) + gross, receivableUpdatedAt: now });
+        if (originalSale.get("receivableVersion") === 1) transaction.update(originalSale.ref, { ...reduceInvoice(Number(originalSale.get("receivableOutstandingMinor")), debtGross), receivableCreditedMinor: Number(originalSale.get("receivableCreditedMinor") ?? 0) + gross, receivableUpdatedAt: now });
         transaction.create(db.collection("customerAccountEntries").doc(), {
           organizationId: actor.organizationId,
           branchId: current.get("branchId"),
@@ -859,18 +901,20 @@ export const approveSaleReturn = onCall(
           referenceType: "saleReturn",
           referenceId: returnRef.id,
           referenceNumber: current.get("returnNumber"),
-          amountMinor: -gross,
+          amountMinor: -debtGross,
+          debtAmountMinor: -debtGross, advanceAmountMinor: 0,
           balanceAfterMinor: next,
           currency: "NGN",
           effectiveAt,
           createdAt: now,
           createdBy: actor.userId,
         });
-      } else {
-        if (resolution === "cash")
+      }
+      if (refundGross > 0 && fundingMethod !== "exchange_credit") {
+        if (fundingMethod === "cash")
           transaction.update(refundShift, {
             cashRefundsMinor:
-              Number(refundShiftSnapshot.get("cashRefundsMinor") ?? 0) + gross,
+              Number(refundShiftSnapshot.get("cashRefundsMinor") ?? 0) + refundGross,
             updatedAt: now,
           });
         transaction.create(refund, {
@@ -879,21 +923,25 @@ export const approveSaleReturn = onCall(
           returnId: returnRef.id,
           saleId: current.get("saleId"),
           refundNumber: `RFD-${String(current.get("returnNumber")).replace(/^RTN-/, "")}`,
-          method: resolution,
+          method: fundingMethod,
           bankAccountId: settlement?.bankAccountId ?? null,
           bankName: settlement?.bankName ?? null,
           bankAccountName: settlement?.bankAccountName ?? null,
           accountNumberLast4: settlement?.accountNumberLast4 ?? null,
           ledgerAccountCode: refundAccount.code,
           journalEntryId: journal.id,
-          shiftId: resolution === "cash" ? refundShift.id : null,
-          amountMinor: gross,
+          shiftId: fundingMethod === "cash" ? refundShift.id : null,
+          amountMinor: refundGross,
           status: "recorded",
           currency: "NGN",
           recordedAt: now,
           recordedBy: actor.userId,
           createdAt: now,
         });
+      }
+      if (mixedTransition) {
+        writeBillingTransition(transaction, originalSale.ref, mixedTransition, actor.userId);
+        transaction.update(originalSale.ref, { ...(refundGross > 0 ? { billingRefundProvenanceCutoffAt: now } : {}), receivablePaidMinor: mixedTransition.after.paidMinor, receivableCreditedMinor: Number(originalSale.get("receivableCreditedMinor") ?? 0) + gross, receivableUpdatedAt: now });
       }
       transaction.create(journal, {
         organizationId: actor.organizationId,
@@ -921,14 +969,14 @@ export const approveSaleReturn = onCall(
       });
       for (const line of journalLines) {
         const account = db.doc(
-          `chartOfAccounts/${uniquenessDocumentId(actor.organizationId, line.accountCode)}`,
+          `chartOfAccounts/${line.accountId ?? uniquenessDocumentId(actor.organizationId, line.accountCode)}`,
         );
-        transaction.set(
+        if (!line.accountId) transaction.set(
           account,
           {
             organizationId: actor.organizationId,
             code: line.accountCode,
-            name: accountNames[line.accountCode] ?? refundAccount.name,
+            name: line.accountName,
             currency: "NGN",
             active: true,
             systemManaged: true,
@@ -943,7 +991,7 @@ export const approveSaleReturn = onCall(
           journalNumber,
           accountId: account.id,
           accountCode: line.accountCode,
-          accountName: accountNames[line.accountCode] ?? refundAccount.name,
+          accountName: line.accountName,
           debitMinor: line.debitMinor,
           creditMinor: line.creditMinor,
           currency: "NGN",

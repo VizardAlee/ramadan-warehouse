@@ -6,6 +6,7 @@ const optionalText = (max: number) => z.string().trim().max(max).optional();
 
 export const saveSupplierInput = z.object({
   supplierId: id.optional(),
+  supplierType: z.enum(["goods", "service", "logistics", "mixed"]).optional(),
   name: z.string().trim().min(2).max(160),
   phone: z.string().trim().regex(/^0\d{10}$/, "Use an 11-digit Nigerian number beginning with 0.").optional(),
   email: z.string().trim().email().max(254).optional(),

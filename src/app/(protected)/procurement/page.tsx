@@ -88,6 +88,7 @@ export default function ProcurementPage() {
     name: "",
     phone: "",
     email: "",
+    supplierType: "goods",
     paymentTermsDays: "0",
   });
   const [destinationKey, setDestinationKey] = useState("");
@@ -212,6 +213,7 @@ export default function ProcurementPage() {
       () =>
         callAdministration("saveSupplier", {
           name: supplier.name,
+          supplierType: supplier.supplierType,
           phone: supplier.phone || undefined,
           email: supplier.email || undefined,
           paymentTermsDays: Number(supplier.paymentTermsDays),
@@ -221,7 +223,7 @@ export default function ProcurementPage() {
       "Supplier created and ready for purchasing.",
     );
     if (created) {
-      setSupplier({ name: "", phone: "", email: "", paymentTermsDays: "0" });
+      setSupplier({ name: "", phone: "", email: "", supplierType: "goods", paymentTermsDays: "0" });
       if (newSupplierRef.current) newSupplierRef.current.open = false;
     }
   }
@@ -328,6 +330,7 @@ export default function ProcurementPage() {
             Supplier details are reused on orders, invoices, payments, and
             statements.
           </p>
+          <label className="mt-3 block text-sm">Supplier classification<select className="input ml-2" value={supplier.supplierType} onChange={event => setSupplier({ ...supplier, supplierType: event.target.value })}>{["goods", "service", "logistics", "mixed"].map(type => <option key={type} value={type}>{type}</option>)}</select></label>
           <div className="mt-4 grid gap-3 md:grid-cols-4">
             <label className="text-sm">
               Name

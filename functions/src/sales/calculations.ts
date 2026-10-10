@@ -3,6 +3,8 @@ export interface SaleCalculationLine {
   readonly unitPriceMinor: number;
   readonly vatRateBasisPoints: number;
   readonly unitCostMinor: number;
+  readonly fixedGrossMinor?: number;
+  readonly fixedVatMinor?: number;
 }
 
 export interface CalculatedSaleLine extends SaleCalculationLine {
@@ -44,9 +46,12 @@ export function calculateSaleLine(
   safeNonNegativeInteger(line.unitCostMinor, "Unit cost");
   if (line.vatRateBasisPoints > 10_000)
     throw new Error("VAT rate cannot exceed 100 percent.");
-  const netAmountMinor = line.quantity * line.unitPriceMinor;
+  if (line.fixedVatMinor !== undefined && line.fixedGrossMinor === undefined) throw new Error("Fixed VAT requires a confirmed service charge.");
+  if (line.fixedGrossMinor !== undefined && (line.quantity !== 1 || line.fixedVatMinor === undefined || line.fixedVatMinor > line.fixedGrossMinor)) throw new Error("Invalid confirmed service charge.");
+  if (line.fixedGrossMinor !== undefined) { safeNonNegativeInteger(line.fixedGrossMinor, "Fixed charge"); safeNonNegativeInteger(line.fixedVatMinor!, "Fixed VAT"); }
+  const netAmountMinor = line.fixedGrossMinor === undefined ? line.quantity * line.unitPriceMinor : line.fixedGrossMinor - line.fixedVatMinor!;
   safeNonNegativeInteger(netAmountMinor, "Net amount");
-  const vatAmountMinor = roundedVat(netAmountMinor, line.vatRateBasisPoints);
+  const vatAmountMinor = line.fixedVatMinor ?? roundedVat(netAmountMinor, line.vatRateBasisPoints);
   const grossAmountMinor = netAmountMinor + vatAmountMinor;
   const costAmountMinor = line.quantity * line.unitCostMinor;
   for (const [name, value] of [
@@ -80,27 +85,29 @@ export function calculateSale(
     0,
   );
   safeNonNegativeInteger(subtotalAmountMinor, "Subtotal amount");
-  if (discountAmountMinor > subtotalAmountMinor)
+  const eligibleSubtotalMinor = undiscountedLines.filter(line => line.fixedGrossMinor === undefined).reduce((sum, line) => sum + line.subtotalAmountMinor, 0);
+  const lastEligibleIndex = undiscountedLines.reduce((last, line, index) => line.fixedGrossMinor === undefined ? index : last, -1);
+  if (discountAmountMinor > eligibleSubtotalMinor)
     throw new Error("Discount cannot exceed the product subtotal.");
   let allocatedDiscountMinor = 0;
   let cumulativeSubtotalMinor = 0;
   const lines = undiscountedLines.map((line, index) => {
-    cumulativeSubtotalMinor += line.subtotalAmountMinor;
+    if (line.fixedGrossMinor === undefined) cumulativeSubtotalMinor += line.subtotalAmountMinor;
     const lineDiscountMinor =
-      discountAmountMinor === 0
+      discountAmountMinor === 0 || line.fixedGrossMinor !== undefined
         ? 0
-        : index === undiscountedLines.length - 1
+        : index === lastEligibleIndex
         ? discountAmountMinor - allocatedDiscountMinor
         : calculationVersion === 1
-        ? Math.floor((discountAmountMinor * line.subtotalAmountMinor) / subtotalAmountMinor)
+        ? Math.floor((discountAmountMinor * line.subtotalAmountMinor) / eligibleSubtotalMinor)
         : Number((BigInt(discountAmountMinor) * BigInt(cumulativeSubtotalMinor)) /
-              BigInt(subtotalAmountMinor)) - allocatedDiscountMinor;
+              BigInt(eligibleSubtotalMinor)) - allocatedDiscountMinor;
     allocatedDiscountMinor += lineDiscountMinor;
     const netAmountMinor = line.subtotalAmountMinor - lineDiscountMinor;
     safeNonNegativeInteger(netAmountMinor, "Discounted line amount");
-    const vatAmountMinor = calculationVersion === 1
+    const vatAmountMinor = line.fixedVatMinor ?? (calculationVersion === 1
       ? Math.round((netAmountMinor * line.vatRateBasisPoints) / 10_000)
-      : roundedVat(netAmountMinor, line.vatRateBasisPoints);
+      : roundedVat(netAmountMinor, line.vatRateBasisPoints));
     return {
       ...line,
       discountAmountMinor: lineDiscountMinor,

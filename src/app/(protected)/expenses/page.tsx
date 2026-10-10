@@ -1,7 +1,9 @@
 "use client";
 
+import { ProviderFunds } from "@/features/accounting/provider-funds";
+
 import { CheckCircle2, HandCoins, RefreshCw, Send } from "lucide-react";
-import { Suspense, useEffect, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
@@ -67,6 +69,8 @@ function ExpensesWorkspace() {
     categoryName: "",
     costPurpose: linkedCaseId ? "service" : linkedSaleId ? "logistics" : "",
     payeeName: "",
+    supplierId: "",
+    independentObligationReference: "",
     scopeType: "organization",
     scopeId: "",
     expenseDate: localDate(),
@@ -77,6 +81,9 @@ function ExpensesWorkspace() {
     vatAmountNaira: "0.00",
     notes: "",
   });
+  const [suppliers, setSuppliers] = useState<Array<{ id: string; name: string; supplierType: string }>>([]), [supplierCursor, setSupplierCursor] = useState<string | null>(null);
+  const loadSuppliers = useCallback(async (cursorId?: string) => { try { const page = await callAdministration<object, { providers: typeof suppliers; nextCursorId: string | null }>("getServiceBillingCase", { action: "providers", cursorId }); setSuppliers(current => cursorId ? [...new Map([...current, ...page.providers].map(item => [item.id, item])).values()] : page.providers); setSupplierCursor(page.nextCursorId); } catch (cause) { setError(cause instanceof Error ? cause.message : "Suppliers unavailable."); } }, []);
+  useEffect(() => { if (profile) { const timer = window.setTimeout(() => void loadSuppliers(), 0); return () => window.clearTimeout(timer); } }, [profile, loadSuppliers]);
   const can = (permission: Parameters<typeof hasPermission>[1]) =>
     Boolean(profile && hasPermission(profile, permission));
   const canApproveOwnWork = Boolean(profile && canSelfAuthorize(profile));
@@ -176,6 +183,8 @@ function ExpensesWorkspace() {
     const success = await run("createExpense", {
           categoryName: form.categoryName,
           payeeName: form.payeeName,
+          supplierId: form.supplierId || undefined,
+          independentObligationReference: form.independentObligationReference || undefined,
           costPurpose: form.costPurpose || undefined,
           costReferenceType: linkedId ? linkedCaseId ? "aftersales" : "sale" : undefined,
           costReferenceId: linkedId || undefined,
@@ -194,6 +203,8 @@ function ExpensesWorkspace() {
       ...current,
       categoryName: "",
       payeeName: "",
+      supplierId: "",
+      independentObligationReference: "",
       supplierDocumentNumber: "",
       description: "",
       netAmountNaira: "",
@@ -213,6 +224,7 @@ function ExpensesWorkspace() {
 
   return (
     <div className="space-y-5">
+      {profile && user && workspace && hasPermission(profile, "expenses.read") && operatingContext?.type !== "warehouse" && <ProviderFunds ownerKey={`${profile.organizationId}:${user.uid}`} branchId={operatingContext?.type === "branch" ? operatingContext.id : undefined} accounts={workspace.bankAccounts} canPay={hasPermission(profile, "expenses.pay")} canRecover={hasPermission(profile, "finance.journal.reverse")} />}
       <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[.16em] text-[var(--brand)]">
@@ -257,6 +269,8 @@ function ExpensesWorkspace() {
             created automatically. Amounts are naira; kobo remains two decimal
             places.
           </p>
+          <label className="my-3 block text-sm">Existing supplier / provider<select className="input ml-2" value={form.supplierId} onChange={event => { const supplier = suppliers.find(item => item.id === event.target.value); setForm(current => ({ ...current, supplierId: supplier?.id ?? "", payeeName: supplier?.name ?? "" })); }}><option value="">Other payee (enter name)</option>{suppliers.map(supplier => <option key={supplier.id} value={supplier.id}>{supplier.name} · {supplier.supplierType}</option>)}</select></label>{supplierCursor && <Button variant="outline" onClick={() => void loadSuppliers(supplierCursor)}>Load more existing suppliers</Button>}
+          {linkedId && <label className="my-3 block text-sm">Separate company obligation reference (only if independent of invoice provider funds)<input className="input block w-full" value={form.independentObligationReference} onChange={event => setForm({ ...form, independentObligationReference: event.target.value })}/><span>A separate supplier document and this reference are required to recognize an additional company expense for a provider already paid through the invoice.</span></label>}
           {linkedId && <div className="my-3 rounded-xl border bg-blue-50 p-4"><strong>Linked {linkedCaseId ? "aftersales service" : "sale / delivery"} cost</strong><p>This records a provider bill, not a customer charge or bank transfer. The server verifies the related record and store. Do not enter delivery pass-through amounts already recorded as a liability.</p>{linkedScopeMismatch && <p role="alert">Switch to the original record&apos;s store before recording this cost.</p>}{linkedCaseId && <Link className="underline" href={`/aftersales?caseId=${encodeURIComponent(linkedCaseId)}`}>Return to service case</Link>}</div>}
           <fieldset disabled={busy || !!pending || !ready} className="mt-4 grid gap-3 md:grid-cols-3">
             <label className="text-sm">Cost purpose<select value={form.costPurpose} onChange={event => setForm({ ...form, costPurpose: event.target.value })} className="mt-1 w-full rounded-lg border p-3"><option value="">General operating expense</option><option value="service">Service / outsourced technician</option><option value="logistics">Delivery / logistics provider</option></select></label>
@@ -280,6 +294,7 @@ function ExpensesWorkspace() {
             <label className="text-sm">
               Payee
               <input
+                disabled={Boolean(form.supplierId)}
                 value={form.payeeName}
                 onChange={(event) =>
                   setForm({ ...form, payeeName: event.target.value })

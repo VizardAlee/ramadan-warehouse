@@ -146,7 +146,7 @@ function SaleDocumentContent({ document, onClose }: { document: SaleDocument; on
         <div className="space-y-6 p-5 sm:p-7">
           <section className="rounded-xl border p-4 text-sm" data-no-print>
             <p className="font-semibold">Collection: {label(document.sale.collectionStatus ?? "collected")}</p>
-            {document.items.map((item) => <p key={item.id}>{item.productName}: sold {item.quantity}, collected {item.collectedQuantity ?? item.quantity}, cancelled {item.cancelledQuantity ?? 0}, awaiting collection {item.quantity - (item.collectedQuantity ?? item.quantity) - (item.cancelledQuantity ?? 0)}</p>)}
+            {document.items.filter(item => item.itemKind !== "service").map((item) => <p key={item.id}>{item.productName}: sold {item.quantity}, collected {item.collectedQuantity ?? item.quantity}, cancelled {item.cancelledQuantity ?? 0}, awaiting collection {item.quantity - (item.collectedQuantity ?? item.quantity) - (item.cancelledQuantity ?? 0)}</p>)}
             {page.collections?.map((collection) => <div key={collection.id} className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t pt-3"><p>{collection.collectedAt ? new Date(collection.collectedAt).toLocaleString("en-NG") : "—"} · {collection.totalQuantity} collected by {collection.collector} · {collection.releasedByName || "Authorized staff"}</p>{document.official && <Button type="button" variant="outline" size="sm" data-no-print onClick={() => setWaybillId(collection.id)}>View waybill</Button>}{document.official && <CollectionPhotoViewer saleId={document.sale.id} evidenceIds={collection.evidenceIds ?? []} />}</div>)}
             {document.official && <div className="mt-3 flex flex-wrap items-center gap-3 border-t pt-3" data-no-print>
               <label>Collections per page <select aria-label="Collections per page" className="rounded border p-2" value={limit} disabled={busy} onChange={event => void loadCollectionPage(undefined, 0, Number(event.target.value))}>{[25, 50, 100].map(size => <option key={size} value={size}>{size}</option>)}</select></label>
@@ -185,7 +185,7 @@ function SaleDocumentContent({ document, onClose }: { document: SaleDocument; on
               </p>
               {document.sale.creditAmountMinor > 0 && (
                 <p className="text-sm text-amber-800">
-                  Outstanding: {formatNaira(document.sale.creditAmountMinor)}
+                  Credit issued at checkout: {formatNaira(document.sale.creditAmountMinor)}
                 </p>
               )}
             </div>
@@ -242,7 +242,7 @@ function SaleDocumentContent({ document, onClose }: { document: SaleDocument; on
                 {document.items.map((item) => (
                   <tr key={item.id} className="border-t">
                     <td className="p-3">
-                      <strong>{item.productName}</strong>{Boolean(item.serialNumbers?.length) && <p className="mt-1 break-all text-xs">Allocated serials: {item.serialNumbers!.join(", ")}<br />Collected: {item.collectedSerialNumbers?.join(", ") || "None"}<br />Cancelled: {item.cancelledSerialNumbers?.join(", ") || "None"}</p>}
+                      <strong>{item.productName}</strong>{item.itemKind === "service" && <span className="block text-xs">Service fee{item.aftersalesCaseId ? ` · Case ${item.aftersalesCaseId}` : ""}</span>}{item.includedParts?.length ? <p className="text-xs">Included parts: {item.includedParts.map(part => `${part.productName} × ${part.quantity}${part.serialNumbers?.length ? ` (${part.serialNumbers.join(", ")})` : ""}`).join("; ")}</p> : null}{item.providerFunds && <p className="text-xs">Provider funds: {item.providerFunds.supplierName} · {formatNaira(item.providerFunds.amountMinor)} (separate payable)</p>}{Boolean(item.serialNumbers?.length) && <p className="mt-1 break-all text-xs">Allocated serials: {item.serialNumbers!.join(", ")}<br />Collected: {item.collectedSerialNumbers?.join(", ") || "None"}<br />Cancelled: {item.cancelledSerialNumbers?.join(", ") || "None"}</p>}
                       <span className="block font-mono text-xs text-[var(--muted)]">
                         {item.sku}
                       </span>
@@ -292,6 +292,7 @@ function SaleDocumentContent({ document, onClose }: { document: SaleDocument; on
               <span>VAT</span>
               <span>{formatNaira(document.sale.vatAmountMinor)}</span>
             </div>
+            {!!document.sale.providerFundsMinor && <div className="flex justify-between"><span>Provider funds (pass-through)</span><span>{formatNaira(document.sale.providerFundsMinor)}</span></div>}
             <div className="flex justify-between border-t pt-2 text-lg font-semibold">
               <span>Invoice total</span>
               <span>{formatNaira(document.sale.grossAmountMinor)}</span>
@@ -300,6 +301,7 @@ function SaleDocumentContent({ document, onClose }: { document: SaleDocument; on
 
           <section>
             <h3 className="font-semibold">Payment evidence</h3>
+            {!!document.sale.priorServicePaidMinor && <p className="text-sm">Previously received on linked service cases: {formatNaira(document.sale.priorServicePaidMinor)}. Carried forward without a new cash receipt.</p>}
             <div className="mt-2 space-y-2 text-sm">
               {document.payments.map((payment) => (
                 <div
@@ -315,8 +317,7 @@ function SaleDocumentContent({ document, onClose }: { document: SaleDocument; on
               ))}
               {!document.payments.length && (
                 <p className="rounded-lg bg-amber-50 p-3 text-amber-950">
-                  No payment was received. The invoice remains on customer
-                  credit.
+                  {(document.sale.priorServicePaidMinor ?? 0) >= document.sale.grossAmountMinor ? "This invoice is covered by previous service receipts. No additional payment is due." : "No new payment was received. The remaining invoice amount is on customer credit."}
                 </p>
               )}
             </div>

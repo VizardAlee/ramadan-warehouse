@@ -33,6 +33,7 @@ export async function followUpSaleReturn(actor: Awaited<ReturnType<typeof requir
       if (previous.get("fingerprint") !== fingerprint) throw new HttpsError("already-exists", "This retry reference belongs to different instructions.");
       return previous.get("result");
     }
+    if (record.get("kind") === "service_credit" && input.action !== "refund_exchange_credit") throw new HttpsError("failed-precondition", "Service credits have no physical inspection, disposition or restocking workflow.");
     const now = FieldValue.serverTimestamp();
     if (input.action === "receive_supplier_replacement") {
       const result = await receiveHeldSupplierReplacement(tx, actor, record, input.replacement!, cid);

@@ -1,3 +1,4 @@
+import { assertIndependentProviderExpense } from "../billing/expense-guard.js";
 import { createHash } from "node:crypto";
 import { FieldValue, Timestamp } from "firebase-admin/firestore";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
@@ -312,7 +313,7 @@ export const createExpense = onCall({ enforceAppCheck }, async (request) => {
         throw new HttpsError("failed-precondition", "This retry key belongs to different expense instructions.");
       if (!previous.get("fingerprint")) {
         const legacy = await transaction.get(db.doc(`expenses/${String(previous.get("entityId"))}`));
-        const comparable = ["payeeName", "branchId", "warehouseId", "expenseDate", "dueDate", "supplierDocumentNumber", "description", "netAmountMinor", "vatAmountMinor", "notes", "costPurpose", "costReferenceType", "costReferenceId"] as const;
+        const comparable = ["payeeName", "branchId", "warehouseId", "expenseDate", "dueDate", "supplierDocumentNumber", "description", "netAmountMinor", "vatAmountMinor", "notes", "costPurpose", "costReferenceType", "costReferenceId", "supplierId", "independentObligationReference"] as const;
         if (!legacy.exists || legacy.get("organizationId") !== actor.organizationId || normalizeInventoryIdentifier(String(legacy.get("categoryName"))) !== normalizedCategory || comparable.some(field => (legacy.get(field) ?? undefined) !== (input[field] === "" ? undefined : input[field])))
           throw new HttpsError("failed-precondition", "This older retry key does not match the recorded expense.");
       }
@@ -329,6 +330,9 @@ export const createExpense = onCall({ enforceAppCheck }, async (request) => {
     const costSnapshot = costReference ? snapshots[cursor++]! : null;
     if (costReference && (!costSnapshot?.exists || costSnapshot.get("organizationId") !== actor.organizationId || costSnapshot.get("branchId") !== input.branchId))
       throw new HttpsError("not-found", "The linked job or sale is unavailable at this store.");
+    const canonicalSupplier = input.supplierId ? await transaction.get(db.doc(`suppliers/${input.supplierId}`)) : null;
+    if (canonicalSupplier && (!canonicalSupplier.exists || canonicalSupplier.get("organizationId") !== actor.organizationId || canonicalSupplier.get("active") !== true || canonicalSupplier.get("name") !== input.payeeName)) throw new HttpsError("failed-precondition", "Select the active supplier and its current name; refresh supplier details before saving.");
+    await assertIndependentProviderExpense(transaction, actor.organizationId, input);
     if (costSnapshot?.get("status") === "cancelled")
       throw new HttpsError("failed-precondition", "A cancelled job or sale cannot receive a new cost.");
     if (
@@ -393,6 +397,9 @@ export const createExpense = onCall({ enforceAppCheck }, async (request) => {
           ? categorySnapshot.get("name")
           : input.categoryName,
         payeeName: input.payeeName,
+        supplierId: input.supplierId,
+        supplierName: canonicalSupplier?.get("name"),
+        independentObligationReference: input.independentObligationReference,
         costPurpose: input.costPurpose,
         costReferenceType: input.costReferenceType,
         costReferenceId: input.costReferenceId,
@@ -524,6 +531,9 @@ async function expenseStatusAction(
         "This role cannot approve its own expense.",
         { code: "EXPENSE_SELF_APPROVAL_FORBIDDEN" },
       );
+    if (current.get("organizationId") !== actor.organizationId) throw new HttpsError("not-found", "Expense not found.");
+    requireExpenseScope(actor, current.get("branchId") || undefined, current.get("warehouseId") || undefined);
+    if (action === "approve") await assertIndependentProviderExpense(transaction, actor.organizationId, { costReferenceType: current.get("costReferenceType"), costReferenceId: current.get("costReferenceId"), supplierId: current.get("supplierId"), supplierDocumentNumber: current.get("supplierDocumentNumber"), independentObligationReference: current.get("independentObligationReference") });
     if (action === "approve") assertAccountingPeriodOpen(snapshots[3]!);
     const now = FieldValue.serverTimestamp();
     if (action === "submit") {

@@ -20,6 +20,7 @@ import {
   readableInventoryCsvRows,
 } from "@/features/reports/inventory-report-presentation";
 import { ReportPeriodPicker, reportDateRange, type ReportPeriod } from "@/features/reports/date-range";
+import { ProductMargins } from "@/features/reports/product-margins";
 import { FinancialStatements } from "@/features/reports/financial-statements";
 import { ProductHistoryPreview } from "@/features/reports/product-history-preview";
 import { hasPermission } from "@/lib/permissions/roles";
@@ -560,6 +561,7 @@ export default function ReportsPage() {
               ["Credit issued at sale", formatNaira(salesSummary.creditAmountMinor)],
             ].map(([label, value]) => <div key={label} className="rounded-xl border bg-white p-3 text-sm"><span className="text-[var(--muted)]">{label}</span><strong className={`mt-1 block text-lg tabular-nums ${label === "Paid" || label === "Net sales" || label === "Invoice total" ? "finance-income" : label === "Credit issued at sale" ? "finance-attention" : label === "Discounts" ? "finance-outflow" : "finance-balance"}`}>{value}</strong></div>)}
           </section>}
+          {includeCosts && <ProductMargins key={JSON.stringify([branchId, fromDate, toDate])} branchId={branchId || undefined} fromDate={fromDate} toDate={toDate} />}
           <p className="text-xs text-[var(--muted)]">{creditOnly ? "Credit sales include fully and partly unpaid invoices at the time of sale. " : ""}Totals cover the full selected range. Credit issued is the original amount at sale; customer statements show later repayments and returns.</p>
           <div className="responsive-table-wrap">
             <table className="responsive-table text-xs">

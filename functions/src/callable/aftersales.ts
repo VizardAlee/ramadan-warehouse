@@ -303,6 +303,7 @@ export const setAftersalesCharge = onCall(
         result = { caseId: input.caseId, recorded: false };
         return;
       }
+      if (current!.get("billingSaleId")) throw new HttpsError("failed-precondition", "This service charge belongs to an invoice. Use its invoice receipts and service credits.");
       if (["completed", "cancelled"].includes(String(current!.get("status"))) || current!.get("chargeStatus") !== "not_quoted")
         throw new HttpsError("failed-precondition", "The service charge is already set or the case is closed.");
       const now = FieldValue.serverTimestamp();
@@ -367,6 +368,7 @@ export const recordAftersalesPayment = onCall(
         result = { paymentId: String(previous!.get("entityId")), recorded: false };
         return;
       }
+      if (current!.get("billingSaleId")) throw new HttpsError("failed-precondition", "This service charge belongs to an invoice. Use its invoice receipts, corrections and service credits.");
       assertAccountingPeriodOpen(periodSnapshot!);
       const outstanding = Number(current!.get("outstandingAmountMinor") ?? 0);
       const paidBefore = Number(current!.get("amountPaidMinor") ?? 0);

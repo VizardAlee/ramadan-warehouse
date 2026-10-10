@@ -3,7 +3,7 @@ import { connectAuthEmulator, getAuth, signInWithEmailAndPassword } from "fireba
 import { connectFunctionsEmulator, getFunctions, httpsCallable } from "firebase/functions";
 import { getApps as getAdminApps, initializeApp as initializeAdminApp } from "firebase-admin/app";
 import { getAuth as getAdminAuth } from "firebase-admin/auth";
-import { getFirestore } from "firebase-admin/firestore";
+import { Timestamp, getFirestore } from "firebase-admin/firestore";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { ingestExternalAttendance } from "../functions/src/callable/hr";
 
@@ -36,6 +36,7 @@ async function call<T>(target: ReturnType<typeof client>, name: string, data: ob
 beforeAll(async () => {
   await fetch(`http://127.0.0.1:9099/emulator/v1/projects/${projectId}/accounts`, { method: "DELETE" });
   await fetch(`http://127.0.0.1:8180/emulator/v1/projects/${projectId}/databases/(default)/documents`, { method: "DELETE" });
+  await db.doc(`organizations/${organizationId}`).set({ name: "HR test", status: "active" });
   system = await actor("hr-system@example.test", "system_administrator");
   operations = await actor("hr-operations@example.test", "operations_administrator");
   await db.doc("branches/hr-branch").set({ organizationId, name: "Head Office", status: "active" });
@@ -97,5 +98,40 @@ describe("HR foundation", () => {
     expect(deliveryCount).toBe(1);
     await call(system, "removeWebPushSubscription", { endpoint });
     expect((await subscriptions.docs[0]!.ref.get()).exists).toBe(false);
+  });
+});
+
+describe("paged HR history", () => {
+  it("includes the last Nigeria-day nanosecond, excludes adjacent days and pages tied times once", async () => {
+    const time = Timestamp.fromDate(new Date("2026-09-30T22:59:59Z"));
+    const batch = db.batch();
+    for (let index = 0; index < 26; index++) batch.set(db.doc(`attendanceEvents/history-${String(index).padStart(3, "0")}`), { organizationId, employeeId: "historical", staffId: "OLD", kind: "clock_in", source: "manual", occurredAt: time });
+    batch.set(db.doc("attendanceEvents/history-last-nanosecond"), { organizationId, employeeId: "historical", kind: "clock_out", occurredAt: new Timestamp(time.seconds, 999999999) });
+    batch.set(db.doc("attendanceEvents/history-next-day"), { organizationId, employeeId: "historical", kind: "clock_in", occurredAt: Timestamp.fromDate(new Date("2026-09-30T23:00:00Z")) });
+    batch.set(db.doc("attendanceEvents/history-other-org"), { organizationId: "other-org", employeeId: "historical", kind: "clock_in", occurredAt: time });
+    await batch.commit();
+    const input = { kind: "attendance", fromDate: "2026-09-30", toDate: "2026-09-30", limit: 25 };
+    type Page = { rows: Array<{ id: string; occurredAt: string; salary?: unknown }>; nextCursorId: string | null };
+    const first = await call<Page>(operations, "getHrHistory", input);
+    const second = await call<Page>(operations, "getHrHistory", { ...input, cursorId: first.nextCursorId });
+    const all = [...first.rows, ...second.rows];
+    expect(first.rows).toHaveLength(25); expect(second.rows).toHaveLength(2); expect(second.nextCursorId).toBeNull();
+    expect(new Set(all.map(row => row.id)).size).toBe(27);
+    expect(all.find(row => row.id === "history-last-nanosecond")?.occurredAt).toBe("2026-09-30T22:59:59.999Z");
+    expect(all.some(row => row.id === "history-next-day" || row.id === "history-other-org")).toBe(false);
+    expect(all.every(row => row.salary === undefined)).toBe(true);
+    await expect(call(operations, "getHrHistory", { ...input, cursorId: "history-other-org" })).rejects.toMatchObject({ code: "functions/invalid-argument" });
+    await expect(call(operations, "getHrHistory", { ...input, cursorId: "history-next-day" })).rejects.toMatchObject({ code: "functions/invalid-argument" });
+    await expect(call(operations, "getHrHistory", { ...input, fromDate: "2026-10-01" })).rejects.toMatchObject({ code: "functions/invalid-argument" });
+  });
+  it("reports activity details beyond the recent preview with inclusive date boundaries", async () => {
+    for (let index = 0; index < 27; index++) await db.doc(`employeeActivityEvents/history-${index}`).set({ organizationId, employeeId: "historical", kind: "note", occurredOn: "2026-08-01", summary: `Activity ${index}` });
+    const input = { kind: "activity", fromDate: "2026-08-01", toDate: "2026-08-01", limit: 25 };
+    type Page = { rows: Array<{ summary: string }>; nextCursorId: string | null };
+    const first = await call<Page>(operations, "getHrHistory", input), second = await call<Page>(operations, "getHrHistory", { ...input, cursorId: first.nextCursorId });
+    expect(first.rows.length + second.rows.length).toBe(27); expect(second.nextCursorId).toBeNull();
+    expect(first.rows.every(row => row.summary.startsWith("Activity"))).toBe(true);
+    const cashier = await actor("history-cashier@example.test", "sales_cashier");
+    await expect(call(cashier, "getHrHistory", input)).rejects.toMatchObject({ code: "functions/permission-denied" });
   });
 });

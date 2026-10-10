@@ -1,3 +1,4 @@
+import { calculateSale } from "../../../functions/src/sales/calculations";
 import type { HeldPosSale, PosCartLine, PosProduct } from "./types";
 
 export interface PosCartTotals {
@@ -7,6 +8,9 @@ export interface PosCartTotals {
   vatAmountMinor: number;
   grossAmountMinor: number;
   totalQuantity: number;
+  providerFundsMinor?: number;
+  priorServicePaidMinor?: number;
+  discountableSubtotalMinor?: number;
 }
 
 export interface ReconciledHeldCart {
@@ -47,7 +51,7 @@ export function reconcileHeldCart(
     catch { omittedProductCount += 1; return []; }
     const available = Math.max(
       0,
-      product.availableQuantity -
+      product.itemKind === "service" ? 100_000 : product.availableQuantity -
         (unavailableQuantityByProduct.get(product.id) ?? 0),
     );
     if (available === 0) {
@@ -65,6 +69,9 @@ export function reconcileHeldCart(
     return [{
       product,
       quantity,
+      ...(heldLine.includedParts ? { includedParts: heldLine.includedParts } : {}),
+      ...(heldLine.providerFunds ? { providerFunds: heldLine.providerFunds } : {}),
+      ...(heldLine.serviceCase ? { serviceCase: heldLine.serviceCase, caseVerified: false } : {}),
       ...(product.trackingType === "serial" ? { serialNumbers: heldLine.serialNumbers?.slice(0, quantity) ?? [] } : {}),
       ...(heldLine.priceTier ? { priceTier: heldLine.priceTier } : {}),
       ...(keepPrice ? {
@@ -80,67 +87,15 @@ export function calculatePosCart(
   lines: readonly PosCartLine[],
   discountAmountMinor = 0,
 ): PosCartTotals {
-  if (!Number.isSafeInteger(discountAmountMinor) || discountAmountMinor < 0)
-    throw new Error("Discount must be a non-negative amount in kobo.");
-  const subtotalAmountMinor = lines.reduce((sum, line) => {
-    if (!Number.isSafeInteger(line.quantity) || line.quantity <= 0)
-      throw new Error("Cart quantities must be positive whole numbers.");
-    const unitPriceMinor = posLineUnitPriceMinor(line);
-    if (!Number.isSafeInteger(unitPriceMinor) || unitPriceMinor <= 0)
-      throw new Error("Sale prices must be positive whole amounts in kobo.");
-    if (!Number.isSafeInteger(line.product.vatRateBasisPoints) ||
-        line.product.vatRateBasisPoints < 0 || line.product.vatRateBasisPoints > 10_000)
-      throw new Error("VAT rate must be between zero and 100 percent in basis points.");
-    const subtotal = sum + line.quantity * unitPriceMinor;
-    if (!Number.isSafeInteger(subtotal)) throw new Error("The cart total is too large.");
-    return subtotal;
-  }, 0);
-  if (discountAmountMinor > subtotalAmountMinor)
-    throw new Error("Discount cannot exceed the product subtotal.");
-  let allocatedDiscountMinor = 0;
-  let cumulativeSubtotalMinor = 0;
-  let lineIndex = 0;
-  return lines.reduce<PosCartTotals>(
-    (totals, line) => {
-      if (!Number.isSafeInteger(line.quantity) || line.quantity <= 0)
-        throw new Error("Cart quantities must be positive whole numbers.");
-      const subtotal = line.quantity * posLineUnitPriceMinor(line);
-      cumulativeSubtotalMinor += subtotal;
-      const lineDiscount =
-        discountAmountMinor === 0
-          ? 0
-          : lineIndex === lines.length - 1
-          ? discountAmountMinor - allocatedDiscountMinor
-          : Number((BigInt(discountAmountMinor) * BigInt(cumulativeSubtotalMinor)) /
-              BigInt(subtotalAmountMinor)) - allocatedDiscountMinor;
-      allocatedDiscountMinor += lineDiscount;
-      lineIndex += 1;
-      const net = subtotal - lineDiscount;
-      const vat = Number((BigInt(net) * BigInt(line.product.vatRateBasisPoints) + 5_000n) / 10_000n);
-      const gross = net + vat;
-      if (![net, vat, gross].every(Number.isSafeInteger))
-        throw new Error("The cart total is too large.");
-      const result = {
-        subtotalAmountMinor,
-        discountAmountMinor,
-        netAmountMinor: totals.netAmountMinor + net,
-        vatAmountMinor: totals.vatAmountMinor + vat,
-        grossAmountMinor: totals.grossAmountMinor + gross,
-        totalQuantity: totals.totalQuantity + line.quantity,
-      };
-      if (!Object.values(result).every(Number.isSafeInteger))
-        throw new Error("The cart total is too large.");
-      return result;
-    },
-    {
-      subtotalAmountMinor,
-      discountAmountMinor,
-      netAmountMinor: 0,
-      vatAmountMinor: 0,
-      grossAmountMinor: 0,
-      totalQuantity: 0,
-    },
-  );
+  if (!lines.length) {
+    if (discountAmountMinor !== 0) throw new Error("Discount cannot exceed the product subtotal.");
+    return { subtotalAmountMinor: 0, discountAmountMinor: 0, netAmountMinor: 0, vatAmountMinor: 0, grossAmountMinor: 0, totalQuantity: 0 };
+  }
+  for (const line of lines) if (posLineUnitPriceMinor(line) <= 0) throw new Error("Sale prices must be positive whole amounts in kobo.");
+  const result = (() => { try { return calculateSale(lines.map(line => ({ quantity: line.quantity, unitPriceMinor: posLineUnitPriceMinor(line), vatRateBasisPoints: line.product.vatRateBasisPoints, unitCostMinor: 0, ...(line.serviceCase ? { fixedGrossMinor: line.serviceCase.grossMinor, fixedVatMinor: line.serviceCase.vatMinor } : {}) })), discountAmountMinor); } catch (cause) { if (cause instanceof Error && cause.message.includes("safe integer") && !cause.message.startsWith("VAT rate")) throw new Error("Cart totals are too large. Reduce quantities or prices."); throw cause; } })();
+  const providerFundsMinor = lines.reduce((sum, line) => sum + (line.providerFunds?.amountMinor ?? 0), 0), priorServicePaidMinor = lines.reduce((sum, line) => sum + (line.serviceCase?.paidMinor ?? 0), 0), grossAmountMinor = result.grossAmountMinor + providerFundsMinor;
+  if (![providerFundsMinor, priorServicePaidMinor, grossAmountMinor].every(value => Number.isSafeInteger(value) && value >= 0) || priorServicePaidMinor > grossAmountMinor) throw new Error("The bill contains invalid provider or prior receipt amounts.");
+  return { subtotalAmountMinor: result.subtotalAmountMinor, discountAmountMinor, netAmountMinor: result.netAmountMinor, vatAmountMinor: result.vatAmountMinor, grossAmountMinor, totalQuantity: lines.reduce((sum, line) => sum + line.quantity, 0), ...(providerFundsMinor ? { providerFundsMinor } : {}), ...(priorServicePaidMinor ? { priorServicePaidMinor } : {}), ...(lines.some(line => line.serviceCase) ? { discountableSubtotalMinor: lines.reduce((sum, line) => sum + (line.serviceCase ? 0 : line.quantity * posLineUnitPriceMinor(line)), 0) } : {}) };
 }
 
 export function provisionalReceiptReference(

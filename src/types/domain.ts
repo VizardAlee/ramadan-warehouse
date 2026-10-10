@@ -252,7 +252,7 @@ export interface SaleReturn {
   inspectionNotes?: string;
   items?: Array<{ id: string; productName: string; quantity: number; disposition?: string; serialNumbers?: string[]; aftersalesCaseLinks?: Array<{ caseId: string; serialNumber: string | null; quantity: number }> }>;
   exchangeCredit?: { id: string; remainingAmountMinor: number; status: string; lastRedeemedSaleId?: string | null; lastRedeemedSaleNumber?: string | null } | null;
-  kind?: "goods_return" | "reservation_cancellation";
+  kind?: "goods_return" | "reservation_cancellation" | "service_credit";
   bankAccountId?: string | null;
   id: string;
   organizationId: string;
@@ -264,7 +264,9 @@ export interface SaleReturn {
   customerId?: string | null;
   customerName?: string | null;
   status: "submitted" | "approved";
-  resolution: "cash" | "card" | "bank_transfer" | "customer_account" | "exchange_credit";
+  resolution: "cash" | "card" | "bank_transfer" | "customer_account" | "exchange_credit" | "split";
+  refundMethod?: "cash" | "card" | "bank_transfer" | "exchange_credit" | null;
+  refundAmountMinor?: number | null;
   reason: string;
   netAmountMinor: number;
   vatAmountMinor: number;

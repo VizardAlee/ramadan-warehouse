@@ -73,7 +73,7 @@ export async function collectReservedSale(
       const collected = Number(item.get("collectedQuantity") ?? 0);
       const balance = balances[index]!;
       const reserved = Number(balance.get("reservedQuantity") ?? 0);
-      if (!item.exists || item.get("organizationId") !== actor.organizationId || item.get("saleId") !== saleRef.id || !["quantity", "serial"].includes(item.get("trackingType")) || quantity > Number(item.get("quantity")) - collected - Number(item.get("cancelledQuantity") ?? 0))
+      if (!item.exists || item.get("itemKind") === "service" || item.get("collectionTracked") === false || item.get("organizationId") !== actor.organizationId || item.get("saleId") !== saleRef.id || !["quantity", "serial"].includes(item.get("trackingType")) || quantity > Number(item.get("quantity")) - collected - Number(item.get("cancelledQuantity") ?? 0))
         throw new HttpsError("failed-precondition", "A collection quantity exceeds the goods still awaiting collection.");
       if (!balance.exists || balance.get("organizationId") !== actor.organizationId || reserved < quantity || Number(balance.get("onHandQuantity")) < quantity)
         throw new HttpsError("failed-precondition", "Reserved stock is inconsistent; reconcile this location before release.");
@@ -87,7 +87,7 @@ export async function collectReservedSale(
     const totalQuantity = resolved.reduce((sum, line) => sum + line.quantity, 0);
     const cost = resolved.reduce((sum, line) => sum + line.issued.movementValueMinor, 0);
     const collectedQuantity = Number(sale!.get("collectedQuantity") ?? 0) + totalQuantity;
-    const status = collectedQuantity + Number(sale!.get("cancelledQuantity") ?? 0) === Number(sale!.get("totalQuantity")) ? "collected" : "partially_collected";
+    const status = collectedQuantity + Number(sale!.get("cancelledQuantity") ?? 0) === Number(sale!.get("physicalQuantity") ?? sale!.get("totalQuantity")) ? "collected" : "partially_collected";
     const now = FieldValue.serverTimestamp();
     evidenceRefs.forEach(reference => transaction.update(reference, { status: "linked", collectionId: collection.id, linkedAt: now, releasedBy: actor.userId }));
     const year = effectiveAt.toDate().getUTCFullYear();

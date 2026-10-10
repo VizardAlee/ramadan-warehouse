@@ -9,6 +9,16 @@ import {
 } from "@/features/guidance/workflows";
 
 describe("visual user guide", () => {
+  it("explains complete statements, reporting limits and the actual mixed billing controls", () => {
+    const page = readFileSync(join(process.cwd(), "src/app/(protected)/guide/page.tsx"), "utf8");
+    for (const label of ["Opening recorded balance", "Closing recorded balance", "Debt balance", "Advance balance", "Needs review", "Print / Save complete statement", "Export complete statement", "Calculate product margins", "Export full range CSV", "Compare monthly budgets"]) expect(page).toContain(label);
+    expect(page).not.toContain("This is not a dated opening/closing balance reconciliation");
+    const guide = readFileSync(join(process.cwd(), "docs/user-form-guide.md"), "utf8").replace(/\s+/g, " ");
+    expect(guide).toContain("invoice-cohort");
+    for (const label of ["Deferred service control", "Provider funds payable", "Correct a mixed invoice receipt", "Physical part included in fee", "Credit service fees / provider", "reconciliation"]) { expect(guide).toContain(label); expect(page).toContain(label); }
+    for (const route of ["reports", "hr", "finance"]) expect(readFileSync(join(process.cwd(), `src/app/(protected)/${route}/page.tsx`), "utf8")).toBeTruthy();
+  });
+
   it("makes the normal journey three tasks without compulsory logistics", () => {
     expect(transferWorkflowSteps.map((step) => step.title)).toEqual([
       "Create transfer",

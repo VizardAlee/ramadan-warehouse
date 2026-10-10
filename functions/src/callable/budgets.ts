@@ -3,7 +3,7 @@ import { FieldPath, FieldValue, Timestamp } from "firebase-admin/firestore";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
 import { db } from "../admin.js";
 import { hasServerPermission, requireAccess, requireBranchScope, requirePermission } from "../auth/authorize.js";
-import { budgetInput, budgetMonthDates, budgetVariance } from "../accounting/budgets.js";
+import { budgetInput, budgetMonthDates, budgetMonths, budgetVariance } from "../accounting/budgets.js";
 import { dailyBounds } from "../accounting/daily-close.js";
 import { uniquenessDocumentId } from "../inventory/calculations.js";
 import { writeAuditLog } from "../audit/write-audit-log.js";
@@ -39,6 +39,45 @@ export const budgetWorkspace = onCall({ enforceAppCheck, timeoutSeconds: 300 }, 
   }
   scope(input.branchId);
   const scopeKey = input.branchId ? `store:${input.branchId}` : "organization";
+  if (input.action === "comparison") {
+    const months = budgetMonths(input.fromMonth, input.toMonth);
+    const rows: Array<Record<string, unknown>> = [];
+    // Reuse the established monthly query: organization targets and store targets remain separate.
+    for (const month of months) {
+      const targets = new Map<string, FirebaseFirestore.QueryDocumentSnapshot>();
+      await visitQueryPages(db.collection("budgets").where("organizationId", "==", actor.organizationId).where("month", "==", month).where("scopeKey", "==", scopeKey), docs => {
+        for (const doc of docs) {
+          const code = String(doc.get("accountCode"));
+          if (targets.has(code)) fail("Duplicate targets exist for this month and account. Reconcile them before comparing.");
+          targets.set(code, doc);
+        }
+      });
+      const totals = new Map<string, { debit: number; credit: number }>();
+      for (const code of targets.keys()) totals.set(code, { debit: 0, credit: 0 });
+      const dates = budgetMonthDates(month);
+      // Exclusive next-day boundary includes the final Firestore nanoseconds of the month.
+      const end = Timestamp.fromMillis(Date.parse(`${dates.toDate}T00:00:00+01:00`) + 86_400_000);
+      let ledger: FirebaseFirestore.Query = db.collection("journalLines").where("organizationId", "==", actor.organizationId)
+        .where("effectiveAt", ">=", dailyBounds(dates.fromDate).start).where("effectiveAt", "<", end);
+      if (input.branchId) ledger = ledger.where("branchId", "==", input.branchId);
+      if (totals.size) await visitQueryPages(ledger, docs => {
+        for (const doc of docs) {
+          const total = totals.get(String(doc.get("accountCode"))); if (!total) continue;
+          const debit = doc.get("debitMinor") ?? 0, credit = doc.get("creditMinor") ?? 0;
+          if (![debit, credit].every(value => typeof value === "number" && Number.isSafeInteger(value) && value >= 0)) fail("A budgeted account contains invalid ledger amounts. Reconcile it before comparing.");
+          total.debit += debit; total.credit += credit;
+          if (![total.debit, total.credit].every(Number.isSafeInteger)) fail("Ledger totals exceed safe minor-unit arithmetic.");
+        }
+      }, { orderField: "effectiveAt" });
+      if (rows.length + targets.size > 10_000) fail("This comparison exceeds 10,000 targets. Choose fewer months; no partial totals were returned.");
+      for (const [code, target] of targets) {
+        const total = totals.get(code)!;
+        try { rows.push({ ...row(target), ...budgetVariance(code, target.get("amountMinor"), total.debit, total.credit) }); }
+        catch { fail("A budget has invalid amounts or account classification. Review it before comparing."); }
+      }
+    }
+    return { rows, months, branchId: input.branchId ?? null };
+  }
   if (input.action === "workspace") {
     let query: FirebaseFirestore.Query = db.collection("budgets").where("organizationId", "==", actor.organizationId).where("month", "==", input.month).where("scopeKey", "==", scopeKey).orderBy(FieldPath.documentId());
     if (input.cursorId) {
@@ -50,7 +89,7 @@ export const budgetWorkspace = onCall({ enforceAppCheck, timeoutSeconds: 300 }, 
     if (accounts.size > 500) fail("The account picker requires paging before more than 500 ledger accounts can be used. No accounts were silently omitted.");
     const dates = budgetMonthDates(input.month), totals = new Map<string, { debit: number; credit: number }>();
     for (const doc of page.docs.slice(0, input.pageSize)) totals.set(String(doc.get("accountCode")), { debit: 0, credit: 0 });
-    let ledger: FirebaseFirestore.Query = db.collection("journalLines").where("organizationId", "==", actor.organizationId).where("effectiveAt", ">=", dailyBounds(dates.fromDate).start).where("effectiveAt", "<=", dailyBounds(dates.toDate).end);
+    let ledger: FirebaseFirestore.Query = db.collection("journalLines").where("organizationId", "==", actor.organizationId).where("effectiveAt", ">=", dailyBounds(dates.fromDate).start).where("effectiveAt", "<", Timestamp.fromMillis(Date.parse(`${dates.toDate}T00:00:00+01:00`) + 86_400_000));
     if (input.branchId) ledger = ledger.where("branchId", "==", input.branchId);
     if (totals.size) await visitQueryPages(ledger, lines => {
       for (const line of lines) {

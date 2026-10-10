@@ -76,3 +76,58 @@ describe.sequential("trusted budget workflow", () => {
     await expect(call({ action: "workspace", month: "2026-10", cursorId: first.nextCursorId })).rejects.toMatchObject({ code: "functions/invalid-argument" });
   });
 });
+
+describe("multi-month budget actuals", () => {
+  it("keeps monthly/store/org targets separate and includes the last nanosecond", async () => {
+    await call(save({ month: "2026-12", amountMinor: 10000 }));
+    await call(save({ month: "2027-01", amountMinor: 20000 }));
+    await call(save({ month: "2027-01", branchId: undefined, amountMinor: 99999 }));
+    const end = Timestamp.fromDate(new Date("2026-12-31T22:59:59Z"));
+    await db.doc("journalLines/comparison-last-nanosecond").set({ organizationId, branchId: "branch-a", accountCode: "4100", debitMinor: 0, creditMinor: 12345, effectiveAt: new Timestamp(end.seconds, 999999999) });
+    await db.doc("journalLines/comparison-next-month").set({ organizationId, branchId: "branch-a", accountCode: "4100", debitMinor: 0, creditMinor: 6789, effectiveAt: Timestamp.fromDate(new Date("2026-12-31T23:00:00Z")) });
+    await db.doc("journalLines/comparison-other-store").set({ organizationId, branchId: "branch-b", accountCode: "4100", debitMinor: 0, creditMinor: 999, effectiveAt: end });
+    type Result = { rows: Array<{ month: string; amountMinor: number; actualMinor: number; varianceMinor: number }>; months: string[] };
+    const report = await call<Result>({ action: "comparison", fromMonth: "2026-12", toMonth: "2027-02", branchId: "branch-a" });
+    expect(report.months).toEqual(["2026-12", "2027-01", "2027-02"]);
+    expect(report.rows).toHaveLength(2);
+    expect(report.rows.find(row => row.month === "2026-12")).toMatchObject({ amountMinor: 10000, actualMinor: 12345, varianceMinor: 2345 });
+    expect(report.rows.find(row => row.month === "2027-01")).toMatchObject({ amountMinor: 20000, actualMinor: 6789 });
+    const monthly = await call<{ rows: Array<{ actualMinor: number }> }>({ action: "workspace", month: "2026-12", branchId: "branch-a" });
+    expect(monthly.rows[0]?.actualMinor).toBe(12345);
+    const org = await call<Result>({ action: "comparison", fromMonth: "2027-01", toMonth: "2027-01" });
+    expect(org.rows[0]?.amountMinor).toBe(99999);
+  });
+  it("denies unauthorized readers, cross-store scope and organization consolidation", async () => {
+    const input = { action: "comparison", fromMonth: "2026-12", toMonth: "2027-01", branchId: "branch-a" };
+    await expect(call(input, restricted)).rejects.toMatchObject({ code: "functions/permission-denied" });
+    await expect(call({ ...input, branchId: "branch-b" }, branchReader)).rejects.toMatchObject({ code: "functions/permission-denied" });
+    await expect(call({ ...input, branchId: undefined }, branchReader)).rejects.toMatchObject({ code: "functions/permission-denied" });
+    await expect(call({ ...input, toMonth: "2028-12" })).rejects.toMatchObject({ code: "functions/invalid-argument" });
+  });
+});
+
+describe("product invoice-cohort margins", () => {
+  const report = async <T>(data: object, target = accountant) => (await httpsCallable<object, T>(target.functions, "getProductMargins")(data)).data;
+  const input = { branchId: "branch-a", fromDate: "2026-08-01", toDate: "2026-08-31" };
+  it("uses original sales with current approved returns and recorded costs, never requiring a completed sales status", async () => {
+    await db.doc("sales/margin-invoice").set({ organizationId, branchId: "branch-a", paymentStatus: "credit", recordedAt: Timestamp.fromDate(new Date("2026-08-31T22:59:59Z")) });
+    await db.doc("saleItems/margin-item").set({ organizationId, branchId: "branch-a", saleId: "margin-invoice", productId: "margin-product", sku: "MP", productName: "Margin product", quantity: 4, netAmountMinor: 10000, costAmountMinor: 4000, collectionTracked: true, collectedQuantity: 4 });
+    await db.doc("saleReturns/margin-approved").set({ organizationId, saleId: "margin-invoice", status: "approved", approvedAt: Timestamp.fromDate(new Date("2026-10-01T12:00:00Z")), kind: "customer_return" });
+    await db.doc("saleReturnItems/margin-return").set({ organizationId, saleId: "margin-invoice", returnId: "margin-approved", saleItemId: "margin-item", quantity: 1, netAmountMinor: 2500, costAmountMinor: 1000, condition: "restockable" });
+    await db.doc("saleReturns/margin-pending").set({ organizationId, saleId: "margin-invoice", status: "submitted" });
+    await db.doc("saleReturnItems/margin-pending-item").set({ organizationId, saleId: "margin-invoice", returnId: "margin-pending", saleItemId: "margin-item", quantity: 2, netAmountMinor: 5000, costAmountMinor: 2000, condition: "restockable" });
+    for (const [id, branch, org, recordedAt] of [["other-store", "branch-b", organizationId, "2026-08-01T12:00:00Z"], ["other-org", "branch-a", "other", "2026-08-01T12:00:00Z"], ["next-day", "branch-a", organizationId, "2026-08-31T23:00:00Z"]])
+      await db.doc(`sales/margin-${id}`).set({ organizationId: org, branchId: branch, recordedAt: Timestamp.fromDate(new Date(recordedAt!)) });
+    const result = await report<{ invoiceCount: number; rows: Array<{ grossMarginMinor: number; netSalesMinor: number; netRecordedCostMinor: number }> }>(input);
+    expect(result.invoiceCount).toBe(1); expect(result.rows).toHaveLength(1);
+    expect(result.rows[0]).toMatchObject({ netSalesMinor: 7500, netRecordedCostMinor: 3000, grossMarginMinor: 4500 });
+    await db.doc("saleItems/margin-item").update({ collectionTracked: true, collectedQuantity: 3 });
+    expect((await report<{ rows: Array<{ grossMarginMinor: number | null; unknownCostLines: number }> }>(input)).rows[0]).toMatchObject({ grossMarginMinor: null, unknownCostLines: 1 });
+  });
+  it("protects cost data, branch scope and invalid ranges", async () => {
+    await expect(report(input, restricted)).rejects.toMatchObject({ code: "functions/permission-denied" });
+    const scoped = await actor("margin-scoped@example.test", "branch_manager", { branchIds: ["branch-a"], directRoleIds: [], effectivePermissions: ["reports.sales.read", "inventory.cost.read"] });
+    await expect(report({ ...input, branchId: "branch-b" }, scoped)).rejects.toMatchObject({ code: "functions/permission-denied" });
+    await expect(report({ ...input, fromDate: "2026-09-01" })).rejects.toMatchObject({ code: "functions/invalid-argument" });
+  });
+});

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { FileBarChart, Landmark, LockKeyhole, Calculator } from "lucide-react";
 import { useAuth } from "@/features/auth/auth-context";
 import { hasPermission } from "@/lib/permissions/roles";
+import { BillingControls } from "@/features/accounting/billing-controls";
 import { JournalWorkspace } from "@/features/accounting/journal-workspace";
 import { BudgetWorkspace } from "@/features/accounting/budget-workspace";
 
@@ -36,6 +37,7 @@ export default function FinancePage() {
       {profile && user && hasPermission(profile, "finance.journal.read") && <JournalWorkspace key={`${profile.organizationId}:${user.uid}:${branchId ?? "all"}`}
         ownerKey={`${profile.organizationId}:${user.uid}`} branchId={branchId}
         canCreate={hasPermission(profile, "finance.journal.create")} canReverse={hasPermission(profile, "finance.journal.reverse")} canManageAccounts={hasPermission(profile, "finance.accounts.manage")} />}
+      {profile && user && hasPermission(profile, "finance.accounts.manage") && <BillingControls key={`billing:${profile.organizationId}:${user.uid}`} ownerKey={`${profile.organizationId}:${user.uid}`} />}
       {profile && user && hasPermission(profile, "finance.journal.read") && <BudgetWorkspace key={`budget:${profile.organizationId}:${user.uid}:${branchId ?? "all"}`} ownerKey={`${profile.organizationId}:${user.uid}`} branchId={branchId} canManage={hasPermission(profile, "finance.budget.manage")} />}
     </div>
   );

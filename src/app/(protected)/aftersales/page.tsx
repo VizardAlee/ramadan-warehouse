@@ -29,6 +29,8 @@ interface Case extends HeldReturnCase {
   status: string;
   resolution?: string;
   chargeStatus: string;
+  billingSaleId?: string;
+  billedCreditedMinor?: number;
   chargeAmountMinor?: number;
   amountPaidMinor?: number;
   outstandingAmountMinor?: number;
@@ -228,7 +230,8 @@ function AftersalesWorkspace() {
               </div>
               <OperationalPhotos kind="aftersales" recordId={item.id} stage={item.status === "open" ? "intake" : ["diagnosed", "in_service"].includes(item.status) ? "diagnosis" : "handover"} serials={item.serialNumber ? [item.serialNumber] : []} canUpload={item.status !== "cancelled" && can(item.status === "open" ? "sales.returns.create" : "sales.returns.approve")} />
               <HeldReturnDisposition record={item} suppliers={workspace.suppliers ?? []} canDispose={can("sales.returns.approve") && can("inventory.adjust")} canHandover={can("procurement.receive") && can("suppliers.read")} canReadHistory={can("inventory.read")} canReadSettlement={can("procurement.read") && can("payables.read")} canSettle={can("procurement.receive") && can("payables.approve") && can("sales.returns.approve")} canReceiveReplacement={can("procurement.receive") && can("inventory.receive") && can("sales.returns.approve")} onComplete={() => void load()} />
-              <ServicePayments key={`${item.id}:${item.amountPaidMinor ?? 0}`} caseId={item.id} accounts={workspace.bankAccounts} mutationError={error} disabled={busy || !ready || Boolean(pending)} canRefund={can("sales.returns.approve") && can("customers.payment.record")} onRefund={input => run("recordAftersalesPayment", input, "Service receipt refunded; the charge remains due. The refund and journal are recorded.")} />
+              {item.billingSaleId && <p className="mt-3 rounded-lg bg-emerald-50 p-3 text-sm">Billed on invoice {item.billingSaleId}. <Link href="/returns" className="font-semibold underline">Open Returns &amp; corrections</Link> and load the invoice receipt for repayments, receipt corrections and service credits. Original service receipts remain in history; they are not received again.</p>}
+              <ServicePayments key={`${item.id}:${item.amountPaidMinor ?? 0}`} caseId={item.id} accounts={workspace.bankAccounts} mutationError={error} disabled={busy || !ready || Boolean(pending)} canRefund={!item.billingSaleId && can("sales.returns.approve") && can("customers.payment.record")} onRefund={input => run("recordAftersalesPayment", input, "Service receipt refunded; the charge remains due. The refund and journal are recorded.")} />
               {can("sales.returns.approve") && !["completed", "cancelled"].includes(item.status) && <details className="mt-4 rounded-lg border p-3">
                 <summary className="cursor-pointer text-sm font-semibold">Assign / change service staff</summary>
                 <p className="mt-2 text-sm text-[var(--muted)]">Use the employee&apos;s staff ID from HR. They need not have an app account. Only active staff in this store, or organization-wide staff, can be assigned. Leave the ID blank to remove the assignment.</p>
@@ -245,14 +248,14 @@ function AftersalesWorkspace() {
                   <Button disabled={busy || !form.status || form.resolution.trim().length < 5 || (form.status === "completed" && item.chargeStatus === "not_quoted")} onClick={() => void run("updateAftersalesCase", { caseId: item.id, status: form.status, resolution: form.resolution, idempotencyKey: crypto.randomUUID() }, "Case status updated and audited.")}>Update status</Button>
                 </div>
               )}
-              {can("sales.returns.approve") && item.chargeStatus === "not_quoted" && !["completed", "cancelled"].includes(item.status) && (
+              {!item.billingSaleId && can("sales.returns.approve") && item.chargeStatus === "not_quoted" && !["completed", "cancelled"].includes(item.status) && (
                 <div className="mt-3 grid gap-3 md:grid-cols-[10rem_minmax(0,1fr)_auto]">
                   <label className="text-sm">Service charge (₦)<input type="number" min="0" step="0.01" value={form.chargeNaira} onChange={(event) => set({ chargeNaira: event.target.value })} className="mt-1 w-full rounded-lg border p-3" /></label>
                   <label className="text-sm">Charge / complimentary reason<input value={form.chargeReason} onChange={(event) => set({ chargeReason: event.target.value })} className="mt-1 w-full rounded-lg border p-3" /></label>
                   <Button className="self-end" disabled={busy || !Number.isSafeInteger(chargeMinor) || chargeMinor < 0 || form.chargeNaira === "" || form.chargeReason.trim().length < 5} onClick={() => void run("setAftersalesCharge", { caseId: item.id, chargeAmountMinor: chargeMinor, reason: form.chargeReason, idempotencyKey: crypto.randomUUID() }, "Service charge recorded.")}>Set charge</Button>
                 </div>
               )}
-              {can("customers.payment.record") && (item.outstandingAmountMinor ?? 0) > 0 && item.status !== "cancelled" && (
+              {!item.billingSaleId && can("customers.payment.record") && (item.outstandingAmountMinor ?? 0) > 0 && item.status !== "cancelled" && (
                 <div className="mt-3 grid gap-3 border-t pt-4 sm:grid-cols-2 lg:grid-cols-[10rem_10rem_minmax(12rem,1fr)_minmax(12rem,1fr)_auto]">
                   <label className="text-sm">Pay now (₦)<input type="number" min="0.01" max={((item.outstandingAmountMinor ?? 0) / 100).toFixed(2)} step="0.01" value={form.paymentNaira} onChange={(event) => set({ paymentNaira: event.target.value })} className="mt-1 w-full rounded-lg border p-3" /></label>
                   <label className="text-sm">Method<select value={form.method} onChange={(event) => set({ method: event.target.value as typeof form.method, bankAccountId: "" })} className="mt-1 w-full rounded-lg border p-3"><option value="cash">Cash</option><option value="card">Card / POS</option><option value="bank_transfer">Bank transfer</option></select></label>

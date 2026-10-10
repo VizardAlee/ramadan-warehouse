@@ -414,6 +414,7 @@ textarea { min-height: 96px; }
 @media print {
   @page { size: A4; margin: 12mm; }
   body:has([data-print-document]) > :not([data-print-document]):not(:has([data-print-document])) { display: none !important; }
+  html:has([data-print-document]) { background: white !important; }
   body:has([data-print-document]) { min-height: 0 !important; background: white !important; }
   body:has([data-print-document]) [data-print-document] { inset: auto !important; top: 0 !important; left: 0 !important; width: 100% !important; }
   body:has([data-invoice-document]) [data-invoice-document] { width: 186mm !important; zoom: var(--invoice-print-scale, 1); }
