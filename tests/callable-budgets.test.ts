@@ -42,6 +42,24 @@ describe.sequential("trusted budget workflow", () => {
     await expect(call({ ...input, amountMinor: 999 })).rejects.toMatchObject({ code: "functions/failed-precondition" });
     expect((await db.collection("journalEntries").get()).empty).toBe(true);
   });
+  it("accepts the browser operating-context envelope for every action while retaining strict fields and store authority", async () => {
+    const operatingContext = { type: "branch", id: "branch-a" };
+    const input = save({ month: "2027-04", operatingContext });
+    const created = await call<{ budgetId: string }>(input);
+    const { operatingContext: context, ...sameBusinessInstruction } = input;
+    expect(context).toEqual(operatingContext);
+    expect(await call(sameBusinessInstruction)).toEqual(created);
+    const workspace = await call<{ rows: Array<{ id: string }> }>({ action: "workspace", month: "2027-04", branchId: "branch-a", operatingContext }, branchReader);
+    expect(workspace.rows.some(row => row.id === created.budgetId)).toBe(true);
+    const history = await call<{ revisions: Array<{ version: number }> }>({ action: "history", budgetId: created.budgetId, operatingContext }, branchReader);
+    expect(history.revisions.map(row => row.version)).toEqual([1]);
+    const comparison = { action: "comparison", fromMonth: "2027-04", toMonth: "2027-04", branchId: "branch-a", operatingContext };
+    expect((await call<{ rows: Array<{ amountMinor: number }> }>(comparison, branchReader)).rows[0]?.amountMinor).toBe(10000);
+    await expect(call({ ...comparison, unexpectedBusinessField: true })).rejects.toMatchObject({ code: "functions/invalid-argument" });
+    await expect(call({ ...comparison, operatingContext: { ...operatingContext, extra: true } })).rejects.toMatchObject({ code: "functions/invalid-argument" });
+    await expect(call({ ...comparison, operatingContext: { type: "branch", id: "branch-b" } }, branchReader)).rejects.toMatchObject({ code: "functions/permission-denied" });
+    await expect(call({ ...comparison, branchId: "branch-b" }, branchReader)).rejects.toMatchObject({ code: "functions/permission-denied" });
+  });
   it("compares actuals using Lagos month boundaries and separate consolidated targets", async () => {
     await call(save({ accountId: "expense", amountMinor: 10000 }));
     await call(save({ branchId: undefined, amountMinor: 50000 }));
