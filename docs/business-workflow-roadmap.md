@@ -48,9 +48,9 @@ full lint, secret scan and diff checks pass.
 The original isolated production build passes. This follow-up has now been
 integrated onto the combined customer/report release in a separate worktree:
 all 476 exact-source live planner checks pass, with no new index or Rules change.
-All 427 combined unit/interface cases, typecheck, lint, Functions compilation and
-the secret scan pass. The combined build and coordinated deployment verification remain
-release gates. The main checkout remains reserved for the other chat's release;
+All 427 combined unit/interface cases, typecheck, lint, Functions compilation,
+the secret scan and combined production build pass. Coordinated deployment
+verification remains the release gate. The main checkout remains reserved for the other chat's release;
 this follow-up stays isolated until that release is verified.
 
 ## Service receipt refunds — 10 October 2026 (validated; release pending)
