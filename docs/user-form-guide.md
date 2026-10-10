@@ -364,10 +364,13 @@ service billing can post.
    account-management permission (`finance.accounts.manage`) and organization-wide
    sales/accounting access (`sales.read.all`) to review and save the mappings.
 
-   Open **Money & accounts → Accounting**. In **Company ledger accounts**, create
-   and review two distinct, active, dedicated NGN liability accounts if needed.
-   Your accountant chooses the account codes; accounts with unrelated posting
-   history cannot be repurposed as billing controls.
+   Open **Money & accounts → Accounting**. If you need new dedicated accounts,
+   expand **Create or edit an accountant ledger account**. Enter the reviewed
+   **Account code**, **Account name** and **Reason**, keep **Active for new
+   postings** enabled, then click **Save ledger account** for each account.
+   Review two distinct, active, dedicated NGN liability accounts. Your accountant
+   chooses the account codes; accounts with unrelated posting history cannot be
+   repurposed as billing controls.
 
    Open **Mixed billing account controls**. Select the reviewed service-deferral
    account under **Deferred service control** and the separate provider-payable
