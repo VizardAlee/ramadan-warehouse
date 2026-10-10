@@ -24,10 +24,10 @@ at each step. Tax activation and hardware-specific biometric acceptance remain
 external gates because the company tax profile and device are unavailable.
 Firebase CLI authentication is restored. The matching live planner audit passes
 476/476 shapes and all 227 deployed indexes are READY. The guarded baseline is
-refreshed against the exact reviewed sources; deployment completion is still a
-separate release gate.
+refreshed against the exact reviewed sources. The combined customer/report and
+service-refund release below is deployed and verified.
 
-## Stock-count assignments and creation recovery — 10 October 2026 (under validation)
+## Stock-count assignments and creation recovery — 10 October 2026 (validated; release pending)
 
 Counter eligibility now uses the same current access-profile, multi-role,
 custom-permission and store-scope checks as authenticated operations. A global
@@ -50,10 +50,10 @@ integrated onto the combined customer/report release in a separate worktree:
 all 476 exact-source live planner checks pass, with no new index or Rules change.
 All 427 combined unit/interface cases, typecheck, lint, Functions compilation,
 the secret scan and combined production build pass. Coordinated deployment
-verification remains the release gate. The main checkout remains reserved for the other chat's release;
-this follow-up stays isolated until that release is verified.
+verification remains the release gate. The preceding combined release is verified;
+this follow-up is being integrated without changing its released features or evidence.
 
-## Service receipt refunds — 10 October 2026 (validated; release pending)
+## Service receipt refunds — 10 October 2026 (deployed)
 
 Extends the existing aftersales workspace, payment callable, receipt collection
 and accounting journal. Receipt history is lazy and cursor-paged (25/50/100).
@@ -82,9 +82,9 @@ cumulative VAT rounding, legacy receipts, cursor isolation and the existing
 10,000-line ledger stress case. The new receipt-history index is deployed and
 READY; all 476 matching combined live query planner checks pass. The isolated
 production build also passes. The owner approved one combined release with the
-customer, invoice and report improvements below; deployment is pending.
+customer, invoice and report improvements below; deployment is verified.
 
-## Customer statements, invoices and reporting — 10 October 2026 (validated; release pending)
+## Customer statements, invoices and reporting — 10 October 2026 (deployed)
 
 Invoices use a compact A4 print layout with measured scaling to one page. Customer
 history suppresses duplicate account entries only when the matching sale/return
@@ -101,6 +101,33 @@ cases pass, including cursor pagination, Lagos boundaries, statement balances,
 credit summaries, receipt/payment totals and authorization. Typecheck, lint,
 Functions compilation, production build and all 476 live planner checks pass.
 Printed invoices with 3, 15 and 35 items were rendered and verified as one page.
+
+### Combined production release verification
+
+Source `6828887` is pushed to main. The full `predeploy:production` gate passes:
+625 tests pass, six are skipped, and lint, typechecks, Functions compilation,
+production build, secret scanning, query-baseline validation and clean-tree
+safeguards pass. All 476 exact-source live planner checks pass and all 227
+indexes are READY.
+Firebase explicitly completed all six selected callable updates. Each is ACTIVE
+on Node 22, with its new ready revision receiving 100% traffic:
+`getCustomerHistory` (`getcustomerhistory-00010-qig`),
+`generateFinancialStatement` (`generatefinancialstatement-00008-fir`),
+`generateSalesReport` (`generatesalesreport-00009-hav`),
+`getAftersalesWorkspace` (`getaftersalesworkspace-00012-fov`),
+`recordAftersalesPayment` (`recordaftersalespayment-00007-juq`), and
+`updateAftersalesCase` (`updateaftersalescase-00007-qun`).
+Production/App Check flags, runtime identities and existing invoker settings are
+preserved. No Rules, Auth or IAM configuration was changed by this release.
+App Hosting `build-2026-10-10-003` is READY, its rollout is SUCCEEDED, both are
+finished reconciling, and it receives 100% production traffic. Login, reports,
+customer details, aftersales and POS routes and their JavaScript assets return
+HTTP 200. Served bundles contain the new credit summary, receipts/payments,
+complete customer statement, invoice print measurement and service-refund controls.
+All six unauthenticated callable probes return Firebase JSON HTTP 401
+UNAUTHENTICATED. These live checks establish release and authentication barriers;
+authorized business behavior is covered by emulator acceptance, not a live
+signed-in transaction. No real business records were changed for verification.
 
 ## Paged count progress and completeness — 10 October 2026 (deployed)
 
