@@ -51,4 +51,7 @@ describe("cross-section Firestore index release guard", () => {
     expect(catalog.filter((shape) => shape.sources.includes("purchase receipt history"))).toHaveLength(1);
     expect(catalog.filter((shape) => shape.sources.includes("purchase receipt stock evidence"))).toHaveLength(1);
   });
+  it("covers complete stock-count variance pages with a stable tie-breaker", () => {
+    expect(catalog.find(shape => shape.sources.includes("stock count posting variance pages"))).toMatchObject({ collection: "stockCountItems", filters: [["stockCountId", "=="], ["variance", "!="]], order: [["variance", "ASCENDING"], ["__name__", "ASCENDING"]] });
+  });
 });

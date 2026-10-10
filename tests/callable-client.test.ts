@@ -20,14 +20,16 @@ vi.mock("@/lib/firebase/client", () => ({
 import { callAdministration } from "@/features/administration/api";
 
 describe("callAdministration", () => {
-  it("allows longer ledger reports without extending mutation timeouts", async () => {
+  it("allows longer ledger reports and resumable counts without extending ordinary mutation timeouts", async () => {
     mocks.callable.mockResolvedValue({ data: {} });
     await callAdministration("generateFinancialStatement", {});
     await callAdministration("getTaxWorkspace", {});
     await callAdministration("createSaleReturn", {});
+    await callAdministration("postStockCount", {});
     expect(mocks.httpsCallable).toHaveBeenNthCalledWith(1, {}, "generateFinancialStatement", { timeout: 300_000 });
     expect(mocks.httpsCallable).toHaveBeenNthCalledWith(2, {}, "getTaxWorkspace", { timeout: 300_000 });
     expect(mocks.httpsCallable).toHaveBeenNthCalledWith(3, {}, "createSaleReturn", { timeout: 70_000 });
+    expect(mocks.httpsCallable).toHaveBeenNthCalledWith(4, {}, "postStockCount", { timeout: 300_000 });
   });
   beforeEach(() => {
     vi.clearAllMocks();

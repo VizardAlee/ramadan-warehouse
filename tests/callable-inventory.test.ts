@@ -18,7 +18,7 @@ import { FieldValue, getFirestore } from "firebase-admin/firestore";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { AccessProfile } from "../functions/src/auth/authorize";
 import type { InventoryPostingExtension, PostingRequest } from "../functions/src/inventory/post-inventory-transaction";
-import { balanceDocumentId } from "../functions/src/inventory/calculations";
+import { balanceDocumentId, uniquenessDocumentId } from "../functions/src/inventory/calculations";
 
 const projectId = "demo-ramadan-warehouse";
 const adminApp =
@@ -135,6 +135,83 @@ beforeAll(async () => {
 afterAll(async () => Promise.all(apps.map((app) => deleteApp(app))));
 
 describe.sequential("inventory callables", () => {
+  it("links stock valuation to balanced non-cash journals and reverses both exactly once", async () => {
+    const created = await call<{ productId: string }>(administrator, "saveProduct", product({ sku: "JOURNAL-STOCK" }));
+    const payload = { productId: created.productId, destinationLocationId: "location-a", quantity: 3, unitCostMinor: 1000, serialNumbers: [], effectiveAt: "2026-08-02T10:00:00.000Z", reason: "Verified opening stock valuation", externalAccount: "migration", idempotencyKey: crypto.randomUUID() };
+    const attempts = await Promise.all([0, 1].map(() => call<{ transactionId: string; posted: boolean }>(administrator, "postOpeningStock", payload)));
+    const opening = attempts[0]!;
+    expect(attempts.map(attempt => attempt.transactionId)).toEqual([opening.transactionId, opening.transactionId]);
+    expect(attempts.filter(attempt => attempt.posted)).toHaveLength(1);
+    const openingDoc = await adminDb.doc(`inventoryTransactions/${opening.transactionId}`).get();
+    const journal = await adminDb.doc(`journalEntries/${openingDoc.get("journalEntryId")}`).get();
+    expect(journal.data()).toMatchObject({ referenceId: opening.transactionId, totalDebitMinor: 3000, totalCreditMinor: 3000, journalType: "inventory_opening_balance" });
+    expect((await adminDb.collection("journalEntries").where("referenceId", "==", opening.transactionId).get()).size).toBe(1);
+    expect(await call(administrator, "postOpeningStock", payload)).toMatchObject({ transactionId: opening.transactionId, posted: false });
+    await expect(call(administrator, "postOpeningStock", { ...payload, quantity: 4 })).rejects.toMatchObject({ code: "functions/already-exists" });
+    const manager = await createActor("stock-journal-retry-manager@example.test", "warehouse_manager");
+    expect(await call(manager, "postOpeningStock", payload)).toMatchObject({ posted: false });
+    await adminDb.doc(`users/${manager.auth.currentUser!.uid}`).update({ warehouseIds: [] });
+    await expect(call(manager, "postOpeningStock", payload)).rejects.toMatchObject({ code: "functions/permission-denied" });
+    const issue = await call<{ transactionId: string }>(administrator, "postStockAdjustment", { productId: created.productId, locationId: "location-a", direction: "decrease", adjustmentType: "damage", quantity: 1, unitCostMinor: 9999, serialNumbers: [], effectiveAt: payload.effectiveAt, reason: "Counted damaged product removed", idempotencyKey: crypto.randomUUID() });
+    const issueDoc = await adminDb.doc(`inventoryTransactions/${issue.transactionId}`).get();
+    expect(issueDoc.get("accountingValueMinor")).toBe(1000);
+    const request = { transactionId: issue.transactionId, reason: "Damage evidence corrected by manager", idempotencyKey: crypto.randomUUID() };
+    const issueJournal = adminDb.doc(`journalEntries/${issueDoc.get("journalEntryId")}`);
+    await issueJournal.update({ totalDebitMinor: 999 });
+    await expect(call(administrator, "reverseInventoryTransaction", request)).rejects.toMatchObject({ code: "functions/failed-precondition" });
+    await issueJournal.update({ totalDebitMinor: 1000 });
+    const currentPeriod = adminDb.doc(`accountingPeriods/${uniquenessDocumentId(organizationId, new Date().toISOString().slice(0, 7))}`);
+    await currentPeriod.set({ organizationId, status: "closed", periodKey: new Date().toISOString().slice(0, 7) });
+    await expect(call(administrator, "reverseInventoryTransaction", request)).rejects.toMatchObject({ code: "functions/failed-precondition" });
+    await currentPeriod.delete();
+    const reversed = await call<{ transactionId: string }>(administrator, "reverseInventoryTransaction", request);
+    expect(await call(administrator, "reverseInventoryTransaction", request)).toMatchObject({ transactionId: reversed.transactionId, reversed: false });
+    const originalJournal = await adminDb.doc(`journalEntries/${issueDoc.get("journalEntryId")}`).get();
+    const reversedDoc = await adminDb.doc(`inventoryTransactions/${reversed.transactionId}`).get();
+    expect(originalJournal.get("reversalJournalEntryId")).toBe(reversedDoc.get("journalEntryId"));
+    const lines = await adminDb.collection("journalLines").where("journalEntryId", "==", reversedDoc.get("journalEntryId")).get();
+    expect(lines.docs.map(line => line.data())).toEqual(expect.arrayContaining([expect.objectContaining({ accountCode: "1200", debitMinor: 1000, creditMinor: 0 }), expect.objectContaining({ accountCode: "5200", debitMinor: 0, creditMinor: 1000 })]));
+  });
+
+  it("rolls back stock in a closed accounting period and records zero-valued stock without invented journals", async () => {
+    const created = await call<{ productId: string }>(administrator, "saveProduct", product({ sku: "PERIOD-STOCK" }));
+    const period = adminDb.doc(`accountingPeriods/${uniquenessDocumentId(organizationId, "2025-01")}`);
+    await period.set({ organizationId, periodKey: "2025-01", status: "closed" });
+    const payload = { productId: created.productId, destinationLocationId: "location-a", quantity: 1, unitCostMinor: 0, serialNumbers: [], effectiveAt: "2025-01-02T10:00:00.000Z", reason: "Verified zero value opening stock", externalAccount: "migration", idempotencyKey: crypto.randomUUID() };
+    await expect(call(administrator, "postOpeningStock", payload)).rejects.toMatchObject({ code: "functions/failed-precondition" });
+    expect((await adminDb.collection("inventoryEntries").where("productId", "==", created.productId).get()).empty).toBe(true);
+    const posted = await call<{ transactionId: string }>(administrator, "postOpeningStock", { ...payload, effectiveAt: "2026-08-02T10:00:00.000Z" });
+    expect((await adminDb.doc(`inventoryTransactions/${posted.transactionId}`).get()).data()).toMatchObject({ accountingVersion: 2, accountingValueMinor: 0, journalEntryId: null });
+  });
+
+  it("posts every variance beyond 100 lines and permits auditable manager self-authorization", async () => {
+    const countManager = await createActor("large-count-manager@example.test", "warehouse_manager");
+    const countId = "large-reviewed-count", manager = countManager.auth.currentUser!.uid;
+    const batch = adminDb.batch();
+    const fixtureLines: { itemId: string; productId: string }[] = [];
+    batch.set(adminDb.doc(`stockCounts/${countId}`), { organizationId, locationId: "location-a", warehouseId: "warehouse-a", countNumber: "COUNT-LARGE", status: "reviewed", reviewedBy: manager, assignedUserIds: [manager] });
+    for (let index = 0; index < 101; index++) {
+      const id = `large-count-product-${index}`, balanceId = balanceDocumentId(organizationId, id, "location-a");
+      fixtureLines.push({ itemId: `${countId}__${balanceId}`, productId: id });
+      batch.set(adminDb.doc(`products/${id}`), { organizationId, name: id, sku: id, trackingType: "quantity", unitOfMeasure: "unit", active: true, defaultUnitCostMinor: 100 });
+      batch.set(adminDb.doc(`inventoryBalances/${balanceId}`), { organizationId, productId: id, locationId: "location-a", warehouseId: "warehouse-a", onHandQuantity: 1, reservedQuantity: 0, availableQuantity: 1, totalValueMinor: 100, averageUnitCostMinor: 100 });
+      batch.set(adminDb.doc(`stockCountItems/${countId}__${balanceId}`), { organizationId, stockCountId: countId, productId: id, trackingType: "quantity", expectedQuantity: 1, countedQuantity: 2, variance: 1 });
+    }
+    await batch.commit();
+    const payload = { stockCountId: countId, reason: "Manager verified complete physical count", idempotencyKey: crypto.randomUUID() };
+    const lastProduct = fixtureLines.sort((left, right) => left.itemId.localeCompare(right.itemId)).at(-1)!.productId;
+    await adminDb.doc(`products/${lastProduct}`).update({ active: false });
+    await expect(call(countManager, "postStockCount", payload)).rejects.toMatchObject({ code: "functions/failed-precondition" });
+    expect((await adminDb.doc(`stockCounts/${countId}`).get()).get("status")).toBe("reviewed");
+    await expect(call(countManager, "postStockCount", { ...payload, reason: "Changed partial posting must not resume" })).rejects.toMatchObject({ code: "functions/already-exists" });
+    await adminDb.doc(`products/${lastProduct}`).update({ active: true });
+    const result = await call<{ transactionIds: string[] }>(countManager, "postStockCount", payload);
+    expect(result.transactionIds).toHaveLength(101);
+    expect((await adminDb.collection("journalEntries").where("referenceType", "==", "inventoryTransaction").where("journalType", "==", "inventory_stock_count_correction").get()).size).toBe(101);
+    expect(await call(countManager, "postStockCount", payload)).toMatchObject({ posted: false, transactionIds: result.transactionIds });
+    await expect(call(countManager, "postStockCount", { ...payload, reason: "Changed posting request must not replay" })).rejects.toMatchObject({ code: "functions/already-exists" });
+  }, 120000);
+
   it("keeps non-stock services out of inventory and preserves legacy goods classification", async () => {
     const payload = product({ name: "Installation service", sku: "SERVICE-INSTALL", itemKind: "service", defaultUnitCostMinor: 0 });
     const service = await call<{ productId: string }>(administrator, "saveProduct", payload);
@@ -309,6 +386,9 @@ describe.sequential("inventory callables", () => {
     const balances = await adminDb.collection("inventoryBalances")
       .where("productId", "==", products.docs[0]!.id).get();
     expect(balances.docs.some((balance) => balance.get("onHandQuantity") === 6)).toBe(true);
+    const stockTransaction = await adminDb.doc(`inventoryTransactions/${entries.docs[0]!.get("transactionId")}`).get();
+    const linkedJournal = await adminDb.doc(`journalEntries/${stockTransaction.get("journalEntryId")}`).get();
+    expect(linkedJournal.data()).toMatchObject({ organizationId: importOrganizationId, totalDebitMinor: 75_000_300, totalCreditMinor: 75_000_300, journalType: "inventory_opening_balance" });
   });
 
   it("creates and concurrently reuses categories entered in the product form", async () => {

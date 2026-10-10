@@ -46,6 +46,7 @@ export function queryCatalog() {
   const org = ["organizationId", "=="];
   const scopes = [[], [["branchId", "in"]], [["warehouseId", "in"]]];
   const dateOrder = (field, direction = "DESCENDING") => [[field, direction], ["__name__", direction]];
+  add("stock count posting variance pages", "stockCountItems", [["stockCountId", "=="], ["variance", "!="]], [["variance", "ASCENDING"], ["__name__", "ASCENDING"]]);
 
   // Extract direct literal collection chains, including jobs and transactional lookups.
   function chain(node) {

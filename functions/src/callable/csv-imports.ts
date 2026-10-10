@@ -9,6 +9,7 @@ import { enforceAppCheck } from "../config.js";
 import { previewCsvImport as preview, type CsvImportKind, type CsvValidationContext } from "../imports/csv-import.js";
 import { generateCategoryCode, normalizeInventoryIdentifier, uniquenessDocumentId } from "../inventory/calculations.js";
 import { postInventoryTransaction } from "../inventory/post-inventory-transaction.js";
+import { stockAccounting } from "../accounting/stock-postings.js";
 import { enforceRateLimit } from "../security/rate-limit.js";
 import { correlationId, parseInput } from "../utils/callable.js";
 
@@ -309,6 +310,7 @@ export const confirmCsvImport = onCall({ enforceAppCheck, timeoutSeconds: 120 },
             });
         });
         if (Number(row.openingQuantity || 0) > 0) {
+          const stockCorrelationId = correlationId();
           const unitCostMinor = optionalText(row, "defaultUnitCostMinor")
             ? Number(row.defaultUnitCostMinor)
             : nairaToMinor(optionalText(row, "defaultUnitCostNaira"));
@@ -327,12 +329,13 @@ export const confirmCsvImport = onCall({ enforceAppCheck, timeoutSeconds: 120 },
             referenceNumber: operation.id,
             externalAccount: "migration",
             idempotencyKey: `${input.idempotencyKey}:${index}`,
-            correlationId: correlationId(),
+            correlationId: stockCorrelationId,
             sourceFunction: "confirmCsvImport",
-          });
+          }, stockAccounting(actor, "opening_balance", "Opening stock from product catalogue migration", stockCorrelationId, "confirmCsvImport"));
           stockedRows++;
         }
       } else {
+        const stockCorrelationId = correlationId();
         const serialNumbers = input.kind === "serial_numbers" ? [row.serialNumber!] : (row.serialNumbers ?? "").split("|").map((serial) => serial.trim()).filter(Boolean);
         await postInventoryTransaction(actor, {
           transactionType: "opening_balance",
@@ -349,9 +352,9 @@ export const confirmCsvImport = onCall({ enforceAppCheck, timeoutSeconds: 120 },
           referenceNumber: operation.id,
           externalAccount: "migration",
           idempotencyKey: `${input.idempotencyKey}:${index}`,
-          correlationId: correlationId(),
+          correlationId: stockCorrelationId,
           sourceFunction: "confirmCsvImport",
-        });
+        }, stockAccounting(actor, "opening_balance", "Confirmed CSV opening balance import", stockCorrelationId, "confirmCsvImport"));
       }
       imported++;
     }

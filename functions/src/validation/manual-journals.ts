@@ -42,7 +42,7 @@ export const accountingJournalInput = z.union([manualJournalInput, reverseManual
 // These balances belong to operational subledgers. An arbitrary manual journal
 // must not change inventory, customer/supplier positions or statutory tax evidence.
 export function isOperationalControlCode(code: string) {
-  return /^(11|12|13|20|21|22|23)\d{2}$/.test(code) || code === "3999";
+  return /^(11|12|13|20|21|22|23)\d{2}$/.test(code) || ["3100", "3999", "5200"].includes(code);
 }
 export function canConfigureManualAccount(code: string) {
   return /^[1-9]\d{3}$/.test(code) && !/^10\d{2}$/.test(code) && !isOperationalControlCode(code)

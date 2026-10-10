@@ -1,4 +1,7 @@
-import { FieldValue } from "firebase-admin/firestore";
+import { FieldValue, Timestamp } from "firebase-admin/firestore";
+import { createHash } from "node:crypto";
+import { stockAccounting } from "../accounting/stock-postings.js";
+import { visitQueryPages } from "../utils/query-pages.js";
 import { logger } from "firebase-functions";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
 import { db } from "../admin.js";
@@ -451,27 +454,40 @@ export const postStockCount = onCall(
     if (
       !count.exists ||
       count.get("organizationId") !== actor.organizationId ||
-      count.get("status") !== "reviewed"
+      !["reviewed", "posted"].includes(String(count.get("status")))
     )
       throw new HttpsError(
         "failed-precondition",
         "Only reviewed counts can be posted.",
       );
     requireCountScope(actor, count);
-    if (count.get("reviewedBy") === actor.userId)
+    if (count.get("reviewedBy") === actor.userId && !canSelfAuthorize(actor))
       throw new HttpsError(
         "permission-denied",
         "The reviewer cannot also post the count.",
       );
-    const items = await db
+    const posting = await db.runTransaction(async transaction => {
+      const fresh = await transaction.get(countReference);
+      requireCountScope(actor, fresh);
+      if (fresh.get("organizationId") !== actor.organizationId || !["reviewed", "posted"].includes(String(fresh.get("status"))))
+        throw new HttpsError("failed-precondition", "Stock count state changed.");
+      if (fresh.get("postingReason") && fresh.get("postingReason") !== input.reason)
+        throw new HttpsError("already-exists", "Resume the original count posting without changing its reason.");
+      if (fresh.get("status") === "posted") return { repeated: true as const, transactionIds: (fresh.get("inventoryTransactionIds") ?? []) as string[], effectiveAt: "" };
+      const effectiveAt = fresh.get("postingEffectiveAt") ?? Timestamp.now();
+      if (!(effectiveAt instanceof Timestamp)) throw new HttpsError("failed-precondition", "The count posting date requires reconciliation.");
+      if (!fresh.get("postingEffectiveAt")) transaction.update(countReference, { postingEffectiveAt: effectiveAt, postingReason: input.reason });
+      return { repeated: false as const, transactionIds: [] as string[], effectiveAt: effectiveAt.toDate().toISOString() };
+    });
+    if (posting.repeated) return { stockCountId: countReference.id, transactionIds: posting.transactionIds, posted: false };
+    const items = db
       .collection("stockCountItems")
       .where("stockCountId", "==", countReference.id)
       .where("variance", "!=", 0)
-      .orderBy("variance")
-      .limit(100)
-      .get();
+      .orderBy("variance");
     const transactionIds: string[] = [];
-    for (const item of items.docs) {
+    await visitQueryPages(items, async documents => { for (const item of documents) {
+      if (item.get("organizationId") !== actor.organizationId) throw new HttpsError("failed-precondition", "A count line requires reconciliation.");
       const variance = Number(item.get("variance"));
       const expectedSerials = new Set(
         (item.get("expectedSerialNumbers") as string[] | undefined) ?? [],
@@ -490,6 +506,7 @@ export const postStockCount = onCall(
         .collection("inventoryBalances")
         .doc(balanceId)
         .get();
+      const lineCorrelationId = correlationId();
       const result = await postInventoryTransaction(actor, {
         transactionType: "stock_count_correction",
         productId: String(item.get("productId")),
@@ -505,20 +522,23 @@ export const postStockCount = onCall(
           typeof item.get("lotId") === "string"
             ? String(item.get("lotId"))
             : undefined,
-        effectiveAt: new Date().toISOString(),
+        effectiveAt: posting.effectiveAt,
         reason: input.reason,
         referenceType: "stock_count",
         referenceId: countReference.id,
         referenceNumber: String(count.get("countNumber")),
         idempotencyKey: `${countReference.id}-${item.id}`,
-        correlationId: correlationId(),
+        correlationId: lineCorrelationId,
         sourceFunction: "postStockCount",
-      });
+        requestFingerprint: createHash("sha256").update(JSON.stringify({ countId: countReference.id, itemId: item.id, variance, reason: input.reason, effectiveAt: posting.effectiveAt })).digest("hex"),
+      }, stockAccounting(actor, "stock_count_correction", input.reason, lineCorrelationId, "postStockCount"));
       transactionIds.push(result.transactionId);
-    }
+    } }, { pageSize: 25 });
     const requestId = correlationId();
+    let posted = true;
     await db.runTransaction(async (transaction) => {
       const fresh = await transaction.get(countReference);
+      if (fresh.get("status") === "posted") { posted = false; return; }
       if (fresh.get("status") !== "reviewed")
         throw new HttpsError(
           "failed-precondition",
@@ -549,6 +569,6 @@ export const postStockCount = onCall(
       transactionCount: transactionIds.length,
       correlationId: requestId,
     });
-    return { stockCountId: countReference.id, transactionIds, posted: true };
+    return { stockCountId: countReference.id, transactionIds, posted };
   },
 );

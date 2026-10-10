@@ -1,6 +1,77 @@
 # Business workflow expansion (24 September 2026 baseline)
 
-## Non-stock service catalogue / case pricing — 10 October 2026 (validated, release pending)
+## Current delivery checkpoint — 10 October 2026
+
+This checkpoint supersedes the older dated backlog tables below; those remain
+release history, not a claim that the same work still needs rebuilding.
+
+| Workstream | Implemented foundation | Remaining completion gate |
+| --- | --- | --- |
+| 1. Locations / UI / RBAC | HQ/store model, historical location preservation, multi-role/custom roles, user deactivation/reactivation, responsive shared dialogs and navigation | Final role/device acceptance and larger-register usability checks |
+| 2. Sales / customers / payments | Controlled stages, split/credit/advance payments, customer arrangements/statements, corrections, reservations and partial collections | Mixed goods/service billing and associated service accrual/refund integration |
+| 3. Inventory / returns / serials | Stock ledger, collection evidence, inspection/disposition, supplier handovers/replacements and private serial photos | Stock accounting/count reliability group below; count snapshot/workspace scalability and final device acceptance |
+| 4. Procurement / suppliers | PO/GRN/invoice, advances, credits/refunds, supplier statements/aging and linked return corrections | Final cross-module financial acceptance, not a duplicate supplier ledger |
+| 5. Accounting / tax | Statements, journal controls/reversals, financial accounts/transfers, reconciliations and reviewed versioned tax configuration | Linked stock accounting release; accountant opening balances/classification review; company tax facts and authorized statutory activation/filing |
+| 6. Services / aftersales / delivery | Case workflow, employee ownership, non-stock service catalogue/case pricing, receipts and linked outsourced bills | Mixed service invoicing, parts/costs, accrual/refunds, collected delivery fee versus provider payable/retained-income split |
+| 7. Documents / reports / dashboard | Official invoices/receipts, partial-collection A4 waybills, filtered reports, ledger statements and server aggregates | Issued quotation/proforma conversion, additional product/profit/aging analytics and larger-report processing |
+| 8. Budgets / HR / hardening | Monthly account/store budgets, independent employees, attendance connector contract, salary terms, notifications and audit | Broader budget dimensions, payroll when commissioned, real biometric-device integration and final acceptance |
+
+Dependency order: finish and release linked stock valuation/count corrections;
+then service billing/parts and delivery allocation; commercial-document
+conversion; analytics/report scaling; remaining HR/budget extensions and final
+cross-module acceptance. Preserve existing goods invoices, receipts and history
+at each step. Tax activation and hardware-specific biometric acceptance remain
+external gates because the company tax profile and device are unavailable.
+Firebase CLI authentication is restored. The matching live planner audit passes
+456/456 shapes and all 226 deployed indexes are READY. The guarded baseline is
+refreshed against the exact reviewed sources; deployment completion is still a
+separate release gate.
+
+## Stock valuation journals and complete count posting — 10 October 2026 (validated; release pending)
+
+Opening stock, adjustments and approved count variances now link actual weighted
+stock valuation to balanced non-cash journals inside the same stock transaction.
+CSV/Excel opening quantities use the same journal linkage rather than bypassing
+the accounting treatment of manual opening stock.
+Opening equity clearing (3100) is separate from synthetic unclosed earnings;
+adjustments/count variances use 5200. Existing conflicting account configuration
+fails closed rather than being overwritten. Period locks apply, including to
+zero-valued postings. Zero-value stock receives explicit linkage metadata without
+an invented journal. Historical stock-only postings are not backfilled.
+Authorized stock reversals reverse the linked journal atomically, with original
+journal evidence checks. New opening/adjustment retries reject changed payloads
+and recheck current store access. Stock-count posting pages all variance lines,
+not just 100, retains its original posting date/reason for safe resumption and
+allows authorized managers/admins to review and post without a second person.
+The count register shows Resume posting after posting starts, retains the
+original reason, explains uncertain/partial results and uses the server's
+five-minute posting timeout instead of timing out the client at 70 seconds.
+Count snapshot/workspace limits and mixed service POS billing remain separate
+roadmap work; this group does not claim those complete.
+Validation: final typecheck, lint, Functions compilation, production build,
+secret scan and diff checks pass. The initial unit/interface run passed 401 cases;
+four query-baseline guard assertions correctly blocked a stale source baseline.
+After user-controlled reauthentication, all 456 live planner checks pass with
+226/226 deployed indexes READY and no missing indexes. The matching baseline is
+now refreshed; the final full unit/interface suite passes all 405 cases across
+105 files. Twelve targeted
+UI/client/journal tests pass. The affected emulator run passes 94 cases with two
+Storage-only skips and one incorrect new test lookup (transaction headers do not
+carry productId). That lookup is corrected to follow the original inventory
+entry's transaction ID. The final four focused emulator cases pass, including
+imported opening journals, closed-period rollback, weighted-cost reversal,
+concurrent exact replay, revoked-scope replay denial, zero-value stock and
+manager resumption of an interrupted 101-line count without duplicate journals.
+Procurement passes all 12 cases, POS passes 30 with one Storage skip, manual
+journals pass all five and Rules pass 26 with one Storage skip. Supplier statement
+test dates now use Nigerian business dates rather than UTC midnight.
+Deployment remains pending until explicit Functions and App Hosting completion.
+The previous live revision is f821941 / App Hosting build-2026-10-09-026.
+Release the affected existing callables and App Hosting after the final full
+suite and repository checks pass. No IAM change,
+new collection or destructive historical migration is required.
+
+## Non-stock service catalogue / case pricing — 10 October 2026 (deployed)
 
 Extends Products with an immutable stock/service classification. Omitted kind on
 historical goods means stock; old-client edits preserve an existing service kind.
@@ -28,6 +99,14 @@ planner proof passes 455/455 query shapes with zero missing indexes; independent
 metadata confirms 226 READY indexes. Historical records are not migrated or
 rewritten. The release must update all shared inventory-posting consumers, not
 only the catalogue UI, before services may be created by live users.
+Source f821941 is pushed and deployed. All 23 selected Functions printed
+Successful update / Deploy complete and are ACTIVE at 100% traffic, retaining
+production mode, App Check and original runtime identity. All unauthenticated
+callable probes return HTTP 401. App Hosting build-2026-10-09-026 is READY,
+rollout SUCCEEDED at 100% traffic without reconciliation. Products, Aftersales,
+Guide, POS, Inventory and manifest return HTTP 200; served Products/Aftersales
+scripts contain the new catalogue service controls. No live business postings,
+IAM changes or historical migrations were used.
 
 ## Aftersales staff ownership — 10 October 2026 (deployed)
 

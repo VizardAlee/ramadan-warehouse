@@ -34,6 +34,7 @@ export default function CountsPage() {
   const [locationId, setLocationId] = useState("");
   const [assignedUserId, setAssignedUserId] = useState("");
   const [message, setMessage] = useState<string | null>(null);
+  const [pendingAction, setPendingAction] = useState<string | null>(null);
   const [workspace, setWorkspace] = useState<{
     count: StockCount;
     items: CountItem[];
@@ -67,17 +68,20 @@ export default function CountsPage() {
     }
   }
   async function action(name: string, stockCountId: string) {
+    if (pendingAction) return;
+    setPendingAction(stockCountId);
+    const label = name === "startStockCount" ? "Start count" : name === "reviewStockCount" ? "Review count" : "Post count";
     try {
       await callAdministration(name, {
         stockCountId,
-        reason: `${name} from inventory workspace`,
+        reason: name === "postStockCount" ? counts.data.find(count => count.id === stockCountId)?.postingReason ?? "Approved physical stock count posted" : `${label} from inventory workspace`,
         idempotencyKey: crypto.randomUUID(),
       });
-      setMessage(`${name} completed.`);
+      setMessage(`${label} completed.`);
       if (name === "startStockCount") await openWorkspace(stockCountId);
-    } catch {
-      setMessage(`${name} was rejected by workflow controls.`);
-    }
+    } catch (error) {
+      setMessage(`${error instanceof Error ? error.message : `${label} could not be completed.`}${name === "postStockCount" ? " Some lines may already be posted. Resume this same count with its original reason; do not create another count." : ""}`);
+    } finally { setPendingAction(null); }
   }
   async function openWorkspace(stockCountId: string) {
     try {
@@ -198,6 +202,7 @@ export default function CountsPage() {
                 </td>
                 <td data-label="Status" className="px-4 capitalize">
                   {count.status.replaceAll("_", " ")}
+                  {count.status === "reviewed" && count.postingEffectiveAt && <p className="mt-1 text-xs normal-case text-amber-800">Posting started. Resume this count to finish safely.</p>}
                 </td>
                 <td
                   data-label="Actions"
@@ -214,6 +219,7 @@ export default function CountsPage() {
                     <Button
                       variant="ghost"
                       onClick={() => action("startStockCount", count.id)}
+                      disabled={Boolean(pendingAction)}
                     >
                       Start
                     </Button>
@@ -222,6 +228,7 @@ export default function CountsPage() {
                     <Button
                       variant="ghost"
                       onClick={() => action("reviewStockCount", count.id)}
+                      disabled={Boolean(pendingAction)}
                     >
                       Review
                     </Button>
@@ -230,8 +237,9 @@ export default function CountsPage() {
                     <Button
                       variant="ghost"
                       onClick={() => action("postStockCount", count.id)}
+                      disabled={Boolean(pendingAction)}
                     >
-                      Post
+                      {pendingAction === count.id ? "Posting…" : count.postingEffectiveAt ? "Resume posting" : "Post"}
                     </Button>
                   )}
                 </td>

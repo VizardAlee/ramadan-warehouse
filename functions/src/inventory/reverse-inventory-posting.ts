@@ -22,10 +22,10 @@ export interface InventoryReversalContext {
   transactionNumber: string;
 }
 
-/** Trusted integration only. Public stock reversals never receive this capability. */
+/** Trusted server integration: supplier returns or linked stock-accounting reversals. */
 export interface SupplierReturnReversalExtension<State> {
   effectiveAt: Timestamp;
-  sourceFunction: "reverseSupplierReturn";
+  sourceFunction: "reverseSupplierReturn" | "reverseInventoryTransaction";
   prepare(reader: Pick<Transaction, "get" | "getAll">, context: InventoryReversalContext): Promise<State>;
   apply(writer: Pick<Transaction, "create" | "set" | "update">, state: State, context: InventoryReversalContext): undefined;
 }
@@ -71,7 +71,7 @@ export async function reverseInventoryPosting<State = undefined>(
 ) {
     requirePermission(actor, "inventory.reverse");
     const requestId = correlationId();
-    const fingerprint = createHash("sha256").update(JSON.stringify([input.transactionId, input.reason, extension?.effectiveAt.toMillis() ?? null])).digest("hex");
+    const fingerprint = createHash("sha256").update(JSON.stringify([input.transactionId, input.reason, extension?.sourceFunction === "reverseInventoryTransaction" ? null : extension?.effectiveAt.toMillis() ?? null])).digest("hex");
     const replay = async (prior: DocumentSnapshot) => {
       authorizeOriginal(actor, await db.doc(`inventoryTransactions/${input.transactionId}`).get());
       if (prior.get("fingerprint") && prior.get("fingerprint") !== fingerprint)
@@ -172,8 +172,12 @@ export async function reverseInventoryPosting<State = undefined>(
       }
       if (!original) throw new HttpsError("not-found", "Inventory transaction was not found.");
       authorizeOriginal(actor, original);
-      if (extension && original.get("transactionType") !== "supplier_return")
+      if (extension?.sourceFunction === "reverseSupplierReturn" && original.get("transactionType") !== "supplier_return")
         throw new HttpsError("failed-precondition", "This financial correction only supports an original supplier stock return.");
+      if (extension?.sourceFunction === "reverseInventoryTransaction" && !["opening_balance", "stock_adjustment", "stock_count_correction"].includes(String(original.get("transactionType"))))
+        throw new HttpsError("failed-precondition", "This stock correction requires its original operational workflow.");
+      if (original.get("accountingVersion") === 2 && Number(original.get("accountingValueMinor")) > 0 && !extension)
+        throw new HttpsError("failed-precondition", "This stock posting requires its linked journal reversal.");
       if (original.get("transactionType") === "supplier_return" && !extension)
         throw new HttpsError("failed-precondition", "Supplier returns have linked credit notes and journals. A stock-only reversal is not allowed; record an authorized financial and stock correction.");
       if ((await transaction.get(db.doc(`supplierReturnReceiptLocks/${input.transactionId}`))).exists)

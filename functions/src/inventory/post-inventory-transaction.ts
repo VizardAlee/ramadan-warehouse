@@ -61,6 +61,8 @@ export interface PostingRequest {
   readonly idempotencyKey: string;
   readonly correlationId: string;
   readonly sourceFunction: string;
+  /** Trusted callers with stable instructions may opt into exact financial retries. */
+  readonly requestFingerprint?: string;
   /** Trusted internal capability. Callable schemas never expose this field. */
   readonly transferContext?: {
     readonly transferId: string;
@@ -351,12 +353,25 @@ async function executeInventoryPosting<State = undefined>(
     .collection("idempotencyKeys")
     .doc(`${actor.organizationId}_inventoryPost_${input.idempotencyKey}`);
   const previous = group ? undefined : await operation.get();
-  if (previous?.exists)
+  const replay = async (prior: DocumentSnapshot) => {
+    if (input.requestFingerprint) {
+      if (prior.get("requestFingerprint") && prior.get("requestFingerprint") !== input.requestFingerprint)
+        throw new HttpsError("already-exists", "This stock retry reference belongs to different instructions.");
+      const original = group ? await group.transaction.get(db.doc(`inventoryTransactions/${prior.get("transactionId")}`)) : await db.doc(`inventoryTransactions/${prior.get("transactionId")}`).get();
+      if (!original.exists || original.get("organizationId") !== actor.organizationId)
+        throw new HttpsError("not-found", "Original stock posting not found.");
+      for (const field of ["sourceBranchId", "destinationBranchId"]) if (original.get(field)) requireBranchScope(actor, String(original.get(field)));
+      for (const field of ["sourceWarehouseId", "destinationWarehouseId"]) if (original.get(field)) requireWarehouseScope(actor, String(original.get(field)));
+      if (!["sourceBranchId", "destinationBranchId", "sourceWarehouseId", "destinationWarehouseId"].some(field => original.get(field)) && !hasRole(actor, "system_administrator"))
+        throw new HttpsError("permission-denied", "Organization-wide stock posting requires administrator authority.");
+    }
     return {
-      transactionId: previous.get("transactionId") as string,
-      transactionNumber: previous.get("transactionNumber") as string,
+      transactionId: String(prior.get("transactionId")),
+      transactionNumber: String(prior.get("transactionNumber")),
       posted: false,
     };
+  };
+  if (previous?.exists) return replay(previous);
   const serials = parseSerialNumbers(input.serialNumbers);
   if (serials.duplicates.length)
     throw new HttpsError(
@@ -457,11 +472,7 @@ async function executeInventoryPosting<State = undefined>(
     const lotSnapshot = lotReference ? snapshots[cursor++] : undefined;
     const serialSnapshots = snapshots.slice(cursor);
     if (operationSnapshot?.exists) {
-      return {
-        transactionId: String(operationSnapshot.get("transactionId")),
-        transactionNumber: String(operationSnapshot.get("transactionNumber")),
-        posted: false,
-      };
+      return replay(operationSnapshot);
     }
     if (
       !product?.exists ||
@@ -971,6 +982,7 @@ async function executeInventoryPosting<State = undefined>(
     transaction.create(operation, {
       organizationId: actor.organizationId,
       action: "inventoryPost",
+      ...(input.requestFingerprint ? { requestFingerprint: input.requestFingerprint } : {}),
       transactionId: transactionReference.id,
       transactionNumber,
       status: "completed",

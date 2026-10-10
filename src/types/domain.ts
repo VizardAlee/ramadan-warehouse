@@ -928,4 +928,6 @@ export interface StockCount {
   postedAt?: DateTimeValue;
   postedBy?: string;
   inventoryTransactionId?: string;
+  postingEffectiveAt?: DateTimeValue;
+  postingReason?: string;
 }

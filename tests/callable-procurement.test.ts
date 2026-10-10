@@ -894,7 +894,8 @@ describe.sequential("procurement callables", () => {
     expect(statement.nextCursor).toBeTruthy();
     expect(statement.closingPayableMinor).toBe(5_000);
     expect(statement.closingAdvanceMinor).toBe(20_000);
-    const tomorrow = new Date(Date.now() + 86_400_000).toISOString().slice(0, 10);
+    // Statements use Nigerian business dates, including the hour before UTC midnight.
+    const tomorrow = new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Lagos", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(Date.now() + 86_400_000));
     const future = await call<{ entries: unknown[]; openingPayableMinor: number; closingPayableMinor: number; openingAdvanceMinor: number; closingAdvanceMinor: number }>(headOfficeManager, "getProcurementWorkspace", { view: "supplier_account", supplierId, branchId: headOfficeId, from: tomorrow, limit: 25 });
     expect(future).toMatchObject({ entries: [], openingPayableMinor: 5_000, closingPayableMinor: 5_000, openingAdvanceMinor: 20_000, closingAdvanceMinor: 20_000 });
     const page = await call<{ entries: Array<{ id: string }> }>(headOfficeManager, "getProcurementWorkspace", { view: "supplier_account", supplierId, branchId: headOfficeId, limit: 1, cursor: statement.nextCursor });

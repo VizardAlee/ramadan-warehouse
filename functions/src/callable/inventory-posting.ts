@@ -1,4 +1,6 @@
 import { logger } from "firebase-functions";
+import { createHash } from "node:crypto";
+import { stockAccounting } from "../accounting/stock-postings.js";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
 import { db } from "../admin.js";
 import { requireAccess, requirePermission } from "../auth/authorize.js";
@@ -38,10 +40,11 @@ export const postOpeningStock = onCall(
       );
     const result = await postInventoryTransaction(actor, {
       ...input,
+      requestFingerprint: createHash("sha256").update(JSON.stringify(input)).digest("hex"),
       transactionType: "opening_balance",
       correlationId: requestId,
       sourceFunction: "postOpeningStock",
-    });
+    }, stockAccounting(actor, "opening_balance", input.reason, requestId, "postOpeningStock"));
     logger.info("Opening stock posted", {
       organizationId: actor.organizationId,
       actorUserId: actor.userId,
@@ -138,12 +141,14 @@ export const postStockAdjustment = onCall(
       correlationId: requestId,
       sourceFunction: "postStockAdjustment",
       externalAccount: `adjustment_${input.adjustmentType}`,
+      requestFingerprint: createHash("sha256").update(JSON.stringify(input)).digest("hex"),
     };
     const result = await postInventoryTransaction(
       actor,
       input.direction === "increase"
         ? { ...common, destinationLocationId: input.locationId }
         : { ...common, sourceLocationId: input.locationId },
+      stockAccounting(actor, "stock_adjustment", input.reason, requestId, "postStockAdjustment"),
     );
     logger.info("Stock adjustment posted", {
       organizationId: actor.organizationId,

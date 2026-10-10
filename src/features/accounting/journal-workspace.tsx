@@ -12,7 +12,7 @@ interface Line { id: string; accountCode: string; accountName: string; debitMino
 interface Workspace { entries: Entry[]; accounts: Account[]; bankAccounts: Bank[]; nextCursorId: string | null }
 interface DraftLine { accountId: string; debit: string; credit: string; bankAccountId: string }
 const blankLine = (): DraftLine => ({ accountId: "", debit: "", credit: "", bankAccountId: "" });
-const control = (code: string) => /^(11|12|13|20|21|22|23)\d{2}$/.test(code) || code === "3999";
+const control = (code: string) => /^(11|12|13|20|21|22|23)\d{2}$/.test(code) || ["3100", "3999", "5200"].includes(code);
 const fieldClass = "mt-1 w-full rounded-lg border bg-white p-2.5";
 function today() { return new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Lagos", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date()); }
 

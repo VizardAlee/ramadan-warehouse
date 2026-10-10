@@ -14,7 +14,7 @@ describe("manual journal safeguards", () => {
       expect(manualJournalInput.safeParse({ ...input, ...change }).success).toBe(false);
   });
   it("reserves operational control accounts and money-account setup for their existing workflows", () => {
-    for (const code of ["1100", "1200", "1250", "1300", "2000", "2100", "2200", "2210", "2300", "3999"]) {
+    for (const code of ["1100", "1200", "1250", "1300", "2000", "2100", "2200", "2210", "2300", "3100", "3999", "5200"]) {
       expect(isOperationalControlCode(code)).toBe(true); expect(canConfigureManualAccount(code)).toBe(false);
     }
     expect(canConfigureManualAccount("1031")).toBe(false);
