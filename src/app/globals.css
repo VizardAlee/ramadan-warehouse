@@ -426,7 +426,23 @@ textarea { min-height: 96px; }
   [data-invoice-document] table { min-width: 0 !important; }
   [data-invoice-document] .overflow-x-auto { overflow: visible !important; }
   .customer-statement-screen { display: none !important; }
-  .customer-statement-print-only { display: block !important; padding: 0 !important; }
-  .customer-statement-print-only table { width: 100%; border-collapse: collapse; font-size: 10pt; }
-  .customer-statement-print-only th, .customer-statement-print-only td { padding: 6px; text-align: left; border-bottom: 1px solid #ddd; }
+  @page customer-statement { size: A4 landscape; margin: 12mm; }
+  html:has(.customer-statement-print-only) { background: white !important; }
+  body:has(.customer-statement-print-only) { page: customer-statement; }
+  .customer-statement-print-only { display: block !important; position: static !important; page: customer-statement; padding: 0 !important; background: white; font-size: 9pt; line-height: 1.35; }
+  .customer-statement-print-only h1 { font-size: 14pt; font-weight: 700; }
+  .customer-statement-print-only h2 { font-size: 11pt; margin-top: 3px; }
+  .customer-statement-print-only table { display: table; min-width: 0; width: 100%; table-layout: fixed; border-collapse: collapse; }
+  .customer-statement-print-only thead { display: table-header-group; position: static; width: auto; height: auto; overflow: visible; clip: auto; white-space: normal; }
+  .customer-statement-print-only tbody { display: table-row-group; }
+  .customer-statement-print-only tr { display: table-row; break-inside: avoid; }
+  .customer-statement-print-only th, .customer-statement-print-only td { display: table-cell; padding: 5px; overflow-wrap: anywhere; text-align: left; vertical-align: top; border-bottom: 1px solid #ddd; font-size: 8.5pt; }
+  .customer-statement-print-only th { text-transform: none; letter-spacing: normal; }
+  .customer-statement-print-only th:first-child { width: 16%; }
+  .customer-statement-print-only th:nth-child(2) { width: 24%; }
+  .customer-statement-print-only th:nth-child(n+3) { width: 10%; }
+  .customer-statement-print-only td:nth-child(n+3) { white-space: nowrap; text-align: right; }
+  .customer-statement-print-only td span { font-size: inherit; }
+  .customer-statement-print-only td::before { display: none; }
+
 }

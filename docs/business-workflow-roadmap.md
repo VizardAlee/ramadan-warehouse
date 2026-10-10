@@ -115,6 +115,33 @@ credit summaries, receipt/payment totals and authorization. Typecheck, lint,
 Functions compilation, production build and all 476 live planner checks pass.
 Printed invoices with 3, 15 and 35 items were rendered and verified as one page.
 
+### Statement running balances — 10 October 2026 (local review; not deployed)
+
+This follow-up adds separate debt and advance balances after each transaction,
+including on later cursor pages. Statement screens and printouts show debt
+debit/credit, advance received/used and both running balances. Complete CSVs
+include customer/store identity, selected period, opening and closing rows,
+movements, debit/credit columns and running balances. Print and CSV use the same
+chronological calculations and refresh the opening/closing summary before export;
+inconsistent or truncated exports fail clearly. Screens retain newest-first
+browsing and label each balance as the amount after its transaction.
+Unknown ledger classifications propagate Needs review through only the affected
+balance; they are not treated as authoritative zero. Historical missing-ledger
+reconciliation remains separate. The end-date query uses exclusive next Lagos
+midnight, and display/day classification truncates timestamp fractions instead
+of rounding the final nanosecond into the next day. Equal-time cursor order is
+explicit and deterministic. The eight-column statement prints on A4 landscape;
+invoice printing remains on its existing A4 portrait layout.
+Validation: 21 focused unit/interface checks and three sales callable emulator
+cases pass, covering opening/empty periods, repayments/returns/refunds/advances,
+arrangement/store scope, tied cursor pages, unknown classifications and the final
+nanosecond. All 476 exact-source read-only live query planner checks pass; no new
+index definitions are needed. Functions compilation passes. A 40-row print
+fixture with long descriptions/references and balances up to NGN 100 million was
+rendered and all six landscape pages visually inspected. Final full lint and
+type checks pass. No commit, push, deployment or live business write is
+part of this local review checkpoint. Client/device acceptance remains separate.
+
 ### Combined production release verification
 
 Source `6828887` is pushed to main. The full `predeploy:production` gate passes:

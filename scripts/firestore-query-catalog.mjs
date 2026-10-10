@@ -130,7 +130,7 @@ export function queryCatalog() {
     for (const [collection, date] of [["sales", "recordedAt"], ["saleReturns", "createdAt"], ["customerAccountEntries", "effectiveAt"]]) add("customer history", collection, [...filters, ["customerId", "=="]], [[date, "DESCENDING"]]);
     add("financial statements/tax", "journalLines", [...filters, ["effectiveAt", ">="], ["effectiveAt", "<="]], dateOrder("effectiveAt", "ASCENDING"));
     add("financial cumulative balances", "journalLines", [...filters, ["effectiveAt", "<="]], dateOrder("effectiveAt", "ASCENDING"));
-    for (const range of [[], [["effectiveAt", ">="]], [["effectiveAt", "<="]], [["effectiveAt", ">="], ["effectiveAt", "<="]]])
+    for (const range of [[], [["effectiveAt", ">="]], [["effectiveAt", "<"]], [["effectiveAt", ">="], ["effectiveAt", "<"]]])
       add("customer statement rows and balances", "customerAccountEntries", [...filters, ["customerId", "=="], ...range], dateOrder("effectiveAt"));
     for (const range of [[], [["recordedAt", ">="]], [["recordedAt", "<"]], [["recordedAt", ">="], ["recordedAt", "<"]]])
       add("credit sales summary scan", "sales", [...filters, ...range], dateOrder("recordedAt", "ASCENDING"));

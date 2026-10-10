@@ -1895,6 +1895,59 @@ describe.sequential("sales callables", () => {
     await expect(call(branchManager, "getCustomerHistory", { ...scope, customerId, view: "statement", branchId: "outside-assignment" })).rejects.toMatchObject({ code: "functions/permission-denied" });
   });
 
+  it("calculates scoped running statement balances across tied pages and the complete Lagos final instant", async () => {
+    const accountId = crypto.randomUUID();
+    const saved = await call<{ customerId: string }>(administrator, "saveCustomer", { name: "Running balance customer", phone: "08077665501", idempotencyKey: crypto.randomUUID() });
+    await call(administrator, "saveCustomer", { customerId: saved.customerId, name: "Running balance customer", phone: "08077665501", arrangement: { id: accountId, name: "Balance project", active: true, reason: "Running balance test" }, idempotencyKey: crypto.randomUUID() });
+    const prefix = `running-${crypto.randomUUID()}`;
+    const midnight = Date.parse("2033-03-01T00:00:00+01:00");
+    const entry = async (id: string, entryType: string, amountMinor: number, effectiveAt: Timestamp, extra: Record<string, unknown> = {}) => {
+      await adminDb.doc(`customerAccountEntries/${prefix}-${id}`).set({ organizationId, branchId, customerId: saved.customerId, customerAccountId: accountId, customerAccountName: "Balance project", entryType, amountMinor, effectiveAt, referenceNumber: id, ...extra });
+    };
+    await entry("opening-debt", "credit_sale", 10000, Timestamp.fromMillis(midnight - 10000));
+    await entry("opening-advance", "advance", 5000, Timestamp.fromMillis(midnight - 5000));
+    await entry("a-sale", "credit_sale", 2000, Timestamp.fromMillis(midnight));
+    await entry("b-payment", "payment", -3000, Timestamp.fromMillis(midnight));
+    await entry("c-advance", "advance", 7000, Timestamp.fromMillis(midnight + 1000));
+    await entry("d-applied", "advance_applied", -1000, Timestamp.fromMillis(midnight + 2000));
+    await entry("e-refund", "advance_refund", -500, Timestamp.fromMillis(midnight + 3000));
+    await entry("f-return", "sale_return_credit", -2000, Timestamp.fromMillis(midnight + 4000));
+    await entry("g-final-nanosecond", "credit_sale", 400, new Timestamp((midnight + 86400000) / 1000 - 1, 999999999));
+    await entry("next-midnight", "credit_sale", 99999, Timestamp.fromMillis(midnight + 86400000));
+    await entry("unmatched-arrangement", "credit_sale", 100000, Timestamp.fromMillis(midnight + 1500), { customerAccountId: "general" });
+    await entry("unmatched-store", "credit_sale", 100000, Timestamp.fromMillis(midnight + 1500), { branchId: "other-store" });
+    type Page = { rows: Array<{ reference: string; at?: string; runningDebtMinor: number | null; runningAdvanceMinor: number | null }>; nextCursor: { account: string } | null; statement: Record<string, unknown> };
+    const input = { view: "statement", customerId: saved.customerId, branchId, customerAccountId: accountId, fromDate: "2033-03-01", toDate: "2033-03-01", limit: 1 };
+    const rows: Page["rows"] = [];
+    let cursor: Page["nextCursor"] = null;
+    do {
+      const page: Page = await call<Page>(branchManager, "getCustomerHistory", { ...input, ...(cursor ? { cursor } : {}) });
+      expect(page.statement).toMatchObject({ openingDebtMinor: 10000, openingAdvanceMinor: 5000, closingDebtMinor: 6400, closingAdvanceMinor: 10500, needsReview: false });
+      rows.push(...page.rows); cursor = page.nextCursor;
+    } while (cursor);
+    expect(rows.map(r => [r.reference, r.runningDebtMinor, r.runningAdvanceMinor])).toEqual([
+      ["g-final-nanosecond", 6400, 10500], ["f-return", 6000, 10500], ["e-refund", 8000, 10500], ["d-applied", 8000, 11000], ["c-advance", 9000, 12000], ["b-payment", 9000, 5000], ["a-sale", 12000, 5000],
+    ]);
+    expect(rows[0]!.at).toBe("2033-03-01T22:59:59.999Z");
+    const raw = await call<Page>(branchManager, "getCustomerHistory", { ...input, limit: 100, includeSummary: false });
+    expect(raw.rows).toHaveLength(7); expect(raw.rows[0]).not.toHaveProperty("runningDebtMinor");
+    const empty = await call<Page>(branchManager, "getCustomerHistory", { ...input, fromDate: "2033-02-28", toDate: "2033-02-28" });
+    // Both opening entries are in February 28 Lagos; select an earlier empty day.
+    const earlier = await call<Page>(branchManager, "getCustomerHistory", { ...input, fromDate: "2033-02-27", toDate: "2033-02-27" });
+    expect(earlier.rows).toEqual([]); expect(earlier.statement).toMatchObject({ openingDebtMinor: 0, closingDebtMinor: 0, openingAdvanceMinor: 0, closingAdvanceMinor: 0 });
+    expect(empty.statement).toMatchObject({ openingDebtMinor: 0, closingDebtMinor: 10000, closingAdvanceMinor: 5000 });
+    const after = await call<Page>(branchManager, "getCustomerHistory", { ...input, fromDate: "2033-03-03", toDate: "2033-03-03" });
+    expect(after.rows).toEqual([]); expect(after.statement).toMatchObject({ openingDebtMinor: 106399, closingDebtMinor: 106399, openingAdvanceMinor: 10500, closingAdvanceMinor: 10500 });
+    await entry("c-unknown", "legacy_import", 50, Timestamp.fromMillis(midnight + 1500), { advanceAmountMinor: 0 });
+    const unknown = await call<Page>(branchManager, "getCustomerHistory", { ...input, limit: 100 });
+    expect(unknown.statement).toMatchObject({ openingDebtMinor: 10000, closingDebtMinor: null, closingAdvanceMinor: 10500, needsReview: true });
+    expect(unknown.rows.find(r => r.reference === "b-payment")).toMatchObject({ runningDebtMinor: 9000, runningAdvanceMinor: 5000 });
+    expect(unknown.rows.find(r => r.reference === "g-final-nanosecond")).toMatchObject({ runningDebtMinor: null, runningAdvanceMinor: 10500 });
+    await entry("opening-unknown", "legacy_import", 50, Timestamp.fromMillis(midnight - 2000), { debtAmountMinor: 0 });
+    const unknownOpening = await call<Page>(branchManager, "getCustomerHistory", { ...input, limit: 100 });
+    expect(unknownOpening.statement).toMatchObject({ openingDebtMinor: 10000, openingAdvanceMinor: null, closingDebtMinor: null, closingAdvanceMinor: null, needsReview: true });
+  });
+
   it("pages arrangement statements across unmatched entries and scopes every cursor", async () => {
     const accountId = crypto.randomUUID();
     const saved = await call<{ customerId: string }>(administrator, "saveCustomer", { name: "Statement customer", phone: "08077665550", idempotencyKey: crypto.randomUUID() });

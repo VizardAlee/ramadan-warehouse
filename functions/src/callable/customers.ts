@@ -27,6 +27,13 @@ import {
   saveCustomerInput,
 } from "../validation/sales.js";
 
+// Timestamp.toDate() can round a final nanosecond into the next millisecond.
+// Truncate explicitly for displayed dates and Lagos-day classification; query
+// cursors continue to use the original full-precision Firestore timestamps.
+function statementInstant(value: Timestamp) {
+  return new Date(value.seconds * 1000 + Math.floor(value.nanoseconds / 1000000));
+}
+
 export const getCustomerHistory = onCall({ enforceAppCheck, timeoutSeconds: 300 }, async (request) => {
   const actor = await requireAccess(request);
   requirePermission(actor, "customers.read");
@@ -46,27 +53,10 @@ export const getCustomerHistory = onCall({ enforceAppCheck, timeoutSeconds: 300 
     let query: FirebaseFirestore.Query = db.collection("customerAccountEntries")
       .where("organizationId", "==", actor.organizationId).where("customerId", "==", customer.id);
     if (branchId) query = query.where("branchId", "==", branchId);
-    const summary = { openingDebtMinor: 0, openingAdvanceMinor: 0, closingDebtMinor: 0, closingAdvanceMinor: 0, debtAddedMinor: 0, debtClearedMinor: 0, advanceReceivedMinor: 0, advanceUsedMinor: 0, needsReview: false };
-    if (input.includeSummary) await visitQueryPages(query, records => {
-      for (const record of records) {
-        const entry = statementEntry(record.data() as Parameters<typeof statementEntry>[0], input.customerAccountId);
-        if (!entry) continue;
-        const at = record.get("effectiveAt");
-        if (!(at instanceof Timestamp)) { summary.needsReview = true; continue; }
-        const date = new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Lagos", year: "numeric", month: "2-digit", day: "2-digit" }).format(at.toDate());
-        if (input.toDate && date > input.toDate) continue;
-        if (entry.needsReview) summary.needsReview = true;
-        const debt = entry.debtChangeMinor ?? 0, advance = entry.advanceChangeMinor ?? 0;
-        summary.closingDebtMinor += debt; summary.closingAdvanceMinor += advance;
-        if (input.fromDate && date < input.fromDate) { summary.openingDebtMinor += debt; summary.openingAdvanceMinor += advance; }
-        else { summary.debtAddedMinor += Math.max(0, debt); summary.debtClearedMinor += Math.max(0, -debt); summary.advanceReceivedMinor += Math.max(0, advance); summary.advanceUsedMinor += Math.max(0, -advance); }
-      }
-    }, { orderField: "effectiveAt", orderDirection: "desc" });
-    if (Object.values(summary).some(value => typeof value === "number" && !Number.isSafeInteger(value)))
-      throw new HttpsError("failed-precondition", "Statement exceeds safe minor-unit arithmetic.");
+    const summaryQuery = query;
     if (input.fromDate) query = query.where("effectiveAt", ">=", Timestamp.fromDate(new Date(`${input.fromDate}T00:00:00+01:00`)));
-    if (input.toDate) query = query.where("effectiveAt", "<=", Timestamp.fromDate(new Date(`${input.toDate}T23:59:59.999+01:00`)));
-    query = query.orderBy("effectiveAt", "desc");
+    if (input.toDate) query = query.where("effectiveAt", "<", Timestamp.fromMillis(Date.parse(`${input.toDate}T00:00:00+01:00`) + 86400000));
+    query = query.orderBy("effectiveAt", "desc").orderBy("__name__", "desc");
     if (input.cursor?.account) {
       const cursor = await db.doc(`customerAccountEntries/${input.cursor.account}`).get();
       if (!cursor.exists || cursor.get("organizationId") !== actor.organizationId || cursor.get("customerId") !== customer.id || (branchId && cursor.get("branchId") !== branchId))
@@ -81,9 +71,56 @@ export const getCustomerHistory = onCall({ enforceAppCheck, timeoutSeconds: 300 
       const entry = statementEntry(record.data() as Parameters<typeof statementEntry>[0], input.customerAccountId);
       return entry ? [{ id: `account:${record.id}`, kind: "account" as const, reference: record.get("referenceNumber"),
         branchId: record.get("branchId"), detail: String(record.get("entryType") ?? "account activity"),
-        at: record.get("effectiveAt") instanceof Timestamp ? record.get("effectiveAt").toDate().toISOString() : null,
+        at: record.get("effectiveAt") instanceof Timestamp ? statementInstant(record.get("effectiveAt")).toISOString() : null,
         journalEntryId: record.get("journalEntryId") ?? null, ...entry }] : [];
     });
+    // Walk newest first, matching the existing paginated index order. For each
+    // visible row retain only the movements after it, then subtract those from
+    // the closing balance. This includes earlier pages without retaining a ledger.
+    const summary = { openingDebtMinor: 0 as number | null, openingAdvanceMinor: 0 as number | null, closingDebtMinor: 0 as number | null, closingAdvanceMinor: 0 as number | null, debtAddedMinor: 0, debtClearedMinor: 0, advanceReceivedMinor: 0, advanceUsedMinor: 0, needsReview: false };
+    const offsets = new Map<string, { debt: number; advance: number; unknownDebt: number; unknownAdvance: number }>();
+    const visibleIds = new Set(rows.map(row => row.id));
+    let debt = 0, advance = 0, unknownDebt = 0, unknownAdvance = 0;
+    let openingDebt = 0, openingAdvance = 0, unknownOpeningDebt = 0, unknownOpeningAdvance = 0;
+    let undated = false;
+    const lagosDate = new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Lagos", year: "numeric", month: "2-digit", day: "2-digit" });
+    if (input.includeSummary) await visitQueryPages(summaryQuery, records => {
+      for (const record of records) {
+        const entry = statementEntry(record.data() as Parameters<typeof statementEntry>[0], input.customerAccountId);
+        if (!entry) continue;
+        const at = record.get("effectiveAt");
+        if (!(at instanceof Timestamp)) { summary.needsReview = true; undated = true; continue; }
+        const date = lagosDate.format(statementInstant(at));
+        if (input.toDate && date > input.toDate) continue;
+        const id = `account:${record.id}`;
+        if (visibleIds.has(id)) offsets.set(id, { debt, advance, unknownDebt, unknownAdvance });
+        if (entry.needsReview) summary.needsReview = true;
+        debt += entry.debtChangeMinor ?? 0; advance += entry.advanceChangeMinor ?? 0;
+        unknownDebt += Number(entry.debtChangeMinor === null); unknownAdvance += Number(entry.advanceChangeMinor === null);
+        if (input.fromDate && date < input.fromDate) {
+          openingDebt += entry.debtChangeMinor ?? 0; openingAdvance += entry.advanceChangeMinor ?? 0;
+          unknownOpeningDebt += Number(entry.debtChangeMinor === null); unknownOpeningAdvance += Number(entry.advanceChangeMinor === null);
+        } else {
+          summary.debtAddedMinor += Math.max(0, entry.debtChangeMinor ?? 0);
+          summary.debtClearedMinor += Math.max(0, -(entry.debtChangeMinor ?? 0));
+          summary.advanceReceivedMinor += Math.max(0, entry.advanceChangeMinor ?? 0);
+          summary.advanceUsedMinor += Math.max(0, -(entry.advanceChangeMinor ?? 0));
+        }
+      }
+    }, { orderField: "effectiveAt", orderDirection: "desc" });
+    summary.openingDebtMinor = undated || unknownOpeningDebt ? null : openingDebt;
+    summary.openingAdvanceMinor = undated || unknownOpeningAdvance ? null : openingAdvance;
+    summary.closingDebtMinor = undated || unknownDebt ? null : debt;
+    summary.closingAdvanceMinor = undated || unknownAdvance ? null : advance;
+    const balancedRows = rows.map(row => {
+      const offset = offsets.get(row.id);
+      return input.includeSummary ? { ...row,
+        runningDebtMinor: !offset || undated || unknownDebt > offset.unknownDebt ? null : debt - offset.debt,
+        runningAdvanceMinor: !offset || undated || unknownAdvance > offset.unknownAdvance ? null : advance - offset.advance,
+      } : row;
+    });
+    if ([debt, advance, openingDebt, openingAdvance, ...Object.values(summary), ...balancedRows.flatMap(row => "runningDebtMinor" in row ? [row.runningDebtMinor, row.runningAdvanceMinor] : [])].some(value => typeof value === "number" && !Number.isSafeInteger(value)))
+      throw new HttpsError("failed-precondition", "Statement exceeds safe minor-unit arithmetic.");
     return {
       customer: { id: customer.id, name: customer.get("name"), customerNumber: customer.get("customerNumber"),
         creditStatus: customer.get("creditStatus"), creditLimitMinor: Number(customer.get("creditLimitMinor") ?? 0),
@@ -93,8 +130,8 @@ export const getCustomerHistory = onCall({ enforceAppCheck, timeoutSeconds: 300 
         outstandingMinor: arrangement?.outstandingBalanceMinor ?? Number(customer.get("outstandingBalanceMinor") ?? 0),
         advanceMinor: arrangement ? (moneyBalances(customer.get("advanceBalances"))[arrangement.id] ?? 0)
           : Object.values(moneyBalances(customer.get("advanceBalances"))).reduce((sum, value) => sum + value, 0),
-        ...summary, fromDate: input.fromDate ?? null, toDate: input.toDate ?? null, branchId: branchId ?? null, asOf: new Date().toISOString(), scannedCount: scanned.length },
-      rows, moreAvailable: entries.size > input.limit,
+        ...(input.includeSummary ? summary : {}), fromDate: input.fromDate ?? null, toDate: input.toDate ?? null, branchId: branchId ?? null, asOf: new Date().toISOString(), scannedCount: scanned.length },
+      rows: balancedRows, moreAvailable: entries.size > input.limit,
       nextCursor: entries.size > input.limit ? { account: scanned.at(-1)!.id } : null,
     };
   }
