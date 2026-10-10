@@ -359,15 +359,26 @@ service billing can post.
 
 ## Mixed goods and service invoices
 
-1. In **Finance → Mixed billing account controls**, an accountant with account
-   management permission selects two existing reviewed, dedicated liability
-   accounts: **Deferred service control** and **Provider funds payable**. Enter a
-   review reason and choose **Save reviewed account mappings**. The accounts must
-   be distinct, active NGN liabilities with no unrelated posting history. This
-   does not create account numbers or change customer advances. Revisions are
-   audited; prior invoices keep their original mappings and those accounts remain
-   protected from manual changes and journals. Missing mappings block services;
-   ordinary goods retain their existing workflow.
+1. Complete this **one-time setup before the first mixed goods/service
+   transaction**. Ask an authorized accountant or system administrator with
+   account-management permission (`finance.accounts.manage`) and organization-wide
+   sales/accounting access (`sales.read.all`) to review and save the mappings.
+
+   Open **Money & accounts → Accounting**. In **Company ledger accounts**, create
+   and review two distinct, active, dedicated NGN liability accounts if needed.
+   Your accountant chooses the account codes; accounts with unrelated posting
+   history cannot be repurposed as billing controls.
+
+   Open **Mixed billing account controls**. Select the reviewed service-deferral
+   account under **Deferred service control** and the separate provider-payable
+   account under **Provider funds payable**. Enter a **Review reason**, then click
+   **Save reviewed account mappings**.
+
+   Afterwards, eligible new mixed invoices use the mappings automatically; **no
+   per-sale configuration is needed**. Prior invoices retain their saved account
+   mappings. Revisions are audited and those controls remain protected from
+   manual account changes and journals. Missing or inactive required mappings
+   block posting. Customer advances keep their existing account.
 2. In online **POS**, add catalogue services alongside goods. Expand **Service
    billing details**. Add separately charged parts as normal goods in the basket.
    Use **Physical part included in fee** only for stock consumed within the service
