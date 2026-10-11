@@ -1,12 +1,13 @@
 {
   "lastLiveAudit": {
     "project": "ramadan-warehouse-staging",
-    "verifiedAt": "2026-10-11T14:38:45.600Z",
+    "verifiedAt": "2026-10-11T15:18:25.970Z",
     "queryShapes": 531,
     "unsupportedQueries": 0,
-    "readyIndexes": 244,
+    "readyIndexes": 256,
     "singleFieldOverrides": 0,
-    "indexInventoryVerifiedAt": "2026-10-11T14:37:22.760Z"
+    "indexInventoryVerifiedAt": "2026-10-11T15:17:12.715Z",
+    "probeMethod": "Nonempty date ranges and exact production count/sum aggregates"
   },
   "catalogSha256": "aa7920d8bf8b9ca8204b1d68d5c7bd1b6b9728fb7b135e0dc528c3b1141bf185",
   "sourceFingerprints": {
@@ -103,6 +104,18 @@
     "src/features/transfers/transfer-form.tsx": "761d949cfb428ab35f370ae9e00351312025140ce3275f369dbeeb77d97ce925"
   },
   "indexSignatures": [
+    "90d65cf031c687764e60f3b366ecef76362c1161055fe3d84d75679069057c91",
+    "2e7017ddcd69123a52b7575a511cad3747df1d0e0e2b252aa00406282832f070",
+    "1fd8090c0259fd757188d073525f6f4d1e69b57d437b1dc97d5e748f0de554d9",
+    "0c5910902c655701f2319bc7cfdaed1a94a8f129871ace51c68035105bdee93b",
+    "f1444c5efc910975cc722919f4d8e122fa29e655401aff84a1b885086cd53660",
+    "a54479955485c3d5535cfbd83fd4ffd8acf2e0ac431095f954f0078ceef7c5fd",
+    "81279de8d5e304149d14973b321ea82a85b0291b49b53cbbc83c75aedd3d11f4",
+    "d9eb940ea4b6ce187f79786d272d3228761d66c43bfd9dba91b969c870229e1d",
+    "f8aefa6e7960c0cfcf0da9262aa9956f0c39a932be3ca6950ed1da63c9df3506",
+    "84448603b543c1e55b4560ddb83904f6f28f94cefbd0d3476c551ef89a8af614",
+    "540fcadda6a115affc65540d4e3752d9e1c2353fe474f639415deb13bc6be216",
+    "5ef133a734f2fa90b42c15da96abbf50f014616623f863c72f7adce1775f9b85",
     "22ac2008214d74b31795e3b4edd02a40cf0889dc4f8b8e49975ddf99ca14beff",
     "313b1b6dc4263ccd314f57baf5425d22c9edb82dbaa45ca8b1094440a08e7d45",
     "7f69a00a484a4c58de216a497559d74398694a8cf5eaa989a86ec445e7116bf1",

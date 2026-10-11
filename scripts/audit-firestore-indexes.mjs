@@ -1,5 +1,6 @@
 import { createRequire } from "node:module";
 import { writeFileSync } from "node:fs";
+import { auditAggregations, auditFilter } from "./firestore-query-probe.mjs";
 import { queryCatalog, querySourceFingerprints } from "./firestore-query-catalog.mjs";
 
 const project = process.argv[process.argv.indexOf("--project") + 1];
@@ -22,19 +23,6 @@ auth.setActiveAccount(options, auth.getProjectDefaultAccount(process.cwd()));
 await requireAuth(options);
 const client = new Client({ urlPrefix: "https://firestore.googleapis.com", apiVersion: "v1", auth: true });
 const parent = `projects/${project}/databases/(default)/documents`;
-const ops = { "==": "EQUAL", "!=": "NOT_EQUAL", ">=": "GREATER_THAN_OR_EQUAL", "<=": "LESS_THAN_OR_EQUAL", ">": "GREATER_THAN", "<": "LESS_THAN", in: "IN", "not-in": "NOT_IN", "array-contains": "ARRAY_CONTAINS" };
-function value(field, second = false) {
-  if (field === "active") return { booleanValue: true };
-  if (field === "variance") return { integerValue: "0" };
-  if (["createdAt", "effectiveAt", "recordedAt", "occurredAt", "collectedAt"].includes(field)) return { timestampValue: "2026-10-01T00:00:00Z" };
-  if (["countDate", "transactionDate", "occurredOn"].includes(field)) return { stringValue: "2026-10-01" };
-  return { stringValue: second ? "index-audit-second" : "index-audit-probe" };
-}
-function filter([field, op]) {
-  if (!ops[op]) throw new Error(`Unsupported query operator: ${op}`);
-  return { fieldFilter: { field: { fieldPath: field }, op: ops[op], value: ["in", "not-in"].includes(op)
-    ? { arrayValue: { values: [value(field), value(field, true)] } } : value(field) } };
-}
 function suggestedIndex(message) {
   const encoded = message.match(/create_composite=([A-Za-z0-9_=-]+)/)?.[1];
   if (!encoded) return null;
@@ -52,10 +40,10 @@ async function worker() {
     const shape = catalog[next++];
     const path = shape.parent ? `${parent}/${shape.parent}` : parent;
     const query = { from: [{ collectionId: shape.collection }],
-      ...(shape.filters.length ? { where: { compositeFilter: { op: "AND", filters: shape.filters.map(filter) } } } : {}),
+      ...(shape.filters.length ? { where: { compositeFilter: { op: "AND", filters: shape.filters.map(auditFilter) } } } : {}),
       ...(shape.order.length ? { orderBy: shape.order.map(([fieldPath, direction]) => ({ field: { fieldPath }, direction })) } : {}),
       ...(shape.sums === null ? { limit: 1 } : {}) };
-    const aggregate = shape.sums === null ? null : { structuredQuery: query, aggregations: [{ alias: "count", count: {} }, ...shape.sums.map((fieldPath, index) => ({ alias: `sum${index}`, sum: { field: { fieldPath } } }))] };
+    const aggregate = shape.sums === null ? null : { structuredQuery: query, aggregations: auditAggregations(shape.sums) };
     let failure;
     for (let attempt = 0; attempt < 3; attempt++) {
       try {

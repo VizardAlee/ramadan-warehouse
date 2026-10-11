@@ -2,12 +2,24 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { queryCatalog, querySourceFingerprints } from "../scripts/firestore-query-catalog.mjs";
 import { validateAudit } from "../scripts/validate-firestore-query-audit.mjs";
+import { auditAggregations, auditFilter } from "../scripts/firestore-query-probe.mjs";
 
 const baseline = JSON.parse(readFileSync("scripts/firestore-query-audit-baseline.json", "utf8"));
 const manifest = JSON.parse(readFileSync("firestore.indexes.json", "utf8"));
 const catalog = queryCatalog();
 const sources = querySourceFingerprints();
 describe("cross-section Firestore index release guard", () => {
+  it("probes the production aggregate without adding a count to sum-only queries", () => {
+    expect(auditAggregations(["grossAmountMinor"])).toEqual([{ alias: "sum0", sum: { field: { fieldPath: "grossAmountMinor" } } }]);
+    expect(auditAggregations([])).toEqual([{ alias: "count", count: {} }]);
+  });
+  it("probes nonempty date ranges so Firestore cannot bypass missing indexes", () => {
+    for (const field of ["recordedAt", "occurredAt", "createdAt", "effectiveAt", "collectedAt", "transactionDate", "countDate", "occurredOn"]) {
+      const lower = Object.values(auditFilter([field, ">="]).fieldFilter.value)[0];
+      const upper = Object.values(auditFilter([field, "<"]).fieldFilter.value)[0];
+      expect(lower < upper).toBe(true);
+    }
+  });
   it("accepts the audited source, catalog and index manifest", () => {
     expect(() => validateAudit(baseline, manifest, sources, catalog)).not.toThrow();
   });

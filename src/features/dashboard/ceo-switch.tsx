@@ -15,5 +15,5 @@ export function CeoViewSwitch() {
   }, [pathname, profile?.organizationId, profile?.uid]);
   if (!canReadCeoView(profile)) return null;
   const active = pathname === "/dashboard/ceo";
-  return <Link href={active ? "/dashboard" : href} className="inline-flex min-h-10 items-center rounded-lg border border-teal-700/20 bg-teal-50 px-3 text-xs font-semibold text-teal-900">{active ? "Usual dashboard" : "CEO view"}</Link>;
+  return <Link href={active ? "/dashboard" : href} aria-label={active ? "Usual dashboard" : "CEO view"} className="inline-flex min-h-10 shrink-0 items-center whitespace-nowrap rounded-lg border border-teal-700/20 bg-teal-50 px-2 text-xs font-semibold text-teal-900 sm:px-3">{active ? <><span className="sm:hidden">Dashboard</span><span className="hidden sm:inline">Usual dashboard</span></> : "CEO view"}</Link>;
 }

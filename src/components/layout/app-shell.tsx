@@ -348,7 +348,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         </div>
       )}
       <div className="min-w-0 xl:col-start-2">
-        <header className="sticky top-0 z-30 flex min-h-16 items-center gap-3 border-b bg-white/88 px-[var(--page-gutter)] shadow-[0_1px_12px_rgb(16_41_31_/_0.04)] backdrop-blur-xl">
+        <header className="sticky top-0 z-30 flex min-h-16 flex-wrap items-center gap-3 border-b bg-white/88 px-[var(--page-gutter)] py-2 shadow-[0_1px_12px_rgb(16_41_31_/_0.04)] backdrop-blur-xl sm:flex-nowrap sm:py-0">
           <CeoViewSwitch />
           <div className="min-w-0 flex-1">
             <p className="truncate text-sm font-semibold md:text-base">
@@ -360,7 +360,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                 .join(", ")}
             </p>
           </div>
-          <div className="ml-auto flex min-w-0 items-center gap-1">
+          <div className="ml-auto flex min-w-0 max-w-full flex-wrap items-center gap-1 sm:flex-nowrap">
             {showContextSwitcher && pathname !== "/dashboard/ceo" && (
               <label className="min-w-0">
                 <span className="sr-only">Working location</span>
