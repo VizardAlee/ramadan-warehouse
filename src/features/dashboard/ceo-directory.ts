@@ -34,7 +34,7 @@ export const ceoDestinations: CeoDestination[] = [
   { title: "Expenses", group: "Money & accounts", detail: "Expense obligations, approvals, payment records and history", href: "/expenses", permissions: ["expenses.read"] },
   { title: "Banks & reconciliations", group: "Money & accounts", detail: "Accounts, statement matching and internal transfers", href: "/banking", permissions: ["banking.read"] },
   { title: "Accounting & provider controls", group: "Money & accounts", detail: "Ledger accounts, journals and mixed-billing mappings", href: "/finance", permissions: ["finance.journal.read", "accounting.close.read", "banking.read"] },
-  { title: "Financial statements & cash flow", group: "Money & accounts", detail: "Company receipts and payments, profit, liabilities and balances; choose the statement period", href: "/reports?family=financial", permissions: ["finance.journal.read"] },
+  { title: "Financial statements & cash flow", group: "Money & accounts", detail: "Company receipts and payments, profit, liabilities and balances; choose the statement dates and branch", href: "/reports?family=financial", permissions: ["finance.journal.read"] },
   { title: "Budgets & comparisons", group: "Money & accounts", detail: "Reviewed monthly targets, actuals and budget history", href: "/finance", permissions: ["finance.journal.read"] },
   { title: "Month close", group: "Money & accounts", detail: "Closing periods and accounting exceptions", href: "/accounting", permissions: ["accounting.close.read"] },
   { title: "Daily checks", group: "Money & accounts", detail: "Till, stock and daily close evidence", href: "/daily-reconciliation", permissions: ["daily.close.read", "inventory.count", "inventory.reconcile", "sales.shift.manage", "banking.read"] },
