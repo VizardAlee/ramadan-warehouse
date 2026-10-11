@@ -18,6 +18,7 @@ import {
 import { useAuth } from "@/features/auth/auth-context";
 import { WorkflowTrack } from "@/features/guidance/workflow-track";
 import { hasAnyPermission, hasPermission } from "@/lib/permissions/roles";
+import { canReadCeoView } from "@/features/dashboard/ceo-directory";
 import {
   detailedTransferWorkflowSteps,
   salesWorkflowSteps,
@@ -49,6 +50,13 @@ export default function GuidePage() {
           Choose a task. On a computer, related pages sit together in the side menu; on a phone, use the main shortcuts or More.
         </p>
       </header>
+      {canReadCeoView(profile) && <section id="ceo-view" className="rounded-2xl border border-teal-200 bg-teal-50 p-6">
+        <h2 className="text-xl font-semibold">CEO view: the big picture</h2>
+        <p className="mt-3 text-sm leading-6">Choose CEO view in the top bar for an optional overview. Choose Usual dashboard to switch back. Your existing permissions still determine what you can see and which actions you can take.</p>
+        <p className="mt-3 text-sm leading-6">Apply a date range and branch, or use a quick period. Dates use Africa/Lagos. During this period shows recorded activity; Keep an eye on shows current balances and queues, regardless of the date range. Invoiced sales include tax and provider funds and are not earned income. Checkout money received excludes unverified payments and non-cash credits; repayments and advances appear separately. Gross receipts are before refunds. For reconciled company cash flow, open Financial statements.</p>
+        <p className="mt-3 text-sm leading-6">Select a chart bar or its text-table row for that interval’s sales. Sales reports retain the dates and branch. Other registers use the selected working branch and their own history filters. Branch comparisons show six branches per page. Search Explore the business to find statements, service/provider funds, stock history, people, settings or audit. Unavailable means a figure could not load, not zero; refresh or open its register. No attendance hardware connection is assumed.</p>
+        <Link className="mt-4 inline-block font-semibold text-teal-900 underline" href="/dashboard/ceo">Open CEO view</Link>
+      </section>}
       <nav
         aria-label="Choose a help topic"
         className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3"

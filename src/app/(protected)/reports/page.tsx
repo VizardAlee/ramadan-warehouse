@@ -170,6 +170,18 @@ export default function ReportsPage() {
   const [creditOnly, setCreditOnly] = useState(false);
   const [fromDate, setFromDate] = useState(() => reportDateRange("monthly").fromDate);
   const [toDate, setToDate] = useState(() => reportDateRange("monthly").toDate);
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const requestedFamily = params.get("family");
+    const from = params.get("fromDate"), to = params.get("toDate"), branch = params.get("branchId");
+    queueMicrotask(() => {
+      if (requestedFamily === "sales" || requestedFamily === "financial" || requestedFamily === "inventory") setFamily(requestedFamily);
+      if (from && to && /^\d{4}-\d{2}-\d{2}$/.test(from) && /^\d{4}-\d{2}-\d{2}$/.test(to) && from <= to) {
+        setFromDate(from); setToDate(to); setPeriod("custom");
+      }
+      if (branch && branch.length <= 128) setBranchId(branch);
+    });
+  }, []);
   const [salesRows, setSalesRows] = useState<SalesReportRow[]>([]);
   const [salesCursor, setSalesCursor] = useState<SalesCursor | null>(null);
   const [salesSummary, setSalesSummary] = useState<SalesReportResult["summary"]>(undefined);

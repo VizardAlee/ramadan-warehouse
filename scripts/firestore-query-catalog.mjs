@@ -145,6 +145,29 @@ export function queryCatalog() {
   add("service receipt/refund history pages", "aftersalesPayments", [org, ["caseId", "=="]], dateOrder("recordedAt"));
   for (const field of ["sourceWarehouseId", "originWarehouseId"]) for (const status of [[], [["status", "in"]]]) add("legacy location dashboard", field === "sourceWarehouseId" ? "stockTransfers" : "transfers", [org, [field, "=="], ...status], [], []);
   add("dashboard active products", "products", [org, ["active", "=="]], [], []);
+  // CEO uses count/sum queries with a fixed maximum of twelve date buckets and
+  // six branch comparisons. Enumerate dynamic builders and every sum field.
+  for (const scope of [[], [["branchId", "=="]]]) {
+    const base = [org, ...scope], period = [["recordedAt", ">="], ["recordedAt", "<"]];
+    for (const field of ["grossAmountMinor", "creditAmountMinor"]) add("CEO invoice totals/trend", "sales", [...base, ...period], [], [field]);
+    add("CEO checkout recorded cash/card/bank receipts", "salePayments", [...base, ["status", "=="], ["method", "in"], ...period], [], ["amountMinor"]);
+    add("CEO explicit customer inflows", "customerPayments", [...base, ["direction", "=="], ["status", "=="], ...period], [], ["amountMinor"]);
+    add("CEO separate service receipts", "aftersalesPayments", [...base, ["entryType", "=="], ...period], [], ["amountMinor"]);
+    for (const collection of ["supplierInvoices", "expenses"]) add("CEO approved obligations", collection, [...base, ["status", "in"]], [], ["outstandingAmountMinor"]);
+    add("CEO unavailable stock rows", "inventoryBalances", [...base, ["availableQuantity", "<="]], [], []);
+    add("CEO reserved units", "inventoryBalances", base, [], ["reservedQuantity"]);
+    add("CEO on-hand units", "inventoryBalances", base, [], ["onHandQuantity"]);
+    add("CEO stock cost coverage", "inventoryBalances", base, [], []);
+    add("CEO stock cost coverage", "inventoryBalances", [...base, ["totalValueMinor", ">="]], [], []);
+    add("CEO stored inventory value", "inventoryBalances", base, [], ["totalValueMinor"]);
+    add("CEO pending purchasing", "purchaseOrders", [...base, ["status", "=="]], [], []);
+    for (const status of [[], [["status", "in"]]]) add("CEO service queues", "aftersalesCases", [...base, ...status], [], []);
+    add("CEO recorded clock-ins", "attendanceEvents", [...base, ["kind", "=="], ["occurredAt", ">="], ["occurredAt", "<"]], [], []);
+    for (const field of ["creditMinor", "debitMinor"]) add("CEO mapped provider liability", "journalLines", [...base, ["accountId", "=="]], [], [field]);
+  }
+  add("CEO current organization customer balances", "customers", [org], [], ["outstandingBalanceMinor"]);
+  add("CEO bounded branch directory", "branches", [org], [["__name__", "ASCENDING"]]);
+  add("CEO protected provider controls including historical/inactive", "chartOfAccounts", [org, ["billingControlPurpose", "=="]]);
   for (const field of ["customerNumber", "normalizedName", "phone", "email"]) add("customer register/search", "customers", [org], [[field, "ASCENDING"]]);
   for (const scope of [[], [["branchId", "=="]]]) {
     const filters = [org, ...eq(["customerId", "receivableStatus"]), ...scope];

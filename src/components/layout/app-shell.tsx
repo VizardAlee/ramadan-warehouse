@@ -45,6 +45,7 @@ import { useConnectivity } from "@/lib/connectivity";
 import { hasAnyPermission, hasPermission } from "@/lib/permissions/roles";
 import { cn } from "@/lib/utils";
 import type { PermissionId } from "@/types/domain";
+import { CeoViewSwitch } from "@/features/dashboard/ceo-switch";
 
 const navigation = [
   { href: "/dashboard", label: "Dashboard", icon: Gauge, permissions: [] },
@@ -348,18 +349,19 @@ export function AppShell({ children }: { children: ReactNode }) {
       )}
       <div className="min-w-0 xl:col-start-2">
         <header className="sticky top-0 z-30 flex min-h-16 items-center gap-3 border-b bg-white/88 px-[var(--page-gutter)] shadow-[0_1px_12px_rgb(16_41_31_/_0.04)] backdrop-blur-xl">
+          <CeoViewSwitch />
           <div className="min-w-0 flex-1">
             <p className="truncate text-sm font-semibold md:text-base">
               {titleFromPath(pathname)}
             </p>
             <p className="hidden truncate text-xs text-[var(--muted)] sm:block">
-              AB Ramadan Ltd. · {contextLabel ?? (profile.roleIds ?? [profile.roleId])
+              AB Ramadan Ltd. · {pathname === "/dashboard/ceo" ? "CEO overview · use the filters below" : contextLabel ?? (profile.roleIds ?? [profile.roleId])
                 .map((roleId) => roleId.replaceAll("_", " "))
                 .join(", ")}
             </p>
           </div>
           <div className="ml-auto flex min-w-0 items-center gap-1">
-            {showContextSwitcher && (
+            {showContextSwitcher && pathname !== "/dashboard/ceo" && (
               <label className="min-w-0">
                 <span className="sr-only">Working location</span>
                 <select

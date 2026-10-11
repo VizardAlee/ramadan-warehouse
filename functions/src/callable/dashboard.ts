@@ -7,6 +7,7 @@ import { hasServerPermission, requireAccess, requireBranchScope, requireWarehous
 import { enforceAppCheck } from "../config.js";
 import { pipelineStages, type DashboardWorkspace } from "../dashboard/model.js";
 import { parseInput } from "../utils/callable.js";
+import { ceoInput, loadCeoDashboard } from "../dashboard/ceo.js";
 
 const inputSchema = z.object({ branchId: z.string().min(1).max(128).optional(), warehouseId: z.string().min(1).max(128).optional(), section: z.enum(["all", "operations", "sales"]).default("all") })
   .refine((input) => !(input.branchId && input.warehouseId), "Select one operating location.");
@@ -24,6 +25,7 @@ function scopedTransfer(query: FirebaseFirestore.Query, branchId: string | undef
 /** Index-backed sums/counts only: dashboard payload size does not grow with business history. */
 export const getDashboardWorkspace = onCall({ enforceAppCheck, timeoutSeconds: 120 }, async (request) => {
   const actor = await requireAccess(request);
+  if (request.data?.section === "ceo") return loadCeoDashboard(actor, parseInput(ceoInput, request.data));
   const input = parseInput(inputSchema, request.data);
   if (input.branchId) {
     requireBranchScope(actor, input.branchId);
