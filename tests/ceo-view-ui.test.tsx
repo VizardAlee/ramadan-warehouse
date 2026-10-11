@@ -82,4 +82,16 @@ describe("CEO overview interaction", () => {
     view.unmount(); render(<CeoView />);
     await waitFor(() => expect((screen.getByLabelText("From") as HTMLInputElement).value).toBe("2026-10-02"));
   });
+  it("immediately removes old financial data after a still-eligible authorization refresh", async () => {
+    mocks.call.mockResolvedValueOnce({ ...data, metrics: [{ ...data.metrics[0]!, id: "providerFunds", label: "Restricted provider balance" }] });
+    let resolveReduced!: (value: CeoDashboard) => void;
+    mocks.call.mockImplementationOnce(() => new Promise(resolve => { resolveReduced = resolve; }));
+    const view = render(<CeoView />); await screen.findByText("Restricted provider balance");
+    mocks.profile.roleId = "operations_administrator"; view.rerender(<CeoView />);
+    expect(screen.queryByText("Restricted provider balance")).toBeNull();
+    await waitFor(() => expect(mocks.call).toHaveBeenCalledTimes(2));
+    resolveReduced({ ...data, metrics: [{ ...data.metrics[0]!, label: "Permitted operations summary" }] });
+    await screen.findByText("Permitted operations summary");
+    expect(screen.queryByText("Restricted provider balance")).toBeNull();
+  });
 });
