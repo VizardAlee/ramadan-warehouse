@@ -358,7 +358,7 @@ textarea { min-height: 96px; }
 
 .responsive-table-wrap { min-width: 0; overflow-x: auto; border: 1px solid var(--border); border-radius: 1rem; background: white; box-shadow: var(--shadow-sm); }
 .responsive-table { width: 100%; border-collapse: collapse; text-align: left; font-size: .875rem; }
-.responsive-table th { color: #526159; font-size: .75rem; font-weight: 700; letter-spacing: .025em; text-transform: uppercase; }
+.responsive-table th { color: var(--muted); font-size: .75rem; font-weight: 700; letter-spacing: .025em; text-transform: uppercase; }
 .responsive-table th, .responsive-table td { padding: .75rem 1rem; vertical-align: middle; }
 .responsive-table tbody tr { border-top: 1px solid var(--border); transition: background-color 160ms ease; }
 .responsive-table tbody tr:hover { background: #f3f5fc; }
@@ -373,8 +373,8 @@ textarea { min-height: 96px; }
   .responsive-table, .responsive-table tbody { display: block; }
   .responsive-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
   .responsive-table tbody { display: grid; gap: .75rem; }
-  .responsive-table tbody tr { display: grid; min-width: 0; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .65rem 1rem; border: 1px solid var(--border); border-radius: .875rem; background: white; padding: 1rem; box-shadow: 0 1px 2px rgb(16 41 31 / .04); }
-  .responsive-table tbody tr:hover { background: white; }
+  .responsive-table tbody tr { display: grid; min-width: 0; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .65rem 1rem; border: 1px solid var(--border); border-radius: .875rem; background: var(--surface); padding: 1rem; box-shadow: 0 1px 2px rgb(16 41 31 / .04); }
+  .responsive-table tbody tr:hover { background: var(--surface-raised); }
   .responsive-table td { display: block; min-width: 0; padding: 0; white-space: normal; overflow-wrap: anywhere; }
   .responsive-table td::before { display: block; margin-bottom: .15rem; color: var(--muted); content: attr(data-label); font-size: .68rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
   .responsive-table td[data-primary="true"], .responsive-table td[data-actions="true"], .responsive-table td[colspan] { grid-column: 1 / -1; }
@@ -393,7 +393,7 @@ textarea { min-height: 96px; }
   *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; }
 }
 /* Financial colours describe meaning, not merely whether a number is positive. */
-.finance-income { color: #047857; }
+.finance-income { color: var(--positive); }
 .finance-outflow { color: #b42318; }
 .finance-attention { color: #a45105; }
 .finance-balance { color: #2447a4; }

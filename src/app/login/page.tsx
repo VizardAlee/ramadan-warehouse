@@ -1,3 +1,4 @@
+import { ThemeSwitch } from "@/features/theme/theme-switch";
 import type { Metadata } from "next";
 import Image from "next/image";
 import {
@@ -43,10 +44,10 @@ export default function LoginPage() {
             <small>Store &amp; Business Operations</small>
           </span>
         </div>
-        <div className="login-secure-pill">
+        <div className="flex flex-wrap items-center justify-end gap-3"><ThemeSwitch /><div className="login-secure-pill">
           <span className="login-live-dot" />
           Secure operations portal
-        </div>
+        </div></div>
       </header>
 
       <section className="login-content">

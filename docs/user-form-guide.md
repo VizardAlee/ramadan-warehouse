@@ -458,3 +458,10 @@ Apply dates (Africa/Lagos, up to 366 days) and a branch. **During this period** 
 Chart bars and text-table links open sales reports for their interval and branch. Other destinations open their usual workspaces; review each page’s own branch and current/history filters where shown. Financial statements have their own date and branch selectors. Organization-wide customer debt is not relabelled as branch debt. Provider funds owed uses all current and historical protected provider-liability ledger controls, including inactive controls (bounded to 20 accounts; otherwise unavailable). Unconfigured mappings and unavailable figures remain explicit. Attendance counts clock-in events, not unique people or hardware connectivity.
 
 Branch comparison pages contain six branches, with **Next branches** and **First branches** controls. Search **Explore the business** for all permitted reports, histories, settings, audit, provider funds and notifications. The top-bar CEO switch remembers applied filters within this browser session. Cancel changes restores draft filters; it does not change saved filters or business records.
+
+
+## Appearance: Light, Dark and System
+
+Use **Appearance** in the app’s top bar or on the sign-in screen. **System** follows the device’s appearance on first use and when it changes. **Light** or **Dark** is a manual preference remembered in this browser across visits; choose System to follow the device again. Storage restrictions may limit remembering a choice. All workspaces and CEO view share the preference. Printed documents remain a light paper layout, and CSV exports retain their values.
+
+CEO view now offers section links for **Overview**, **Activity**, **Current position**, **Branches** and **Explore**. **Compare** shows invoiced value and checkout receipts as separate, labelled chart series; each can be viewed alone. Bars, the highest invoiced interval and text-table links open the matching sales interval. The previous-period comparison displays the two actual invoice values and a percentage only with a nonzero prior value. These are navigation and presentation changes; financial definitions and access remain unchanged.

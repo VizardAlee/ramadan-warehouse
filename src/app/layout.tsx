@@ -1,5 +1,8 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
+import "./theme.css";
+import { ThemeProvider } from "@/features/theme/theme-provider";
+import { THEME_INIT_SCRIPT } from "@/features/theme/theme";
 import { AuthProvider } from "@/features/auth/auth-context";
 import { PwaProvider } from "@/features/pwa/pwa-provider";
 
@@ -29,9 +32,9 @@ export const viewport: Viewport = {
   initialScale: 1,
   viewportFit: "cover",
   interactiveWidget: "resizes-content",
-  colorScheme: "light",
+  colorScheme: "light dark",
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
-  return <html lang="en-NG"><body><PwaProvider><AuthProvider>{children}</AuthProvider></PwaProvider></body></html>;
+  return <html lang="en-NG" data-theme="light" suppressHydrationWarning><head><script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} /></head><body><ThemeProvider><PwaProvider><AuthProvider>{children}</AuthProvider></PwaProvider></ThemeProvider></body></html>;
 }

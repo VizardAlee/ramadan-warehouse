@@ -71,7 +71,7 @@ describe("CEO overview interaction", () => {
   it("shows empty charts and branch metadata without inventing activity", async () => {
     mocks.call.mockResolvedValue({ ...data, metrics: [], trend: [{ ...data.trend![0]!, invoicedMinor: 0, checkoutReceiptsMinor: 0 }], branches: [] });
     render(<CeoView />); await screen.findByText("No branches recorded.");
-    expect(screen.getByText("No recorded invoiced sales in this period.")).toBeTruthy();
+    expect(screen.getByText("No recorded invoices or checkout receipts in this period.")).toBeTruthy();
     expect(screen.queryByLabelText(/Invoiced sales chart/)).toBeNull();
   });
   it("restores applied URL filters on repeated navigation", async () => {
@@ -93,5 +93,16 @@ describe("CEO overview interaction", () => {
     resolveReduced({ ...data, metrics: [{ ...data.metrics[0]!, label: "Permitted operations summary" }] });
     await screen.findByText("Permitted operations summary");
     expect(screen.queryByText("Restricted provider balance")).toBeNull();
+  });
+});
+
+describe("executive comparison presentation", () => {
+  it("shows two distinct real series and preserves interval drilldowns without adding their values", async () => {
+    render(<CeoView />); await screen.findByText("Transfer issues");
+    expect(screen.getByRole("button", { name: "Compare", exact: true }).getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByRole("link", { name: /2026-10-01 to 2026-10-10: invoiced.*checkout receipts/ }).getAttribute("href")).toContain("toDate=2026-10-10");
+    expect(screen.getByRole("link", { name: /Highest invoiced interval/ }).getAttribute("href")).toContain("fromDate=2026-10-01");
+    expect(screen.getByRole("navigation", { name: "CEO sections" })).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Current position", exact: true }).getAttribute("href")).toBe("#ceo-position");
   });
 });

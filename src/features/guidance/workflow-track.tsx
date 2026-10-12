@@ -37,7 +37,7 @@ export function WorkflowTrack({
         {steps.map((step, index) => (
           <li
             key={step.title}
-            className="relative min-w-0 rounded-xl border bg-[#f8fbf9] p-4"
+            className="relative min-w-0 rounded-xl border bg-[var(--surface-soft)] p-4"
           >
             <div className="flex items-center gap-2">
               <span className="grid size-7 shrink-0 place-items-center rounded-full bg-[var(--brand)] text-xs font-semibold text-white">

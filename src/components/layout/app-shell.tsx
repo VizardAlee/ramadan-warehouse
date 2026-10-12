@@ -1,5 +1,7 @@
 "use client";
 
+import { ThemeSwitch } from "@/features/theme/theme-switch";
+
 import {
   Archive,
   Wrench,
@@ -383,6 +385,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                 </select>
               </label>
             )}
+            <ThemeSwitch />
             <PwaControls />
             <NotificationMenu />
             <Link
