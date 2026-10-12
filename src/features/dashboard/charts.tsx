@@ -6,6 +6,12 @@ interface ChartDatum {
   color: string;
 }
 
+// Retain existing category meanings while resolving their colors in either theme.
+function themedChartColor(color: string) {
+  const palette: Record<string, string> = { "#34458f": "var(--chart-invoiced)", "#6074bd": "var(--chart-receipts)", "#f6b333": "var(--warning)", "#c8563d": "var(--negative)" };
+  return palette[color] ?? color;
+}
+
 function donutGradient(data: readonly ChartDatum[]) {
   const total = data.reduce((sum, item) => sum + item.value, 0);
   if (!total) return "conic-gradient(var(--chart-track) 0deg 360deg)";
@@ -13,7 +19,7 @@ function donutGradient(data: readonly ChartDatum[]) {
   const stops = data.flatMap((item) => {
     const start = current;
     current += (item.value / total) * 360;
-    return [`${item.color} ${start}deg`, `${item.color} ${current}deg`];
+    return [`${themedChartColor(item.color)} ${start}deg`, `${themedChartColor(item.color)} ${current}deg`];
   });
   return `conic-gradient(${stops.join(", ")})`;
 }
@@ -40,7 +46,7 @@ export function OperationalMixChart({ data }: { data: readonly ChartDatum[] }) {
         <ul className="grid gap-3" aria-label="Operational mix legend">
           {data.map((item) => (
             <li key={item.label} className="flex items-center justify-between gap-4 rounded-lg bg-[var(--surface-soft)] px-3 py-2.5">
-              <span className="flex min-w-0 items-center gap-2.5 text-sm"><span className="size-2.5 shrink-0 rounded-full" style={{ backgroundColor: item.color }} /><span className="truncate">{item.label}</span></span>
+              <span className="flex min-w-0 items-center gap-2.5 text-sm"><span className="size-2.5 shrink-0 rounded-full" style={{ backgroundColor: themedChartColor(item.color) }} /><span className="truncate">{item.label}</span></span>
               <strong className="tabular-nums">{item.value}</strong>
             </li>
           ))}
@@ -64,7 +70,7 @@ export function TransferPipelineChart({ data }: { data: readonly ChartDatum[] })
           <div key={item.label} className="grid grid-cols-[7.5rem_minmax(0,1fr)_2rem] items-center gap-3 text-sm sm:grid-cols-[9rem_minmax(0,1fr)_2.5rem]">
             <span className="truncate text-[var(--muted)]">{item.label}</span>
             <div className="h-3 overflow-hidden rounded-full bg-[var(--chart-track)]">
-              <div className="h-full min-w-0 rounded-full transition-[width] duration-500" style={{ backgroundColor: item.color, width: item.value ? `${Math.max(8, (item.value / maximum) * 100)}%` : "0%" }} />
+              <div className="h-full min-w-0 rounded-full transition-[width] duration-500" style={{ backgroundColor: themedChartColor(item.color), width: item.value ? `${Math.max(8, (item.value / maximum) * 100)}%` : "0%" }} />
             </div>
             <strong className="text-right tabular-nums">{item.value}</strong>
           </div>
@@ -131,7 +137,7 @@ export function SalesPaymentMixChart({ data }: { data: readonly ChartDatum[] }) 
         <ul className="grid gap-3">
           {data.map((item) => (
             <li key={item.label} className="flex items-center justify-between gap-4 rounded-lg bg-[var(--surface-soft)] px-3 py-2.5 text-sm">
-              <span className="flex items-center gap-2.5"><span className="size-2.5 rounded-full" style={{ backgroundColor: item.color }} />{item.label}</span>
+              <span className="flex items-center gap-2.5"><span className="size-2.5 rounded-full" style={{ backgroundColor: themedChartColor(item.color) }} />{item.label}</span>
               <strong>{item.value}</strong>
             </li>
           ))}

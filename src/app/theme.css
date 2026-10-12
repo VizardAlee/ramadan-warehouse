@@ -176,3 +176,8 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,te
   :root[data-theme="dark"] [class~="bg-amber-300"] { background-color:var(--warning-soft); }
   :root[data-theme="dark"] [class~="hover:bg-indigo-50/40"]:hover { background-color:var(--info-soft); }
 }
+
+/* Compact report-family controls wrap instead of widening the mobile page. */
+@media (max-width:639px) {
+  main .flex.gap-2.rounded-xl.border.p-2:has(> button) { flex-wrap:wrap; }
+}
