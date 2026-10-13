@@ -12,9 +12,19 @@ describe("user-facing Firebase errors", () => {
     expect(toUserFacingError({ details: { code: "UNKNOWN", userMessage: "secret" } }).message).not.toContain("secret");
   });
   it("maps stable permission and conflict codes without exposing backend messages", () => {
-    expect(toUserFacingError({ code: "functions/permission-denied", message: "sensitive" }).message).toBe("You do not have permission to perform this action.");
+    expect(toUserFacingError({ code: "functions/permission-denied", message: "sensitive" }).message).toContain("Ask a system administrator to review access");
     expect(toUserFacingError({ code: "functions/invalid-argument" }).message).toBe("Some submitted information is invalid. Review the form and try again.");
     expect(toUserFacingError({ code: "functions/aborted" }).diagnosticCode).toBe("functions/aborted");
+  });
+  it.each([
+    ["functions/already-exists", "Staff ID is already in use.", "unique real ID"],
+    ["functions/already-exists", "Fingerprint connector ID is already assigned.", "device mapping"],
+    ["functions/failed-precondition", "Reassign users before deactivating this role.", "Reassign every user"],
+    ["functions/resource-exhausted", "This role has over 100 users. Ask an administrator to schedule a controlled role migration.", "controlled role migration"],
+    ["functions/failed-precondition", "Another active branch is already designated as head office.", "Head Office already exists"],
+  ])("translates exact public prerequisite messages while retaining diagnostics",(code,message,expected)=>{
+    const result=toUserFacingError({code,message});expect(result.message).toContain(expected);expect(result.diagnosticCode).toBe(code);
+    expect(toUserFacingError({code,message:message+" secret internal suffix"}).message).not.toContain("secret");
   });
   it("uses the supplied safe fallback for unknown errors", () => expect(toUserFacingError(new Error("raw"), "Try again safely.").message).toBe("Try again safely."));
   it("does not mislabel every unauthenticated callable response as an expired session", () => {
@@ -35,4 +45,10 @@ describe("user-facing Firebase errors", () => {
     expect(error.message).toBe("A serial number was not received on this receipt.");
     expect(error.diagnosticCode).toBe("SUPPLIER_RETURN_ACTION_REQUIRED");
   });
+  it("gives a safe backup resolver without exposing arbitrary server details", () => {
+    const result = toUserFacingError({code:"functions/failed-precondition",details:{code:"BACKUP_NOT_VERIFIED"},message:"private backend information"});
+    expect(result.message).toContain("Ask the backup operator");
+    expect(result.message).not.toContain("private backend");
+  });
+
 });

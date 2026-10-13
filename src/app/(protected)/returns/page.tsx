@@ -5,6 +5,7 @@ import { parseSaleSerials, validSaleSerials } from "@/features/pos/serial-select
 import { CheckCircle2, RotateCcw, Search, ShieldCheck } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { firstBlocker } from "@/features/guidance/first-blocker";
 import { callAdministration } from "@/features/administration/api";
 import { useOrganizationCollection } from "@/features/administration/use-organization-collection";
 import { useAuth } from "@/features/auth/auth-context";
@@ -518,7 +519,15 @@ export default function ReturnsPage() {
               Expected refund / credit:{" "}
               <strong>{formatNaira(estimatedGross)}</strong>
             </p>
-            <Button
+            <Button aria-busy={busy} disabledReason={firstBlocker([
+              [!selectedLines.length && !selectedProviders.length, "Select the original eligible quantities or provider amounts being corrected."],
+              [invalidProviderAmount, "Enter valid eligible provider-credit amounts; ask finance to review settled/recovered funds before crediting them."],
+              [reason.trim().length < 5, "Enter the actual return/cancellation/commercial-credit reason, at least 5 characters."],
+              [resolution === "split" && (!Number.isSafeInteger(splitMinor) || splitMinor <= 0 || splitMinor >= estimatedGross || estimatedGross - splitMinor > (workspace.sale.invoiceOutstandingMinor ?? 0)), "Enter a valid split: the refund portion must be positive and below the correction total; debt reduction cannot exceed the invoice outstanding."],
+              [resolution === "customer_account" && estimatedGross > workspace.sale.customerOutstandingMinor, `Debt reduction cannot exceed the customer's current ${formatNaira(workspace.sale.customerOutstandingMinor)} owed. Ask finance to review the appropriate correction.`],
+              [fundingMethod === "cash" && !refundShiftId, workspace.openShifts?.length ? "Select the actual open paying till in the original store." : "No open paying till is available. Ask the assigned original-store cashier or manager to open the real funding till."],
+              [["card", "bank_transfer"].includes(fundingMethod) && !refundBankAccountId, workspace.bankAccounts?.length ? "Select the actual paying company account." : "No active paying company account is available. Ask authorized finance staff to configure it, then refresh."]
+            ])}
               disabled={
                 busy ||
                 (!selectedLines.length && !selectedProviders.length) || invalidProviderAmount ||

@@ -583,6 +583,8 @@ export function StockTransferForm({
   }
   const stockLoading = source !== loadedStockSource;
   const sourceOption = options?.locations.find((l) => l.id === source);
+  const eligibleDestinations = options?.locations.filter(l => l.type === "branch" && l.id !== source && (!sourceOption?.branchId || l.branchId !== sourceOption.branchId) && (sourceOption?.assigned || l.assigned) && (!fromRequest || !requestId || l.branchId === requests.find(item => item.id === requestId)?.branchId)) ?? [];
+
   return (
     <form
       onSubmit={submit}
@@ -694,12 +696,14 @@ export function StockTransferForm({
               ))}
           </select>
         </label>
+        {options && !options.locations.length && <p className="text-sm">No authorized active source location is available. Ask the system administrator to review real store/location setup and your assignments, then refresh.</p>}
+        {options && source && !eligibleDestinations.length && <p className="text-sm">No eligible different receiving store is available for this source/request and assignment. Ask the responsible source manager or system administrator to review the real destination and assignments; do not choose an unrelated store.</p>}
       </section>
       <section className={`${panel} space-y-4`}>
         <h2 className="text-xl font-semibold">What do you need?</h2>
         {stockLoading && <p role="status">Checking available stock…</p>}
         {source && !stockLoading && !stock.length && (
-          <Notice text="There is no available stock at this source. Choose another source, or ask the administrator to record the existing stock." />
+          <Notice text="There is no available stock at this source. Choose another authorized source, or ask its manager to review real stock and reservations. Opening stock is only for genuinely pre-existing stock; do not invent stock to clear this action." />
         )}
         {lines.map((line, index) => (
           <div

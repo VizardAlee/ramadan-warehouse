@@ -2,6 +2,7 @@
 
 import { useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { firstBlocker } from "@/features/guidance/first-blocker";
 import { callAdministration } from "@/features/administration/api";
 import { formatNaira, nairaToKobo } from "@/features/inventory/format";
 import type { SaleReturn } from "@/types/domain";
@@ -51,6 +52,12 @@ export function ReturnFollowUp({ record, accounts, shifts, onComplete }: { recor
     </fieldset>
     {error && <p role="alert" className="mt-2 text-sm text-red-800">{error}</p>}
     {uncertain && <p className="mt-2 text-sm text-amber-900">Confirmation was not received. Retry this same request; do not record another payment.</p>}
-    <Button className="mt-3" disabled={busy || (!uncertain && !valid)} onClick={() => void submit()}>{busy ? "Recording…" : uncertain ? "Retry same request" : inspection ? "Record inspection" : "Record credit refund"}</Button>
+    <Button className="mt-3" aria-busy={busy} disabledReason={firstBlocker([
+      [inspection && !record.items?.every(item => decisions[item.id]), "Physically inspect and select a disposition for every returned item before recording inspection."],
+      [notes.trim().length < 5, inspection ? "Enter inspection findings, at least 5 characters." : "Enter the refund reason/payment reference, at least 5 characters."],
+      [!inspection && (!Number.isSafeInteger(amountMinor) || amountMinor <= 0), "Enter a positive refund amount with no more than two decimal places."],
+      [!inspection && amountMinor > (credit?.remainingAmountMinor ?? 0), `Only ${formatNaira(credit?.remainingAmountMinor ?? 0)} unused exchange credit remains; refund only the amount actually returned.`],
+      [!inspection && !accountId, method === "cash" ? shifts.length ? "Select the actual open paying till." : "No open paying till is available. Ask the assigned original-store shift staff to open it." : accounts.length ? "Select the actual paying company account." : "No active paying account is available. Ask authorized finance staff to configure it, then refresh."]
+    ])} disabled={busy || (!uncertain && !valid)} onClick={() => void submit()}>{busy ? "Recording…" : uncertain ? "Retry same request" : inspection ? "Record inspection" : "Record credit refund"}</Button>
   </details>;
 }

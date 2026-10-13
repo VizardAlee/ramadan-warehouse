@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { firstBlocker } from "@/features/guidance/first-blocker";
 import { callAdministration } from "@/features/administration/api";
 import { formatDateTime, formatNaira, nairaToKobo } from "@/features/inventory/format";
 import type { BankAccount } from "@/types/domain";
@@ -79,6 +80,17 @@ export function CompanyFundsTransfer({ accounts, branchId, ownerKey, onComplete 
       <label className="text-sm">Reason<input className="mt-1 w-full rounded-lg border p-3" maxLength={500} value={form.reason} onChange={event => setForm({ ...form, reason: event.target.value })} /></label>
       <label className="flex items-start gap-2 text-sm sm:col-span-2"><input type="checkbox" checked={form.confirmed} onChange={event => setForm({ ...form, confirmed: event.target.checked })} />I confirm this transfer has completed between the selected company accounts.</label>
     </fieldset>
-    <Button className="mt-4" disabled={busy || !ready || (!pending && !valid)} onClick={() => void submit()}>{busy ? "Checking…" : pending ? "Retry saved transfer" : "Record completed transfer"}</Button>
+    <Button className="mt-4" aria-busy={busy} disabledReason={firstBlocker([
+      [!ready, "Wait for the saved transfer check. If storage cannot be read, verify transfer history before recording another."],
+      [!branchId, "Select the responsible authorized store in Working location."],
+      [active.length < 2, "Two distinct active company accounts are required. Ask authorized finance staff to configure the real accounts, then refresh."],
+      [!form.source || !form.destination, "Select the actual source and destination company accounts."],
+      [form.source === form.destination, "Source and destination must be different company accounts."],
+      [Number(form.amount) <= 0 || !form.amount, "Enter the positive amount that actually moved."],
+      [!form.date, "Enter the actual date and time the bank transfer completed."],
+      [form.reference.trim().length < 2, "Enter the actual bank reference, at least 2 characters."],
+      [form.reason.trim().length < 5, "Enter the business reason, at least 5 characters."],
+      [!form.confirmed, "Confirm only after money has actually moved through the bank. This app records the completed movement; it does not transfer money."]
+    ])} disabled={busy || !ready || (!pending && !valid)} onClick={() => void submit()}>{busy ? "Checking…" : pending ? "Retry saved transfer" : "Record completed transfer"}</Button>
   </details>;
 }

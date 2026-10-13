@@ -465,3 +465,29 @@ Branch comparison pages contain six branches, with **Next branches** and **First
 Use **Appearance** in the app’s top bar or on the sign-in screen. **System** follows the device’s appearance on first use and when it changes. **Light** or **Dark** is a manual preference remembered in this browser across visits; choose System to follow the device again. Storage restrictions may limit remembering a choice. All workspaces and CEO view share the preference. Printed documents remain a light paper layout, and CSV exports retain their values.
 
 CEO view now offers section links for **Overview**, **Activity**, **Current position**, **Branches** and **Explore**. **Compare** shows invoiced value and checkout receipts as separate, labelled chart series; each can be viewed alone. Bars, the highest invoiced interval and text-table links open the matching sales interval. The previous-period comparison displays the two actual invoice values and a percentage only with a nonzero prior value. These are navigation and presentation changes; financial definitions and access remain unchanged.
+
+
+## POS price levels and a blocked Receive order
+
+Wholesale uses an explicitly configured current **Wholesale selling price** in Products. If none is configured, POS explains why the option is unavailable; it does not invent a wholesale discount. An authorized catalogue manager must set the business-approved price, then the operator refreshes POS. Choosing a price level deliberately replaces a this-sale-only override with that catalogue price. Customer selection still preserves an existing audited one-sale override. Held sales retain their tier and use current catalogue evidence when resumed.
+
+For every positive **Discount (₦)** enter **Discount reason** with at least three characters. This requirement applies to **Pay in full**, **Part payment** and **Pay later**. The inline message explains why Receive order is disabled even when paid-now and debt arithmetic are correct. Do not remove the discount audit requirement to make a credit sale proceed. Named-customer credit permission, available approved credit for ordinary operators, the existing audited administrator exception, active shift and online checks remain in force.
+
+Receive order records the proposal only. Continue **Accept payment / Acknowledge credit sale**, then authorized **Confirm payment & collect now / Confirm payment & reserve for later**. Confirmation posts money, customer balance, stock/reservations and balanced journals atomically. A deferred collection is not a physical handover.
+
+
+## When an action is unavailable
+
+Protected operational workspaces now include keyboard-accessible **Help for unavailable actions** and adjacent instructions for covered disabled business actions. Guidance states the required fields/state/setup, the responsible authorized role, and accessible next steps. Setup links appear only within current access. Routine first/last-page and Cancel controls are not described as setup failures. Pending saved instructions remain exact retries, not permission to change money or create another transaction.
+
+POS lists current missing conditions beside Receive order, including required discount reason, named customer, available ordinary credit, live advances, split allocation and receiving accounts. A disabled Wholesale choice means the current approved wholesale price is missing; no discount is inferred. Stock-count creation identifies a missing location/counter; dispatch identifies missing source context, sealed packages or driver. Staff selectors use the loaded employee page; load the relevant page first. Empty manager selections require user setup/assignment rather than inventing a manager.
+
+An inaccessible action may need a different authorized role or store assignment. Ask the system administrator to review legitimate access, then Refresh authorization after an approved change. No action help grants a permission, bypasses a credit limit, reopens a closed period or fabricates missing financial/physical evidence.
+
+### Specific prerequisite messages and responsible teams
+
+Consequential blocked financial actions now identify the first unmet existing condition: actual amount/reference/reason, receiving/paying company account, original refundable receipt, unused advance allocation or physically received purchasing goods. Account-transfer forms require two distinct active company accounts and acknowledgement of a real completed bank movement. Supplier returns distinguish original receiving evidence, eligible quantities, unfinished credit lines and physical handover confirmation. Journal reversal requires the responsible store; unmatched bank-ledger mappings require legitimate Banking setup.
+
+Month-close blockers name the source team and provide a source link only when the reader's current navigation permission permits it. Known public HR identifier, role assignment/migration and Head Office conflicts receive safe corrective instructions; arbitrary backend messages remain hidden. Count stage/assignment and immutable tracking/service-only fields explain their read-only state. Linked request destinations remain governed by the approved demand; selecting another store is not a workaround.
+
+Guidance leaves every business, period, credit and access guard intact. Some legacy/raw controls still use workspace requirements rather than exhaustive first-unmet diagnosis; unsupported interfaces and historical evidence require the responsible team. Client acceptance and physical device/printing checks remain separate.

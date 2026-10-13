@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { AppDialog } from "@/components/ui/app-dialog";
 import { Button } from "@/components/ui/button";
+import { firstBlocker } from "@/features/guidance/first-blocker";
 import { CursorTablePagination } from "@/components/ui/table-pagination";
 import { callAdministration } from "@/features/administration/api";
 import { downloadCsv, formatNaira, nairaToKobo } from "@/features/inventory/format";
@@ -170,7 +171,15 @@ function SupplierPaymentDialog({ supplier, invoice, refund = false, scope, banks
       </>}
       <label className="block text-sm">{refund ? "Refund reason (required)" : "Notes (optional)"}<textarea value={notes} maxLength={500} onChange={(event) => setNotes(event.target.value)} className="mt-1 w-full rounded-lg border p-3" /></label>
     </fieldset>
-    <div className="mt-5 flex flex-wrap justify-end gap-2 border-t pt-4"><Button variant="outline" disabled={busy || uncertain} onClick={onClose}>Cancel</Button><Button disabled={busy || (!valid && !uncertain)} onClick={() => void submit()}>{uncertain ? "Retry same transaction" : refund ? "Record refund received" : source === "advance_balance" ? "Apply advance" : invoice ? "Record payment" : "Record advance"}</Button></div>
+    <div className="mt-5 flex flex-wrap justify-end gap-2 border-t pt-4"><Button variant="outline" disabled={busy || uncertain} onClick={onClose}>Cancel</Button><Button aria-busy={busy} disabledReason={firstBlocker([
+      [!paymentScope.branchId && !paymentScope.warehouseId, "Choose the real recording store before recording money; ask an administrator if the assigned location is missing."],
+      [amountError || !Number.isSafeInteger(amountMinor) || amountMinor <= 0, "Enter a positive amount with no more than two decimal places."],
+      [invoice && amountMinor > invoice.outstandingAmountMinor, `Payment cannot exceed the invoice outstanding ${formatNaira(invoice?.outstandingAmountMinor ?? 0)}. Enter the amount actually paid.`],
+      [(refund || source === "advance_balance") && amountMinor > availableAdvance, `Only ${formatNaira(availableAdvance)} unused supplier advance/credit is available in this store. Reduce the application/refund to the real available amount.`],
+      [refund && !notes.trim(), "Enter the reason for the actual supplier refund received."],
+      [source !== "advance_balance" && method !== "cash" && !bankAccountId, banks.length ? "Select the company account actually used." : "No company account is available. Ask authorized finance staff to configure an active account for this store, then refresh; do not invent a cash movement."],
+      [source !== "advance_balance" && method !== "cash" && !reference.trim(), "Enter the actual noncash payment reference."]
+    ])} disabled={busy || (!valid && !uncertain)} onClick={() => void submit()}>{uncertain ? "Retry same transaction" : refund ? "Record refund received" : source === "advance_balance" ? "Apply advance" : invoice ? "Record payment" : "Record advance"}</Button></div>
   </div></AppDialog>;
 }
 

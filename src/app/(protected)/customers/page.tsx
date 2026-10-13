@@ -10,6 +10,7 @@ import {
 import Link from "next/link";
 import { Fragment, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { firstBlocker } from "@/features/guidance/first-blocker";
 import { AppDialog } from "@/components/ui/app-dialog";
 import { CursorTablePagination } from "@/components/ui/table-pagination";
 import { callAdministration } from "@/features/administration/api";
@@ -748,7 +749,18 @@ export default function CustomersPage() {
               <Button variant="secondary" onClick={closeAction}>
                 Cancel
               </Button>
-              <Button
+              <Button aria-busy={busy} disabledReason={firstBlocker([
+                [arrangementDraft && arrangementDraft.name.trim().length < 2, "Enter an account arrangement name of at least 2 characters."],
+                [arrangementDraft && arrangementDraft.reason.trim().length < 5, "Enter the account-change reason, at least 5 characters."],
+                [action === "credit" && reason.trim().length < 3, "Enter the administrator's credit-decision reason, at least 3 characters."],
+                [action === "payment" && !branchId, "Select the real receiving/paying store. Ask an administrator if the correct assigned store is missing."],
+                [action === "payment" && !paymentAmount, "Enter the actual positive payment/advance amount in naira."],
+                [action === "payment" && refundAdvance && historyLoading, "Wait for customer advance evidence to load."],
+                [action === "payment" && refundAdvance && reason.trim().length < 5, "Enter the advance-refund reason, at least 5 characters."],
+                [action === "payment" && refundAdvance && paymentMethod !== "cash" && paymentReference.trim().length < 3, "Enter the actual advance-refund reference, at least 3 characters."],
+                [action === "payment" && !validAdvanceRefund, "Advance refund allocations must be unique positive amounts, total the refund exactly and stay within each arrangement's unused advance. Review the displayed available amounts; debt is separate."],
+                [action === "payment" && paymentSource === "receipt" && paymentMethod !== "cash" && !paymentBankAccountId, historyLoading ? "Wait for company accounts to load." : history?.bankAccounts?.length ? "Select the company account actually receiving/paying this money." : "No active company account is available. Ask authorized finance staff to configure it for this store, then refresh; cash is only for a real cash movement."]
+              ])}
                 disabled={
                   busy ||
                   Boolean(arrangementDraft && (arrangementDraft.name.trim().length < 2 || arrangementDraft.reason.trim().length < 5)) ||

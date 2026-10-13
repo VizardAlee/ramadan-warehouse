@@ -44,7 +44,7 @@ export function BrowserPushControls() {
       // Safari requires the permission prompt to begin in the direct click gesture.
       const permissionPromise = Notification.requestPermission();
       const result = await callAdministration<object, { publicKey: string | null }>("getWebPushPublicKey", {});
-      if (!result.publicKey) throw new Error("Browser push is not configured yet. The inbox remains available.");
+      if (!result.publicKey) throw new Error("Browser alerts are not configured yet. Ask the system administrator or deployment operator to complete setup; keep using the notification inbox.");
       const permission = await permissionPromise;
       if (permission !== "granted") throw new Error("Notifications were not allowed. You can change this in your browser settings.");
       const registration = await navigator.serviceWorker.ready;
@@ -76,6 +76,7 @@ export function BrowserPushControls() {
       <div><h2 className="font-semibold">Browser notifications</h2><p className="text-sm text-[var(--muted)]">Optional alerts on this device. Your in-app inbox remains the record of every task.</p></div>
       {isSupported && <Button disabled={busy} onClick={() => void (enabled ? disable() : enable())}>{busy ? "Please wait…" : enabled ? "Turn off" : "Enable on this device"}</Button>}
     </div>
+    <p className="mt-2 text-xs text-[var(--muted)]">Browser alerts also need server setup. If setup is unavailable, ask the system administrator or deployment operator; your notification inbox remains available.</p>
     {!isSupported && <p className="mt-2 text-sm text-amber-800">Push is unavailable in this browser. On iPhone, add the app to your Home Screen, then open it there.</p>}
     {message && <p role="status" className="mt-2 text-sm">{message}</p>}
   </section>;

@@ -2470,4 +2470,52 @@ describe.sequential("mixed billing controls and recognition", () => {
     expect((await adminDb.doc(`serializedItems/${uniquenessDocumentId(organizationId, serialA)}`).get()).get("status")).toBe("sold"); expect((await adminDb.doc(`serializedItems/${uniquenessDocumentId(organizationId, serialB)}`).get()).get("status")).toBe("reserved");
   });
 
+  it.each([{ mode: "part", paid: 50_000_000, credit: 30_000_000 }, { mode: "credit", paid: 0, credit: 80_000_000 }, { mode: "full", paid: 80_000_000, credit: 0 }])("completes discounted $mode orders atomically through receive, accept and confirm with exact retries", async ({ mode, paid, credit }) => {
+    const id = `complaint-${mode}`, deviceId = crypto.randomUUID();
+    await adminDb.doc(`products/${id}`).set({ organizationId, name: "Demo battery", sku: id, unitOfMeasure: "unit", trackingType: "quantity", active: true });
+    await adminDb.doc(`productCosts/${id}`).set({ organizationId, productId: id, defaultUnitCostMinor: 40_000_000 });
+    await adminDb.doc(`productSalesPrices/${id}`).set({ organizationId, productId: id, basePriceMinor: 85_000_000, wholesalePriceMinor: 75_000_000, vatRateBasisPoints: 0, active: true, version: 1 });
+    const balance = adminDb.doc(`inventoryBalances/${balanceDocumentId(organizationId, id, locationId)}`);
+    await balance.set({ organizationId, branchId, productId: id, locationId, onHandQuantity: 10, reservedQuantity: 0, availableQuantity: 10, totalValueMinor: 400_000_000, averageUnitCostMinor: 40_000_000 });
+    const customer = await call<{customerId:string}>(administrator, "saveCustomer", {name:`Demo ${mode} buyer`,phone:`0801234500${mode === "part" ? "1" : mode === "credit" ? "2" : "3"}`,idempotencyKey:crypto.randomUUID()});
+    const shift = await call<{shiftId:string}>(administrator, "openPosShift", {branchId,deviceId,deviceName:`Demo ${mode} till`,openingCashMinor:0,idempotencyKey:crypto.randomUUID()});
+    const payload = { calculationVersion:2,branchId,shiftId:shift.shiftId,deviceId,recordedAt:new Date().toISOString(),offline:false,customerId:customer.customerId,customerAccountId:"general",creditAmountMinor:credit,...(credit ? {creditDueDate:"2026-10-16"}:{}),discountAmountMinor:5_000_000,discountReason:"Reviewed demo discount",lines:[{productId:id,quantity:1,priceTier:"retail"}],payments:paid ? [{method:"cash",amountMinor:paid}]:[],idempotencyKey:crypto.randomUUID()};
+    await expect(call(administrator,"createPosSaleOrder",{...payload,discountReason:undefined})).rejects.toMatchObject({code:"functions/invalid-argument"});
+    expect((await adminDb.collection("salesOrders").where("payload.idempotencyKey","==",payload.idempotencyKey).get()).empty).toBe(true);
+    expect((await balance.get()).get("onHandQuantity")).toBe(10);
+    const received = await call<{orderId:string}>(administrator,"createPosSaleOrder",payload);
+    expect(await call(administrator,"createPosSaleOrder",payload)).toMatchObject({orderId:received.orderId,created:false});
+    expect((await balance.get()).get("onHandQuantity")).toBe(10);
+    expect((await adminDb.doc(`customers/${customer.customerId}`).get()).get("outstandingBalanceMinor")).toBe(0);
+    const accept = {orderId:received.orderId,shiftId:shift.shiftId,deviceId,idempotencyKey:crypto.randomUUID()};
+    await call(administrator,"acceptPosSaleOrderPayment",accept);
+    await call(administrator,"acceptPosSaleOrderPayment",accept);
+    expect((await balance.get()).get("onHandQuantity")).toBe(10);
+    const confirm = {orderId:received.orderId,idempotencyKey:crypto.randomUUID()};
+    // Collision on the final notification create forces the entire financial transaction to roll back.
+    const event = adminDb.doc(`notificationEvents/sales_order_completed_${received.orderId}`);
+    await event.set({organizationId,eventType:"injected-test-conflict"});
+    await expect(call(administrator,"confirmPosSaleOrder",confirm)).rejects.toBeTruthy();
+    expect((await balance.get()).get("onHandQuantity")).toBe(10);
+    expect((await adminDb.collection("sales").where("salesOrderId","==",received.orderId).get()).empty).toBe(true);
+    expect((await adminDb.doc(`customers/${customer.customerId}`).get()).get("outstandingBalanceMinor")).toBe(0);
+    await event.delete();
+    const completed = await call<{saleId:string}>(administrator,"confirmPosSaleOrder",confirm);
+    await call(administrator,"confirmPosSaleOrder",confirm);
+    await call(administrator,"confirmPosSaleOrder",{...confirm,idempotencyKey:crypto.randomUUID()});
+    const sale = await adminDb.doc(`sales/${completed.saleId}`).get();
+    expect(sale.data()).toMatchObject({grossAmountMinor:80_000_000,discountAmountMinor:5_000_000,amountPaidMinor:paid,creditAmountMinor:credit});
+    const customerRecord = await adminDb.doc(`customers/${customer.customerId}`).get();
+    expect(customerRecord.get("outstandingBalanceMinor")).toBe(credit);
+    expect((await balance.get()).data()).toMatchObject({onHandQuantity:9,availableQuantity:9,reservedQuantity:0,totalValueMinor:360_000_000});
+    const payments = await adminDb.collection("salePayments").where("saleId","==",completed.saleId).get();
+    expect(payments.docs.reduce((n,p)=>n+Number(p.get("amountMinor")),0)).toBe(paid);
+    const journals = await adminDb.collection("journalEntries").where("referenceId","==",completed.saleId).get();
+    expect(journals.size).toBe(1);
+    expect(journals.docs[0]!.get("totalDebitMinor")).toBe(journals.docs[0]!.get("totalCreditMinor"));
+    expect((await adminDb.collection("sales").where("salesOrderId","==",received.orderId).get()).size).toBe(1);
+    expect((await adminDb.collection("saleCollections").where("saleId","==",completed.saleId).get()).size).toBe(1);
+  });
+
+
 });

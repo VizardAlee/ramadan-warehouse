@@ -41,6 +41,7 @@ import { useOrganizationCollection } from "@/features/administration/use-organiz
 import { useAuth } from "@/features/auth/auth-context";
 import {
   calculatePosCart,
+  changePosPriceTier,
   posLineUnitPriceMinor,
   productForPriceTier,
   provisionalReceiptReference,
@@ -48,6 +49,8 @@ import {
 } from "@/features/pos/calculations";
 import { SaleDocumentDialog } from "@/features/pos/sale-document";
 import { CollectionQueue } from "@/features/pos/collection-queue";
+import { usePosOrderReceive } from "@/features/pos/use-pos-order-receive";
+import { PriceLevelControl } from "@/features/pos/price-level-control";
 import { SalePriceDialog } from "@/features/pos/sale-price-dialog";
 import {
   listQueuedSales,
@@ -109,6 +112,7 @@ export default function PosPage() {
   const { user, profile, accessProfile, operatingContext } = useAuth();
   const { online } = useConnectivity();
   const branches = useOrganizationCollection<Branch>("branches");
+  const receivedOrder = usePosOrderReceive(`${profile?.organizationId ?? "loading"}:${user?.uid ?? "loading"}`);
   const [manualBranchId, setManualBranchId] = useState("");
   const [workspace, setWorkspace] = useState<PosWorkspace | null>(null);
   const [cart, setCart] = useState<PosCartLine[]>([]);
@@ -257,6 +261,21 @@ export default function PosPage() {
       (selectedCustomer.creditStatus === "approved" &&
         selectedCustomer.availableCreditMinor >= creditAmountMinor)));
 
+  const checkoutHints: string[] = [];
+  if (!canReceiveOrder) checkoutHints.push("Ask authorized order-receiving staff to receive this order; your current role handles another sales stage.");
+  if (!discountIsValid) checkoutHints.push("Enter a valid nonnegative discount no greater than the discountable subtotal.");
+  if (discountAmountMinor > 0 && discountReason.trim().length < 3) checkoutHints.push("Receive order is unavailable: enter the required Discount reason above (at least 3 characters). The payment amount and balance can be correct while this audit requirement is still missing.");
+  if (paymentMethod === "customer_credit" || paymentMethod === "split" && splitAllowCredit) {
+    if (!online) checkoutHints.push("Reconnect before using customer debt; credit cannot be received offline.");
+    if (!customerId) checkoutHints.push("Select a named Customer above. Ask an authorized customer manager to register them if needed; a walk-in sale cannot carry debt.");
+    if (customerId && !creditIsAuthorized && !canGrantCreditDirectly) checkoutHints.push("The outstanding portion needs enough administrator-approved available credit. Ask a system administrator to review the customer limit/status, or change the proposal to match money genuinely received. Current debt uses part of the same customer-wide limit.");
+  }
+  if (paymentMethod === "customer_credit" && (creditPaidAmountMinor < 0 || creditPaidAmountMinor >= amountToAllocateMinor || creditIntent === "part" && creditPaidAmountMinor <= 0)) checkoutHints.push("For Part payment, enter an amount greater than zero and below the total. Pay later uses zero paid now; full payment belongs to Pay in full.");
+  const requiresReceivingAccount = ["card", "bank_transfer"].includes(paymentMethod) ||
+    paymentMethod === "customer_credit" && creditPaidAmountMinor > 0 && ["card", "bank_transfer"].includes(creditUpfrontMethod);
+  if (requiresReceivingAccount && !paymentBankAccountId) checkoutHints.push(workspace?.bankAccounts.length ? "Select the actual receiving Company bank account." : "No active company bank account is available. Ask a finance officer or system administrator to configure/review the receiving account, then refresh POS. Do not record fictitious cash to enable a sale.");
+  if (!splitValid) checkoutHints.push("Enter 2–5 positive split payments with the required receiving accounts. Total the bill exactly, or leave only an authorized named-customer credit remainder.");
+  if (!advanceValid) checkoutHints.push("Customer advance needs a named customer, internet and enough unused advance on the selected arrangement. Use at most one advance component; ask authorized payment staff to review real advance receipts.");
   const refreshQueue = useCallback(async () => {
     if (!selectedBranchId || !user) return;
     setQueued(await listQueuedSales(selectedBranchId, user.uid));
@@ -695,6 +714,17 @@ export default function PosPage() {
     }
   }
 
+  async function retryReceivedOrder() {
+    if (!receivedOrder.pending || !online || busy) return;
+    setBusy(true); setError(null);
+    try {
+      const result = await receivedOrder.run<SaleOrderResult>(receivedOrder.pending);
+      resetSaleDraft(); setCartOpen(false);
+      setMessage(`Order ${result.orderNumber} received. Continue payment acceptance and confirmation in the workflow queue.`);
+      await loadWorkspace();
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "The saved order could not be confirmed. Retry the same order."); }
+    finally { setBusy(false); }
+  }
   async function checkout() {
     if (
       !canReceiveOrder ||
@@ -883,13 +913,7 @@ export default function PosPage() {
     payload.payments = payload.payments.filter(payment => payment.amountMinor > 0);
     try {
       if (online) {
-        const result = await callAdministration<
-          PosSalePayload,
-          SaleOrderResult
-        >(
-          "createPosSaleOrder",
-          payload,
-        );
+        const result = await receivedOrder.run<SaleOrderResult>(payload);
         setMessage(
           `Order ${result.orderNumber} received. The next step is payment acceptance; inventory has not been released.`,
         );
@@ -1229,7 +1253,7 @@ export default function PosPage() {
           </div>
         </div>
       )}
-      {error && (
+      {error && !cartOpen && (
         <div
           role="alert"
           className="rounded-xl bg-red-50 p-4 text-sm text-red-800"
@@ -1536,7 +1560,7 @@ export default function PosPage() {
                     <div className="mt-3 flex gap-2">
                       <Button
                         className="flex-1"
-                        disabled={available <= 0 || (product.itemKind === "service" && !online)}
+                        disabled={Boolean(receivedOrder.pending) || !receivedOrder.ready || available <= 0 || (product.itemKind === "service" && !online)}
                         onClick={() => addProduct(product.id)}
                       >
                         Add
@@ -1577,6 +1601,14 @@ export default function PosPage() {
             aria-label={cartOpen ? "Current sale and held sales" : undefined}
             className={`pos-cart-panel scroll-mt-40 h-fit overflow-y-auto rounded-t-2xl p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] lg:sticky lg:top-20 lg:block lg:max-h-[calc(100dvh-7rem)] lg:rounded-2xl ${cartOpen ? "fixed inset-x-0 bottom-0 z-50 max-h-[min(88dvh,48rem)]" : "hidden"}`}
           >
+            {receivedOrder.error && <p role="alert" className="mb-3 rounded-lg bg-red-50 p-3 text-sm text-red-800">{receivedOrder.error}</p>}
+            {receivedOrder.pending && <div role="status" className="mb-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm">
+              <p>The previous order has an unconfirmed result. Retry the exact saved order before starting another. Do not collect the money again.</p>
+              <Button className="mt-2" disabled={busy || !online || !receivedOrder.ready} onClick={() => void retryReceivedOrder()}>Retry same order</Button>
+            </div>}
+            {error && cartOpen && <p role="alert" className="mb-3 rounded-lg bg-red-50 p-3 text-sm text-red-800">{error}</p>}
+            <fieldset disabled={Boolean(receivedOrder.pending) || !receivedOrder.ready} className="min-w-0 border-0 p-0">
+
             <div className="flex items-center justify-between">
               <h2 className="flex items-center gap-2 text-xl font-semibold">
                 <ShoppingCart className="size-5" /> Current sale
@@ -1665,19 +1697,12 @@ export default function PosPage() {
                       </span>
                     </div>
                     {line.product.trackingType === "serial" && <label className="mt-3 block text-sm">Serial numbers — one per unit<textarea aria-label={`Serial numbers for ${line.product.name}`} rows={3} value={(line.serialNumbers ?? []).join("\n")} onChange={event => setCart(lines => lines.map(item => item.product.id === line.product.id ? { ...item, serialNumbers: event.target.value.split(/\r?\n/) } : item))} className="mt-1 w-full rounded-lg border p-2" /><span className="text-xs text-[var(--muted)]">Enter {line.quantity} exact serials, one per line. Online only; units are reserved at final payment confirmation, not while holding a basket.</span></label>}
-                    <label className="mt-2 block text-xs font-medium">
-                      Price level
-                      <select className="mt-1 w-full rounded-lg border p-2" value={line.priceTier ?? "retail"} disabled={Boolean(line.serviceCase)}
-                        onChange={(event) => {
-                          const tier = event.target.value as "retail" | "wholesale";
-                          const original = workspace.products.find((product) => product.id === line.product.id)!;
-                          setCart((lines) => lines.map((item) => item.product.id === original.id
-                            ? { ...item, product: productForPriceTier(original, tier), priceTier: tier } : item));
-                        }}>
-                        <option value="retail">Retail / store price</option>
-                        <option value="wholesale" disabled={!line.product.wholesalePriceMinor}>Wholesale</option>
-                      </select>
-                    </label>
+                    <PriceLevelControl line={line} onChange={tier => {
+                      const original = workspace.products.find(product => product.id === line.product.id);
+                      if (!original) { setError("Refresh POS before changing this product price."); return; }
+                      try { const selected = changePosPriceTier(line, original, tier); setCart(lines => lines.map(item => item.product.id === original.id ? { ...item, product: selected.product, priceTier: selected.priceTier, sellingPriceMinor: undefined, priceOverrideReason: undefined } : item)); }
+                      catch (cause) { setError(cause instanceof Error ? cause.message : "The selected price level is unavailable."); }
+                    }} />
                     <div className="mt-3 flex items-center justify-between">
                       <span className="text-xs text-[var(--muted)]">
                         {formatNaira(posLineUnitPriceMinor(line))} each
@@ -1794,8 +1819,11 @@ export default function PosPage() {
                 />
               </label>
               <label className="block text-sm font-medium">
-                Discount reason
+                Discount reason {discountAmountMinor > 0 && "(required)"}
                 <input
+                  aria-label="Discount reason"
+                  aria-describedby={discountAmountMinor > 0 && discountReason.trim().length < 3 ? "pos-discount-reason-help" : undefined}
+                  aria-invalid={discountAmountMinor > 0 && discountReason.trim().length < 3}
                   value={discountReason}
                   onChange={(event) => setDiscountReason(event.target.value)}
                   disabled={discountAmountMinor <= 0}
@@ -1803,6 +1831,7 @@ export default function PosPage() {
                   className="mt-1 w-full rounded-lg border p-3 disabled:bg-slate-100"
                   placeholder="e.g. Trade discount"
                 />
+                {discountAmountMinor > 0 && discountReason.trim().length < 3 && <span id="pos-discount-reason-help" className="mt-1 block text-xs font-medium text-red-800">Enter a discount reason of at least 3 characters before receiving any sale, including part payment or pay later.</span>}
               </label>
             </div>
             <div className="mt-4 rounded-xl border bg-white p-3">
@@ -2106,11 +2135,15 @@ export default function PosPage() {
               </div>
             ) : null}
             {creditAmountMinor > 0 && <label className="mt-3 block text-sm font-medium">Payment due date<input type="date" value={creditDueDate} onChange={(event) => setCreditDueDate(event.target.value)} className="mt-1 w-full rounded-lg border p-3" /><span className="mt-1 block text-xs text-[var(--muted)]">Leave blank only when terms have not been agreed; undated debt is not marked overdue.</span></label>}
+            {checkoutHints.length > 0 && <div id="pos-checkout-prerequisites" role="status" className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950"><strong>Before receiving this order</strong><ul className="mt-2 list-disc space-y-2 pl-5">{checkoutHints.map(hint => <li key={hint}>{hint}</li>)}</ul></div>}
             <Button
               className="mt-5 w-full"
+              aria-describedby={checkoutHints.length ? "pos-checkout-prerequisites" : undefined}
               disabled={
                 busy ||
                 !canReceiveOrder ||
+                !receivedOrder.ready ||
+                Boolean(receivedOrder.pending) ||
                 cart.length === 0 ||
                 !discountIsValid ||
                 (discountAmountMinor > 0 && discountReason.trim().length < 3) ||
@@ -2166,6 +2199,7 @@ export default function PosPage() {
                 Close and reconcile shift
               </Button>
             </details>
+            </fieldset>
           </aside>
         </div>
       )}

@@ -7,6 +7,7 @@ import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
+import { firstBlocker } from "@/features/guidance/first-blocker";
 import { callAdministration } from "@/features/administration/api";
 import { useAuth } from "@/features/auth/auth-context";
 import { formatNaira, nairaToKobo } from "@/features/inventory/format";
@@ -604,7 +605,12 @@ function ExpensesWorkspace() {
                         }
                         className="rounded-lg border p-3"
                       />
-                      <Button
+                      <Button aria-busy={busy} disabledReason={pending ? "Retry the saved expense payment instructions before recording another payment." : firstBlocker([
+                        [!ready, "Wait for the saved expense-instruction check; review the displayed storage error if it cannot finish."],
+                        [!validPayment, `Enter a positive actual payment with no more than two decimal places, within the displayed expense outstanding. Do not record the same payment twice.`],
+                        [draft.method !== "cash" && !draft.reference.trim(), "Enter the actual noncash payment reference."],
+                        [draft.method !== "cash" && !draft.bankAccountId, workspace.bankAccounts.length ? "Select the company account actually paying." : "No active paying company account is available. Ask authorized finance staff to configure it, then refresh; choose cash only for an actual cash payment."]
+                      ])}
                         disabled={
                           busy ||
                           !!pending || !ready ||

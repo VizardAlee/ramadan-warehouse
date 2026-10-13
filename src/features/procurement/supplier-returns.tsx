@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { AppDialog } from "@/components/ui/app-dialog";
 import { Button } from "@/components/ui/button";
+import { firstBlocker } from "@/features/guidance/first-blocker";
 import { CursorTablePagination } from "@/components/ui/table-pagination";
 import { callAdministration } from "@/features/administration/api";
 import { formatNaira } from "@/features/inventory/format";
@@ -126,7 +127,12 @@ export function SupplierReturns({ invoiceId, canPost, canReverse = false, onClos
             <label className="text-sm">Reason for return<textarea className="mt-1 w-full rounded-lg border p-3" minLength={5} maxLength={500} value={reason} onChange={(event) => setReason(event.target.value)} required /></label>
           </div>
           {!heldHandover && <div className="space-y-3">
-            <Button type="button" variant="outline" disabled={!lineValid || creditLines.length >= 10} onClick={addCreditLine}>Add product to credit note</Button>
+            <Button type="button" variant="outline" disabledReason={firstBlocker([
+    [creditLines.length >= 10, "This credit note already has its maximum 10 product lines. Review those lines; use a separate legitimate credit document for further goods."],
+    [!line, "Select an original invoice product with eligible unreturned goods."],
+    [!receipt, receiptData?.receipts.some(item => item.quantity > item.returnedQuantity) ? "Select the original goods-received note for these actual returned units." : "No eligible original receipt is loaded. Select the product and wait for its receiving history; ask purchasing to reconcile missing original evidence."],
+    [!Number.isInteger(Number(quantity)) || Number(quantity) <= 0 || Number(quantity) > maximum, `Enter the actual positive whole quantity returned, no more than ${maximum} eligible units from this receipt/invoice.`]
+  ])} disabled={!lineValid || creditLines.length >= 10} onClick={addCreditLine}>Add product to credit note</Button>
             {creditLines.length > 0 && <section aria-label="Credit note products" className="space-y-2 rounded-lg border p-3">
               <h3 className="font-semibold">Credit note products ({creditLines.length}/10)</h3>
               <p className="text-sm text-[var(--muted)]">All products post together, or none do. Add the selected product before posting. Each line retains its own stock and journal references.</p>
@@ -137,11 +143,17 @@ export function SupplierReturns({ invoiceId, canPost, canReverse = false, onClos
             </section>}
           </div>}
           {receipts?.key === receiptKey && receipts.error && <p role="alert" className="text-red-800">{receipts.error}</p>}
+          {lineId && !receiptData && <p className="text-sm">{receipts?.key === receiptKey && receipts.error ? "Receiving evidence could not load. Resolve the displayed error and retry the original history; do not choose an unrelated receipt." : "Loading original receiving notes for the selected product…"}</p>}
           {receiptData && <CursorTablePagination page={receiptPages.length} pageSize={receiptLimit} rowCount={receiptData.receipts.length} hasNextPage={Boolean(receiptData.nextCursor)} loading={locked} onPrevious={() => { setReceiptId(""); setReceiptPages((value) => value.slice(0, -1)); }} onNext={() => { if (receiptData.nextCursor) { setReceiptId(""); setReceiptPages((value) => [...value, receiptData.nextCursor]); } }} onPageSizeChange={(size) => { setReceiptId(""); setReceiptLimit(size); setReceiptPages([null]); }} itemLabel="receipts" />}
           <label className="flex items-start gap-2 text-sm"><input type="checkbox" checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)} />Goods have physically been returned and the supplier accepted this credit note.</label>
         </fieldset>}
         {uncertain && !busy && <p role="alert" className="text-amber-900">Confirmation was not received. Retry the same request to safely check its result; do not create another return.</p>}
-        {canPost && !correction && <div className="flex justify-end"><Button disabled={busy || (!uncertain && !valid)} onClick={() => void post()}>{busy ? "Recording…" : uncertain ? "Retry same return" : "Post return & credit note"}</Button></div>}
+        {canPost && !correction && <div className="flex justify-end"><Button aria-busy={busy} disabledReason={firstBlocker([
+    [creditLines.length ? Boolean(lineId) : !lineValid, creditLines.length ? "Add the current selected product to the credit note, or clear the unfinished product selection before posting." : "Select the original invoice product, eligible receiving note and actual valid returned quantity first."],
+    [creditNote.trim().length < 2, "Enter the supplier's accepted credit-note reference, at least 2 characters."],
+    [reason.trim().length < 5, "Enter the actual supplier-return reason, at least 5 characters."],
+    [!confirmed, "Confirm only after the goods have physically been returned and the supplier has accepted this credit note. Ask purchasing staff to verify the handover."]
+  ])} disabled={busy || (!uncertain && !valid)} onClick={() => void post()}>{busy ? "Recording…" : uncertain ? "Retry same return" : "Post return & credit note"}</Button></div>}
         {correction && <section aria-label="Correct supplier return" className="space-y-3 rounded-xl border border-amber-200 bg-amber-50 p-4">
           <h3 ref={correctionHeading} tabIndex={-1} className="font-semibold">Correct {correction.returnNumber}</h3>
           <p className="text-sm">{correction.productName} × {correction.quantity} · original credit {formatNaira(correction.grossAmountMinor)}. Reverse this line only; other products on its credit note remain unchanged. Original history is kept.</p>
@@ -150,7 +162,10 @@ export function SupplierReturns({ invoiceId, canPost, canReverse = false, onClos
             <label className="block text-sm">Reason for correction<textarea className="mt-1 w-full rounded-lg border bg-white p-3" minLength={5} maxLength={500} value={correctionReason} onChange={event => setCorrectionReason(event.target.value)} /></label>
             <label className="flex items-start gap-2 text-sm"><input type="checkbox" checked={goodsBack} onChange={event => setGoodsBack(event.target.checked)} />All goods in this return are physically back in the original store and inspected as resellable.</label>
           </fieldset>
-          <div className="flex flex-wrap justify-end gap-2"><Button variant="outline" disabled={locked} onClick={() => { setCorrection(null); setCorrectionReason(""); setGoodsBack(false); setError(""); }}>Cancel correction</Button><Button disabled={busy || (!uncertain && (!goodsBack || correctionReason.trim().length < 5))} onClick={() => void reverseReturn()}>{busy ? "Reversing…" : uncertain ? "Retry same correction" : "Reverse stock & credit"}</Button></div>
+          <div className="flex flex-wrap justify-end gap-2"><Button variant="outline" disabled={locked} onClick={() => { setCorrection(null); setCorrectionReason(""); setGoodsBack(false); setError(""); }}>Cancel correction</Button><Button aria-busy={busy} disabledReason={firstBlocker([
+    [correctionReason.trim().length < 5, "Enter the correction reason, at least 5 characters."],
+    [!goodsBack, "Confirm only when every unit in this original return is physically back and inspected as resellable. Ask the inventory/purchasing team to review original evidence."]
+  ])} disabled={busy || (!uncertain && (!goodsBack || correctionReason.trim().length < 5))} onClick={() => void reverseReturn()}>{busy ? "Reversing…" : uncertain ? "Retry same correction" : "Reverse stock & credit"}</Button></div>
         </section>}
         <section><h3 className="mb-3 font-semibold">Recorded returns</h3>{!data && !page?.error && <p role="status">Loading returns…</p>}{data && <><div className="overflow-x-auto"><table className="w-full text-left text-sm"><thead><tr><th className="p-2">Date / references</th><th className="p-2">Product / quantity</th><th className="p-2 text-right">Original credit</th><th className="p-2">Applied to / status</th></tr></thead><tbody>{data.returns.map((record) => <tr key={record.id} className="border-t">
           <td className="p-2">{date(record.returnedAt)}<small className="block break-all">{record.returnNumber}<br />Supplier: {record.creditNoteReference}<br />Stock: {record.inventoryTransactionNumber}<br />Journal: {record.journalNumber}</small></td>

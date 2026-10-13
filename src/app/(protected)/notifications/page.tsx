@@ -15,6 +15,7 @@ export default function NotificationsPage() {
     <div className="page-stack">
       <PageHeader eyebrow="Your inbox" title="Notifications" description={`${unreadCount} unread · Recent tasks and updates for your assigned locations.`} />
       <BrowserPushControls />
+      <p className="text-sm text-[var(--muted)]">This inbox shows tasks delivered to your roles and stores. If an expected task is missing, check your working store and access, then ask the system administrator to review task delivery.</p>
       {error && <p role="alert" className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm">{error}</p>}
       {loading ? <p className="text-sm text-[var(--muted)]">Loading notifications…</p> : rows.length === 0 ? (
         <EmptyState icon={Bell} title="All clear" description="New tasks and updates will appear here." />

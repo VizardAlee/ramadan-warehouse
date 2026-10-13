@@ -262,7 +262,7 @@ export function TransferOperations({
           <div className="grid items-center gap-4 md:grid-cols-[auto_1fr_auto]">
             <span className="grid size-12 place-items-center rounded-2xl bg-emerald-100 text-emerald-800"><CheckCircle2 /></span>
             <div><h3 className="font-semibold">Record picked goods</h3><p className="text-sm text-[var(--muted)]">Record all {pickLines.reduce((sum, line) => sum + line.quantity, 0)} reserved units physically collected.</p></div>
-            <Button disabled={busy || pickLines.length === 0 || warehouseContextRequired} onClick={() => void recordPick()}>{busy ? <Loader2 className="mr-2 size-4 animate-spin" /> : null}Confirm picked</Button>
+            <Button aria-busy={busy} disabledReason={warehouseContextRequired ? "Choose the authorized source operating location before picking; ask your administrator if the assignment is missing." : !pickLines.length ? "No reserved unpicked units are eligible. Review the reservation and already-picked quantities with the source manager before recording a pick." : undefined} disabled={busy || pickLines.length === 0 || warehouseContextRequired} onClick={() => void recordPick()}>{busy ? <Loader2 className="mr-2 size-4 animate-spin" /> : null}Confirm picked</Button>
           </div>
         )}
 
@@ -270,7 +270,7 @@ export function TransferOperations({
           <div className="grid items-center gap-4 md:grid-cols-[auto_1fr_auto]">
             <span className="grid size-12 place-items-center rounded-2xl bg-blue-100 text-blue-800"><Boxes /></span>
             <div><h3 className="font-semibold">Pack and seal</h3><p className="text-sm text-[var(--muted)]">Create one auditable package for the {packLines.reduce((sum, line) => sum + line.quantity, 0)} picked units.</p></div>
-            <Button disabled={busy || packLines.length === 0 || warehouseContextRequired} onClick={() => void packAndSeal()}>{busy ? <Loader2 className="mr-2 size-4 animate-spin" /> : null}Pack and seal</Button>
+            <Button aria-busy={busy} disabledReason={warehouseContextRequired ? "Choose the authorized source operating location before packing." : !packLines.length ? "There are no picked unpacked units to seal. Record the actual pick first or review existing packages with source staff." : undefined} disabled={busy || packLines.length === 0 || warehouseContextRequired} onClick={() => void packAndSeal()}>{busy ? <Loader2 className="mr-2 size-4 animate-spin" /> : null}Pack and seal</Button>
           </div>
         )}
 
@@ -284,7 +284,7 @@ export function TransferOperations({
               <label className="text-sm font-medium">Transport company (optional)<input value={transportCompany} onChange={(event) => setTransportCompany(event.target.value)} className="mt-1 w-full rounded-lg border p-3" /></label>
               <label className="text-sm font-medium">Waybill number (optional)<input value={waybillNumber} onChange={(event) => setWaybillNumber(event.target.value)} className="mt-1 w-full rounded-lg border p-3" /></label>
             </div>
-            <Button disabled={busy || !driverName.trim() || sealedPackages.length === 0 || warehouseContextRequired} onClick={() => void dispatchNow()}>{busy ? <Loader2 className="mr-2 size-4 animate-spin" /> : <Truck className="mr-2 size-4" />}Confirm dispatch</Button>
+            <Button aria-busy={busy} disabledReason={warehouseContextRequired ? "Select the authorized source operating location for dispatch." : !sealedPackages.length ? "Pack and seal the picked goods before dispatch. Ask authorized source packing staff to complete the package record." : !driverName.trim() ? "Enter the actual Driver name before confirming departure." : undefined} disabled={busy || !driverName.trim() || sealedPackages.length === 0 || warehouseContextRequired} onClick={() => void dispatchNow()}>{busy ? <Loader2 className="mr-2 size-4 animate-spin" /> : <Truck className="mr-2 size-4" />}Confirm dispatch</Button>
           </div>
         )}
 

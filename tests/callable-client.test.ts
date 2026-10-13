@@ -68,7 +68,7 @@ describe("callAdministration", () => {
     await expect(
       callAdministration("generateStockPositionReport", { limit: 50 }),
     ).rejects.toMatchObject({
-      message: "You do not have permission to perform this action.",
+      message: "This action is outside your current role or assigned location. Ask a system administrator to review access if it is part of your job; after an approved change, use Refresh authorization. Do not change accounts or locations just to bypass the check.",
       diagnosticCode: "functions/permission-denied",
     });
     expect(mocks.getIdToken).not.toHaveBeenCalled();

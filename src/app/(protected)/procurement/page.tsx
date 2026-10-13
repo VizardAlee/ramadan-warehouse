@@ -13,6 +13,7 @@ import { SupplierAccounts } from "@/features/procurement/supplier-accounts";
 import { GoodsReceivedNotes } from "@/features/procurement/goods-received-note";
 import { SupplierReturns } from "@/features/procurement/supplier-returns";
 import { Button } from "@/components/ui/button";
+import { firstBlocker } from "@/features/guidance/first-blocker";
 import { callAdministration } from "@/features/administration/api";
 import { useAuth } from "@/features/auth/auth-context";
 import { formatNaira, nairaToKobo } from "@/features/inventory/format";
@@ -579,7 +580,14 @@ export default function ProcurementPage() {
             >
               Add product
             </Button>
-            <Button
+            <Button aria-busy={busy} disabledReason={firstBlocker([
+              [!supplierId, workspace.suppliers.some(item => item.active) ? "Select the actual active supplier." : "No active supplier is available. Ask authorized purchasing/supplier staff to create or activate the supplier, then refresh."],
+              [!destinationKey, "Choose the receiving Store/Head Office; its working location must be authorized."],
+              [!locationId, selectedLocations.length ? "Select the actual receiving stock location." : "No stock location is configured for this receiving store. Ask an authorized location administrator to configure it, then refresh."],
+              [lines.some(line => !line.productId), "Choose a product for each purchase-order line."],
+              [lines.some(line => !line.unitCostNaira), "Enter each product's actual agreed unit cost in naira."],
+              [lines.some(line => Number(line.quantity) <= 0), "Enter the positive quantity actually ordered for every line."]
+            ])}
               disabled={
                 busy ||
                 !supplierId ||
@@ -748,7 +756,11 @@ export default function ProcurementPage() {
                             )}
                             <label className="block text-xs font-medium">Supplier delivery reference (optional)<input value={draft.supplierReference ?? ""} maxLength={160} onChange={(event) => setReceiveValues({ ...receiveValues, [item.id]: { ...draft, supplierReference: event.target.value } })} className="mt-1 w-full rounded-lg border bg-white p-2" /></label>
                             <label className="block text-xs font-medium">Receiving notes (optional)<textarea value={draft.notes ?? ""} maxLength={500} onChange={(event) => setReceiveValues({ ...receiveValues, [item.id]: { ...draft, notes: event.target.value } })} className="mt-1 w-full rounded-lg border bg-white p-2" /></label>
-                            <Button
+                            <Button aria-busy={busy} disabledReason={firstBlocker([
+                              [Number(draft.quantity) <= 0, "Enter the quantity physically delivered; do not record undelivered goods."],
+                              [Number(draft.quantity) > outstanding, `Only ${outstanding} ordered units remain to receive. Review receiving history if already received.`],
+                              [item.trackingType === "batch" && !draft.lotNumber, "Enter the actual supplier lot number for these batch goods."]
+                            ])}
                               size="sm"
                               disabled={
                                 busy ||
@@ -810,7 +822,12 @@ export default function ProcurementPage() {
                     </label>
                     <label className="text-sm">Invoice date<input type="date" value={invoiceIssueDates[order.id] ?? today} onChange={(event) => setInvoiceIssueDates({ ...invoiceIssueDates, [order.id]: event.target.value })} className="block min-h-10 w-full rounded-lg border px-3" /></label>
                     <label className="text-sm">Payment due date (optional)<input type="date" min={invoiceIssueDates[order.id] ?? today} value={invoiceDueDates[order.id] ?? ""} onChange={(event) => setInvoiceDueDates({ ...invoiceDueDates, [order.id]: event.target.value })} className="block min-h-10 w-full rounded-lg border px-3" /></label>
-                    <Button
+                    <Button aria-busy={busy} disabledReason={firstBlocker([
+                      [!(invoiceNumbers[order.id] ?? "").trim(), "Enter the supplier's actual invoice number."],
+                      [!(invoiceIssueDates[order.id] ?? today), "Enter the supplier invoice date."],
+                      [invoiceDueDates[order.id] && (invoiceDueDates[order.id] ?? "") < (invoiceIssueDates[order.id] ?? today), "Payment due date cannot be before the supplier invoice date."],
+                      [!(itemsByOrder.get(order.id) ?? []).some(item => item.receivedQuantity > (item.invoicedQuantity ?? 0)), (itemsByOrder.get(order.id) ?? []).some(item => item.receivedQuantity > 0) ? "All received goods are already matched to invoices. Review recorded invoices; do not create a duplicate." : "Record physically delivered PO goods first. Ask authorized receiving staff; undelivered goods cannot be invoiced."]
+                    ])}
                       disabled={
                         busy ||
                         !(invoiceIssueDates[order.id] ?? today) ||

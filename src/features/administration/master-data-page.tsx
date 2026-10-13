@@ -358,6 +358,7 @@ export function MasterDataPage({
                         </option>
                       ))}
                     </select>
+                    {!branchManagers.length && <span className="mt-1 block text-xs text-[var(--muted)]">{users.loading ? "Loading eligible managers…" : users.error ? "Manager options could not load. Resolve the displayed error and refresh before choosing a manager; No manager remains a valid designation." : "No eligible active manager is available. You may save with No manager. Ask a user administrator to invite/activate an eligible branch manager, then edit this designation. Saving updates its store assignment; designation does not grant a new role."}</span>}
                   </label>
                 </>
               )}
@@ -379,7 +380,7 @@ export function MasterDataPage({
                   {type === "branch" && (
                     <label className="text-sm">
                       Related store
-                      <select
+                      <select aria-label="Related store"
                         {...register("relatedId")}
                         className="mt-1 w-full rounded-lg border p-2.5"
                       >
@@ -390,6 +391,7 @@ export function MasterDataPage({
                           </option>
                         ))}
                       </select>
+                      {!branches.data.length && <span className="mt-1 block text-xs text-[var(--muted)]">{branches.loading ? "Loading related stores…" : branches.error ? "Store choices could not load. Resolve the displayed error and refresh before assigning this stock location." : "No related store is available. Ask the system administrator to create the real active store/Head Office, then refresh before assigning this stock location."}</span>}
                     </label>
                   )}
                   <label className="flex min-h-11 items-center gap-3 text-sm">

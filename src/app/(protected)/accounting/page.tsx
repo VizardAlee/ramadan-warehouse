@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { CloseBlockerGuidance } from "@/features/guidance/close-blocker-guidance";
 import {
   PaginatedTableControls,
   useTablePagination,
@@ -268,6 +269,7 @@ export default function AccountingClosePage() {
                       {blocker.count} issue{blocker.count === 1 ? "" : "s"}
                     </strong>
                     <p>{blocker.message}</p>
+                    <CloseBlockerGuidance code={blocker.code} profile={profile}/>
                   </div>
                 ))}
               </div>

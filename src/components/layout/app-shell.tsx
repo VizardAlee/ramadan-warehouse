@@ -35,6 +35,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { ActionGuidanceProvider, WorkspacePrerequisites } from "@/features/guidance/action-guidance";
 import { Button } from "@/components/ui/button";
 import { Feedback } from "@/components/ui/feedback";
 import { useDialogFocus } from "@/components/ui/use-dialog-focus";
@@ -426,7 +427,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           </div>
         )}
         <main className="min-w-0 px-[var(--page-gutter)] py-[clamp(1rem,2.4vw,2rem)] pb-[calc(5.5rem+env(safe-area-inset-bottom))] xl:pb-8">
-          <div key={contextValue || "organization"} className="app-view">{children}</div>
+          <div key={contextValue || "organization"} className="app-view"><ActionGuidanceProvider pathname={pathname} profile={profile}><WorkspacePrerequisites />{children}</ActionGuidanceProvider></div>
         </main>
         <nav
           aria-label="Mobile and tablet navigation"

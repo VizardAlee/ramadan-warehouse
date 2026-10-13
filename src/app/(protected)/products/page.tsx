@@ -479,6 +479,7 @@ export default function ProductsPage() {
               <label className="text-sm">
                 Tracking
                 <select
+                  aria-label="Tracking"
                   {...form.register("trackingType")}
                   disabled={serviceItem || Boolean(editing?.hasLedgerActivity)}
                   className="mt-1 w-full rounded-lg border p-2.5"
@@ -487,6 +488,7 @@ export default function ProductsPage() {
                     <option key={type}>{type}</option>
                   ))}
                 </select>
+                {(serviceItem || editing?.hasLedgerActivity) && <span className="mt-1 block text-xs text-[var(--muted)]">{serviceItem ? "Services have no physical stock tracking. Record the service fee and linked costs through their service workflows." : "Tracking is fixed because this product has recorded stock activity. Ask the inventory/catalogue manager to review the original evidence; do not change tracking to bypass history."}</span>}
               </label>
               <label className="text-sm">Catalogue item type<select {...form.register("itemKind")} disabled={Boolean(editing)} className="mt-1 w-full rounded-lg border p-2.5"><option value="stock">Stocked goods</option><option value="service">Service — no physical stock</option></select><span className="mt-1 block text-xs text-[var(--muted)]">Services use aftersales cases and linked costs. Item type cannot be changed after creation.</span></label>
               <label className="text-sm">
@@ -518,6 +520,7 @@ export default function ProductsPage() {
                   step="0.01"
                   inputMode="decimal"
                   placeholder="0.00"
+                  aria-label="Default unit cost (₦)"
                   {...form.register("defaultUnitCostNaira", {
                     setValueAs: (value) =>
                       value === "" ? undefined : Number(value),
@@ -525,6 +528,7 @@ export default function ProductsPage() {
                   disabled={serviceItem}
                   className="mt-1 w-full rounded-lg border p-2.5"
                 />
+              {serviceItem && <span className="mt-1 block text-xs text-[var(--muted)]">Services do not have a physical stock unit cost; use the approved service charge and linked cost workflows.</span>}
               </label>
               {canManageBasePrice && (
                 <>
@@ -579,19 +583,21 @@ export default function ProductsPage() {
                 Minimum stock
                 <input
                   type="number"
-                  {...form.register("minimumStockLevel")}
+                  aria-label="Minimum stock" {...form.register("minimumStockLevel")}
                   disabled={serviceItem}
                   className="mt-1 w-full rounded-lg border p-2.5"
                 />
+              {serviceItem && <span className="mt-1 block text-xs text-[var(--muted)]">Minimum stock does not apply to a non-stock service.</span>}
               </label>
               <label className="text-sm">
                 Reorder level
                 <input
                   type="number"
-                  {...form.register("reorderLevel")}
+                  aria-label="Reorder level" {...form.register("reorderLevel")}
                   disabled={serviceItem}
                   className="mt-1 w-full rounded-lg border p-2.5"
                 />
+              {serviceItem && <span className="mt-1 block text-xs text-[var(--muted)]">Reorder stock level does not apply to a non-stock service.</span>}
               </label>
               <label className="text-sm md:col-span-2">
                 Description

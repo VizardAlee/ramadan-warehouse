@@ -224,7 +224,7 @@ export default function CountsPage() {
             ))}
           </select>
           </label>
-          <Button disabled={draftBusy || draftReadyOwner !== draftStorageKey || (!draftInstruction && (!locationId || !counterOptions.some(item => item.id === assignedUserId)))} onClick={create}>
+          <Button disabledReason={!locationId ? "Choose the physical Stock location first. If it is missing, ask the assigned manager or administrator to review location setup and your assignment." : !counterOptions.length ? "No active eligible counter is assigned to this location. Ask a user administrator to assign an active person with stock-count authority; refresh before creating the draft." : !assignedUserId ? "Choose an eligible Counter for this location before creating the draft." : !counterOptions.some(item => item.id === assignedUserId) ? "The selected counter is no longer eligible here. Choose an active eligible counter, or ask a user administrator to review assignment." : undefined} disabled={draftBusy || draftReadyOwner !== draftStorageKey || (!draftInstruction && (!locationId || !counterOptions.some(item => item.id === assignedUserId)))} onClick={create}>
             {draftBusy ? "Checking draft…" : draftInstruction ? "Retry same draft" : "Create draft"}
           </Button>
           {draftInstruction && <p className="text-sm md:col-span-3">An earlier draft request is awaiting confirmation. Retry its saved details, including after reloading, before creating another count.</p>}
@@ -334,6 +334,7 @@ export default function CountsPage() {
                 : "Visible expected quantities"}{" "}
               · {workspace.count.status}
             </p>
+            {!canEditWorkspace && <p className="mt-2 rounded-lg border bg-white p-3 text-sm">{workspace.count.status !== "in_progress" ? `This count is ${workspace.count.status.replaceAll("_", " ")}; quantities can only be edited while counting is in progress. Ask the reviewing manager about its current stage; posted history cannot be rewritten.` : "This in-progress count is assigned to another counter. Ask the assigned counter or authorized administrator to complete it; viewing the count does not grant editing authority."}</p>}
             <p className="mt-2 text-sm text-[var(--muted)]">Save progress by page. Blank quantities are not counted as zero. Submit only after every item has been counted.</p>
             {message && <p role="status" className="mt-2 rounded-lg bg-amber-50 p-3 text-sm">{message}</p>}
             <div className="responsive-table-wrap mt-4 max-h-[55vh] overflow-auto">

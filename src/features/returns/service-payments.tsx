@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { AppDialog } from "@/components/ui/app-dialog";
 import { Button } from "@/components/ui/button";
+import { firstBlocker } from "@/features/guidance/first-blocker";
 import { callAdministration } from "@/features/administration/api";
 import { formatDateTime, formatNaira, nairaToKobo } from "@/features/inventory/format";
 import type { DateTimeValue } from "@/types/domain";
@@ -72,7 +73,12 @@ export function ServicePayments({ caseId, canRefund, disabled, mutationError, ac
           <label className="text-sm sm:col-span-2">Refund reason<textarea disabled={disabled} maxLength={500} className="mt-1 w-full rounded-lg border p-3" value={draft.reason} onChange={event => setDraft({ ...draft, reason: event.target.value })} /></label>
           <label className="text-sm sm:col-span-2">Payout reference (optional)<input disabled={disabled} maxLength={160} className="mt-1 w-full rounded-lg border p-3" value={draft.reference} onChange={event => setDraft({ ...draft, reference: event.target.value })} /></label>
         </div>
-        <div className="mt-5 flex flex-wrap justify-end gap-3"><Button variant="secondary" onClick={() => setSelected(null)}>Close refund form</Button><Button disabled={disabled || loading || !Number.isSafeInteger(minor) || minor <= 0 || minor > selected.amountMinor - (selected.refundedAmountMinor ?? 0) || draft.reason.trim().length < 5 || (draft.method !== "cash" && !draft.bankAccountId)} onClick={async () => {
+        <div className="mt-5 flex flex-wrap justify-end gap-3"><Button variant="secondary" onClick={() => setSelected(null)}>Close refund form</Button><Button aria-busy={disabled || loading} disabledReason={firstBlocker([
+          [!Number.isSafeInteger(minor) || minor <= 0, "Enter a positive refund amount with no more than two decimal places."],
+          [minor > selected.amountMinor - (selected.refundedAmountMinor ?? 0), `Refund cannot exceed this receipt's remaining ${formatNaira(selected.amountMinor - (selected.refundedAmountMinor ?? 0))}.`],
+          [draft.reason.trim().length < 5, "Enter the actual refund reason, at least 5 characters. The original service charge remains due."],
+          [draft.method !== "cash" && !draft.bankAccountId, accounts.length ? "Select the actual paying company account." : "No active payout account is available. Ask authorized finance staff to configure the company account, then refresh. Standalone service cash uses company cash on hand."]
+        ])} disabled={disabled || loading || !Number.isSafeInteger(minor) || minor <= 0 || minor > selected.amountMinor - (selected.refundedAmountMinor ?? 0) || draft.reason.trim().length < 5 || (draft.method !== "cash" && !draft.bankAccountId)} onClick={async () => {
           const saved = await onRefund({ action: "refund", caseId, originalPaymentId: selected.id, amountMinor: minor, method: draft.method, bankAccountId: draft.bankAccountId || undefined, reason: draft.reason, reference: draft.reference || undefined, idempotencyKey: crypto.randomUUID() });
           if (saved) { setSelected(null); await load([null]); }
         }}>Confirm receipt refund</Button></div>
