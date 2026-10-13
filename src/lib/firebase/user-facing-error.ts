@@ -28,6 +28,34 @@ const messages: Record<string, string> = {
   INVITATION_USER_INACTIVE: "Activate this user before issuing a new invitation link.",
 };
 const prerequisiteMessages: Record<string, string> = {
+  "Select the active company financial account for this money line.": "Select the active company account matching this money-ledger code. Ask authorized banking staff to configure or reconcile the mapping if absent.",
+  "This ledger code is shared by multiple financial accounts. Give each account its own code before posting manual money entries.": "Ask authorized banking staff and the accountant to reconcile this duplicated financial-account ledger mapping before posting. Do not create another journal to bypass the duplicate.",
+  "The account picker requires paging before more than 500 ledger accounts can be used. No accounts were silently omitted.": "This register exceeds the supported account picker capacity. Ask the application administrator and accountant for supported paging. No accounts were silently omitted; repeating the same request cannot resolve the limit.",
+
+  "Reconcile a shorter period containing at most 200 statement and ledger rows.": "Select a shorter reconciliation period containing at most 200 statement and ledger rows. Waiting or repeating the same range cannot resolve this limit.",
+  "This period overlaps a closed bank reconciliation.": "Select a period that does not overlap a closed reconciliation. Ask authorized bank reconciliation staff to review the original period; do not rewrite closed evidence.",
+  "Match every statement transaction in the period before preparing reconciliation.": "Match every statement transaction in the chosen period to its genuine ledger evidence before preparing reconciliation. Ask authorized reconciliation staff to investigate unmatched rows.",
+  "Match every bank-ledger line in the period before preparing reconciliation.": "Match every bank-ledger line in the chosen period to the actual statement evidence. Ask finance to investigate missing statements; do not invent a match.",
+  "Statement and bank-ledger movements do not agree.": "Ask authorized finance staff to investigate the difference between statement and ledger movements before preparing reconciliation. Do not alter evidence to force equality.",
+  "A reconciliation match changed after preparation. Prepare it again.": "Refresh the current matches and prepare the reconciliation again before completing it. Ask authorized reconciliation staff to review the changed evidence.",
+  "Receipt history exceeds this selector's 200-record source limit. No partial receipt list was returned.": "The receipt history exceeds the supported selector limit. No partial list was returned. Ask an authorized accountant to review original source evidence; repeatedly retrying cannot resolve this cap.",
+  "Billing controls changed. Refresh and review the current mappings.": "Refresh and review the current billing mappings before saving your reviewed selection. The previous version has changed.",
+  "Duplicate ledger codes require reconciliation before control mapping.": "Ask an authorized accountant to reconcile duplicate ledger codes before saving billing controls. Do not create another posting to resolve the duplicate.",
+  "An account with existing postings cannot be repurposed as a billing control. Use a dedicated reviewed account.": "Select or have an authorized accountant create a dedicated reviewed liability account. Existing unrelated postings prevent repurposing this account as a billing control.",
+  "A paged account selector is required. No accounts were silently omitted.": "This account register exceeds the supported selector capacity. Ask the application administrator and accountant to review paging support. No accounts were silently omitted; repeating the request cannot resolve the limit.",
+  "This organization needs a paged account selector before manual journal entry. No accounts were silently omitted.": "Manual journal account selection exceeds the supported capacity. Ask the application administrator and accountant for supported paging. No accounts were silently omitted; do not post through another account to bypass it.",
+  "The service balance requires reconciliation before another receipt or refund.": "Stop further receipts and refunds for this case. Ask an authorized accountant to reconcile the recorded service charge and original payment evidence.",
+  "The original receipt journal requires reconciliation before refunding.": "Ask an authorized accountant to reconcile the original receipt journal before refunding. Do not invent a replacement receipt or collect/refund the money again.",
+  "Service receipt tax allocation requires reconciliation before another payment.": "Ask an authorized accountant to reconcile the original service receipt and VAT allocation before recording another payment or refund.",
+  "Customer balance evidence requires reconciliation.": "Ask an authorized accountant to reconcile the customer balance and original invoice/receipt evidence before recording this correction.",
+  "Original receipt journal is missing.": "Ask an authorized accountant to review the original receipt and journal evidence before correction. Do not create a replacement journal just to bypass this check.",
+  "Original receipt journal requires reconciliation before correction.": "Ask an authorized accountant to reconcile the original receipt journal before correcting it. Keep the original evidence and diagnostic code.",
+  "Invoice debt and receipt evidence requires reconciliation.": "Ask an authorized accountant to reconcile invoice debt and original receipt evidence before correction. Do not change the charge to force a refund.",
+  "This budget changed since you opened it. Refresh and review the latest version before saving.": "Refresh and review the latest budget target version before saving your reasoned revision. Preserve the other authorized change.",
+  "An approved rule already covers this scope and period, or lacks a bounded end date. Reconcile its coverage before approving another version.": "Ask the authorized accountant to reconcile existing approved tax coverage and its bounded dates before approving another version. Do not guess a new effective period.",
+  "An Authentication account already exists for this email. Use the documented recovery process; it was not attached.": "An existing sign-in identity uses this email. Ask a system administrator to verify the identity through approved recovery; do not create another invitation or silently attach the account.",
+  "You cannot change your own access assignments or status.": "This user form cannot update your own access assignments or status. Ask another authorized user administrator to review and save the permitted change.",
+
   "Another active branch is already designated as head office.": "An active Head Office already exists. Choose Store / branch for this location, or ask the system administrator to review the current Head Office designation.",
   "Store assignment is unavailable.": "Choose an active assigned store. Ask a system administrator to configure or activate the correct store, then refresh the staff form.",
   "Linked app user must belong to this organization.": "Choose an app user in this organization. Ask an authorized user administrator to review the identity; do not link another organization's account.",
@@ -59,7 +87,7 @@ export function toUserFacingError(error: unknown, fallback = "The operation coul
       : undefined;
   return new UserFacingError(
     (["STOCK_TRANSFER_ACTION_REQUIRED", "SUPPLIER_RETURN_ACTION_REQUIRED", "SALE_RETURN_ACTION_REQUIRED", "SALE_CORRECTION_ACTION_REQUIRED", "OPERATIONAL_EVIDENCE_ACTION_REQUIRED"].includes(operationCode ?? "") && details && "userMessage" in details && typeof details.userMessage === "string" ? details.userMessage : undefined) ??
-    (code && ["functions/failed-precondition", "functions/already-exists", "functions/resource-exhausted", "functions/invalid-argument"].includes(code) && typeof error === "object" && error !== null && "message" in error && typeof error.message === "string" ? prerequisiteMessages[error.message] : undefined) ??
+    (code && ["functions/failed-precondition", "functions/already-exists", "functions/resource-exhausted", "functions/invalid-argument", "functions/permission-denied"].includes(code) && typeof error === "object" && error !== null && "message" in error && typeof error.message === "string" ? prerequisiteMessages[error.message] : undefined) ??
     (operationCode && messages[operationCode]) ??
       (code ? messages[code] : undefined) ??
       fallback,

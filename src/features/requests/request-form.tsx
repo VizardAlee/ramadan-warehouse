@@ -340,6 +340,8 @@ export function RequestForm() {
             />
             <Button
               variant="ghost"
+              aria-label="Remove request item"
+              disabledReason="Keep at least one actual product line in the request. Change this line to the intended goods instead of removing the final line."
               disabled={lines.length === 1}
               onClick={() =>
                 setLines((current) =>

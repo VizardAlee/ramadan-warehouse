@@ -20,6 +20,7 @@ export function RolesManager() {
   const canManage = Boolean(profile && hasPermission(profile, "role.manage"));
   const roles = useOrganizationCollection<CustomRole>("roles", canManage);
   const [options, setOptions] = useState<RoleOption[]>([]);
+  const [optionsLoading, setOptionsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState<CustomRole | null>(null);
   const [open, setOpen] = useState(false);
@@ -34,9 +35,9 @@ export function RolesManager() {
     if (!canManage) return;
     let active = true;
     void callAdministration<object, { roles: RoleOption[] }>("getAssignableRolePermissions", {}).then((result) => {
-      if (active) setOptions(result.roles);
+      if (active) { setOptions(result.roles); setOptionsLoading(false); }
     }).catch((cause) => {
-      if (active) setError(cause instanceof Error ? cause.message : "Role permissions could not be loaded.");
+      if (active) { setError(cause instanceof Error ? cause.message : "Role permissions could not be loaded."); setOptionsLoading(false); }
     });
     return () => { active = false; };
   }, [canManage]);
@@ -73,12 +74,13 @@ export function RolesManager() {
       setSaving(false);
     }
   }
-  if (!canManage) return <div className="rounded-xl border bg-white p-6">Only authorized administrators can manage roles.</div>;
+  if (!canManage) return <div className="rounded-xl border bg-white p-6">Only authorized administrators can manage roles. Ask a system administrator to review access for your duties; use Refresh authorization after an approved change.</div>;
   return <div className="page-stack">
     <div className="flex flex-wrap items-end justify-between gap-3">
       <PageHeader title="Roles & permissions" description="Create named roles with precise permissions. Changes to an assigned role update its users and leave an audit trail." />
-      <Button disabled={!options.length} onClick={() => start()}><Plus className="mr-2 size-4" /> Create role</Button>
+      <Button aria-busy={optionsLoading} disabledReason={optionsLoading ? undefined : "Allowed role profiles are unavailable. Refresh this workspace; if they remain unavailable, ask the system administrator to review role setup and authorization."} disabled={!options.length} onClick={() => start()}><Plus className="mr-2 size-4" /> Create role</Button>
     </div>
+    {optionsLoading && <p role="status" className="text-sm text-[var(--muted)]">Loading allowed role profiles…</p>}
     {error && !open && <p role="alert" className="rounded-xl bg-red-50 p-3 text-sm text-red-800">{error}</p>}
     {roles.error && <p role="alert" className="rounded-xl bg-red-50 p-3 text-sm text-red-800">Roles could not be loaded. Refresh and try again.</p>}
     <section className="space-y-3" aria-label="Custom roles">
@@ -100,7 +102,7 @@ export function RolesManager() {
         <label className="block text-sm">Status<select value={status} onChange={(event) => setStatus(event.target.value as "active" | "inactive")} className="mt-1 w-full rounded-lg border p-2.5"><option value="active">Active</option><option value="inactive">Inactive</option></select></label>
         {editing && <label className="block text-sm">Reason for change<input required minLength={3} maxLength={500} value={reason} onChange={(event) => setReason(event.target.value)} className="mt-1 w-full rounded-lg border p-2.5" placeholder="Why are you changing this role?" /></label>}
         {error && <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-800">{error}</p>}
-        <div className="flex justify-end gap-2"><Button type="button" variant="outline" onClick={() => setOpen(false)}>Cancel</Button><Button type="submit" disabled={saving || !name.trim() || !available.length}>{saving ? "Saving…" : "Save role"}</Button></div>
+        <div className="flex justify-end gap-2"><Button type="button" variant="outline" onClick={() => setOpen(false)}>Cancel</Button><Button type="submit" aria-busy={saving} disabledReason={!name.trim() ? "Enter a distinct role name." : !available.length ? "Select a loaded allowed base profile. Ask the system administrator if no permitted profiles are available." : undefined} disabled={saving || !name.trim() || !available.length}>{saving ? "Saving…" : "Save role"}</Button></div>
       </form>
     </AppDialog>}
   </div>;

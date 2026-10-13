@@ -326,6 +326,8 @@ export function TransferDetail({ transferId }: { transferId: string }) {
             {transfer.status === "draft" &&
               hasPermission(profile, "transfers.submit") && (
                 <Button
+                  aria-busy={loading}
+                  disabledReason={!online ? "Reconnect before changing a transfer stage. The assigned source/receiving manager must review current evidence; do not assume an interrupted action failed." : undefined}
                   disabled={sensitiveActionDisabled(online, loading)}
                   onClick={() => void action("submitTransfer")}
                 >
@@ -335,6 +337,8 @@ export function TransferDetail({ transferId }: { transferId: string }) {
             {transfer.status === "submitted" &&
               hasPermission(profile, "transfers.review") && (
                 <Button
+                  aria-busy={loading}
+                  disabledReason={!online ? "Reconnect before changing a transfer stage. The assigned source/receiving manager must review current evidence; do not assume an interrupted action failed." : undefined}
                   disabled={sensitiveActionDisabled(online, loading)}
                   variant="secondary"
                   onClick={() => void action("startTransferReview")}
@@ -346,6 +350,8 @@ export function TransferDetail({ transferId }: { transferId: string }) {
               !selfApprovalBlocked &&
               hasPermission(profile, "transfers.approve") && (
                 <Button
+                  aria-busy={loading}
+                  disabledReason={!online ? "Reconnect before changing a transfer stage. The assigned source/receiving manager must review current evidence; do not assume an interrupted action failed." : undefined}
                   disabled={sensitiveActionDisabled(online, loading)}
                   onClick={() => void action("approveTransfer")}
                 >
@@ -358,6 +364,8 @@ export function TransferDetail({ transferId }: { transferId: string }) {
                 (item) => item.trackingType === "quantity",
               ) && (
                 <Button
+                  aria-busy={loading}
+                  disabledReason={!online ? "Reconnect before changing a transfer stage. The assigned source/receiving manager must review current evidence; do not assume an interrupted action failed." : undefined}
                   disabled={sensitiveActionDisabled(online, loading)}
                   onClick={() => void action("reserveTransferStock")}
                 >
@@ -367,6 +375,8 @@ export function TransferDetail({ transferId }: { transferId: string }) {
             {["reserved", "partially_reserved"].includes(transfer.status) &&
               hasPermission(profile, "transfers.pick") && (
                 <Button
+                  aria-busy={loading}
+                  disabledReason={!online ? "Reconnect before changing a transfer stage. The assigned source/receiving manager must review current evidence; do not assume an interrupted action failed." : undefined}
                   disabled={sensitiveActionDisabled(online, loading)}
                   onClick={() => void action("startTransferPicking")}
                 >
@@ -377,6 +387,8 @@ export function TransferDetail({ transferId }: { transferId: string }) {
             {["received", "cost_reconciliation"].includes(transfer.status) &&
               hasPermission(profile, "transfers.close") && (
                 <Button
+                  aria-busy={loading}
+                  disabledReason={!online ? "Reconnect before changing a transfer stage. The assigned source/receiving manager must review current evidence; do not assume an interrupted action failed." : undefined}
                   disabled={sensitiveActionDisabled(online, loading)}
                   onClick={() => void action("closeTransfer")}
                 >

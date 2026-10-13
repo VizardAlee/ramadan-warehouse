@@ -789,6 +789,7 @@ export function StockTransferForm({
         <Button
           type="button"
           variant="secondary"
+          disabledReason="A transfer supports at most 20 product lines. Review this demand with the source manager; separate additional actual demand into another authorized transfer."
           disabled={lines.length >= 20}
           onClick={() => {
             setKey(crypto.randomUUID());
@@ -813,6 +814,8 @@ export function StockTransferForm({
         />
       </label>
       <Button
+        aria-busy={busy || stockLoading}
+        disabledReason={!online ? "Reconnect before creating a transfer and checking real stock." : !options ? "Transfer setup is unavailable. Refresh this workspace; if it remains unavailable, ask the assigned manager or administrator to review location access and setup." : undefined}
         disabled={busy || !online || stockLoading || !options}
         type="submit"
       >
@@ -1159,6 +1162,8 @@ export function StockTransferDetail({ transferId, embedded = false }: { transfer
               : "Confirm only after counting the goods. Good stock becomes available for sale; damaged stock is kept separately."}
           </p>
           <Button
+            aria-busy={busy}
+            disabledReason={!online ? "Reconnect to confirm the current transfer stage. Do not record delivery until the goods have actually arrived and been counted." : undefined}
             disabled={busy || !online}
             onClick={() =>
               void (approval
@@ -1217,6 +1222,8 @@ export function StockTransferDetail({ transferId, embedded = false }: { transfer
             <Button
               className="mt-3"
               variant="secondary"
+              aria-busy={busy}
+              disabledReason={!online ? "Reconnect to ask the source manager." : note.trim().length < 3 ? "Explain the actual problem in at least 3 characters so the source manager can review it." : undefined}
               disabled={busy || !online || note.trim().length < 3}
               onClick={() => void act("report_problem", { note })}
             >
@@ -1254,6 +1261,8 @@ export function StockTransferDetail({ transferId, embedded = false }: { transfer
                 as a loss. Approved branch-request demand stays outstanding.
               </p>
               <Button
+                aria-busy={busy}
+                disabledReason={!online ? "Reconnect before recording the source decision." : note.trim().length < 3 ? "Enter the actual decision reason, at least 3 characters." : transfer.status === "requested" && disposition !== "never_left" ? "Requested goods have not been dispatched. Only cancel as still at source; approve/dispatch through the normal stage before recording a later loss." : undefined}
                 disabled={
                   busy ||
                   !online ||

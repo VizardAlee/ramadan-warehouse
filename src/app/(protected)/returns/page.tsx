@@ -579,7 +579,7 @@ export default function ReturnsPage() {
                 </p>
                 {record.kind !== "reservation_cancellation" && record.kind !== "service_credit" && <p className="mt-1 text-sm">{record.inspectionStatus === "completed" ? "Inspection recorded" : record.status === "approved" ? "Historical posted return — unchanged" : "Inspection required before approval"}</p>}
                 {["card", "bank_transfer"].includes(record.resolution) && <label className="mt-2 block text-sm">Refund from company account
-                  <select disabled={Boolean(record.bankAccountId)} value={record.bankAccountId || legacyRefundAccounts[record.id] || ""} onChange={(event) => setLegacyRefundAccounts((current) => ({ ...current, [record.id]: event.target.value }))} className="mt-1 w-full rounded-lg border p-3">
+                  {record.bankAccountId && <span className="block text-xs text-[var(--muted)]">The originally recorded funding account is retained as historical evidence and cannot change here. Ask finance to review an incorrect original payment through its correction workflow.</span>}<select disabled={Boolean(record.bankAccountId)} value={record.bankAccountId || legacyRefundAccounts[record.id] || ""} onChange={(event) => setLegacyRefundAccounts((current) => ({ ...current, [record.id]: event.target.value }))} className="mt-1 w-full rounded-lg border p-3">
                     <option value="">Select funding account for this earlier return</option>
                     {bankAccounts.map((account) => <option key={account.id} value={account.id}>{account.bankName} · {account.accountName} · ••••{account.accountNumberLast4}</option>)}
                   </select>

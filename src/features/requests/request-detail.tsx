@@ -319,7 +319,7 @@ export function RequestDetail({ requestId }: { requestId: string }) {
             </Button>
             <Button
               variant="secondary"
-              disabled={loading || reason.trim().length < 3}
+              aria-busy={loading} disabledReason={reason.trim().length < 3 ? "Enter the actual change, cancellation or closure reason in at least 3 characters. The assigned requester or authorized reviewer must act in the permitted request stage." : undefined} disabled={loading || reason.trim().length < 3}
               onClick={() => action("requestBranchRequestChanges")}
             >
               Request changes
@@ -389,7 +389,7 @@ export function RequestDetail({ requestId }: { requestId: string }) {
           />
           <Button
             variant="secondary"
-            disabled={loading || !comment.trim()}
+            aria-busy={loading} disabledReason={!comment.trim() ? "Enter a meaningful comment before adding it. Reviewers must choose the intended internal or branch-visible audience." : undefined} disabled={loading || !comment.trim()}
             onClick={addComment}
           >
             Add comment
@@ -408,7 +408,7 @@ export function RequestDetail({ requestId }: { requestId: string }) {
             hasPermission(profile, "requests.cancel_approved")) && (
             <Button
               variant="secondary"
-              disabled={loading || reason.trim().length < 3}
+              aria-busy={loading} disabledReason={reason.trim().length < 3 ? "Enter the actual change, cancellation or closure reason in at least 3 characters. The assigned requester or authorized reviewer must act in the permitted request stage." : undefined} disabled={loading || reason.trim().length < 3}
               onClick={() => action("cancelBranchRequest")}
             >
               Cancel request
@@ -417,7 +417,7 @@ export function RequestDetail({ requestId }: { requestId: string }) {
         {profile && hasPermission(profile, "requests.close") && (
           <Button
             variant="secondary"
-            disabled={loading || reason.trim().length < 3}
+            aria-busy={loading} disabledReason={reason.trim().length < 3 ? "Enter the actual change, cancellation or closure reason in at least 3 characters. The assigned requester or authorized reviewer must act in the permitted request stage." : undefined} disabled={loading || reason.trim().length < 3}
             onClick={() => action("closeBranchRequest")}
           >
             Close request

@@ -101,3 +101,12 @@ The initial mapping above records the audit checkpoint before the last closure p
 The button remains the same DOM element when an explicit requirement clears. This preserves click/focus identity and fixed the return/refund regression. Existing inspection, safe retry and service-catalogue tests pass unchanged. New tests verify missing funding accounts, original receipt ceilings, distinct reviewed mappings, two-account prerequisites, safe error redaction and permission-gated source links.
 
 Residual limits: serial completeness and unsupported detailed reservation/exception interfaces remain governed by original evidence/server checks; some enabled actions rejected by the server or raw controls use the nearby workspace checklist. Guidance does not claim to implement absent workflows or exhaustive live acceptance for every role.
+
+
+## Bounded guidance follow-up
+
+The follow-up corrects obsolete serialized POS and collection-paging wording against current support: exact online serialized units, at most 50 serials per order, reservation at final confirmation and retained original-unit collection/return evidence. No batch POS or detailed transfer exception interface is introduced.
+
+Available mapped actions now expose keyboard-openable Action requirements beside the control, including after rejection. Small icon controls avoid repeated disclosure layout; their existing local checks remain. Known public server failures receive finite safe recovery translations, including bank row caps, receipt/account selector limits, service/invoice reconciliation, mappings, journals, budget versions, tax coverage and own-user access. Arbitrary server messages remain redacted.
+
+Inventory reconciliation checks actual adjacent guidance, contextual requirements, processing/obvious states and protected conditions with authorized next steps. Confirmed missing explanations in import validation, the final request line, supplier identity, physical collection, photo description and included-part capacity are closed without changing their disabled expressions. The final control-inventory report records classifications and source evidence. Source coverage is distinct from live all-role acceptance; server-only protected/dynamic failures retain safe diagnostic and responsible-team handoff.

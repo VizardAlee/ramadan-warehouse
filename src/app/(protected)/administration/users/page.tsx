@@ -227,7 +227,7 @@ export default function UsersPage() {
       <div className="rounded-xl border bg-white p-8">
         <h1 className="text-2xl font-semibold">Users</h1>
         <p className="mt-2 text-sm text-[var(--muted)]">
-          You do not have user-management permission.
+          You do not have user-management permission. Ask a system administrator to review access for your duties; use Refresh authorization after an approved change.
         </p>
       </div>
     );
@@ -468,6 +468,7 @@ export default function UsersPage() {
                   className="mt-1 w-full rounded-lg border p-2.5"
                   aria-invalid={Boolean(errors.email)}
                 />
+                {editing && <span className="mt-1 block text-xs text-[var(--muted)]">Existing login email cannot change here. Ask a system administrator to verify account recovery; do not create a duplicate invitation.</span>}
                 {errors.email && (
                   <span className="text-xs text-red-700">
                     Valid email required

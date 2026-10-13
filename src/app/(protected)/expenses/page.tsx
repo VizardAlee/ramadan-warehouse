@@ -294,6 +294,7 @@ function ExpensesWorkspace() {
             </label>
             <label className="text-sm">
               Payee
+              {form.supplierId && <span className="block text-xs text-[var(--muted)]">Payee comes from the selected supplier. Choose Other payee only for a genuinely separate payee; purchasing staff maintain supplier identity.</span>}
               <input
                 disabled={Boolean(form.supplierId)}
                 value={form.payeeName}
@@ -317,6 +318,7 @@ function ExpensesWorkspace() {
             </label>
             <label className="text-sm">
               Allocate to
+              {(operatingContext || linkedId) && <span className="block text-xs text-[var(--muted)]">Allocation and location follow the authorized Working location or linked source record. Select the correct context before creating a separate expense; ask the assigned manager to review a source mismatch.</span>}
               <select
                 value={form.scopeType}
                 disabled={Boolean(operatingContext) || !!linkedId}

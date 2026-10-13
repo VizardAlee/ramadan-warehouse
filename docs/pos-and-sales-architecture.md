@@ -134,8 +134,7 @@ non-restockable return: branch stock unchanged
 return debits = return credits
 ```
 
-Serialized and batch checkout and complete financial statements remain later
-work. Procurement/accounts payable, expenses, bank reconciliation, and period
+Serialized checkout is implemented online with one unique exact serial per unit, at most 50 serials per order, and reservation at final confirmation. Batch checkout remains restricted to its existing supported workflows; no new batch POS interface is implied. Complete customer statements provide dated opening, transaction and closing evidence, with historical reconciliation warnings and bounded exports. Procurement/accounts payable, expenses, bank reconciliation, and period
 closing are implemented as controlled accounting workflows.
 
 ## Atomic sale invariant

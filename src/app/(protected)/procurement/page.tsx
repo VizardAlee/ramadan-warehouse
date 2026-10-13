@@ -382,6 +382,8 @@ export default function ProcurementPage() {
           </div>
           <Button
             className="mt-4"
+            aria-busy={busy}
+            disabledReason={supplier.name.trim().length < 2 ? "Enter the actual supplier name, at least 2 characters." : !supplier.phone && !supplier.email ? "Enter a real supplier phone or email. Authorized purchasing staff verify supplier identity." : undefined}
             disabled={
               busy ||
               supplier.name.trim().length < 2 ||

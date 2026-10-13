@@ -26,6 +26,17 @@ describe("user-facing Firebase errors", () => {
     const result=toUserFacingError({code,message});expect(result.message).toContain(expected);expect(result.diagnosticCode).toBe(code);
     expect(toUserFacingError({code,message:message+" secret internal suffix"}).message).not.toContain("secret");
   });
+  it.each([
+    ["functions/resource-exhausted","Reconcile a shorter period containing at most 200 statement and ledger rows.","shorter reconciliation period"],
+    ["functions/failed-precondition","Receipt history exceeds this selector's 200-record source limit. No partial receipt list was returned.","No partial list"],
+    ["functions/failed-precondition","The service balance requires reconciliation before another receipt or refund.","Stop further receipts"],
+    ["functions/permission-denied","You cannot change your own access assignments or status.","another authorized user administrator"],
+    ["functions/failed-precondition","This budget changed since you opened it. Refresh and review the latest version before saving.","latest budget target version"],
+  ])("offers exact safe recovery and rejects appended private text",(code,message,expected)=>{
+    expect(toUserFacingError({code,message}).message).toContain(expected);
+    expect(toUserFacingError({code,message:message+" private record 123"}).message).not.toContain("private record");
+    expect(toUserFacingError({code,message}).diagnosticCode).toBe(code);
+  });
   it("uses the supplied safe fallback for unknown errors", () => expect(toUserFacingError(new Error("raw"), "Try again safely.").message).toBe("Try again safely."));
   it("does not mislabel every unauthenticated callable response as an expired session", () => {
     expect(toUserFacingError({ code: "functions/unauthenticated" }).message).toContain("sign-in or device verification");

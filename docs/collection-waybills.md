@@ -24,7 +24,4 @@ waybill. Provisional offline invoices cannot issue one. Historical sales are
 not backfilled with invented handover dates or collectors; older immediate
 sales without collection evidence remain invoice/receipt-only.
 
-The existing sale-document query returns the latest 25 collections; paging
-older collection documents is still pending. POS remains quantity-tracked:
-serial-number checkout/evidence is a separate unfinished workstream, not
-implied by this printable document.
+The sale-document query pages collection evidence using Newer collections and Older collections. Serialized POS checkout runs online with exact unique units and reservation at final confirmation; partial serial collection retains the recorded identities. This printable document does not add a batch POS interface or unsupported detailed transfer exceptions.

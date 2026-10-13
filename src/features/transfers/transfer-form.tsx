@@ -268,6 +268,7 @@ export function TransferForm({ source }: { source: "request" | "direct" }) {
         </label>
         <label>
           Destination store / branch
+          {source === "request" && <span className="block text-xs text-[var(--muted)]">Destination and products are fixed by the approved request. Ask the authorized request reviewer to correct demand through its request workflow; do not replace linked goods here.</span>}
           <select
             required
             disabled={source === "request"}
@@ -441,7 +442,7 @@ export function TransferForm({ source }: { source: "request" | "direct" }) {
         ))}
       </section>
       <div className="flex justify-end">
-        <Button type="submit" disabled={saving || !lines.length}>
+        <Button type="submit" aria-busy={saving} disabledReason={!lines.length ? "Add at least one actual product line before creating the draft transfer." : undefined} disabled={saving || !lines.length}>
           {saving && <Loader2 className="mr-2 size-4 animate-spin" />}Create
           draft transfer
         </Button>

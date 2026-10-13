@@ -491,3 +491,14 @@ Consequential blocked financial actions now identify the first unmet existing co
 Month-close blockers name the source team and provide a source link only when the reader's current navigation permission permits it. Known public HR identifier, role assignment/migration and Head Office conflicts receive safe corrective instructions; arbitrary backend messages remain hidden. Count stage/assignment and immutable tracking/service-only fields explain their read-only state. Linked request destinations remain governed by the approved demand; selecting another store is not a workaround.
 
 Guidance leaves every business, period, credit and access guard intact. Some legacy/raw controls still use workspace requirements rather than exhaustive first-unmet diagnosis; unsupported interfaces and historical evidence require the responsible team. Client acceptance and physical device/printing checks remain separate.
+
+
+## Action requirements and server recovery
+
+Use the keyboard-openable **Action requirements** beside an available mapped action to review its conditions and authorized resolver, including after a server rejection. A disabled action shows its known missing condition or contextual requirements. Wait during processing; reconnect for online-only stages. Keep diagnostic codes for the responsible team. The browser cannot inspect protected records or infer every server condition. If the outcome is uncertain, retry the saved same instructions before starting another transaction.
+
+Serialized POS checkout is online only: one exact unique serial per unit, at most 50 per order. Units are checked and reserved at final confirmation, not while holding a basket. Original-unit returns and inspection use the existing authorized workflow; inventory staff resolve missing identities or unsupported detailed transfer exceptions.
+
+Bank reconciliation caps require a shorter supported period, not repeated waiting. Receipt/account selector caps require an authorized accountant and application administrator to review supported source access; no partial evidence is silently returned. Reconciliation failures need original invoice, receipt, service, bank or journal evidence. Never create a replacement business record to bypass a failed check.
+
+Confirmed final controls: Save supplier needs a name of at least 2 characters and a real phone or email. Physical collection needs eligible actual quantities/exact reserved serials and a collector name of at least 2 characters. Photo evidence needs JPEG/PNG up to 2 MB, a description of at least 3 characters and the exact serial where required; the existing 20-photo limit remains. A service line supports at most 10 included parts. Resolve saved uncertain instructions before changing any of these records.

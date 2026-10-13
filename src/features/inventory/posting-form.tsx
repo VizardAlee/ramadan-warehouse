@@ -550,6 +550,7 @@ export function PostingForm({
               }
               className="mt-1 w-full rounded-lg border p-2.5"
             />
+            {mode === "adjustment" && form.getValues("direction") === "decrease" && <span className="mt-1 block text-xs text-[var(--muted)]">Decrease cost comes from recorded stock issue evidence and cannot be typed here. Ask the inventory manager or accountant to review the original receipt/cost records if it is incorrect.</span>}
             {form.formState.errors.unitCostNaira?.message && (
               <span className="mt-1 block text-xs text-red-700">
                 {form.formState.errors.unitCostNaira.message}

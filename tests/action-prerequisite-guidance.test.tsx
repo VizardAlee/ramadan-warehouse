@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { prerequisiteForAction } from "@/features/guidance/action-prerequisites";
 import {CloseBlockerGuidance} from "@/features/guidance/close-blocker-guidance";
 import type { UserProfile } from "@/types/domain";
+import {salesWorkflowSteps} from "@/features/guidance/workflows";
 import UserGuide from "@/app/(protected)/guide/page";
 const state=vi.hoisted(()=>({profile:{status:"active",roleId:"operations_administrator",roleIds:["operations_administrator"],effectivePermissions:["user.manage","products.read"]}}));
 vi.mock("@/features/auth/auth-context",()=>({useAuth:()=>state}));
@@ -22,6 +23,20 @@ describe("visible prerequisite guidance without changing authority",()=>{
   view.rerender(<ActionGuidanceProvider pathname="/expenses" profile={cashier}><Button>Record payment</Button></ActionGuidanceProvider>);
   await waitFor(()=>expect(screen.queryByText(/Choose the actual allocation/)).toBeNull());
   expect(button.hasAttribute("disabled")).toBe(false);
+ });
+ it("keeps requirements beside an enabled action after rejection without exposing protected state",async()=>{
+  render(<ActionGuidanceProvider pathname="/expenses" profile={cashier}><Button>Record payment</Button></ActionGuidanceProvider>);
+  const button=screen.getByRole("button",{name:"Record payment"});expect(button.hasAttribute("disabled")).toBe(false);
+  expect(button.getAttribute("aria-describedby")).toBeNull();
+  const summary=screen.getByText("Action requirements");const details=summary.closest("details")!;
+  details.open=true;fireEvent(details,new Event("toggle"));
+  await screen.findByText(/This browser cannot inspect protected records/);
+  expect(screen.queryByRole("link",{name:"Review company accounts"})).toBeNull();
+ });
+ it("describes supported online serialized POS without claiming unavailable checkout",()=>{
+  render(<UserGuide/>);
+  expect(screen.queryByText(/Serialized-product POS sales remain unavailable/)).toBeNull();
+  expect(salesWorkflowSteps.some(step=>step.detail.includes("at most 50 serials per order"))).toBe(true);
  });
  it("handles native fieldset blockers and exposes a permitted setup destination",async()=>{
   const view=render(<ActionGuidanceProvider pathname="/finance" profile={admin}><fieldset disabled><Button>Post balanced journal</Button></fieldset></ActionGuidanceProvider>);

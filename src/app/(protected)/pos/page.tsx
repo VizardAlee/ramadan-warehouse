@@ -1242,6 +1242,7 @@ export default function PosPage() {
           Held sales{heldSales.length ? ` (${heldSales.length})` : ""}
         </button>
       </nav>
+      {!workspace?.openShift && <p className="text-xs text-[var(--muted)]">Open your assigned device shift online before opening held sales here. Holding a basket does not post or reserve goods.</p>}
 
       {!online && (
         <div className="flex gap-3 rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950">
@@ -1756,6 +1757,7 @@ export default function PosPage() {
                         </Button>
                       </div>
                     </div>
+                    {line.serviceCase && <p className="text-xs text-[var(--muted)]">Quantity and price are fixed by the confirmed linked service case. Review that case with authorized service staff; unlink only for an intentional separate catalogue charge.</p>}
                     {line.product.itemKind === "service" && <ServiceLineOptions line={line} workspace={workspace} customerId={customerId} online={online} onChange={updated => setCart(lines => lines.map(item => item.product.id === updated.product.id ? updated : item))} />}
                     {canReceiveOrder && !line.serviceCase && (
                       <Button

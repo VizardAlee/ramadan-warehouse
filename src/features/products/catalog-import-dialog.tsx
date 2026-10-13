@@ -441,6 +441,8 @@ export function CatalogImportDialog({
               <Button
                 type="button"
                 variant="secondary"
+                aria-busy={loading}
+                disabledReason={!table ? "Upload the actual CSV or .xlsx source first." : !mapping ? "Map the required source columns before validating rows. Authorized catalogue staff review the import data." : undefined}
                 disabled={!table || !mapping || loading}
                 onClick={() => void validate()}
               >
@@ -449,6 +451,8 @@ export function CatalogImportDialog({
               </Button>
               <Button
                 type="button"
+                aria-busy={loading}
+                disabledReason={!preview?.valid ? "Validate the mapped rows and correct every displayed row error before importing. Preview does not create products or stock; authorized catalogue/opening-stock staff verify the real evidence." : undefined}
                 disabled={!preview?.valid || loading}
                 onClick={() => void confirmImport()}
               >
