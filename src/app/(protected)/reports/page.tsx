@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { ChevronDown, Download, FileText, Loader2 } from "lucide-react";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -485,7 +486,8 @@ export default function ReportsPage() {
           or reprint official invoices and receipts when needed.
         </p>
       </header>
-      <div className="flex gap-2 rounded-xl border bg-white p-2">
+      {canReadSales && <p className="text-sm"><Link className="font-semibold underline" href="/invoices">Invoice History</Link> — search and reopen existing customer invoices.</p>}
+      <div className="flex flex-wrap gap-2 rounded-xl border bg-white p-2">
         {canReadSales && (
           <Button
             variant={activeFamily === "sales" ? "primary" : "ghost"}

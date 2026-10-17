@@ -1,3 +1,4 @@
+import { loadInvoiceRange, type InvoiceRow } from "@/features/invoices/invoice-history-data";
 import { deleteApp, initializeApp, type FirebaseApp } from "firebase/app";
 import {
   connectAuthEmulator,
@@ -539,6 +540,14 @@ describe.sequential("sales callables", () => {
         branchId: "another-branch",
       }),
     ).rejects.toMatchObject({ code: "functions/permission-denied" });
+    // The Invoice History UI uses this exact loader and existing report/document endpoints.
+    const invoiceRows = await loadInvoiceRange(input => call<{ rows: InvoiceRow[]; nextCursor: { recordedAt: string; saleId: string } | null }>(branchManager, "generateSalesReport", { ...input }), { branchId, fromDate: "2000-01-01", toDate: "2099-12-31" });
+    expect(invoiceRows!.every(row => row.branchId === branchId)).toBe(true);
+    expect(invoiceRows!.find(row => row.id === posted.saleId)).toMatchObject({ saleNumber: posted.saleNumber, receiptNumber: posted.receiptNumber, grossAmountMinor: 23_650 });
+    expect(invoiceRows!.some(row => row.id === "out-of-scope-sale")).toBe(false);
+    await expect(loadInvoiceRange(input => call(cashier, "generateSalesReport", { ...input }), { branchId, fromDate: "2000-01-01", toDate: "2099-12-31" })).rejects.toMatchObject({ code: "functions/permission-denied" });
+    await adminDb.doc("sales/foreign-invoice-history").set({ organizationId: "foreign-organization", branchId, recordedAt: FieldValue.serverTimestamp() });
+    await expect(call(branchManager, "getSaleDocument", { saleId: "foreign-invoice-history" })).rejects.toMatchObject({ code: "functions/not-found" });
   });
 
   it("routes a bank-transfer sale to the selected company account", async () => {

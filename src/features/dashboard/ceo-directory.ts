@@ -9,6 +9,7 @@ export function canReadCeoView(profile: UserProfile | null | undefined) {
 export interface CeoDestination { title: string; group: string; detail: string; href: string; permissions: PermissionId[]; all?: PermissionId[] }
 /** Viewing a destination never grants its create, approve, edit or delete actions. */
 export const ceoDestinations: CeoDestination[] = [
+  { title: "Invoice History", group: "Customers & sales", detail: "Find existing invoices by date, invoice, receipt or customer; view, print or save PDF", href: "/invoices", permissions: ["reports.sales.read"] },
   { title: "Sales, invoices & receipts", group: "Customers & sales", detail: "Sales history, invoice documents, credit sales and export", href: "/reports?family=sales", permissions: ["reports.sales.read"] },
   { title: "Customers & statements", group: "Customers & sales", detail: "Customer balances, individual histories, repayments and advances", href: "/customers", permissions: ["customers.read"] },
   { title: "Checkout & customer collections", group: "Customers & sales", detail: "Orders, payments and goods collection; actions retain their permissions", href: "/pos", permissions: ["sales.create", "sales.order.create", "sales.payment.accept", "sales.payment.confirm", "sales.stock.release"] },
