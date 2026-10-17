@@ -22,7 +22,7 @@ function startTimestamp(date: string) {
   return Timestamp.fromDate(new Date(`${date}T00:00:00.000+01:00`));
 }
 function endTimestamp(date: string) {
-  return Timestamp.fromDate(new Date(`${date}T23:59:59.999+01:00`));
+  return Timestamp.fromMillis(Date.parse(`${date}T00:00:00.000+01:00`) + 86_400_000);
 }
 function aggregateLines(lines: FirebaseFirestore.QueryDocumentSnapshot[], totals: Map<string, LedgerTotal>) {
   for (const line of lines) {
@@ -66,7 +66,7 @@ export const generateFinancialStatement = onCall(
     let query: FirebaseFirestore.Query = db
       .collection("journalLines")
       .where("organizationId", "==", actor.organizationId)
-      .where("effectiveAt", "<=", endTimestamp(input.toDate));
+      .where("effectiveAt", "<", endTimestamp(input.toDate));
     if (branchId) query = query.where("branchId", "==", branchId);
     if (input.reportType !== "balance_sheet" && input.reportType !== "trial_balance")
       query = query.where("effectiveAt", ">=", startTimestamp(input.fromDate));
@@ -236,7 +236,7 @@ export const getTaxWorkspace = onCall(
       visitQueryPages(db.collection("journalLines")
         .where("organizationId", "==", actor.organizationId)
         .where("effectiveAt", ">=", startTimestamp(input.fromDate))
-        .where("effectiveAt", "<=", endTimestamp(input.toDate)),
+        .where("effectiveAt", "<", endTimestamp(input.toDate)),
         (lines) => aggregateLines(lines, totals), { orderField: "effectiveAt" }),
       visitQueryPages(db.collection("taxRules").where("organizationId", "==", actor.organizationId)
         .where("taxType", "==", "VAT").where("scopeKey", "==", "standard").where("status", "==", "approved"),

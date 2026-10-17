@@ -105,6 +105,25 @@ beforeAll(async () => {
 afterAll(async () => h?.cleanup());
 
 describe.sequential("simple manager stock transfers", () => {
+  it("enforces custom-role omissions against real callable actions and permission removal before replay", async () => {
+    const profile = h.db.doc(`users/${h.receiver.uid}`), original = (await profile.get()).data()!;
+    const denied = { roleId: "branch_manager", roleIds: ["branch_manager"], directRoleIds: [], effectivePermissions: ["products.read"] };
+    try {
+      await profile.update(denied);
+      for (const input of [{ action: "options" }, { action: "list" }, { action: "stock", locationId: h.destinationLocationId }])
+        await expect(api(h.receiver, input)).rejects.toMatchObject({ code: "functions/permission-denied" });
+      await profile.update({ ...denied, effectivePermissions: ["transfers.read.own_branch"] });
+      await expect(api(h.receiver, { action: "create", sourceLocationId: h.originLocationId, destinationLocationId: h.destinationLocationId, items: [{ productId: h.productId, quantity: 1 }], idempotencyKey: key() })).rejects.toMatchObject({ code: "functions/permission-denied" });
+      await profile.update({ ...denied, effectivePermissions: ["transfers.read.own_branch", "transfers.create.direct"] });
+      const request = { action: "create", sourceLocationId: h.originLocationId, destinationLocationId: h.destinationLocationId, items: [{ productId: h.productId, quantity: 1 }], idempotencyKey: key() };
+      await api(h.receiver, request);
+      await profile.update({ ...denied, effectivePermissions: ["transfers.read.own_branch"] });
+      await expect(api(h.receiver, request)).rejects.toMatchObject({ code: "functions/permission-denied" });
+      await profile.update({ ...denied, branchIds: [], effectivePermissions: ["transfers.read.own_branch", "transfers.create.direct"] });
+      await expect(api(h.receiver, request)).rejects.toMatchObject({ code: "functions/permission-denied" });
+    } finally { await profile.set(original); }
+  });
+
   it("does not accept a non-stock service as transferable physical goods", async () => {
     const serviceId = "simple-non-stock-service";
     await h.db.doc(`products/${serviceId}`).set({ organizationId: h.organizationId, name: "Installation", sku: serviceId, itemKind: "service", trackingType: "quantity", active: true });

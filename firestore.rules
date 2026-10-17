@@ -67,6 +67,16 @@ service cloud.firestore {
       return canReadAllProcurement() ||
         (hasAnyRole(["warehouse_manager", "warehouse_officer"]) && permitted("procurement.read") && data.warehouseId in profile().warehouseIds);
     }
+    // Raw supplier documents contain consolidated financial balances. Custom roles
+    // use callable projections, which refresh grants and redact unassigned totals.
+    function canReadRawPayables() {
+      let globalRoles = ["system_administrator", "finance_officer", "auditor"];
+      let hasDirectRoles = profile().keys().hasAny(["directRoleIds"]);
+      let hasCustomRoles = profile().keys().hasAny(["customRoleIds"]) && profile().customRoleIds is list && profile().customRoleIds.size() > 0;
+      return permitted("payables.read") &&
+        ((hasDirectRoles && profile().directRoleIds is list && profile().directRoleIds.hasAny(globalRoles)) ||
+          (!hasDirectRoles && !hasCustomRoles && hasAnyRole(globalRoles)));
+    }
     function canReadAllExpenses() { return hasAnyRole(["system_administrator", "operations_administrator", "finance_officer", "auditor"]) && permitted("expenses.read"); }
     function expenseScope(data) {
       return canReadAllExpenses() ||
@@ -396,7 +406,7 @@ service cloud.firestore {
       allow create, update, delete: if false;
     }
     match /suppliers/{documentId} {
-      allow read: if sameOrganization(resource.data) && hasAnyRole(["system_administrator", "operations_administrator", "warehouse_manager", "warehouse_officer", "finance_officer", "auditor"]) && permitted("suppliers.read");
+      allow read: if sameOrganization(resource.data) && permitted("suppliers.read") && canReadRawPayables();
       allow create, update, delete: if false;
     }
     match /purchaseOrders/{documentId} {
@@ -412,15 +422,15 @@ service cloud.firestore {
       allow create, update, delete: if false;
     }
     match /supplierInvoices/{documentId} {
-      allow read: if sameOrganization(resource.data) && hasAnyRole(["system_administrator", "finance_officer", "auditor"]) && permitted("payables.read");
+      allow read: if sameOrganization(resource.data) && canReadRawPayables();
       allow create, update, delete: if false;
     }
     match /supplierInvoiceItems/{documentId} {
-      allow read: if sameOrganization(resource.data) && hasAnyRole(["system_administrator", "finance_officer", "auditor"]) && permitted("payables.read");
+      allow read: if sameOrganization(resource.data) && canReadRawPayables();
       allow create, update, delete: if false;
     }
     match /supplierPayments/{documentId} {
-      allow read: if sameOrganization(resource.data) && hasAnyRole(["system_administrator", "finance_officer", "auditor"]) && permitted("payables.read");
+      allow read: if sameOrganization(resource.data) && canReadRawPayables();
       allow create, update, delete: if false;
     }
     // Read through the scoped procurement workspace; financial history is server-only.
@@ -434,11 +444,11 @@ service cloud.firestore {
       allow read, write: if false;
     }
     match /supplierPaymentAllocations/{documentId} {
-      allow read: if sameOrganization(resource.data) && hasAnyRole(["system_administrator", "finance_officer", "auditor"]) && permitted("payables.read");
+      allow read: if sameOrganization(resource.data) && canReadRawPayables();
       allow create, update, delete: if false;
     }
     match /supplierAccountEntries/{documentId} {
-      allow read: if sameOrganization(resource.data) && hasAnyRole(["system_administrator", "finance_officer", "auditor"]) && permitted("payables.read");
+      allow read: if sameOrganization(resource.data) && canReadRawPayables();
       allow create, update, delete: if false;
     }
     match /expenseCategories/{documentId} {

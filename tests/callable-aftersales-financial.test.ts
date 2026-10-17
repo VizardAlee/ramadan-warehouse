@@ -35,6 +35,8 @@ async function call<T = Record<string, unknown>>(name: string, data: Record<stri
 }
 
 beforeAll(async () => {
+  if (!process.env.FIRESTORE_EMULATOR_HOST || !process.env.FIREBASE_AUTH_EMULATOR_HOST)
+    throw new Error("These financial regressions require explicitly isolated Firebase emulators.");
   await fetch(`http://${process.env.FIREBASE_AUTH_EMULATOR_HOST ?? "127.0.0.1:9099"}/emulator/v1/projects/${projectId}/accounts`, { method: "DELETE" });
   await fetch(`http://${process.env.FIRESTORE_EMULATOR_HOST ?? "127.0.0.1:8180"}/emulator/v1/projects/${projectId}/databases/(default)/documents`, { method: "DELETE" });
   await adminDb.doc(`organizations/${organizationId}`).set({ name: "Aftersales test organization", status: "active" });
@@ -593,5 +595,20 @@ describe.sequential("aftersales and ledger-derived reports", () => {
     expect(first.payments.some(row => row.id === next.payments[0]!.id)).toBe(false);
     await expect(call("getAftersalesWorkspace", { ...input, paymentCursor: "other-case-cursor" })).rejects.toMatchObject({ code: "functions/invalid-argument" });
     await expect(call("getAftersalesWorkspace", { action: "list_payments" })).rejects.toMatchObject({ code: "functions/invalid-argument" });
+  });
+});
+
+
+describe("financial statement final instant", () => {
+  it("includes the final Lagos nanosecond in statements and configured tax evidence", async () => {
+    const end = Timestamp.fromDate(new Date("2025-06-17T23:00:00Z"));
+    for (const [id, at, amount] of [["last", new Timestamp(end.seconds - 1, 999_999_999), 77], ["next", end, 999]] as const) {
+      await adminDb.doc(`journalLines/final-boundary-${id}`).set({ organizationId, accountCode: "2100", accountName: "VAT payable", debitMinor: 0, creditMinor: amount, effectiveAt: at });
+    }
+    const range = { fromDate: "2025-06-17", toDate: "2025-06-17" };
+    const statement = await call<{ totalCreditMinor: number }>("generateFinancialStatement", { ...range, reportType: "trial_balance" });
+    expect(statement.totalCreditMinor).toBe(77);
+    const tax = await call<{ vat: { outputVatMinor: number } }>("getTaxWorkspace", range);
+    expect(tax.vat.outputVatMinor).toBe(77);
   });
 });

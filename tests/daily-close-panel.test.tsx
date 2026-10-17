@@ -33,3 +33,43 @@ describe("daily close workspace", () => {
     await waitFor(() => expect(screen.getByLabelText("Physical store cash counted (₦)").getAttribute("value")).toBe(""));
   });
 });
+
+describe("legacy daily-close UI comparison", () => {
+  it.each(["prepared", "signed"])("uses server compatibility for unchanged %s legacy evidence", async status => {
+    mocks.call.mockImplementation(async (_name, payload) => payload.action === "locations" ? { rows: [{ id: "store1", name: "Store" }], nextCursor: null } : {
+      branchId: payload.branchId, date: payload.date, branchName: "Store", evidenceChanged: false,
+      evidence: { hash: "new-precise-hash", hashVersion: 2, cash: { openingMinor: 0, receiptsMinor: 100, paymentsMinor: 0, closingMinor: 100, lineCount: 1 }, stockCounts: [], openShiftCount: 0, closedShiftCount: 0, tillVarianceMinor: 0, exceptions: [] },
+      close: { version: 1, status, countedCashMinor: 100, explanation: "Checked cash", evidence: { hash: "original-legacy-hash" } },
+    });
+    render(<DailyClosePanel />); await screen.findByText(`Revision 1 · ${status === "signed" ? "Signed off" : "Prepared — ready for sign-off"}`);
+    expect(screen.queryByText(/New or changed postings/)).toBeNull();
+    if (status === "prepared") expect(screen.getByRole("button", { name: "Sign off this revision" })).toBeTruthy();
+    else { expect(screen.queryByRole("button", { name: "Prepare daily close" })).toBeNull(); expect((screen.getByLabelText("Physical store cash counted (₦)") as HTMLInputElement).disabled).toBe(true); }
+  });
+  it("still shows genuinely changed evidence and blocks signing", async () => {
+    mocks.call.mockImplementation(async (_name, payload) => payload.action === "locations" ? { rows: [{ id: "store1", name: "Store" }], nextCursor: null } : {
+      branchId: payload.branchId, date: payload.date, branchName: "Store", evidenceChanged: true,
+      evidence: { hash: "changed", cash: { openingMinor: 0, receiptsMinor: 101, paymentsMinor: 0, closingMinor: 101, lineCount: 1 }, stockCounts: [], openShiftCount: 0, closedShiftCount: 0, tillVarianceMinor: 0, exceptions: [] },
+      close: { version: 1, status: "prepared", countedCashMinor: 100, explanation: "Checked cash", evidence: { hash: "original" } },
+    });
+    render(<DailyClosePanel />); await screen.findByText(/New or changed postings/);
+    expect(screen.queryByRole("button", { name: "Sign off this revision" })).toBeNull();
+  });
+});
+
+it("explains and disables writes when the server permits only reading this store", async () => {
+  mocks.call.mockImplementation(async (_name, payload) => payload.action === "locations" ? { rows: [{ id: "store1", name: "Readable store" }], nextCursor: null } : {
+    branchId: payload.branchId, date: payload.date, branchName: "Readable store", canPrepare: false, canSign: false, evidenceChanged: false,
+    evidence: { hash: "same", cash: { openingMinor: 0, receiptsMinor: 100, paymentsMinor: 0, closingMinor: 100, lineCount: 1 }, stockCounts: [], openShiftCount: 0, closedShiftCount: 0, tillVarianceMinor: 0, exceptions: [] },
+    close: { version: 1, status: "prepared", countedCashMinor: 100, explanation: "Checked cash", evidence: { hash: "same" } },
+  });
+  render(<DailyClosePanel />);
+  const prepare = await screen.findByRole("button", { name: "Prepare daily close" });
+  const sign = screen.getByRole("button", { name: "Sign off this revision" });
+  expect((prepare as HTMLButtonElement).disabled).toBe(true);
+  expect((sign as HTMLButtonElement).disabled).toBe(true);
+  expect((screen.getByLabelText("Physical store cash counted (₦)") as HTMLInputElement).disabled).toBe(true);
+  expect((screen.getByLabelText("Sign-off notes") as HTMLTextAreaElement).disabled).toBe(true);
+  fireEvent.click(prepare); fireEvent.click(sign);
+  expect(mocks.call.mock.calls.some(([name]) => name === "prepareDailyClose" || name === "signDailyClose")).toBe(false);
+});

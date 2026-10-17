@@ -1,3 +1,4 @@
+import { buildRoleAssignment, type StoredRole } from "../functions/src/auth/custom-roles";
 import { deleteApp, initializeApp, type FirebaseApp } from "firebase/app";
 import {
   connectAuthEmulator,
@@ -85,6 +86,8 @@ async function createActor(email: string, roleId: string) {
 }
 
 beforeAll(async () => {
+  if (!process.env.FIRESTORE_EMULATOR_HOST || !process.env.FIREBASE_AUTH_EMULATOR_HOST)
+    throw new Error("These financial regressions require explicitly isolated Firebase emulators.");
   await fetch(
     `http://${process.env.FIREBASE_AUTH_EMULATOR_HOST ?? "127.0.0.1:9099"}/emulator/v1/projects/${projectId}/accounts`,
     { method: "DELETE" },
@@ -179,6 +182,184 @@ beforeAll(async () => {
 afterAll(async () => Promise.all(apps.map((app) => deleteApp(app))));
 
 describe.sequential("procurement callables", () => {
+  it.each(["operations_administrator", "auditor", "finance_officer"] as const)("keeps a manager plus custom %s reader scoped across procurement writes and retries", async base => {
+    // Fresh isolated test identities; no existing user or role is altered.
+    const mixed = await createActor(`procurement-scope-${base}@example.test`, "warehouse_manager");
+    const custom: StoredRole = { id: `procurement-scope-fixture-${base}`, organizationId, name: "Procurement regression reader", baseRoleId: base,
+      permissionIds: ["procurement.read"], status: "active" };
+    await adminDb.doc(`roles/${custom.id}`).create(custom);
+    await adminDb.doc(`users/${mixed.auth.currentUser!.uid}`).update({ ...buildRoleAssignment(["warehouse_manager"], [custom]) });
+    const supplier = await call<{ supplierId: string }>(administrator, "saveSupplier", { name: `Scope supplier ${base}`, phone: "07011114444", idempotencyKey: crypto.randomUUID() });
+    const scopeProductId = `procurement-scope-product-${base}`;
+    await adminDb.doc(`products/${scopeProductId}`).create({ organizationId, name: "Scope-only goods", sku: scopeProductId, unitOfMeasure: "unit", trackingType: "quantity", active: true, hasLedgerActivity: false });
+    await adminDb.doc(`productCosts/${scopeProductId}`).create({ organizationId, productId: scopeProductId, defaultUnitCostMinor: 10_000, currency: "NGN" });
+    const create = (branch = false) => ({ supplierId: supplier.supplierId, ...(branch ? { branchId: headOfficeId, receivingLocationId: headOfficeLocationId } : { warehouseId, receivingLocationId: locationId }),
+      lines: [{ productId: scopeProductId, quantity: 3, unitCostMinor: 10_000, vatRateBasisPoints: 0 }], idempotencyKey: crypto.randomUUID() });
+    await expect(call(mixed, "createPurchaseOrder", create(true))).rejects.toMatchObject({ code: "functions/permission-denied" });
+    const localInput = create();
+    const local = await call<{ purchaseOrderId: string }>(mixed, "createPurchaseOrder", localInput);
+    await call(mixed, "submitPurchaseOrder", { ...local, idempotencyKey: crypto.randomUUID() });
+    await call(mixed, "approvePurchaseOrder", { ...local, idempotencyKey: crypto.randomUUID() });
+    const localItem = (await adminDb.collection("purchaseOrderItems").where("purchaseOrderId", "==", local.purchaseOrderId).get()).docs[0]!;
+    const saved = { ...local, purchaseOrderItemId: localItem.id, quantity: 1, receivedAt: new Date().toISOString(), serialNumbers: [], idempotencyKey: crypto.randomUUID() };
+    await expect(call(mixed, "receivePurchaseOrderItem", saved)).resolves.toMatchObject({ posted: true });
+    await expect(call(mixed, "receivePurchaseOrderItem", saved)).resolves.toMatchObject({ posted: false });
+    const remote = await call<{ purchaseOrderId: string }>(administrator, "createPurchaseOrder", create(true));
+    await expect(call(mixed, "submitPurchaseOrder", { ...remote, idempotencyKey: crypto.randomUUID() })).rejects.toMatchObject({ code: "functions/permission-denied" });
+    await call(administrator, "submitPurchaseOrder", { ...remote, idempotencyKey: crypto.randomUUID() });
+    await expect(call(mixed, "approvePurchaseOrder", { ...remote, idempotencyKey: crypto.randomUUID() })).rejects.toMatchObject({ code: "functions/permission-denied" });
+    await call(administrator, "approvePurchaseOrder", { ...remote, idempotencyKey: crypto.randomUUID() });
+    const remoteItem = (await adminDb.collection("purchaseOrderItems").where("purchaseOrderId", "==", remote.purchaseOrderId).get()).docs[0]!;
+    const remoteReceipt = { ...remote, purchaseOrderItemId: remoteItem.id, quantity: 1, receivedAt: new Date().toISOString(), serialNumbers: [], idempotencyKey: crypto.randomUUID() };
+    await expect(call(mixed, "receivePurchaseOrderItem", remoteReceipt)).rejects.toMatchObject({ code: "functions/permission-denied" });
+    expect((await remoteItem.ref.get()).get("receivedQuantity")).toBe(0);
+    expect((await adminDb.collection("purchaseReceipts").where("purchaseOrderId", "==", remote.purchaseOrderId).get()).empty).toBe(true);
+    const evidenceId = `scope-evidence-${base}`;
+    await adminDb.doc(`purchaseReceipts/${evidenceId}`).create({ organizationId, branchId: headOfficeId, purchaseOrderId: remote.purchaseOrderId, evidenceIds: [] });
+    await expect(call(mixed, "getProcurementWorkspace", { action: "list_evidence", evidenceKind: "purchase_receipt", recordId: evidenceId })).resolves.toMatchObject({ evidence: [] });
+    await expect(call(mixed, "getProcurementWorkspace", { action: "upload_evidence", evidenceKind: "purchase_receipt", recordId: evidenceId,
+      stage: "receiving", note: "Forbidden remote receipt evidence", contentType: "image/png", base64: "A".repeat(32), idempotencyKey: crypto.randomUUID() })).rejects.toMatchObject({ code: "functions/permission-denied" });
+    await expect(call(mixed, "submitSupplierInvoice", { ...remote, supplierInvoiceNumber: `DENIED-${base}`, invoiceDate: "2026-01-02", dueDate: "2026-01-02", lines: [{ purchaseOrderItemId: remoteItem.id, quantity: 1 }], idempotencyKey: crypto.randomUUID() })).rejects.toMatchObject({ code: "functions/permission-denied" });
+    await adminDb.doc(`supplierInvoices/scope-remote-${base}`).create({ organizationId, branchId: headOfficeId, supplierId: supplier.supplierId, status: "submitted" });
+    await expect(call(mixed, "approveSupplierInvoice", { supplierInvoiceId: `scope-remote-${base}`, idempotencyKey: crypto.randomUUID() })).rejects.toMatchObject({ code: "functions/permission-denied" });
+    await expect(call(mixed, "recordSupplierPayment", { supplierId: supplier.supplierId, branchId: headOfficeId, purpose: "advance", amountMinor: 100, allocations: [], method: "cash", paidAt: new Date().toISOString(), idempotencyKey: crypto.randomUUID() })).rejects.toMatchObject({ code: "functions/permission-denied" });
+    // Losing the assignment must reject an old successful receipt acknowledgement.
+    await adminDb.doc(`users/${mixed.auth.currentUser!.uid}`).update({ warehouseIds: [], branchIds: [headOfficeId] });
+    await expect(call(mixed, "createPurchaseOrder", { supplierId: localInput.supplierId, lines: localInput.lines, idempotencyKey: localInput.idempotencyKey, branchId: headOfficeId, receivingLocationId: headOfficeLocationId })).rejects.toMatchObject({ code: "functions/permission-denied" });
+    await expect(call(mixed, "receivePurchaseOrderItem", saved)).rejects.toMatchObject({ code: "functions/permission-denied" });
+  });
+
+  it.each(["operations_administrator", "auditor", "finance_officer"] as const)("separates global procurement reading from local financial reading for a custom %s reader", async base => {
+    const mixed = await createActor(`financial-scope-${base}@example.test`, "warehouse_manager");
+    const custom: StoredRole = { id: `financial-scope-${base}`, organizationId, name: "Financial scope regression reader", baseRoleId: base,
+      permissionIds: ["procurement.read"], status: "active" };
+    await adminDb.doc(`roles/${custom.id}`).create(custom);
+    await adminDb.doc(`users/${mixed.auth.currentUser!.uid}`).update({ ...buildRoleAssignment(["warehouse_manager"], [custom]) });
+    const supplierId = `financial-scope-supplier-${base}`;
+    await adminDb.doc(`suppliers/${supplierId}`).create({ organizationId, name: "Financial scope supplier", active: true,
+      outstandingBalanceMinor: 333, advanceBalanceMinor: 6000,
+      advanceBalancesByLocation: { [`warehouse:${warehouseId}`]: 2000, [`branch:${headOfficeId}`]: 4000 } });
+    const ownInvoiceId = `financial-scope-own-${base}`, remoteInvoiceId = `financial-scope-remote-${base}`;
+    const ownEntryId = `financial-entry-own-${base}`, remoteEntryId = `financial-entry-remote-${base}`;
+    for (const [id, scope, amount] of [[ownInvoiceId, { warehouseId }, 111], [remoteInvoiceId, { branchId: headOfficeId }, 222]] as const)
+      await adminDb.doc(`supplierInvoices/${id}`).create({ organizationId, supplierId, ...scope, status: "approved", dueDate: "2026-01-01", outstandingAmountMinor: amount });
+    for (const [id, scope, amount] of [[ownEntryId, { warehouseId }, 111], [remoteEntryId, { branchId: headOfficeId }, 222]] as const)
+      await adminDb.doc(`supplierAccountEntries/${id}`).create({ organizationId, supplierId, ...scope, amountMinor: amount, advanceAmountMinor: 0,
+        balanceAfterMinor: 333, advanceBalanceAfterMinor: 6000, effectiveAt: Timestamp.fromDate(new Date("2026-01-01T12:00:00Z")) });
+    type Workspace = { suppliers: Array<Record<string, unknown> & { id: string }>; supplierInvoices: Array<{ id: string }>; branches: Array<{ id: string }> };
+    const workspace = await call<Workspace>(mixed, "getProcurementWorkspace", {});
+    expect(workspace.branches.some(branch => branch.id === headOfficeId)).toBe(true); // Global procurement reading is retained.
+    expect(workspace.supplierInvoices.some(invoice => invoice.id === ownInvoiceId)).toBe(true);
+    expect(workspace.supplierInvoices.some(invoice => invoice.id === remoteInvoiceId)).toBe(false);
+    const supplier = workspace.suppliers.find(record => record.id === supplierId)!;
+    expect(supplier).not.toHaveProperty("outstandingBalanceMinor");
+    expect(supplier).not.toHaveProperty("advanceBalanceMinor");
+    expect(supplier.advanceBalancesByLocation).toEqual({ [`warehouse:${warehouseId}`]: 2000 });
+    const remoteWorkspace = await call<Workspace>(mixed, "getProcurementWorkspace", { branchId: headOfficeId });
+    expect(remoteWorkspace.supplierInvoices).toEqual([]);
+    for (const view of ["supplier_account", "supplier_payables"] as const) {
+      await expect(call(mixed, "getProcurementWorkspace", { view, supplierId, branchId: headOfficeId })).rejects.toMatchObject({ code: "functions/permission-denied" });
+      await expect(call(mixed, "getProcurementWorkspace", { view, supplierId })).rejects.toMatchObject({ code: "functions/permission-denied" });
+    }
+    const ownPayables = await call<{ invoices: Array<{ id: string }>; totalOutstandingMinor: number }>(mixed, "getProcurementWorkspace", { view: "supplier_payables", supplierId, warehouseId });
+    expect(ownPayables.invoices.map(invoice => invoice.id)).toEqual([ownInvoiceId]);
+    expect(ownPayables.totalOutstandingMinor).toBe(111);
+    type Statement = { supplier: Record<string, unknown>; entries: Array<Record<string, unknown> & { id: string }>; closingPayableMinor: number };
+    const ownStatement = await call<Statement>(mixed, "getProcurementWorkspace", { view: "supplier_account", supplierId, warehouseId });
+    expect(ownStatement.entries.map(entry => entry.id)).toEqual([ownEntryId]);
+    expect(ownStatement.closingPayableMinor).toBe(111);
+    expect(ownStatement.supplier).not.toHaveProperty("outstandingBalanceMinor");
+    expect(ownStatement.entries[0]).not.toHaveProperty("balanceAfterMinor");
+    expect(ownStatement.entries[0]).not.toHaveProperty("advanceBalanceAfterMinor");
+    await expect(call(mixed, "getProcurementWorkspace", { view: "supplier_returns", supplierInvoiceId: remoteInvoiceId })).rejects.toMatchObject({ code: "functions/permission-denied" });
+    // A separate explicit global financial grant retains legitimate consolidated access.
+    const globalReader = await createActor(`financial-global-${base}@example.test`, "auditor");
+    const globalWorkspace = await call<Workspace>(globalReader, "getProcurementWorkspace", {});
+    expect(globalWorkspace.supplierInvoices.some(invoice => invoice.id === remoteInvoiceId)).toBe(true);
+    expect(globalWorkspace.suppliers.find(record => record.id === supplierId)).toMatchObject({ outstandingBalanceMinor: 333, advanceBalanceMinor: 6000 });
+    const consolidated = await call<Statement>(globalReader, "getProcurementWorkspace", { view: "supplier_account", supplierId });
+    expect(consolidated.entries.map(entry => entry.id).sort()).toEqual([ownEntryId, remoteEntryId].sort());
+    expect(consolidated.closingPayableMinor).toBe(333);
+    expect(consolidated.entries[0]).toHaveProperty("balanceAfterMinor", 333);
+    const globalPayables = await call<{ totalOutstandingMinor: number }>(globalReader, "getProcurementWorkspace", { view: "supplier_payables", supplierId, branchId: headOfficeId });
+    expect(globalPayables.totalOutstandingMinor).toBe(222);
+    // Fresh custom finance permission grants and revocation are reflected without rewriting the user.
+    if (base === "finance_officer") {
+      await adminDb.doc(`roles/${custom.id}`).update({ permissionIds: ["procurement.read", "payables.read"] });
+      await expect(call(mixed, "getProcurementWorkspace", { view: "supplier_payables", supplierId, branchId: headOfficeId })).resolves.toMatchObject({ totalOutstandingMinor: 222 });
+      await adminDb.doc(`roles/${custom.id}`).update({ permissionIds: ["procurement.read"] });
+      await expect(call(mixed, "getProcurementWorkspace", { view: "supplier_payables", supplierId, branchId: headOfficeId })).rejects.toMatchObject({ code: "functions/permission-denied" });
+    }
+  });
+
+  it("rejects each write for an assigned custom manager whose effective grants are read-only", async () => {
+    const reader = await createActor("procurement-scoped-reader@example.test", "warehouse_manager");
+    const role: StoredRole = { id: "procurement-scoped-reader-fixture", organizationId, name: "Read-only manager fixture", baseRoleId: "warehouse_manager", permissionIds: ["procurement.read"], status: "active" };
+    await adminDb.doc(`roles/${role.id}`).create(role);
+    await adminDb.doc(`users/${reader.auth.currentUser!.uid}`).update({ ...buildRoleAssignment([], [role]) });
+    await expect(call(reader, "getProcurementWorkspace", { warehouseId })).resolves.toHaveProperty("purchaseOrders");
+    for (const action of ["createPurchaseOrder", "submitPurchaseOrder", "approvePurchaseOrder", "receivePurchaseOrderItem", "submitSupplierInvoice", "approveSupplierInvoice", "recordSupplierPayment", "postSupplierReturn"])
+      await expect(call(reader, action, {})).rejects.toMatchObject({ code: "functions/permission-denied" });
+  });
+
+  it("atomically receives once, rolls back GRN failures, and safely resumes the exact instruction", async () => {
+    const recoveryProductId = "receipt-recovery-product";
+    await adminDb.doc(`products/${recoveryProductId}`).set({ organizationId, name: "Recovery-only quantity goods", sku: "RECOVERY-ONLY", unitOfMeasure: "unit", trackingType: "quantity", active: true, hasLedgerActivity: false });
+    await adminDb.doc(`productCosts/${recoveryProductId}`).set({ organizationId, productId: recoveryProductId, defaultUnitCostMinor: 10_000, currency: "NGN" });
+    const supplier = await call<{ supplierId: string }>(administrator, "saveSupplier", { name: "Receipt recovery supplier", phone: "07011114444", idempotencyKey: crypto.randomUUID() });
+    const order = await call<{ purchaseOrderId: string }>(headOfficeManager, "createPurchaseOrder", {
+      supplierId: supplier.supplierId, branchId: headOfficeId, receivingLocationId: headOfficeLocationId,
+      lines: [{ productId: recoveryProductId, quantity: 10, unitCostMinor: 10_000, vatRateBasisPoints: 0 }], idempotencyKey: crypto.randomUUID(),
+    });
+    await call(headOfficeManager, "submitPurchaseOrder", { ...order, idempotencyKey: crypto.randomUUID() });
+    await call(headOfficeManager, "approvePurchaseOrder", { ...order, idempotencyKey: crypto.randomUUID() });
+    const item = (await adminDb.collection("purchaseOrderItems").where("purchaseOrderId", "==", order.purchaseOrderId).get()).docs[0]!;
+    const payload = { ...order, purchaseOrderItemId: item.id, quantity: 2, receivedAt: new Date().toISOString(), supplierReference: "PHYSICAL-DELIVERY-ONCE", serialNumbers: [], idempotencyKey: crypto.randomUUID() };
+    const balanceRef = adminDb.doc(`inventoryBalances/${balanceDocumentId(organizationId, recoveryProductId, headOfficeLocationId)}`);
+    const before = Number((await balanceRef.get()).get("onHandQuantity") ?? 0);
+    const receiptRef = adminDb.doc(`purchaseReceipts/${uniquenessDocumentId(organizationId, "purchase-receipt", payload.idempotencyKey)}`);
+    // A deterministic write conflict forces failure AFTER stock calculations.
+    await receiptRef.set({ organizationId, fixture: "force create failure" });
+    await expect(call(headOfficeManager, "receivePurchaseOrderItem", payload)).rejects.toBeDefined();
+    expect(Number((await balanceRef.get()).get("onHandQuantity") ?? 0)).toBe(before);
+    expect((await item.ref.get()).get("receivedQuantity")).toBe(0);
+    expect((await item.ref.get()).get("receiptInProgressKey")).toBeUndefined();
+    expect((await adminDb.collection("inventoryTransactions").where("referenceId", "==", order.purchaseOrderId).get()).empty).toBe(true);
+    await receiptRef.delete(); // Isolated synthetic failure fixture only.
+    const results = await Promise.all([1, 2].map(() => call<{ receiptId: string; posted: boolean }>(headOfficeManager, "receivePurchaseOrderItem", payload)));
+    expect(results[0]!.receiptId).toBe(results[1]!.receiptId);
+    expect(results.map(result => result.posted).sort()).toEqual([false, true]);
+    expect((await balanceRef.get()).get("onHandQuantity")).toBe(before + 2);
+    expect((await item.ref.get()).get("receivedQuantity")).toBe(2);
+    expect((await adminDb.doc(`purchaseOrders/${order.purchaseOrderId}`).get()).get("receivedNetAmountMinor")).toBe(20_000);
+    expect((await adminDb.collection("purchaseReceipts").where("purchaseOrderId", "==", order.purchaseOrderId).get()).size).toBe(1);
+    await expect(call(headOfficeManager, "receivePurchaseOrderItem", payload)).resolves.toMatchObject({ receiptId: results[0]!.receiptId, posted: false });
+    await expect(call(headOfficeManager, "receivePurchaseOrderItem", { ...payload, quantity: 3 })).rejects.toMatchObject({ code: "functions/failed-precondition" });
+    await expect(call(headOfficeManager, "receivePurchaseOrderItem", { ...payload, supplierReference: "CHANGED" })).rejects.toMatchObject({ code: "functions/failed-precondition" });
+    await expect(call(administrator, "receivePurchaseOrderItem", payload)).rejects.toMatchObject({ code: "functions/failed-precondition" });
+    await expect(call(warehouseManager, "receivePurchaseOrderItem", payload)).rejects.toMatchObject({ code: "functions/permission-denied" });
+    const oldKey = crypto.randomUUID();
+    await item.ref.update({ receiptInProgressKey: oldKey });
+    const oldStockOp = adminDb.doc(`idempotencyKeys/${organizationId}_inventoryPost_purchase-${oldKey}`);
+    await oldStockOp.set({ organizationId, transactionId: "old-stranded-stock", status: "completed" });
+    await expect(call(headOfficeManager, "receivePurchaseOrderItem", { ...payload, idempotencyKey: oldKey })).rejects.toMatchObject({ code: "functions/failed-precondition" });
+    expect((await balanceRef.get()).get("onHandQuantity")).toBe(before + 2);
+    expect((await item.ref.get()).get("receiptInProgressKey")).toBe(oldKey);
+  });
+
+  it("binds supplier payment retries to original supplier, amount, actor and current store authority", async () => {
+    const supplier = await call<{ supplierId: string }>(administrator, "saveSupplier", { name: "Payment replay supplier", phone: "07011115555", idempotencyKey: crypto.randomUUID() });
+    const payload = { supplierId: supplier.supplierId, purpose: "advance", source: "disbursement", branchId: headOfficeId,
+      amountMinor: 2000, allocations: [], method: "cash", paidAt: new Date().toISOString(), idempotencyKey: crypto.randomUUID() };
+    const original = await call<{ paymentId: string }>(headOfficeManager, "recordSupplierPayment", payload);
+    await expect(call(headOfficeManager, "recordSupplierPayment", payload)).resolves.toMatchObject({ paymentId: original.paymentId, recorded: false });
+    for (const change of [{ amountMinor: 3000 }, { supplierId: "different-supplier" }, { notes: "Changed instruction" }])
+      await expect(call(headOfficeManager, "recordSupplierPayment", { ...payload, ...change })).rejects.toMatchObject({ code: "functions/failed-precondition" });
+    await expect(call(administrator, "recordSupplierPayment", payload)).rejects.toMatchObject({ code: "functions/failed-precondition" });
+    await expect(call(warehouseManager, "recordSupplierPayment", payload)).rejects.toMatchObject({ code: "functions/permission-denied" });
+    expect((await adminDb.doc(`suppliers/${supplier.supplierId}`).get()).get("advanceBalanceMinor")).toBe(2000);
+  });
+
   it("prevents a concurrent supplier credit and replacement from settling the same handed-over unit", async () => {
     const supplier = await call<{ supplierId: string }>(administrator, "saveSupplier", { name: "Replacement race supplier", phone: "07011113333", idempotencyKey: crypto.randomUUID() });
     const product = "replacement-race-product", returnId = "replacement-race-return", itemId = "replacement-race-item", caseId = "replacement-race-case", handoverId = "replacement-race-handover";

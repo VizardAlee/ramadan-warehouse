@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { SupplierAccounts } from "@/features/procurement/supplier-accounts";
+import { usePurchaseReceipt, type PurchaseReceiptInput } from "@/features/procurement/use-purchase-receipt";
 import { GoodsReceivedNotes } from "@/features/procurement/goods-received-note";
 import { SupplierReturns } from "@/features/procurement/supplier-returns";
 import { Button } from "@/components/ui/button";
@@ -79,6 +80,7 @@ function procurementScopeFromKey(key: string) {
 
 export default function ProcurementPage() {
   const { user, profile, operatingContext } = useAuth();
+  const receiptRecovery = usePurchaseReceipt(`${profile?.organizationId ?? ""}:${user?.uid ?? ""}`);
   const newOrderRef = useRef<HTMLDetailsElement>(null);
   const newSupplierRef = useRef<HTMLDetailsElement>(null);
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
@@ -209,6 +211,12 @@ export default function ProcurementPage() {
       setBusy(false);
     }
   }
+  async function receiveGoods(input?: PurchaseReceiptInput) {
+    const instruction = receiptRecovery.pending ?? input;
+    const result = await receiptRecovery.run(input);
+    if (instruction) setReceiveValues(values => ({ ...values, [instruction.purchaseOrderItemId]: { quantity: "0", serials: "", lotNumber: "" } }));
+    return result;
+  }
   async function createSupplier() {
     const created = await run(
       () =>
@@ -315,6 +323,12 @@ export default function ProcurementPage() {
           {message}
         </div>
       )}
+
+      {receiptRecovery.error && <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-800">{receiptRecovery.error}</p>}
+      {receiptRecovery.pending && <section aria-label="Unconfirmed purchase receipt" className="space-y-3 rounded-lg bg-amber-50 p-4 text-sm">
+        <p>Receiving confirmation was interrupted. The original {receiptRecovery.pending.quantity} units and delivery details are saved. Return to the original recording store and retry this receipt before receiving more goods. Do not enter the delivery again.</p>
+        <Button disabled={busy || !receiptRecovery.ready} onClick={() => void run(() => receiveGoods(), "The original saved receipt is confirmed. Receiving history contains its goods-received note.")}>Retry same receipt</Button>
+      </section>}
 
       <nav aria-label="Purchasing workspace" className="sticky top-16 z-20 flex flex-wrap gap-2 rounded-xl border bg-white/95 p-2 shadow-sm backdrop-blur">
         <a href="#purchase-orders" className="inline-flex min-h-10 items-center rounded-lg bg-[var(--brand)] px-4 text-sm font-semibold text-white">Orders{workspace?.purchaseOrders.length ? ` (${workspace.purchaseOrders.length})` : ""}</a>
@@ -704,7 +718,7 @@ export default function ProcurementPage() {
                           order.status,
                         ) &&
                         can("procurement.receive") && (
-                          <div className="mt-3 space-y-2">
+                          <fieldset disabled={busy || !receiptRecovery.ready || Boolean(receiptRecovery.pending)} className="mt-3 space-y-2">
                             <label className="block text-xs font-medium">
                               Quantity received
                               <input
@@ -774,9 +788,7 @@ export default function ProcurementPage() {
                               onClick={() =>
                                 void run(
                                   () =>
-                                    callAdministration(
-                                      "receivePurchaseOrderItem",
-                                      {
+                                    receiveGoods({
                                         purchaseOrderId: order.id,
                                         purchaseOrderItemId: item.id,
                                         quantity: Number(draft.quantity),
@@ -792,15 +804,14 @@ export default function ProcurementPage() {
                                             ? { lotNumber: draft.lotNumber }
                                             : undefined,
                                         idempotencyKey: crypto.randomUUID(),
-                                      },
-                                    ),
+                                      }),
                                   `${draft.quantity} ${item.unitOfMeasure} received into ${order.operationalLocationName ?? order.branchName ?? order.warehouseName}.`,
                                 )
                               }
                             >
                               <Truck className="mr-2 size-4" /> Receive goods
                             </Button>
-                          </div>
+                          </fieldset>
                         )}
                     </div>
                   );

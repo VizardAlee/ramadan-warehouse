@@ -2,6 +2,12 @@ import { describe, expect, it } from "vitest";
 import { toUserFacingError } from "@/lib/firebase/user-facing-error";
 
 describe("user-facing Firebase errors", () => {
+  it.each(["PURCHASE_RECEIPT_RECONCILIATION_REQUIRED", "RETRY_INSTRUCTIONS_MISMATCH"])("gives safe recovery for %s without reflecting server data", code => {
+    const error = toUserFacingError({ code: "functions/failed-precondition", message: "private stock data", details: { code, userMessage: "private override" } });
+    expect(error.message.toLowerCase()).toContain("do not");
+    expect(error.message).not.toContain("private"); expect(error.diagnosticCode).toBe(code);
+  });
+
   it("shows trusted photo validation guidance and preserves its correction code", () => {
     const error = toUserFacingError({ code: "functions/failed-precondition", details: { code: "OPERATIONAL_EVIDENCE_ACTION_REQUIRED", userMessage: "Choose the evidence stage matching this service case's current status." } });
     expect(error.message).toContain("evidence stage");

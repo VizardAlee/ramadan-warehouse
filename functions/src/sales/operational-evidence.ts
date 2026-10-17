@@ -1,3 +1,4 @@
+import { procurementAccess, requireProcurementScope, type ProcurementAccess } from "../procurement/authorize.js";
 import { createHash } from "node:crypto";
 import { FieldValue, type DocumentSnapshot } from "firebase-admin/firestore";
 import { getStorage } from "firebase-admin/storage";
@@ -22,7 +23,7 @@ export const operationalEvidenceInput = z.discriminatedUnion("action", [
 type Kind = "supplier_return" | "aftersales" | "purchase_receipt" | "customer_return" | "supplier_replacement";
 type Input = z.infer<typeof operationalEvidenceInput>;
 
-function scope(actor: AccessProfile, parent: DocumentSnapshot, kind: Kind) {
+function scope(actor: AccessProfile, parent: DocumentSnapshot, kind: Kind, uploading = false) {
   requirePermission(actor, ["aftersales", "customer_return"].includes(kind) ? "sales.returns.read" : "procurement.read");
   if (kind === "supplier_return") requirePermission(actor, "payables.read");
   if (kind === "supplier_replacement") {
@@ -30,13 +31,20 @@ function scope(actor: AccessProfile, parent: DocumentSnapshot, kind: Kind) {
     if (parent.get("transactionType") !== "held_return_supplier_replacement" || parent.get("status") !== "posted") throw new HttpsError("not-found", "Replacement receipt not found.");
   }
   if (!parent.exists || parent.get("organizationId") !== actor.organizationId) throw new HttpsError("not-found", "Evidence record not found.");
+  if (["supplier_return", "purchase_receipt", "supplier_replacement"].includes(kind)) {
+    const permissions = ["procurement.read" as const, ...(kind === "supplier_return" ? ["payables.read" as const] : []),
+      ...(uploading ? ["procurement.receive" as const, ...(kind === "supplier_return" ? ["payables.approve" as const] : []),
+        ...(kind === "supplier_replacement" ? ["inventory.receive" as const, "sales.returns.approve" as const] : [])] : [])];
+    requireProcurementScope(actor as ProcurementAccess, { branchId: parent.get("branchId"), warehouseId: parent.get("warehouseId") }, permissions);
+    return;
+  }
   if (parent.get("branchId")) requireBranchScope(actor, String(parent.get("branchId")));
   else if (["supplier_return", "purchase_receipt"].includes(kind) && parent.get("warehouseId")) requireWarehouseScope(actor, String(parent.get("warehouseId")));
   else throw new HttpsError("failed-precondition", "The record has no operating location.");
 }
 
 async function uploadScope(actor: AccessProfile, parent: DocumentSnapshot, kind: Kind, input: Extract<Input, { action: "upload_evidence" }>) {
-  scope(actor, parent, kind);
+  scope(actor, parent, kind, input.action === "upload_evidence");
   let expected: string[] = [];
   let productId = parent.get("productId") ?? null;
   if (kind === "supplier_replacement") {
@@ -79,7 +87,7 @@ async function handleOperationalEvidence(actor: AccessProfile, kind: Kind, input
   const collections = { aftersales: "aftersalesCases", supplier_return: "supplierReturns", purchase_receipt: "purchaseReceipts", customer_return: "saleReturns", supplier_replacement: "inventoryTransactions" };
   const entityTypes = { aftersales: "aftersalesCase", supplier_return: "supplierReturn", purchase_receipt: "purchaseReceipt", customer_return: "saleReturn", supplier_replacement: "inventoryTransaction" };
   const parentRef = db.doc(`${collections[kind]}/${input.recordId}`);
-  const parent = await parentRef.get(); scope(actor, parent, kind);
+  const parent = await parentRef.get(); scope(actor, parent, kind, input.action === "upload_evidence");
   const ids = (parent.get("evidenceIds") ?? []) as string[];
   if (input.action === "list_evidence") {
     if (ids.length > 20) throw new HttpsError("failed-precondition", "Evidence register needs review.");
@@ -119,7 +127,7 @@ async function handleOperationalEvidence(actor: AccessProfile, kind: Kind, input
   let uploaded = false;
   await db.runTransaction(async transaction => {
     const [currentParent, currentPhoto] = await transaction.getAll(parentRef, reference);
-    scope(actor, currentParent!, kind);
+    scope(actor, currentParent!, kind, input.action === "upload_evidence");
     const currentIds = currentParent!.get("evidenceIds") ?? [];
     if (currentPhoto!.exists) {
       if (currentPhoto!.get("fingerprint") !== fingerprint || !currentIds.includes(evidenceId)) throw new HttpsError("invalid-argument", "Retry the original photo without changes.");
@@ -138,6 +146,7 @@ async function handleOperationalEvidence(actor: AccessProfile, kind: Kind, input
 }
 
 export async function operationalEvidence(actor: AccessProfile, kind: Kind, input: Input) {
+  if (["supplier_return", "purchase_receipt", "supplier_replacement"].includes(kind) && !("organizationProcurementPermissions" in actor)) actor = await procurementAccess(actor);
   try { return await handleOperationalEvidence(actor, kind, input); }
   catch (cause) {
     if (cause instanceof HttpsError && ["invalid-argument", "failed-precondition"].includes(cause.code))

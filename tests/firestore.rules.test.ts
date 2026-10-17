@@ -835,7 +835,9 @@ describe("Firestore baseline rules", () => {
     const branchDb = environment.authenticatedContext("branch-user").firestore();
     const financeDb = environment.authenticatedContext("finance").firestore();
     const adminDb = environment.authenticatedContext("admin").firestore();
-    await assertSucceeds(warehouseDb.doc("suppliers/supplier-1").get());
+    // Raw supplier records contain organization-wide balances; local readers use the callable summary.
+    await assertFails(warehouseDb.doc("suppliers/supplier-1").get());
+    await assertSucceeds(financeDb.doc("suppliers/supplier-1").get());
     await assertSucceeds(warehouseDb.doc("purchaseOrders/purchase-1").get());
     await assertSucceeds(warehouseDb.doc("purchaseOrderItems/purchase-item-1").get());
     await assertFails(branchDb.doc("purchaseOrders/purchase-1").get());
@@ -845,6 +847,26 @@ describe("Firestore baseline rules", () => {
     await assertFails(adminDb.doc("suppliers/new").set({ organizationId: "org-1", name: "Unsafe" }));
     await assertFails(warehouseDb.doc("purchaseOrders/purchase-1").update({ status: "received" }));
     await assertFails(financeDb.doc("supplierInvoices/supplier-invoice-1").update({ status: "paid" }));
+  });
+  it("does not lend a custom global base to local financial permissions in raw reads", async () => {
+    await seed();
+    await environment.withSecurityRulesDisabled(async context => {
+      const db = context.firestore();
+      for (const base of ["operations_administrator", "finance_officer", "auditor"]) {
+        await db.doc(`users/financial-mixed-${base}`).set({ organizationId: "org-1", status: "active", roleId: "warehouse_manager",
+          roleIds: ["warehouse_manager", base], directRoleIds: ["warehouse_manager"], customRoleIds: [`financial-reader-${base}`],
+          effectivePermissions: ["procurement.read", "payables.read", "suppliers.read"], branchIds: [], warehouseIds: ["warehouse-1"] });
+      }
+      await db.doc("supplierAccountEntries/financial-entry").set({ organizationId: "org-1", warehouseId: "warehouse-1", balanceAfterMinor: 999 });
+    });
+    for (const base of ["operations_administrator", "finance_officer", "auditor"]) {
+      const mixed = environment.authenticatedContext(`financial-mixed-${base}`).firestore();
+      for (const path of ["suppliers/supplier-1", "supplierInvoices/supplier-invoice-1", "supplierAccountEntries/financial-entry"])
+        await assertFails(mixed.doc(path).get());
+    }
+    const auditor = environment.authenticatedContext("auditor").firestore();
+    await assertSucceeds(auditor.doc("supplierAccountEntries/financial-entry").get());
+    await assertFails(environment.authenticatedContext("branch-user").firestore().doc("supplierAccountEntries/financial-entry").get());
   });
   it("scopes operating expenses and keeps approval and payment writes server-only", async () => {
     await seed();

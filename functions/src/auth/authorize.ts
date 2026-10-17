@@ -571,6 +571,7 @@ export interface AccessProfile {
   readonly roleId: RoleId;
   readonly roleIds?: readonly RoleId[];
   readonly directRoleIds?: readonly RoleId[];
+  readonly customRoleIds?: readonly string[];
   readonly effectivePermissions?: readonly Permission[];
   readonly branchIds: readonly string[];
   readonly warehouseIds: readonly string[];
@@ -847,6 +848,7 @@ export function accessProfileFromRecord(userId: string, record: Record<string, u
     roleId: roleIds[0]!,
     roleIds,
     directRoleIds: Array.isArray(record.directRoleIds) ? normalizeRoleIds(record.directRoleIds) : (Array.isArray(record.customRoleIds) && record.customRoleIds.length ? [] : roleIds),
+    customRoleIds: stringArray(record.customRoleIds),
     effectivePermissions: Array.isArray(record.effectivePermissions)
       ? record.effectivePermissions.filter((value: unknown): value is Permission =>
           typeof value === "string" && Object.values(rolePermissions).some((permissions) => permissions.includes(value as Permission)))
