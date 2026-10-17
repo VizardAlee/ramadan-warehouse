@@ -161,6 +161,10 @@ export const getExpenseWorkspace = onCall(
     const actor = await scopedAccess(await requireAccess(request));
     requirePermission(actor, "expenses.read");
     const input = parseInput(expenseWorkspaceInput, request.data);
+    if (input.view === "access") return {
+      permissions: actor.effectivePermissions, organizationPermissions: actor.organizationPermissions,
+      branchIds: actor.branchIds, warehouseIds: actor.warehouseIds,
+    };
     requirePermissionScope(actor, { branchId: input.branchId, warehouseId: input.warehouseId }, "expenses.read");
     let query: FirebaseFirestore.Query = db
       .collection("expenses")

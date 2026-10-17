@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { deleteApp, initializeApp, type FirebaseApp } from "firebase/app";
 import { connectAuthEmulator, getAuth, signInWithEmailAndPassword } from "firebase/auth";
 import { connectFunctionsEmulator, getFunctions, httpsCallable } from "firebase/functions";
@@ -126,6 +127,7 @@ describe.sequential("trusted manual journal workflow", () => {
     await db.doc("bankAccounts/journal-scope-private-bank").set({ organizationId, active: true, bankName: "Scoped bank", accountName: "Company", ledgerAccountCode: "1032", openingBalanceMinor: 987654321 });
     const selector = await call<{ bankAccounts: Array<Record<string, unknown>> }>({ action: "workspace", branchId, fromDate, toDate }, target);
     expect(selector.bankAccounts.find(row => row.id === "journal-scope-private-bank")).not.toHaveProperty("openingBalanceMinor");
+    await db.doc("sales/provider-remote-scope").set({ organizationId, branchId: remote, recordedAt: Timestamp.fromDate(new Date("2025-08-12T12:00:00Z")) });
     const filter = { action: "workspace", fromDate, toDate };
     await expect(call({ ...filter, branchId }, target)).resolves.toMatchObject({ entries: [expect.objectContaining({ branchId })] });
     await expect(call({ ...filter, branchId: remote }, target)).rejects.toMatchObject({ code: "functions/permission-denied" });
@@ -145,6 +147,16 @@ describe.sequential("trusted manual journal workflow", () => {
     await expect(call({ fromDate, toDate }, target, "getTaxWorkspace")).rejects.toMatchObject({ code: "functions/permission-denied" });
     await expect(call({ branchId }, target, "getExpenseWorkspace")).resolves.toMatchObject({ expenses: [expect.objectContaining({ branchId, grossAmountMinor: 12345 })] });
     await expect(call({ branchId: remote }, target, "getExpenseWorkspace")).rejects.toMatchObject({ code: "functions/permission-denied" });
+    const expenseAccess = await call({ view: "access" }, target, "getExpenseWorkspace");
+    expect(expenseAccess).toMatchObject({ branchIds: [branchId], warehouseIds: [], organizationPermissions: expect.not.arrayContaining(["expenses.read"]) });
+    expect(expenseAccess).not.toHaveProperty("expenses");
+    const providerPeriod = { action: "workspace", fromDate, toDate };
+    await expect(call({ ...providerPeriod, branchId }, target, "providerFunds")).resolves.toMatchObject({ branchId, rows: [], summary: { outstandingMinor: 0 } });
+    await expect(call({ ...providerPeriod, branchId: remote }, target, "providerFunds")).rejects.toMatchObject({ code: "functions/permission-denied" });
+    await expect(call({ action: "detail", saleId: "provider-remote-scope" }, target, "providerFunds")).rejects.toMatchObject({ code: "functions/permission-denied" });
+    const remoteProviderRetry = { action: "settle", saleId: "provider-remote-scope", componentId: "provider-scope-line", method: "cash", amountMinor: 1, reference: "SCOPE-REF", reason: "Synthetic retry scope verification", idempotencyKey: crypto.randomUUID() };
+    await db.doc(`idempotencyOperations/${uniquenessDocumentId(organizationId, "providerFunds", remoteProviderRetry.idempotencyKey)}`).set({ organizationId, fingerprint: createHash("sha256").update(JSON.stringify(remoteProviderRetry)).digest("hex"), result: { paymentId: "remote-existing-payment" } });
+    await expect(call(remoteProviderRetry, target, "providerFunds")).rejects.toMatchObject({ code: "functions/permission-denied" });
     await expect(call({ action: "access" }, target)).resolves.toMatchObject({ organizationPermissions: expect.not.arrayContaining(["finance.journal.read"]) });
     if (base === "finance_officer") {
       // Current explicit finance permission is enough; sales.read.all is not required.

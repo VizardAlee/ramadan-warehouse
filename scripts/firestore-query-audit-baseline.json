@@ -1,14 +1,14 @@
 {
   "lastLiveAudit": {
     "project": "ramadan-warehouse-staging",
-    "verifiedAt": "2026-10-17T13:12:52.350Z",
+    "verifiedAt": "2026-10-17T13:56:29.876Z",
     "queryShapes": 529,
     "unsupportedQueries": 0,
     "readyIndexes": 256,
     "singleFieldOverrides": 0,
     "indexInventoryVerifiedAt": "2026-10-11T15:17:12.715Z",
     "probeMethod": "planner-only (analyze=false), with sentinel-scope missing-index diagnostics; no mutations",
-    "plannerEvidenceSha256": "ed2b617a01d35805f7c9e328e9ded770c88fed881be8d8955b980878ba2b6625"
+    "plannerEvidenceSha256": "f724a45ffb721526ebaa42908fe1bf14dc813b91a47a5afa649e22fa3d47cec8"
   },
   "catalogSha256": "7807aa548648af0f5fc3c4e85e6af7d6fcdf55511f076986008de1449190232e",
   "sourceFingerprints": {
@@ -32,7 +32,7 @@
     "functions/src/callable/customers.ts": "244922f3625716387ab1fd64ea625a8fedd796aec9bac9055d57d2fba66bdc1c",
     "functions/src/callable/daily-close.ts": "80dbe835d25df2ae5d1bfda2adc67a9f6e9407470907d726d54d6f8efd7716a7",
     "functions/src/callable/dashboard.ts": "1d15ada87d20bbcba8eee0725e54daf8aea05d24e7460ab0e1c2cd62cebc4feb",
-    "functions/src/callable/expenses.ts": "8bfaa6db839e1b79ad8a76dfe72ff1f9a08242144f4947f1ff186358b1f97bb2",
+    "functions/src/callable/expenses.ts": "b19b442f3d133184a899120e39f1dd0ab27797ae3d962965719f1a0ece33299d",
     "functions/src/callable/financial-reports.ts": "c11a19a75a17051cdd6554228b6bb63cb07ada48af25ea126f88da2ff3782136",
     "functions/src/callable/get-my-access-context.ts": "5906a6e27b873f42bc21db88845358f5431ee6f9ec3b98da8e17f31765b377cb",
     "functions/src/callable/hr-history.ts": "c995088366d8316cb39b1d71e7c30c5cde5a43400caaa4a7de9ad1a6a6816766",
@@ -46,7 +46,7 @@
     "functions/src/callable/operational-readiness.ts": "5710f7b794dc5560f44a60fa86e21dc96c9591066d6996ca0119ba7615e11279",
     "functions/src/callable/procurement.ts": "53fed405013e335dc854255c942ebce922f5089b854e5a9e698af46e07e6f289",
     "functions/src/callable/product-margins.ts": "bd17eb777d0fdfafb0030910c55ccefb619f4f44757c1f262e469648deb625be",
-    "functions/src/callable/provider-funds.ts": "ca44b515e410f5be2dc94edc4968d9aae82e936461b229cf0d1d347b92462ab6",
+    "functions/src/callable/provider-funds.ts": "07ea6a0b3408c1eebc22addfba689d93debbf709e588d62d62946267da857da2",
     "functions/src/callable/reset-organization.ts": "ef008e650d39213d23c35d3d801015dccad8ad7ea78edf9d62b6b5c230d53a5c",
     "functions/src/callable/sales-corrections.ts": "6a81ad6d02442729f5a390a4184739fd4f3f3a450b8951e51c543a09bcdd95ff",
     "functions/src/callable/sales-returns.ts": "55c59021601db25a52911bbeed1449f8770bf1ae549ff8476905af8e971a794f",
