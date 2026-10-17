@@ -8,7 +8,8 @@ const { assertFails, assertSucceeds, initializeTestEnvironment } =
   require("@firebase/rules-unit-testing") as typeof import("@firebase/rules-unit-testing");
 
 import { loadFinancialBranches } from "@/features/accounting/financial-branches";
-import type { Firestore } from "firebase/firestore";
+import { connectFirestoreEmulator, getFirestore as getModularFirestore } from "firebase/firestore";
+import { initializeApp, deleteApp } from "firebase/app";
 import type { UserProfile } from "@/types/domain";
 
 let environment: RulesTestEnvironment;
@@ -998,8 +999,15 @@ describe("financial branch metadata against actual branch rules", () => {
     });
     const store = environment.authenticatedContext("local-finance").firestore();
     await assertFails(store.collection("branches").where("organizationId", "==", "org-1").get());
-    const result = await loadFinancialBranches(store as unknown as Firestore, profile, { branchIds: profile.branchIds, permissions: profile.effectivePermissions!, organizationPermissions: [] }, async () => { throw new Error("Daily-close access was not granted."); });
-    expect(result.map(branch => branch.id).sort()).toEqual(["branch-1", "branch-2"]);
+    // The rules library owns a compatibility SDK instance; the production loader uses modular Firebase.
+    // Use the same synthetic identity against the real emulator rules through that modular SDK.
+    const app = initializeApp({ projectId: "demo-ramadan-warehouse" }, "financial-metadata-rules");
+    try {
+      const modular = getModularFirestore(app);
+      connectFirestoreEmulator(modular, "127.0.0.1", Number(process.env.FIRESTORE_EMULATOR_HOST?.split(":").at(-1) ?? 8180), { mockUserToken: { sub: "local-finance", user_id: "local-finance" } });
+      const result = await loadFinancialBranches(modular, profile, { branchIds: profile.branchIds, permissions: profile.effectivePermissions!, organizationPermissions: [] }, async () => { throw new Error("Daily-close access was not granted."); });
+      expect(result.map(branch => branch.id).sort()).toEqual(["branch-1", "branch-2"]);
+    } finally { await deleteApp(app); }
     await assertFails(store.doc("branches/unassigned").get());
     await assertFails(store.doc("branches/foreign-branch").get());
   });
