@@ -47,6 +47,7 @@
 .mobileCartButton { gap: .75rem; flex-wrap: wrap; text-align: left; padding-block: .75rem; }
 .mobileCartButton > span { min-width: 0; overflow-wrap: anywhere; }
 .cartOverlay.cartOverlay { align-items: flex-end; padding: 0; }
+.cartSlot { display: contents; }
 .cartDialog.cartDialog { position: relative; top: auto; width: 100%; max-width: 40rem; max-height: min(88dvh, 48rem); overflow-y: auto; }
 @media (min-width: 1024px) {
   .workspace { padding-bottom: 0; }

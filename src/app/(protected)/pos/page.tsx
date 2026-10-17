@@ -168,7 +168,6 @@ export default function PosPage() {
   );
   const salePriceDialogRef = useDialogFocus<HTMLFormElement>(Boolean(salePriceProductId), () => setSalePriceProductId(null));
   const branchPriceDialogRef = useDialogFocus<HTMLElement>(Boolean(priceProductId), () => setPriceProductId(null));
-  const cartDialogRef = useDialogFocus<HTMLElement>(cartOpen && !customerDialogOpen && !salePriceProductId && !priceProductId, () => setCartOpen(false));
   const branchContextId =
     operatingContext?.type === "branch" ? operatingContext.id : undefined;
   const assignedBranchId =
@@ -1542,10 +1541,9 @@ export default function PosPage() {
             </div>
           </section>
 
-          <PosCartSurface open={cartOpen} onClose={() => setCartOpen(false)}>
+          <PosCartSurface open={cartOpen} focusActive={!customerDialogOpen && !salePriceProductId && !priceProductId} onClose={() => setCartOpen(false)}>
           <aside
             id="pos-cart"
-            ref={cartDialogRef}
             role={cartOpen ? "dialog" : undefined}
             aria-modal={cartOpen ? true : undefined}
             aria-label={cartOpen ? "Current sale and held sales" : undefined}
