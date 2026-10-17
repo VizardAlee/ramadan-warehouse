@@ -1,14 +1,14 @@
 {
   "lastLiveAudit": {
     "project": "ramadan-warehouse-staging",
-    "verifiedAt": "2026-10-17T14:35:40.488Z",
+    "verifiedAt": "2026-10-17T16:34:02.298Z",
     "queryShapes": 529,
     "unsupportedQueries": 0,
     "readyIndexes": 256,
     "singleFieldOverrides": 0,
     "indexInventoryVerifiedAt": "2026-10-11T15:17:12.715Z",
     "probeMethod": "planner-only (analyze=false), with sentinel-scope missing-index diagnostics; no mutations",
-    "plannerEvidenceSha256": "140d0adad31aa6b3d8e70d6bc62e8057f8bbc7f691d9a96eebdc767aef41a25a"
+    "plannerEvidenceSha256": "861cd2e983dbb39db40b5f0bcbb245e6dbc1208a6b890869d6c2aaa869e53524"
   },
   "catalogSha256": "761ccb373ef07cbf33e68d3eefe0e33bf407647add8e50c855b01e6504aca8be",
   "sourceFingerprints": {
@@ -89,7 +89,7 @@
     "src/app/(protected)/products/[product_id]/page.tsx": "25ffd4523e31a20ecd1c8bb7c8689d0e4484addfdf07e69234761b56ca950039",
     "src/app/(protected)/products/categories/page.tsx": "825f82bca475cc5200fc2784bd8acf166ee06bbbe9eccee26aa7ef6bec1599f3",
     "src/app/(protected)/products/page.tsx": "d0be6083e6910238fffb0a596299b7b2158eef170b47b31c71ad90341fe152eb",
-    "src/app/(protected)/reports/page.tsx": "54a6ea1d0c4189af254f07835cbbdc803dc0c92859d2f8aac03b155d9ecc6161",
+    "src/app/(protected)/reports/page.tsx": "3245631b1d36c76aacd9ba4380c364b0df608e20470e5a762ca921d77cc6c9f1",
     "src/app/(protected)/returns/page.tsx": "8e7cf76c8e20b4c2d79582f240d6c337f8203240c7778df90f8eeffa8629e9ed",
     "src/features/accounting/financial-branches.ts": "b76e8598c9d777b28c0e1f8b37ca26629af68e0ee67df2be68c89588d88353dc",
     "src/features/administration/master-data-page.tsx": "c6bcbb00b58e4c59a4b6c0b9ceeb40d2ba66152ec0b177939a43107246098a7d",

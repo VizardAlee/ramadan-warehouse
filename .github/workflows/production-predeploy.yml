@@ -1,0 +1,81 @@
+name: Production predeploy gate
+on:
+  workflow_dispatch:
+    inputs:
+      expected_sha:
+        description: Exact reviewed main commit (40-character SHA)
+        required: true
+        type: string
+      production_configuration:
+        description: Existing non-secret .env.production configuration only; no credential values
+        required: true
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: production-predeploy
+  cancel-in-progress: false
+jobs:
+  predeploy:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      VITEST_MAX_WORKERS: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          persist-credentials: false
+      - name: Verify exact main and available capacity
+        env:
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+          DISPATCH_SHA: ${{ github.sha }}
+        run: |
+          node - <<'NODE'
+          const {execFileSync}=require('node:child_process');
+          const fs=require('node:fs');
+          const sha=execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim();
+          if(!/^[a-f0-9]{40}$/.test(process.env.EXPECTED_SHA)||sha!==process.env.EXPECTED_SHA||sha!==process.env.DISPATCH_SHA)throw Error('Main changed or reviewed SHA mismatch; stop and review');
+          if(execFileSync('git',['branch','--show-current'],{encoding:'utf8'}).trim()!=='main'||execFileSync('git',['status','--porcelain'],{encoding:'utf8'}).trim())throw Error('Require clean main');
+          const available=Number(fs.readFileSync('/proc/meminfo','utf8').match(/^MemAvailable:\s+(\d+)/m)[1]);
+          console.log({sha,tree:execFileSync('git',['rev-parse','HEAD^{tree}'],{encoding:'utf8'}).trim(),availableKiB:available});
+          if(available<6*1024*1024)throw Error('Insufficient runner capacity for aggregate gate');
+          NODE
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            functions/package-lock.json
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - run: npm ci
+      - run: npm ci --prefix functions
+      - name: Materialize existing non-secret production configuration on runner only
+        env:
+          PRODUCTION_CONFIGURATION: ${{ inputs.production_configuration }}
+        run: |
+          node - <<'NODE'
+          const fs=require('node:fs');
+          const allowed=new Set(['NEXT_PUBLIC_FIREBASE_API_KEY','NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN','NEXT_PUBLIC_FIREBASE_PROJECT_ID','NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET','NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID','NEXT_PUBLIC_FIREBASE_APP_ID','NEXT_PUBLIC_FIREBASE_APP_CHECK_SITE_KEY','NEXT_PUBLIC_USE_FIREBASE_EMULATORS','APP_ENV','GCLOUD_PROJECT','FUNCTIONS_REGION','LOG_LEVEL','NOTIFICATION_ADAPTER_MODE','INTEGRATION_ADAPTER_MODE','WAREHOUSE_APP_CHECK_ENABLED','WAREHOUSE_BOOTSTRAP_ENABLED','WAREHOUSE_SCHEDULED_FUNCTIONS_ENABLED','NEXT_PUBLIC_FIREBASE_APPCHECK_DEBUG_TOKEN','WAREHOUSE_REQUIRED_SECRETS','WAREHOUSE_FUTURE_PROVIDER_SECRET_NAMES','WAREHOUSE_INTEGRATION_SECRET_NAMES','WAREHOUSE_SIGNING_KEY_SECRET_NAMES']);
+          const config=process.env.PRODUCTION_CONFIGURATION||'';
+          for(const line of config.split(/\r?\n/)){
+            if(!line||line.startsWith('#'))continue;
+            if(!allowed.has(line.split('=',1)[0]))throw Error('Unexpected configuration key; never supply credential values');
+          }
+          fs.writeFileSync('.env.production',config,{mode:0o600});
+          NODE
+      - name: Run complete unchanged production gate
+        run: |
+          set -o pipefail
+          npm run predeploy:production 2>&1 | tee predeploy-production.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: production-predeploy-evidence
+          path: predeploy-production.log
+          if-no-files-found: ignore

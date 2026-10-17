@@ -265,6 +265,9 @@ textarea { min-height: 96px; }
 .form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 17rem), 1fr)); gap: 1rem; }
 .action-row { display: flex; flex-wrap: wrap; align-items: center; gap: .625rem; }
 .filter-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 13rem), 1fr)); gap: .75rem; }
+.filter-grid > * { min-width: 0; }
+.filter-grid :is(input, select) { max-width: 100%; }
+.invoice-history :is(input, select, button) { min-height: 2.75rem; }
 .scroll-tabs { display: flex; max-width: 100%; gap: .35rem; overflow-x: auto; overscroll-behavior-inline: contain; scrollbar-width: thin; }
 .scroll-tabs > * { flex: 0 0 auto; }
 .safe-bottom { padding-bottom: max(1rem, env(safe-area-inset-bottom)); }

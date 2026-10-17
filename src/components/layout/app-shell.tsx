@@ -53,6 +53,7 @@ import { CeoViewSwitch } from "@/features/dashboard/ceo-switch";
 const navigation = [
   { href: "/dashboard", label: "Dashboard", icon: Gauge, permissions: [] },
   { href: "/pos", label: "POS", icon: ShoppingCart, permissions: ["sales.create", "sales.order.create", "sales.payment.accept", "sales.payment.confirm", "sales.stock.release"] },
+  { href: "/invoices", label: "Invoice History", icon: ReceiptText, permissions: ["reports.sales.read"] },
   { href: "/customers", label: "Customers", icon: ContactRound, permissions: ["customers.read"] },
   { href: "/returns", label: "Returns", icon: RotateCcw, permissions: ["sales.returns.read"] },
   { href: "/aftersales", label: "Aftersales", icon: Wrench, permissions: ["sales.returns.read"] },
@@ -75,7 +76,7 @@ const navigation = [
   { href: "/guide", label: "User guide", icon: CircleHelp, permissions: [] },
 ] as const;
 const navigationGroups = [
-  { label: "Sales & customers", hrefs: ["/pos", "/customers", "/returns", "/aftersales"] },
+  { label: "Sales & customers", hrefs: ["/pos", "/invoices", "/customers", "/returns", "/aftersales"] },
   { label: "Stock & movement", hrefs: ["/products", "/inventory", "/requests", "/transfers", "/daily-reconciliation"] },
   { label: "Purchasing", hrefs: ["/procurement", "/costs"] },
   { label: "Money & accounts", hrefs: ["/expenses", "/banking", "/finance", "/accounting", "/tax"] },
@@ -84,6 +85,7 @@ const navigationGroups = [
 ] as const;
 const mobilePriority = ["/dashboard", "/pos", "/transfers", "/inventory", "/procurement", "/reports", "/requests"];
 const titleFromPath = (pathname: string) => {
+  if (pathname === "/invoices") return "Invoice History";
   const segments = pathname.split("/").filter(Boolean);
   const section = segments.at(-1) ?? "Dashboard";
   if (segments[0] === "transfers" && segments[1] === "simple") return "Stock transfer";
