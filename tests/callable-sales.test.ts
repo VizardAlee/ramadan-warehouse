@@ -94,6 +94,8 @@ async function inspectReturnedGoods(target: ReturnType<typeof client>, returnId:
 }
 
 beforeAll(async () => {
+  if (!process.env.FIRESTORE_EMULATOR_HOST || !process.env.FIREBASE_AUTH_EMULATOR_HOST)
+    throw new Error("These financial regressions require explicitly isolated Firebase emulators.");
   await fetch(
     `http://${process.env.FIREBASE_AUTH_EMULATOR_HOST ?? "127.0.0.1:9099"}/emulator/v1/projects/${projectId}/accounts`,
     { method: "DELETE" },
@@ -730,15 +732,18 @@ describe.sequential("sales callables", () => {
       before.get("onHandQuantity"),
     );
 
-    await expect(
-      call(cashierTwo, "acceptPosSaleOrderPayment", {
-        orderId: order.orderId,
-        shiftId: paymentShift.shiftId,
-        deviceId: paymentDeviceId,
-        idempotencyKey: crypto.randomUUID(),
-        operatingContext: { type: "branch", id: branchId },
-      }),
-    ).resolves.toMatchObject({ status: "payment_accepted" });
+    const acceptance = { orderId: order.orderId, shiftId: paymentShift.shiftId, deviceId: paymentDeviceId,
+      idempotencyKey: crypto.randomUUID(), operatingContext: { type: "branch", id: branchId } };
+    await expect(call(cashierTwo, "acceptPosSaleOrderPayment", acceptance)).resolves.toMatchObject({ status: "payment_accepted" });
+    await expect(call(cashierTwo, "acceptPosSaleOrderPayment", acceptance)).resolves.toMatchObject({ orderId: order.orderId });
+    await expect(call(cashierTwo, "acceptPosSaleOrderPayment", { ...acceptance, deviceId: "changed-device" })).rejects.toMatchObject({ code: "functions/failed-precondition" });
+    const otherOrder = await call<{ orderId: string }>(cashier, "createPosSaleOrder", {
+      branchId, shiftId: receiverShift.shiftId, deviceId: receiverDeviceId, recordedAt: new Date().toISOString(), offline: false,
+      lines: [{ productId, quantity: 1 }], payments: [{ method: "bank_transfer", bankAccountId, amountMinor: 12_900, reference: "REPLAY-OTHER-ORDER" }], idempotencyKey: crypto.randomUUID(),
+    });
+    await expect(call(cashierTwo, "acceptPosSaleOrderPayment", { ...acceptance, orderId: otherOrder.orderId })).rejects.toMatchObject({ code: "functions/failed-precondition" });
+    expect((await adminDb.doc(`salesOrders/${otherOrder.orderId}`).get()).get("status")).toBe("order_received");
+    await call(cashier, "rejectPosSaleOrder", { orderId: otherOrder.orderId, reason: "Synthetic replay-denial fixture completed", idempotencyKey: crypto.randomUUID() });
     const acceptedEvent = await adminDb.doc(`notificationEvents/sales_order_payment_accepted_${order.orderId}`).get();
     expect(await deliverInAppNotification({ id: acceptedEvent.id, ...acceptedEvent.data() } as InboxEvent)).toMatchObject({ delivered: true });
     expect((await managerInbox.get()).data()).toMatchObject({ actionRequired: true, eventType: "sales_order.payment_accepted", readAt: null });

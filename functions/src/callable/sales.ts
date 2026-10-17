@@ -9,6 +9,7 @@ import { createHash } from "node:crypto";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
 import type { z } from "zod";
 import { db } from "../admin.js";
+import { requestFingerprint } from "../utils/request-fingerprint.js";
 import { accountingPeriodReference, assertAccountingPeriodOpen } from "../accounting/period-lock.js";
 import { collectReservedSale } from "../sales/collection.js";
 import { readSaleSerials, changeSaleSerials, writeSaleSerialEntries } from "../sales/serials.js";
@@ -1226,6 +1227,7 @@ export const acceptPosSaleOrderPayment = onCall(
     const actor = await requireAccess(request);
     requirePermission(actor, "sales.payment.accept");
     const input = parseInput(acceptPosSaleOrderPaymentInput, request.data);
+    const fingerprint = requestFingerprint(input);
     const order = db.doc(`salesOrders/${input.orderId}`);
     const current = await order.get();
     if (
@@ -1242,7 +1244,12 @@ export const acceptPosSaleOrderPayment = onCall(
     await db.runTransaction(async (transaction) => {
       const [orderSnapshot, shiftSnapshot, previousOperation] =
         await transaction.getAll(order, shift, operation);
-      if (previousOperation!.exists) return;
+      if (previousOperation!.exists) {
+        if (previousOperation!.get("entityId") !== order.id || previousOperation!.get("createdBy") !== actor.userId ||
+          previousOperation!.get("requestFingerprint") !== fingerprint)
+          throw new HttpsError("failed-precondition", "This payment-acceptance reference belongs to different instructions. Review the original order.", { code: "RETRY_INSTRUCTIONS_MISMATCH" });
+        return;
+      }
       if (
         !orderSnapshot!.exists ||
         orderSnapshot!.get("organizationId") !== actor.organizationId ||
@@ -1295,6 +1302,7 @@ export const acceptPosSaleOrderPayment = onCall(
       transaction.create(operation, {
         organizationId: actor.organizationId,
         action: "acceptPosSaleOrderPayment",
+        requestFingerprint: fingerprint,
         entityId: order.id,
         status: "completed",
         createdAt: now,

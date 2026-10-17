@@ -3,7 +3,8 @@ import { FieldValue } from "firebase-admin/firestore";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
 import { z } from "zod";
 import { db } from "../admin.js";
-import { hasServerPermission, requireAccess, requirePermission } from "../auth/authorize.js";
+import { scopedAccess, requirePermissionScope } from "../auth/permission-scope.js";
+import { requireAccess, requirePermission } from "../auth/authorize.js";
 import { writeAuditLog } from "../audit/write-audit-log.js";
 import { billingAccountSnapshot } from "../billing/mappings.js";
 import { enforceAppCheck } from "../config.js";
@@ -14,8 +15,8 @@ const id = z.string().regex(/^[A-Za-z0-9_-]{1,180}$/);
 const schema = z.discriminatedUnion("action", [z.object({ action: z.literal("workspace") }), z.object({ action: z.literal("save"), deferredServiceAccountId: id, providerPayableAccountId: id, expectedVersion: z.number().int().nonnegative().safe(), reason: z.string().trim().min(5).max(500), idempotencyKey: z.string().uuid() })]);
 const fail = (message: string): never => { throw new HttpsError("failed-precondition", message); };
 export const billingControls = onCall({ enforceAppCheck }, async request => {
-  const actor = await requireAccess(request); requirePermission(actor, "finance.accounts.manage");
-  if (!hasServerPermission(actor, "sales.read.all")) throw new HttpsError("permission-denied", "Company billing controls require organization-wide accounting access.");
+  const actor = await scopedAccess(await requireAccess(request)); requirePermission(actor, "finance.accounts.manage");
+  requirePermissionScope(actor, {}, "finance.accounts.manage");
   const input = parseInput(schema, request.data), ref = db.doc(`billingConfigurations/${actor.organizationId}`);
   if (input.action === "workspace") {
     const [config, accounts] = await Promise.all([ref.get(), db.collection("chartOfAccounts").where("organizationId", "==", actor.organizationId).limit(501).get()]);

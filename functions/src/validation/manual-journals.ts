@@ -36,7 +36,7 @@ export const saveLedgerAccountInput = z.object({
   name: z.string().trim().min(2).max(160), active: z.boolean(),
   reason: z.string().trim().min(5).max(500), idempotencyKey: z.string().uuid(),
 });
-export const accountingJournalInput = z.union([manualJournalInput, reverseManualJournalInput, journalWorkspaceInput, saveLedgerAccountInput,
+export const accountingJournalInput = z.union([z.object({ action: z.literal("access") }), manualJournalInput, reverseManualJournalInput, journalWorkspaceInput, saveLedgerAccountInput,
   z.object({ action: z.literal("detail"), journalEntryId: id })]);
 
 // These balances belong to operational subledgers. An arbitrary manual journal

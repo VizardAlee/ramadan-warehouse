@@ -115,8 +115,11 @@ available limit in one transaction.
 A return begins by loading the original completed branch receipt. The return
 reuses its product, quantity, sale price, VAT, and inventory cost snapshots.
 The user selects only the quantity, physical condition, resolution, and reason.
-Submission changes no stock or money. A different authorized user must approve
-and post it; the creator cannot self-approve even when they hold another role.
+Submission changes no stock or money. An authorized manager may approve and
+post their own return within their assigned scope. A creator without the current
+manager self-authorization capability needs another authorized approver. Every
+approval remains attributable in the audit trail; finance-only roles do not gain
+manager self-authorization.
 
 The server transaction rechecks the remaining returnable quantity. A
 restockable item increases the original branch sales-stock balance at original
@@ -216,7 +219,7 @@ only path to confirmed sales, inventory balances, journals, or receipts.
   repayments; all users remain scoped to their assigned authority.
 - Sales cashiers and branch managers may submit branch receipt returns. Branch
   managers, operations administrators, finance officers, and system
-  administrators may approve within scope, but never their own submission.
+  administrators may approve within scope, with manager self-approval permitted only within assigned scope.
 - Finance officers and auditors receive organization-scoped read/report access.
 
 Operating-context selection narrows multi-role users to the selected branch or

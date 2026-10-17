@@ -27,7 +27,8 @@ beforeAll(async () => {
   for (const id of ["branch-a", "branch-b"]) await db.doc(`branches/${id}`).set({ organizationId, name: id, active: true });
   for (const [id, code] of [["income", "4100"], ["expense", "6100"], ["asset", "1100"]]) await db.doc(`chartOfAccounts/${id}`).set({ organizationId, code, name: id, active: true });
   accountant = await actor("budget-finance@example.test", "finance_officer"); restricted = await actor("budget-cashier@example.test", "sales_cashier");
-  branchReader = await actor("budget-store@example.test", "branch_manager", { branchIds: ["branch-a"], directRoleIds: [], effectivePermissions: ["finance.journal.read"] });
+  await db.doc("roles/budget-local-reader").set({ id: "budget-local-reader", organizationId, name: "Local journal reader", baseRoleId: "branch_manager", permissionIds: ["finance.journal.read"], status: "active" });
+  branchReader = await actor("budget-store@example.test", "branch_manager", { branchIds: ["branch-a"], directRoleIds: [], customRoleIds: ["budget-local-reader"], effectivePermissions: ["finance.journal.read"] });
 });
 afterAll(async () => Promise.all(apps.map(app => deleteApp(app))));
 describe.sequential("trusted budget workflow", () => {

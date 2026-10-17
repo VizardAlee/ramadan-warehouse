@@ -10,10 +10,13 @@ import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { z } from "zod";
 import { db } from "../admin.js";
 import { enforceAppCheck } from "../config.js";
+import { loadCustomRoles } from "../auth/custom-roles.js";
 import {
   hasRole,
+  hasServerPermission,
   requireAccess,
   type AccessProfile,
+  type Permission,
 } from "../auth/authorize.js";
 import { parseInput } from "../utils/callable.js";
 import { writeAuditLog } from "../audit/write-audit-log.js";
@@ -103,13 +106,38 @@ const clean = (data: Record<string, unknown>) =>
   Object.fromEntries(Object.entries(data).filter(([, v]) => v !== undefined));
 const num = (doc: DocumentSnapshot, field: string) =>
   Number(doc.get(field) ?? 0);
+type TransferAccess = AccessProfile & { readonly organizationTransferPermissions?: readonly Permission[] };
+// Global reads never promote a scoped manager's mutation authority. Custom
+// operations grants keep their action provenance instead of using the union.
 const admin = (actor: AccessProfile) =>
   hasRole(actor, "system_administrator") ||
-  hasRole(actor, "operations_administrator");
+  (actor.directRoleIds ?? (actor.effectivePermissions ? [] : actor.roleIds ?? [actor.roleId])).includes("operations_administrator");
+const organizationAction = (actor: TransferAccess, permission: Permission) =>
+  admin(actor) || Boolean(actor.organizationTransferPermissions?.includes(permission));
 const manager = (actor: AccessProfile) =>
+  hasRole(actor, "operations_administrator") ||
   admin(actor) ||
   hasRole(actor, "warehouse_manager") ||
   hasRole(actor, "branch_manager");
+
+function permitted(actor: AccessProfile, permission: Permission) {
+  // The three-task flow predates the detailed transfer permission catalog.
+  // Preserve its existing direct-manager capability, never a custom role base.
+  const directManager = actor.directRoleIds?.some(role =>
+    ["system_administrator", "operations_administrator", "warehouse_manager", "branch_manager"].includes(role));
+  return hasServerPermission(actor, permission) || Boolean(directManager && [
+    "transfers.create.direct", "transfers.create.from_request", "transfers.approve",
+    "transfers.receive", "transfers.report_discrepancy", "transfers.resolve_discrepancy", "transfers.cancel",
+  ].includes(permission));
+}
+function requireActionPermission(actor: AccessProfile, permission: Permission) {
+  if (!permitted(actor, permission))
+    throw new HttpsError("permission-denied", "You do not have permission for this transfer action.");
+}
+function readable(actor: AccessProfile) {
+  return (["transfers.read.all", "transfers.read.own_branch", "transfers.read.assigned_warehouse"] as const)
+    .some(permission => permitted(actor, permission));
+}
 const fail = (
   message: string,
   code = "STOCK_TRANSFER_ACTION_REQUIRED",
@@ -139,15 +167,33 @@ function owns(
 }
 function canRead(actor: AccessProfile, transfer: StockTransfer) {
   return (
-    admin(actor) ||
-    hasRole(actor, "auditor") ||
-    hasRole(actor, "finance_officer") ||
-    owns(actor, {
-      branchId: transfer.sourceBranchId,
-      warehouseId: transfer.sourceWarehouseId,
-    }) ||
-    owns(actor, { branchId: transfer.destinationBranchId })
+    (permitted(actor, "transfers.read.all") &&
+      (admin(actor) || hasRole(actor, "operations_administrator") || hasRole(actor, "auditor") || hasRole(actor, "finance_officer"))) ||
+    (permitted(actor, "transfers.read.own_branch") &&
+      (owns(actor, { branchId: transfer.sourceBranchId }) || owns(actor, { branchId: transfer.destinationBranchId }))) ||
+    (permitted(actor, "transfers.read.assigned_warehouse") && owns(actor, { warehouseId: transfer.sourceWarehouseId }))
   );
+}
+function canActAt(actor: TransferAccess, location: { branchId?: string; warehouseId?: string }, permission: Permission) {
+  return permitted(actor, permission) && (organizationAction(actor, permission) || owns(actor, location));
+}
+type MutationInput = Exclude<z.infer<typeof inputSchema>, { action: "options" | "stock" | "list" | "get" }>;
+function mutationPermission(input: MutationInput): Permission {
+  switch (input.action) {
+    case "create": return input.sourceRequestId ? "transfers.create.from_request" : "transfers.create.direct";
+    case "approve": return "transfers.approve";
+    case "receive": return "transfers.receive";
+    case "report_problem": return "transfers.report_discrepancy";
+    case "resolve": return input.disposition === "never_left" ? "transfers.cancel" : "transfers.resolve_discrepancy";
+  }
+}
+function requireTransferScope(actor: TransferAccess, transfer: StockTransfer, input: MutationInput) {
+  const permission = mutationPermission(input);
+  const source = canActAt(actor, { branchId: transfer.sourceBranchId, warehouseId: transfer.sourceWarehouseId }, permission);
+  const destination = canActAt(actor, { branchId: transfer.destinationBranchId }, permission);
+  const allowed = input.action === "receive" ? destination
+    : input.action === "approve" || input.action === "resolve" ? source : source || destination;
+  if (!allowed) throw new HttpsError("permission-denied", "This transfer action is outside your assigned location authority.");
 }
 function data(snapshot: DocumentSnapshot): StockTransfer {
   return { ...snapshot.data(), id: snapshot.id } as StockTransfer;
@@ -220,7 +266,7 @@ function event(
 }
 
 export const stockTransfers = onCall({ enforceAppCheck }, async (request) => {
-  const actor = await requireAccess(request);
+  let actor: TransferAccess = await requireAccess(request);
   if (
     !manager(actor) &&
     !hasRole(actor, "auditor") &&
@@ -231,6 +277,13 @@ export const stockTransfers = onCall({ enforceAppCheck }, async (request) => {
       "A location manager or administrator must handle stock transfers.",
     );
   const input = parseInput(inputSchema, request.data);
+  if (!readable(actor))
+    throw new HttpsError("permission-denied", "You do not have permission to read stock transfers.");
+  if (input.action === "create") requireActionPermission(actor, input.sourceRequestId ? "transfers.create.from_request" : "transfers.create.direct");
+  if (input.action === "approve") requireActionPermission(actor, "transfers.approve");
+  if (input.action === "receive") requireActionPermission(actor, "transfers.receive");
+  if (input.action === "report_problem") requireActionPermission(actor, "transfers.report_discrepancy");
+  if (input.action === "resolve") requireActionPermission(actor, input.disposition === "never_left" ? "transfers.cancel" : "transfers.resolve_discrepancy");
   if (
     input.action === "approve" &&
     input.lines.reduce((sum, line) => sum + line.serialItemIds.length, 0) > 100
@@ -238,6 +291,12 @@ export const stockTransfers = onCall({ enforceAppCheck }, async (request) => {
     fail(
       "Transfer up to 100 serialized units at a time. Split larger requests into separate transfers.",
     );
+  if (hasRole(actor, "operations_administrator") && !admin(actor) && actor.customRoleIds?.length) {
+    const customRoles = await loadCustomRoles(actor.organizationId, actor.customRoleIds);
+    actor = { ...actor, organizationTransferPermissions: customRoles
+      .filter(role => role.baseRoleId === "operations_administrator")
+      .flatMap(role => role.permissionIds) };
+  }
   if (input.action === "options") {
     // Only names/identities needed to request stock are discoverable across branches.
     const [locations, branches] = await Promise.all(
@@ -268,9 +327,9 @@ export const stockTransfers = onCall({ enforceAppCheck }, async (request) => {
           type: d.get("type"),
           branchId: d.get("branchId") ?? null,
           warehouseId: d.get("warehouseId") ?? null,
-          assigned: owns(actor, d.data()),
+          assigned: canActAt(actor, d.data(), "transfers.create.direct") || canActAt(actor, d.data(), "transfers.create.from_request"),
         })),
-      canApprove: admin(actor),
+      canApprove: organizationAction(actor, "transfers.approve") && permitted(actor, "transfers.approve"),
     };
   }
   if (input.action === "stock") {
@@ -311,7 +370,7 @@ export const stockTransfers = onCall({ enforceAppCheck }, async (request) => {
         .map((d) => [d.id, d.get("lotNumber")]),
     );
     const serials =
-      admin(actor) || owns(actor, location.data()!)
+      owns(actor, location.data()!) || (permitted(actor, "transfers.approve") && organizationAction(actor, "transfers.approve"))
         ? await db
             .collection("serializedItems")
             .where("organizationId", "==", actor.organizationId)
@@ -383,15 +442,10 @@ export const stockTransfers = onCall({ enforceAppCheck }, async (request) => {
           createdAt: d.get("createdAt")?.toDate?.().toISOString() ?? null,
         }))
         .sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt))),
-      canApprove:
-        admin(actor) ||
-        owns(actor, {
-          branchId: transfer.sourceBranchId,
-          warehouseId: transfer.sourceWarehouseId,
-        }),
-      canReceive:
-        owns(actor, { branchId: transfer.destinationBranchId }) &&
-        manager(actor),
+      canApprove: manager(actor) && canActAt(actor, {
+        branchId: transfer.sourceBranchId, warehouseId: transfer.sourceWarehouseId,
+      }, "transfers.approve"),
+      canReceive: manager(actor) && canActAt(actor, { branchId: transfer.destinationBranchId }, "transfers.receive"),
     };
   }
   if (!manager(actor))
@@ -424,6 +478,11 @@ export const stockTransfers = onCall({ enforceAppCheck }, async (request) => {
         fail(
           "This retry has different details. Refresh the transfer before submitting a new action.",
         );
+      const original = await tx.get(db.doc(`stockTransfers/${previous.get("transferId")}`));
+      if (!original.exists || original.get("organizationId") !== actor.organizationId || !canRead(actor, data(original)))
+        throw new HttpsError("permission-denied", "The original transfer is outside your current authority.");
+      const transfer = data(original);
+      requireTransferScope(actor, transfer, input);
       return { transferId: previous.get("transferId"), repeated: true };
     }
     const now = new Date().toISOString();
@@ -443,7 +502,7 @@ export const stockTransfers = onCall({ enforceAppCheck }, async (request) => {
         fail(
           "Choose two different locations. Use Internal movement for areas in the same branch.",
         );
-      if (!owns(actor, source!.data()!) && !owns(actor, destination!.data()!))
+      if (!canActAt(actor, source!.data()!, mutationPermission(input)) && !canActAt(actor, destination!.data()!, mutationPermission(input)))
         throw new HttpsError(
           "permission-denied",
           "Choose your own location as the source or destination.",
@@ -542,18 +601,7 @@ export const stockTransfers = onCall({ enforceAppCheck }, async (request) => {
         fail("This transfer changed. Refresh it before continuing.");
       if (["completed", "cancelled"].includes(transfer.status))
         fail("This transfer is already finished.");
-      if (
-        ["approve", "resolve"].includes(input.action) &&
-        !admin(actor) &&
-        !owns(actor, {
-          branchId: transfer.sourceBranchId,
-          warehouseId: transfer.sourceWarehouseId,
-        })
-      )
-        throw new HttpsError(
-          "permission-denied",
-          "A manager responsible for the source location must approve or resolve this transfer.",
-        );
+      requireTransferScope(actor, transfer, input);
       if (input.action === "report_problem") {
         if (transfer.status === "requested")
           fail("This transfer has not been approved yet.");
@@ -674,7 +722,7 @@ type StockAction = Extract<
 >;
 async function changeStock(
   tx: Transaction,
-  actor: AccessProfile,
+  actor: TransferAccess,
   transfer: StockTransfer,
   input: StockAction,
   now: string,
@@ -690,7 +738,7 @@ async function changeStock(
     fail("Approve this transfer before receiving it.");
   if (
     input.action === "receive" &&
-    !owns(actor, { branchId: transfer.destinationBranchId })
+    !canActAt(actor, { branchId: transfer.destinationBranchId }, "transfers.receive")
   )
     throw new HttpsError(
       "permission-denied",

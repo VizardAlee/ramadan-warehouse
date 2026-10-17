@@ -6,7 +6,7 @@ import type { SupplierInvoice } from "@/types/domain";
 const api = vi.hoisted(() => ({ call: vi.fn() }));
 vi.mock("@/features/administration/api", () => ({ callAdministration: api.call }));
 afterEach(() => { cleanup(); vi.resetAllMocks(); });
-const supplier = { id: "supplier1", organizationId: "org", supplierNumber: "SUP-1", name: "Test Supplier", active: true, paymentTermsDays: 0, outstandingBalanceMinor: 10000, advanceBalanceMinor: 5000, advanceBalancesByLocation: { "branch:branch1": 5000 } };
+const supplier = { id: "supplier1", organizationId: "org", supplierNumber: "SUP-1", name: "Test Supplier", active: true, paymentTermsDays: 0, outstandingBalanceMinor: 10000, advanceBalancesByLocation: { "branch:branch1": 5000 } };
 const invoice = { id: "invoice1", supplierId: supplier.id, supplierInvoiceNumber: "INV-1", outstandingAmountMinor: 10000, branchId: "branch1" } as SupplierInvoice;
 const props = { suppliers: [supplier], banks: [{ id: "bank1", bankName: "Bank", accountName: "Company", accountNumberLast4: "1234" }], branches: [{ id: "branch1", name: "Head Office" }], scope: { branchId: "branch1" }, canPay: true, invoice, closeInvoice: vi.fn(), onComplete: vi.fn() };
 const emptyPayables = { asOfDate: "2026-10-08", totalOutstandingMinor: 0, aging: [], invoices: [], nextCursor: null, note: "Current unpaid invoices" };
@@ -27,6 +27,12 @@ describe("supplier account workflow", () => {
     fireEvent.change(screen.getByLabelText("Refund reason (required)"), { target: { value: "Deposit no longer required" } });
     fireEvent.click(screen.getByRole("button", { name: "Record refund received" }));
     await waitFor(() => expect(api.call).toHaveBeenCalledWith("recordSupplierPayment", expect.objectContaining({ purpose: "advance_refund", branchId: "branch1", bankAccountId: "bank1", amountMinor: 2500, allocations: [], notes: "Deposit no longer required" })));
+  });
+  it.each([{}, { "branch:remote": 5000 }, { "branch:branch1": 0 }])("does not offer a refund without credit in the selected store: %j", balances => {
+    statementResponse({ entries: [], openingPayableMinor: 0, closingPayableMinor: 0, openingAdvanceMinor: 0, closingAdvanceMinor: 0 });
+    render(<SupplierAccounts {...props} invoice={null} suppliers={[{ ...supplier, advanceBalancesByLocation: balances }]} />);
+    fireEvent.change(screen.getByLabelText("Supplier account"), { target: { value: supplier.id } });
+    expect(screen.queryByRole("button", { name: "Receive advance refund" })).toBeNull();
   });
   it("validates excess decimal places without crashing the payment dialog", () => {
     render(<SupplierAccounts {...props} />);

@@ -1,11 +1,16 @@
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
-import { afterAll, afterEach, beforeAll, describe, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import type { RulesTestEnvironment } from "@firebase/rules-unit-testing";
 
 const require = createRequire(import.meta.url);
 const { assertFails, assertSucceeds, initializeTestEnvironment } =
   require("@firebase/rules-unit-testing") as typeof import("@firebase/rules-unit-testing");
+
+import { loadFinancialBranches } from "@/features/accounting/financial-branches";
+import { connectFirestoreEmulator, getFirestore as getModularFirestore } from "firebase/firestore";
+import { initializeApp, deleteApp } from "firebase/app";
+import type { UserProfile } from "@/types/domain";
 
 let environment: RulesTestEnvironment;
 
@@ -835,7 +840,9 @@ describe("Firestore baseline rules", () => {
     const branchDb = environment.authenticatedContext("branch-user").firestore();
     const financeDb = environment.authenticatedContext("finance").firestore();
     const adminDb = environment.authenticatedContext("admin").firestore();
-    await assertSucceeds(warehouseDb.doc("suppliers/supplier-1").get());
+    // Raw supplier records contain organization-wide balances; local readers use the callable summary.
+    await assertFails(warehouseDb.doc("suppliers/supplier-1").get());
+    await assertSucceeds(financeDb.doc("suppliers/supplier-1").get());
     await assertSucceeds(warehouseDb.doc("purchaseOrders/purchase-1").get());
     await assertSucceeds(warehouseDb.doc("purchaseOrderItems/purchase-item-1").get());
     await assertFails(branchDb.doc("purchaseOrders/purchase-1").get());
@@ -845,6 +852,26 @@ describe("Firestore baseline rules", () => {
     await assertFails(adminDb.doc("suppliers/new").set({ organizationId: "org-1", name: "Unsafe" }));
     await assertFails(warehouseDb.doc("purchaseOrders/purchase-1").update({ status: "received" }));
     await assertFails(financeDb.doc("supplierInvoices/supplier-invoice-1").update({ status: "paid" }));
+  });
+  it("does not lend a custom global base to local financial permissions in raw reads", async () => {
+    await seed();
+    await environment.withSecurityRulesDisabled(async context => {
+      const db = context.firestore();
+      for (const base of ["operations_administrator", "finance_officer", "auditor"]) {
+        await db.doc(`users/financial-mixed-${base}`).set({ organizationId: "org-1", status: "active", roleId: "warehouse_manager",
+          roleIds: ["warehouse_manager", "branch_manager", base], directRoleIds: ["warehouse_manager", "branch_manager"], customRoleIds: [`financial-reader-${base}`],
+          effectivePermissions: ["procurement.read", "payables.read", "suppliers.read", "finance.journal.read", "expenses.read"], branchIds: ["branch-1"], warehouseIds: ["warehouse-1"] });
+      }
+      await db.doc("supplierAccountEntries/financial-entry").set({ organizationId: "org-1", warehouseId: "warehouse-1", balanceAfterMinor: 999 });
+    });
+    for (const base of ["operations_administrator", "finance_officer", "auditor"]) {
+      const mixed = environment.authenticatedContext(`financial-mixed-${base}`).firestore();
+      for (const path of ["suppliers/supplier-1", "supplierInvoices/supplier-invoice-1", "supplierAccountEntries/financial-entry", "journalEntries/journal-1", "journalLines/journal-1-line", "chartOfAccounts/account-1", "expenses/organization-expense-1"])
+        await assertFails(mixed.doc(path).get());
+    }
+    const auditor = environment.authenticatedContext("auditor").firestore();
+    await assertSucceeds(auditor.doc("supplierAccountEntries/financial-entry").get());
+    await assertFails(environment.authenticatedContext("branch-user").firestore().doc("supplierAccountEntries/financial-entry").get());
   });
   it("scopes operating expenses and keeps approval and payment writes server-only", async () => {
     await seed();
@@ -957,5 +984,37 @@ describe("Firestore baseline rules", () => {
         await assertFails(db.doc(path).set({ organizationId: "org-1" }));
       }
     }
+  });
+});
+
+
+describe("financial branch metadata against actual branch rules", () => {
+  it("loads assigned branch documents for a local custom financial reader without a broad query or extra permission", async () => {
+    await seed();
+    const profile = { organizationId: "org-1", status: "active", roleId: "branch_manager", roleIds: ["branch_manager", "finance_officer"], directRoleIds: [], customRoleIds: ["local-finance"], effectivePermissions: ["finance.journal.read"], branchIds: ["branch-1", "branch-2"], warehouseIds: [] } as unknown as UserProfile;
+    await environment.withSecurityRulesDisabled(async context => {
+      await context.firestore().doc("users/local-finance").set(profile);
+      for (const id of profile.branchIds) await context.firestore().doc(`branches/${id}`).update({ status: "active" });
+      await context.firestore().doc("branches/unassigned").set({ organizationId: "org-1", name: "Unassigned", status: "active" });
+    });
+    const store = environment.authenticatedContext("local-finance").firestore();
+    await assertFails(store.collection("branches").where("organizationId", "==", "org-1").get());
+    // The rules library owns a compatibility SDK instance; the production loader uses modular Firebase.
+    // Use the same synthetic identity against the real emulator rules through that modular SDK.
+    const app = initializeApp({ projectId: "demo-ramadan-warehouse" }, "financial-metadata-rules");
+    try {
+      const modular = getModularFirestore(app);
+      connectFirestoreEmulator(modular, "127.0.0.1", Number(process.env.FIRESTORE_EMULATOR_HOST?.split(":").at(-1) ?? 8180), { mockUserToken: { sub: "local-finance", user_id: "local-finance" } });
+      const result = await loadFinancialBranches(modular, profile, { branchIds: profile.branchIds, permissions: profile.effectivePermissions!, organizationPermissions: [] }, async () => { throw new Error("Daily-close access was not granted."); });
+      expect(result.map(branch => branch.id).sort()).toEqual(["branch-1", "branch-2"]);
+    } finally { await deleteApp(app); }
+    await assertFails(store.doc("branches/unassigned").get());
+    await assertFails(store.doc("branches/foreign-branch").get());
+  });
+  it("keeps raw organization branch listing closed to an ordinary finance officer", async () => {
+    await seed();
+    const store = environment.authenticatedContext("finance").firestore();
+    await assertFails(store.collection("branches").where("organizationId", "==", "org-1").get());
+    await assertFails(store.doc("branches/branch-1").get());
   });
 });

@@ -5,6 +5,9 @@ import { getApps as getAdminApps, initializeApp as initializeAdminApp } from "fi
 import { getAuth as getAdminAuth } from "firebase-admin/auth";
 import { FieldValue, Timestamp, getFirestore } from "firebase-admin/firestore";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { uniquenessDocumentId } from "../functions/src/inventory/calculations";
+import { buildRoleAssignment, type StoredRole } from "../functions/src/auth/custom-roles";
+import type { Permission, RoleId } from "../functions/src/auth/authorize";
 
 const projectId = "demo-ramadan-warehouse";
 const adminApp = getAdminApps().find((app) => app.name === "accounting-close-callable-tests") ?? initializeAdminApp({ projectId }, "accounting-close-callable-tests");
@@ -14,8 +17,8 @@ let administrator: ReturnType<typeof client>, financeOfficer: ReturnType<typeof 
 
 function client(name: string) {
   const app = initializeApp({ projectId, apiKey: "demo", appId: `accounting-${name}` }, `accounting-${name}`); apps.push(app);
-  const auth = getAuth(app); connectAuthEmulator(auth, "http://127.0.0.1:9099", { disableWarnings: true });
-  const functions = getFunctions(app, "us-central1"); connectFunctionsEmulator(functions, "127.0.0.1", 5001);
+  const auth = getAuth(app); connectAuthEmulator(auth, `http://${process.env.FIREBASE_AUTH_EMULATOR_HOST ?? "127.0.0.1:9099"}`, { disableWarnings: true });
+  const functions = getFunctions(app, "us-central1"); connectFunctionsEmulator(functions, "127.0.0.1", Number(process.env.TEST_FUNCTIONS_PORT ?? 5001));
   return { auth, functions };
 }
 async function call<T = Record<string, unknown>>(target: ReturnType<typeof client>, name: string, data: Record<string, unknown>) {
@@ -28,8 +31,10 @@ async function createActor(email: string, roleId: string) {
 }
 
 beforeAll(async () => {
-  await fetch(`http://127.0.0.1:9099/emulator/v1/projects/${projectId}/accounts`, { method: "DELETE" });
-  await fetch(`http://127.0.0.1:8180/emulator/v1/projects/${projectId}/databases/(default)/documents`, { method: "DELETE" });
+  if (!process.env.FIRESTORE_EMULATOR_HOST || !process.env.FIREBASE_AUTH_EMULATOR_HOST)
+    throw new Error("These financial regressions require explicitly isolated Firebase emulators.");
+  await fetch(`http://${process.env.FIREBASE_AUTH_EMULATOR_HOST ?? "127.0.0.1:9099"}/emulator/v1/projects/${projectId}/accounts`, { method: "DELETE" });
+  await fetch(`http://${process.env.FIRESTORE_EMULATOR_HOST ?? "127.0.0.1:8180"}/emulator/v1/projects/${projectId}/databases/(default)/documents`, { method: "DELETE" });
   await adminDb.doc(`organizations/${organizationId}`).set({ name: "Accounting test organization", status: "active" });
   administrator = await createActor("accounting-admin@example.test", "system_administrator");
   financeOfficer = await createActor("accounting-finance@example.test", "finance_officer");
@@ -172,5 +177,128 @@ describe.sequential("bounded dashboard aggregates", () => {
     expect(limited.sales).toBeNull();
     expect(limited.summary).toEqual({ requests: null, transfers: null, discrepancies: null, products: 1 });
     await expect(call(custom, "getDailyCloseWorkspace", { branchId, date: "2025-02-05" })).rejects.toMatchObject({ code: "functions/permission-denied" });
+  });
+});
+
+
+describe("daily close nanosecond end boundary", () => {
+  it("includes the final instant and excludes next midnight", async () => {
+    const store = "last-instant-daily-store", date = "2025-03-19";
+    await adminDb.doc(`branches/${store}`).set({ organizationId, status: "active", name: "Boundary store" });
+    const end = Timestamp.fromDate(new Date("2025-03-19T23:00:00Z"));
+    await adminDb.doc("journalLines/boundary-last").set({ organizationId, branchId: store, accountCode: "1010", debitMinor: 123, creditMinor: 0, effectiveAt: new Timestamp(end.seconds - 1, 999_999_999) });
+    await adminDb.doc("journalLines/boundary-next").set({ organizationId, branchId: store, accountCode: "1010", debitMinor: 999, creditMinor: 0, effectiveAt: end });
+    const result = await call<{ evidence: { cash: { receiptsMinor: number; closingMinor: number } } }>(administrator, "getDailyCloseWorkspace", { branchId: store, date });
+    expect(result.evidence.cash).toMatchObject({ receiptsMinor: 123, closingMinor: 123 });
+  });
+});
+
+describe.sequential("daily-close action-specific role scope", () => {
+  const own = "scope-own-store", remote = "scope-remote-store", foreign = "scope-foreign-store";
+  type Actor = ReturnType<typeof client>;
+  type Workspace = { evidence: { hash: string; cash: { closingMinor: number } }; canPrepare: boolean; canSign: boolean };
+  const key = () => crypto.randomUUID();
+  const workspace = (actor: Actor, branchId: string, date: string) => call<Workspace>(actor, "getDailyCloseWorkspace", { branchId, date });
+  const stores = (actor: Actor) => call<{ rows: Array<{ id: string }> }>(actor, "getDailyCloseWorkspace", { action: "locations" });
+  const closeId = (branchId: string, date: string) => uniquenessDocumentId(organizationId, branchId, date);
+  async function count(branchId: string, date: string) {
+    await adminDb.doc(`stockCounts/scope-${branchId}-${date}`).set({ organizationId, branchId, countDate: date, countNumber: `SCOPE-${date}`, status: "posted" });
+  }
+  async function prepare(actor: Actor, branchId: string, date: string) {
+    await count(branchId, date);
+    const live = await workspace(administrator, branchId, date);
+    const input = { branchId, date, evidenceHash: live.evidence.hash, countedCashMinor: live.evidence.cash.closingMinor, explanation: "Synthetic scope verification", idempotencyKey: key() };
+    return { input, result: await call<{ dailyCloseId: string; version: number }>(actor, "prepareDailyClose", input) };
+  }
+  async function assign(actor: Actor, direct: RoleId[], base: RoleId, permissions: Permission[], roleId: string, branches = [own]) {
+    const role: StoredRole = { id: roleId, organizationId, name: roleId, baseRoleId: base, permissionIds: permissions, status: "active" };
+    await adminDb.doc(`roles/${roleId}`).set(role);
+    await adminDb.doc(`users/${actor.auth.currentUser!.uid}`).update({ ...buildRoleAssignment(direct, [role]), branchIds: branches, warehouseIds: [] });
+    return adminDb.doc(`roles/${roleId}`);
+  }
+  beforeAll(async () => {
+    for (const id of [own, remote]) await adminDb.doc(`branches/${id}`).set({ organizationId, name: id, status: "active" });
+    await adminDb.doc(`branches/${foreign}`).set({ organizationId: "foreign-scope-org", name: foreign, status: "active" });
+  });
+
+  it.each(["operations_administrator", "finance_officer", "auditor"] as const)("does not borrow %s custom-base scope for read/prepare/sign or retries", async (base) => {
+    const actor = await createActor(`daily-scope-${base}@example.test`, "branch_manager");
+    await assign(actor, ["branch_manager"], base, ["transfers.read.all"], `scope-${base}`);
+    const date = `2025-06-0${["operations_administrator", "finance_officer", "auditor"].indexOf(base) + 1}`;
+    expect((await stores(actor)).rows.map(row => row.id)).toEqual([own]);
+    await expect(workspace(actor, remote, date)).rejects.toMatchObject({ code: "functions/permission-denied" });
+    await count(remote, date);
+    const live = await workspace(administrator, remote, date);
+    const unauthorized = { branchId: remote, date, evidenceHash: live.evidence.hash, countedCashMinor: 0, explanation: "Synthetic forbidden preparation", idempotencyKey: key() };
+    await expect(call(actor, "prepareDailyClose", unauthorized)).rejects.toMatchObject({ code: "functions/permission-denied" });
+    expect((await adminDb.doc(`dailyCloses/${closeId(remote, date)}`).get()).exists).toBe(false);
+    const remoteClose = await prepare(administrator, remote, date);
+    const reference = adminDb.doc(`dailyCloses/${remoteClose.result.dailyCloseId}`), before = (await reference.get()).data();
+    await expect(call(actor, "signDailyClose", { branchId: remote, date, version: remoteClose.result.version, idempotencyKey: key() })).rejects.toMatchObject({ code: "functions/permission-denied" });
+    expect((await reference.get()).data()).toEqual(before);
+    expect((await reference.collection("signOffs").get()).empty).toBe(true);
+    const local = await prepare(actor, own, date), sign = { branchId: own, date, version: local.result.version, idempotencyKey: key() };
+    await expect(call(actor, "signDailyClose", sign)).resolves.toMatchObject({ signed: true });
+    await expect(call(actor, "prepareDailyClose", local.input)).resolves.toMatchObject({ version: 1 });
+    await expect(call(actor, "signDailyClose", sign)).resolves.toMatchObject({ signed: true });
+    await adminDb.doc(`users/${actor.auth.currentUser!.uid}`).update({ branchIds: [] });
+    await expect(call(actor, "prepareDailyClose", local.input)).rejects.toMatchObject({ code: "functions/permission-denied" });
+    await expect(call(actor, "signDailyClose", sign)).rejects.toMatchObject({ code: "functions/permission-denied" });
+  });
+
+  it("keeps a direct auditor's global reading separate from a branch manager's writing", async () => {
+    const actor = await createActor("daily-direct-auditor-manager@example.test", "branch_manager");
+    await adminDb.doc(`users/${actor.auth.currentUser!.uid}`).update({ ...buildRoleAssignment(["branch_manager", "auditor"], []), branchIds: [own] });
+    const date = "2025-06-04";
+    expect((await stores(actor)).rows.map(row => row.id)).toContain(remote);
+    expect(await workspace(actor, remote, date)).toMatchObject({ canPrepare: false, canSign: false });
+    expect(await workspace(actor, own, date)).toMatchObject({ canPrepare: true, canSign: true });
+    const prepared = await prepare(administrator, remote, date);
+    await expect(call(actor, "prepareDailyClose", { ...prepared.input, idempotencyKey: key() })).rejects.toMatchObject({ code: "functions/permission-denied" });
+    await expect(call(actor, "signDailyClose", { branchId: remote, date, version: prepared.result.version, idempotencyKey: key() })).rejects.toMatchObject({ code: "functions/permission-denied" });
+  });
+
+  it("honors each explicit custom global action and checks fresh grants before acknowledging a replay", async () => {
+    const actor = await createActor("daily-custom-global@example.test", "branch_manager");
+    const role = await assign(actor, ["branch_manager"], "operations_administrator", ["daily.close.read", "daily.close.prepare"], "scope-explicit-global");
+    const date = "2025-06-05";
+    expect((await stores(actor)).rows.map(row => row.id)).toContain(remote);
+    expect(await workspace(actor, remote, date)).toMatchObject({ canPrepare: true, canSign: false });
+    const prepared = await prepare(actor, remote, date), sign = { branchId: remote, date, version: prepared.result.version, idempotencyKey: key() };
+    await expect(call(actor, "signDailyClose", sign)).rejects.toMatchObject({ code: "functions/permission-denied" });
+    await role.update({ permissionIds: ["daily.close.read"] });
+    expect(await workspace(actor, remote, date)).toMatchObject({ canPrepare: false, canSign: false });
+    await expect(call(actor, "prepareDailyClose", prepared.input)).rejects.toMatchObject({ code: "functions/permission-denied" });
+    await role.update({ permissionIds: ["daily.close.read", "daily.close.approve"] });
+    expect(await workspace(actor, remote, date)).toMatchObject({ canPrepare: false, canSign: true });
+    await expect(call(actor, "signDailyClose", sign)).resolves.toMatchObject({ signed: true });
+    const ref = adminDb.doc(`dailyCloses/${prepared.result.dailyCloseId}`), signed = (await ref.get()).data();
+    await role.update({ permissionIds: ["daily.close.read"] });
+    await expect(call(actor, "signDailyClose", sign)).rejects.toMatchObject({ code: "functions/permission-denied" });
+    expect((await ref.get()).data()).toEqual(signed);
+  });
+
+  it.each(["system_administrator", "operations_administrator", "finance_officer"] as const)("preserves legacy direct %s authority without custom role metadata", async role => {
+    const actor = await createActor(`daily-legacy-${role}@example.test`, role);
+    const date = `2025-06-${["system_administrator", "operations_administrator", "finance_officer"].indexOf(role) + 10}`;
+    expect(await workspace(actor, remote, date)).toMatchObject({ canPrepare: true, canSign: true });
+    const prepared = await prepare(actor, remote, date);
+    await expect(call(actor, "signDailyClose", { branchId: remote, date, version: prepared.result.version, idempotencyKey: key() })).resolves.toMatchObject({ signed: true });
+    await expect(workspace(actor, foreign, date)).rejects.toMatchObject({ code: "functions/not-found" });
+    expect((await stores(actor)).rows.map(row => row.id)).not.toContain(foreign);
+  });
+
+  it("preserves an explicitly granted custom assigned manager and rejects inactive/foreign role definitions", async () => {
+    const actor = await createActor("daily-custom-assigned@example.test", "branch_manager");
+    const role = await assign(actor, [], "branch_manager", ["daily.close.read", "daily.close.prepare", "daily.close.approve"], "scope-custom-assigned");
+    expect((await stores(actor)).rows.map(row => row.id)).toEqual([own]);
+    await expect(workspace(actor, remote, "2025-06-15")).rejects.toMatchObject({ code: "functions/permission-denied" });
+    await expect(workspace(actor, foreign, "2025-06-15")).rejects.toMatchObject({ code: "functions/permission-denied" });
+    const prepared = await prepare(actor, own, "2025-06-15");
+    await expect(call(actor, "signDailyClose", { branchId: own, date: "2025-06-15", version: prepared.result.version, idempotencyKey: key() })).resolves.toMatchObject({ signed: true });
+    await role.update({ status: "inactive" });
+    await expect(stores(actor)).rejects.toMatchObject({ code: "functions/failed-precondition" });
+    await role.update({ status: "active", organizationId: "foreign-scope-org" });
+    await expect(stores(actor)).rejects.toMatchObject({ code: "functions/failed-precondition" });
   });
 });

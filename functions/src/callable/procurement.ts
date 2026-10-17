@@ -2,6 +2,9 @@ import { AggregateField, FieldPath, FieldValue, Timestamp } from "firebase-admin
 import { HttpsError, onCall } from "firebase-functions/v2/https";
 import { createHash } from "node:crypto";
 import { db } from "../admin.js";
+import { procurementAccess, requireProcurementScope, hasProcurementScope, hasOrganizationProcurementPermission } from "../procurement/authorize.js";
+import { postPurchaseReceipt } from "../procurement/purchase-receipt.js";
+import { requestFingerprint } from "../utils/request-fingerprint.js";
 import {
   accountingPeriodReference,
   assertAccountingPeriodOpen,
@@ -11,19 +14,16 @@ import { accountNames, writeJournal } from "../accounting/write-journal.js";
 import { writeAuditLog } from "../audit/write-audit-log.js";
 import {
   canSelfAuthorize,
-  hasRole,
   hasServerPermission,
   requireAccess,
-  requireBranchScope,
   requirePermission,
-  requireWarehouseScope,
 } from "../auth/authorize.js";
 import { enforceAppCheck } from "../config.js";
 import {
   normalizeInventoryIdentifier,
   uniquenessDocumentId,
 } from "../inventory/calculations.js";
-import { postInventoryTransaction, postInventoryTransactionGroup, type InventoryPostingContext, type InventoryPostingExtension, type PostingRequest } from "../inventory/post-inventory-transaction.js";
+import { postInventoryTransactionGroup, type InventoryPostingContext, type InventoryPostingExtension, type PostingRequest } from "../inventory/post-inventory-transaction.js";
 import { postSupplierStockOrHeldCredit } from "../inventory/held-supplier-credit.js";
 import { reverseInventoryPosting } from "../inventory/reverse-inventory-posting.js";
 import { supplierReturnAmounts } from "../inventory/supplier-return-calculations.js";
@@ -61,17 +61,6 @@ type ProcurementLocationScope = {
   branchId?: string;
   warehouseId?: string;
 };
-function requireProcurementScope(
-  actor: Awaited<ReturnType<typeof requireAccess>>,
-  scope: ProcurementLocationScope,
-) {
-  if (scope.branchId) return requireBranchScope(actor, scope.branchId);
-  if (scope.warehouseId) return requireWarehouseScope(actor, scope.warehouseId);
-  throw new HttpsError(
-    "failed-precondition",
-    "The procurement record has no operating location.",
-  );
-}
 function procurementScopeFrom(
   snapshot: FirebaseFirestore.DocumentSnapshot,
 ): ProcurementLocationScope {
@@ -90,12 +79,12 @@ function year() {
   return new Date().getUTCFullYear();
 }
 
-async function purchaseReceiptWorkspace(actor: Awaited<ReturnType<typeof requireAccess>>, input: ReturnType<typeof procurementWorkspaceInput.parse>) {
+async function purchaseReceiptWorkspace(actor: Awaited<ReturnType<typeof procurementAccess>>, input: ReturnType<typeof procurementWorkspaceInput.parse>) {
   const order = await db.doc(`purchaseOrders/${input.purchaseOrderId!}`).get();
   if (!order.exists || order.get("organizationId") !== actor.organizationId)
     throw new HttpsError("permission-denied", "Purchase order is unavailable.");
   const scope = procurementScopeFrom(order);
-  requireProcurementScope(actor, scope);
+  requireProcurementScope(actor, scope, "procurement.read");
   if ((input.branchId && input.branchId !== scope.branchId) || (input.warehouseId && input.warehouseId !== scope.warehouseId))
     throw new HttpsError("permission-denied", "The order belongs to another recording store.");
   const validReceipt = (receipt: FirebaseFirestore.DocumentSnapshot) => receipt.exists && receipt.get("organizationId") === actor.organizationId && receipt.get("purchaseOrderId") === order.id;
@@ -180,7 +169,7 @@ function journalLines(
 }
 
 export const saveSupplier = onCall({ enforceAppCheck }, async (request) => {
-  const actor = await requireAccess(request);
+  const actor = await procurementAccess(await requireAccess(request));
   requirePermission(actor, "suppliers.manage");
   const input = parseInput(saveSupplierInput, request.data);
   const supplier = input.supplierId
@@ -293,12 +282,12 @@ export const saveSupplier = onCall({ enforceAppCheck }, async (request) => {
   return result;
 });
 
-async function supplierReturnWorkspace(actor: Awaited<ReturnType<typeof requireAccess>>, input: ReturnType<typeof procurementWorkspaceInput.parse>) {
+async function supplierReturnWorkspace(actor: Awaited<ReturnType<typeof procurementAccess>>, input: ReturnType<typeof procurementWorkspaceInput.parse>) {
   requirePermission(actor, "payables.read");
   const invoice = await db.doc(`supplierInvoices/${input.supplierInvoiceId!}`).get();
   if (!invoice.exists || invoice.get("organizationId") !== actor.organizationId) throw new HttpsError("not-found", "Supplier invoice not found.");
   const scope = procurementScopeFrom(invoice);
-  requireProcurementScope(actor, scope);
+  requireProcurementScope(actor, scope, ["procurement.read", "payables.read"]);
   if ((input.branchId && input.branchId !== scope.branchId) || (input.warehouseId && input.warehouseId !== scope.warehouseId)) throw new HttpsError("permission-denied", "Invoice belongs to another store.");
   const limit = Math.min(input.limit, 100);
   if (input.view === "supplier_return_receipts") {
@@ -335,7 +324,7 @@ async function supplierReturnWorkspace(actor: Awaited<ReturnType<typeof requireA
 export const getProcurementWorkspace = onCall(
   { enforceAppCheck },
   async (request) => {
-    const actor = await requireAccess(request);
+    const actor = await procurementAccess(await requireAccess(request));
     requirePermission(actor, "procurement.read");
     if (["list_evidence", "read_evidence", "upload_evidence"].includes(request.data?.action))
       return operationalEvidence(actor, request.data?.evidenceKind === "purchase_receipt" ? "purchase_receipt" : request.data?.evidenceKind === "supplier_replacement" ? "supplier_replacement" : "supplier_return", parseInput(operationalEvidenceInput, request.data));
@@ -347,7 +336,7 @@ export const getProcurementWorkspace = onCall(
       if (!handover.exists || handover.get("organizationId") !== actor.organizationId || handover.get("transactionType") !== "held_return_supplier_handover" || handover.get("status") !== "posted")
         throw new HttpsError("not-found", "Supplier handover not found.");
       const branchId = String(handover.get("branchId")), supplierId = String(handover.get("supplierId"));
-      requireBranchScope(actor, branchId);
+      requireProcurementScope(actor, { branchId }, ["procurement.read", "payables.read", "sales.returns.read"]);
       const statuses = ["approved", "partially_paid", "paid"];
       let page = db.collection("supplierInvoices").where("organizationId", "==", actor.organizationId).where("supplierId", "==", supplierId).where("branchId", "==", branchId).where("status", "in", statuses).orderBy(FieldPath.documentId());
       if (input.cursor) {
@@ -358,13 +347,13 @@ export const getProcurementWorkspace = onCall(
       const limit = Math.min(input.limit, 100), rows = await page.limit(limit + 1).get();
       return { handover: { id: handover.id, transactionNumber: handover.get("transactionNumber"), supplierName: handover.get("supplierName"), quantity: handover.get("quantity"), settledQuantity: handover.get("supplierSettledQuantity") ?? 0, replacementQuantity: handover.get("supplierReplacementQuantity") ?? 0, status: handover.get("supplierSettlementStatus") ?? "not_recorded", latestReturnId: handover.get("latestSupplierReturnId") ?? null, latestReplacementTransactionId: handover.get("latestReplacementTransactionId") ?? null }, invoices: rows.docs.slice(0, limit).map(doc => ({ id: doc.id, invoiceNumber: doc.get("supplierInvoiceNumber") })), nextCursor: rows.size > limit ? rows.docs[limit - 1]!.id : null };
     }
-    if (input.branchId) requireBranchScope(actor, input.branchId);
-    if (input.warehouseId) requireWarehouseScope(actor, input.warehouseId);
+    if (input.branchId || input.warehouseId) requireProcurementScope(actor, input, "procurement.read");
     if (["supplier_returns", "supplier_return_receipts"].includes(input.view)) return supplierReturnWorkspace(actor, input);
     if (input.view === "purchase_receipts") return purchaseReceiptWorkspace(actor, input);
     if (input.view === "supplier_account" || input.view === "supplier_payables") {
       requirePermission(actor, "payables.read");
-      const organizationWide = ["system_administrator", "operations_administrator", "finance_officer", "auditor"].some((role) => hasRole(actor, role as Parameters<typeof hasRole>[1]));
+      const organizationWide = hasOrganizationProcurementPermission(actor, "payables.read");
+      if (input.branchId || input.warehouseId) requireProcurementScope(actor, input, "payables.read");
       if (!organizationWide && !input.branchId && !input.warehouseId)
         throw new HttpsError("permission-denied", "Select an assigned store for supplier history.");
       const supplier = await db.doc(`suppliers/${input.supplierId}`).get();
@@ -452,7 +441,12 @@ export const getProcurementWorkspace = onCall(
       return {
         supplier: clean({ id: supplier.id, name: supplier.get("name"), supplierNumber: supplier.get("supplierNumber"),
           ...(organizationWide ? { outstandingBalanceMinor: supplierMoney(supplier.get("outstandingBalanceMinor")), advanceBalanceMinor: supplierMoney(supplier.get("advanceBalanceMinor")) } : {}) }),
-        entries: documents.map((entry) => ({ id: entry.id, ...entry.data() })),
+        entries: documents.map((entry) => {
+          const row: Record<string, unknown> = { id: entry.id, ...entry.data() };
+          // These stored running balances are organization-wide, even on local entries.
+          if (!organizationWide) { delete row.balanceAfterMinor; delete row.advanceBalanceAfterMinor; }
+          return row;
+        }),
         openingPayableMinor: openingPayable, closingPayableMinor: closingPayable,
         openingAdvanceMinor: openingAdvance, closingAdvanceMinor: closingAdvance,
         nextCursor: entries.size > documents.length ? documents.at(-1)!.id : null,
@@ -520,22 +514,26 @@ export const getProcurementWorkspace = onCall(
         .limit(100)
         .get(),
     ]);
-    const organizationWide =
-      hasRole(actor, "system_administrator") ||
-      hasRole(actor, "operations_administrator") ||
-      hasRole(actor, "finance_officer") ||
-      hasRole(actor, "auditor");
+    const organizationWide = hasOrganizationProcurementPermission(actor, "procurement.read");
     const visible = (document: FirebaseFirestore.DocumentSnapshot) =>
-      organizationWide ||
-      (typeof document.get("branchId") === "string" &&
-        actor.branchIds.includes(String(document.get("branchId")))) ||
-      (typeof document.get("warehouseId") === "string" &&
-        actor.warehouseIds.includes(String(document.get("warehouseId"))));
+      hasProcurementScope(actor, procurementScopeFrom(document), "procurement.read");
+    const visiblePayable = (document: FirebaseFirestore.DocumentSnapshot) =>
+      hasProcurementScope(actor, procurementScopeFrom(document), "payables.read");
     return {
-      suppliers: suppliers.docs.map((document) => ({
-        id: document.id,
-        ...document.data(),
-      })),
+      suppliers: suppliers.docs.map((document) => {
+        const summary: Record<string, unknown> = { id: document.id, ...document.data() };
+        if (!hasOrganizationProcurementPermission(actor, "payables.read")) {
+          delete summary.outstandingBalanceMinor;
+          delete summary.advanceBalanceMinor;
+          const advances = document.get("advanceBalancesByLocation") ?? {};
+          summary.advanceBalancesByLocation = Object.fromEntries(Object.entries(advances).filter(([key]) => {
+            const scope = key.startsWith("branch:") ? { branchId: key.slice(7) }
+              : key.startsWith("warehouse:") ? { warehouseId: key.slice(10) } : {};
+            return hasProcurementScope(actor, scope, "payables.read");
+          }));
+        }
+        return summary;
+      }),
       bankAccounts: bankAccounts.docs.map(bankAccountSummary),
       branches: branches.docs
         .filter(
@@ -581,7 +579,7 @@ export const getProcurementWorkspace = onCall(
         .map((document) => ({ id: document.id, ...document.data() })),
       supplierInvoices: hasServerPermission(actor, "payables.read")
         ? invoices.docs
-            .filter(visible)
+            .filter(visiblePayable)
             .map((document) => ({ id: document.id, ...document.data() }))
         : [],
     };
@@ -591,10 +589,10 @@ export const getProcurementWorkspace = onCall(
 export const createPurchaseOrder = onCall(
   { enforceAppCheck },
   async (request) => {
-    const actor = await requireAccess(request);
+    const actor = await procurementAccess(await requireAccess(request));
     requirePermission(actor, "procurement.create");
     const input = parseInput(createPurchaseOrderInput, request.data);
-    requireProcurementScope(actor, input);
+    requireProcurementScope(actor, input, "procurement.create");
     const ownerType = input.branchId ? "branch" : "warehouse";
     const ownerId = input.branchId ?? input.warehouseId!;
     const supplier = db.doc(`suppliers/${input.supplierId}`),
@@ -633,6 +631,10 @@ export const createPurchaseOrder = onCall(
         locationSnapshot = snapshots[cursor++]!,
         counterSnapshot = snapshots[cursor++]!;
       if (previous.exists) {
+        const original = await transaction.get(db.doc(`purchaseOrders/${previous.get("entityId")}`));
+        if (!original.exists || original.get("organizationId") !== actor.organizationId)
+          throw new HttpsError("not-found", "Original purchase order is unavailable.");
+        requireProcurementScope(actor, procurementScopeFrom(original), "procurement.create");
         result = {
           purchaseOrderId: String(previous.get("entityId")),
           purchaseOrderNumber: String(previous.get("purchaseOrderNumber")),
@@ -810,7 +812,7 @@ async function purchaseOrderStatusAction(
   request: Parameters<typeof requireAccess>[0],
   action: "submit" | "approve",
 ) {
-  const actor = await requireAccess(request);
+  const actor = await procurementAccess(await requireAccess(request));
   requirePermission(
     actor,
     action === "submit" ? "procurement.create" : "procurement.approve",
@@ -820,7 +822,7 @@ async function purchaseOrderStatusAction(
   const initial = await purchaseOrder.get();
   if (!initial.exists || initial.get("organizationId") !== actor.organizationId)
     throw new HttpsError("not-found", "Purchase order not found.");
-  requireProcurementScope(actor, procurementScopeFrom(initial));
+  requireProcurementScope(actor, procurementScopeFrom(initial), action === "submit" ? "procurement.create" : "procurement.approve");
   const operation = db.doc(
     `idempotencyKeys/${actor.organizationId}_${action}PurchaseOrder_${input.idempotencyKey}`,
   );
@@ -828,6 +830,7 @@ async function purchaseOrderStatusAction(
     const snapshots = await transaction.getAll(operation, purchaseOrder),
       previous = snapshots[0]!,
       current = snapshots[1]!;
+    requireProcurementScope(actor, procurementScopeFrom(current), action === "submit" ? "procurement.create" : "procurement.approve");
     if (previous.exists) return;
     const expected = action === "submit" ? "draft" : "submitted";
     if (!current.exists || current.get("status") !== expected)
@@ -888,261 +891,25 @@ export const approvePurchaseOrder = onCall({ enforceAppCheck }, (request) =>
 
 export const receivePurchaseOrderItem = onCall(
   { enforceAppCheck, timeoutSeconds: 60 },
-  async (request) => {
-    const actor = await requireAccess(request);
+  async request => {
+    const actor = await procurementAccess(await requireAccess(request));
     requirePermission(actor, "procurement.receive");
-    const input = parseInput(receivePurchaseOrderItemInput, request.data),
-      purchaseOrder = db.doc(`purchaseOrders/${input.purchaseOrderId}`),
-      item = db.doc(`purchaseOrderItems/${input.purchaseOrderItemId}`);
-    const operation = db.doc(
-      `idempotencyKeys/${actor.organizationId}_receivePurchaseOrderItem_${input.idempotencyKey}`,
-    );
-    const priorOperation = await operation.get();
-    if (priorOperation.exists)
-      return {
-        receiptId: String(priorOperation.get("receiptId")),
-        inventoryTransactionId: String(
-          priorOperation.get("inventoryTransactionId"),
-        ),
-        posted: false,
-      };
-    const [orderSnapshot, itemSnapshot] = await Promise.all([
-      purchaseOrder.get(),
-      item.get(),
-    ]);
-    if (
-      !orderSnapshot.exists ||
-      orderSnapshot.get("organizationId") !== actor.organizationId ||
-      !["approved", "partially_received"].includes(
-        String(orderSnapshot.get("status")),
-      )
-    )
-      throw new HttpsError(
-        "failed-precondition",
-        "Only an approved open purchase order can be received.",
-      );
-    requireProcurementScope(actor, procurementScopeFrom(orderSnapshot));
-    if (
-      !itemSnapshot.exists ||
-      itemSnapshot.get("purchaseOrderId") !== purchaseOrder.id
-    )
-      throw new HttpsError(
-        "invalid-argument",
-        "Purchase-order item is unavailable.",
-      );
-    const receipt = db.collection("purchaseReceipts").doc();
-    let previousReceipt: {
-      receiptId: string;
-      inventoryTransactionId: string;
-      posted: boolean;
-    } | null = null;
-    await db.runTransaction(async (transaction) => {
-      const snapshots = await transaction.getAll(operation, item),
-        previous = snapshots[0]!,
-        current = snapshots[1]!;
-      if (previous.exists) {
-        previousReceipt = {
-          receiptId: String(previous.get("receiptId")),
-          inventoryTransactionId: String(
-            previous.get("inventoryTransactionId"),
-          ),
-          posted: false,
-        };
-        return;
-      }
-      if (
-        !current.exists ||
-        current.get("purchaseOrderId") !== purchaseOrder.id
-      )
-        throw new HttpsError(
-          "failed-precondition",
-          "Purchase-order item changed.",
-        );
-      const inProgress = current.get("receiptInProgressKey");
-      if (inProgress && inProgress !== input.idempotencyKey)
-        throw new HttpsError(
-          "aborted",
-          "Another receipt is already being posted for this item.",
-        );
-      const remaining =
-        Number(current.get("orderedQuantity")) -
-        Number(current.get("receivedQuantity") ?? 0);
-      if (input.quantity > remaining)
-        throw new HttpsError(
-          "failed-precondition",
-          "Receipt quantity exceeds the outstanding ordered quantity.",
-        );
-      transaction.update(item, {
-        receiptInProgressKey: input.idempotencyKey,
-        updatedAt: FieldValue.serverTimestamp(),
-      });
-    });
-    if (previousReceipt) return previousReceipt;
-    let inventoryResult: Awaited<ReturnType<typeof postInventoryTransaction>>;
-    try {
-      inventoryResult = await postInventoryTransaction(actor, {
-        transactionType: "inventory_receipt",
-        productId: String(itemSnapshot.get("productId")),
-        quantity: input.quantity,
-        destinationLocationId: String(orderSnapshot.get("receivingLocationId")),
-        externalAccount: `supplier:${String(orderSnapshot.get("supplierId"))}`,
-        unitCostMinor: Number(itemSnapshot.get("unitCostMinor")),
-        serialNumbers: input.serialNumbers,
-        lot: input.lot
-          ? { ...input.lot, supplierReference: input.supplierReference }
-          : undefined,
-        effectiveAt: input.receivedAt,
-        reason: `Purchase receipt ${String(orderSnapshot.get("purchaseOrderNumber"))}`,
-        notes: input.notes,
-        referenceType: "purchase_order",
-        referenceId: purchaseOrder.id,
-        referenceNumber: String(orderSnapshot.get("purchaseOrderNumber")),
-        idempotencyKey: `purchase-${input.idempotencyKey}`,
-        correlationId: correlationId(),
-        sourceFunction: "receivePurchaseOrderItem",
-      });
-    } catch (error) {
-      await db.runTransaction(async (transaction) => {
-        const current = await transaction.get(item);
-        if (current.get("receiptInProgressKey") === input.idempotencyKey)
-          transaction.update(item, {
-            receiptInProgressKey: FieldValue.delete(),
-            updatedAt: FieldValue.serverTimestamp(),
-          });
-      });
-      throw error;
-    }
-    let result = {
-      receiptId: receipt.id,
-      inventoryTransactionId: inventoryResult.transactionId,
-      posted: true,
-    };
-    const allItems = await db
-      .collection("purchaseOrderItems")
-      .where("purchaseOrderId", "==", purchaseOrder.id)
-      .get();
-    await db.runTransaction(async (transaction) => {
-      const refs = allItems.docs.map((document) => document.ref),
-        snapshots = await transaction.getAll(operation, purchaseOrder, ...refs);
-      let cursor = 0;
-      const previous = snapshots[cursor++]!,
-        currentOrder = snapshots[cursor++]!,
-        currentItems = snapshots.slice(cursor);
-      if (previous.exists) {
-        result = {
-          receiptId: String(previous.get("receiptId")),
-          inventoryTransactionId: String(
-            previous.get("inventoryTransactionId"),
-          ),
-          posted: false,
-        };
-        return;
-      }
-      const targetIndex = refs.findIndex(
-          (reference) => reference.id === item.id,
-        ),
-        target = currentItems[targetIndex]!;
-      if (
-        !target.exists ||
-        target.get("receiptInProgressKey") !== input.idempotencyKey
-      )
-        throw new HttpsError(
-          "aborted",
-          "Purchase receipt finalization lost its item lock.",
-        );
-      const nextReceived =
-        Number(target.get("receivedQuantity") ?? 0) + input.quantity;
-      transaction.update(item, {
-        receivedQuantity: nextReceived,
-        receiptInProgressKey: FieldValue.delete(),
-        updatedAt: FieldValue.serverTimestamp(),
-      });
-      const complete = currentItems.every(
-        (snapshot, index) =>
-          Number(snapshot.get("receivedQuantity") ?? 0) +
-            (index === targetIndex ? input.quantity : 0) >=
-          Number(snapshot.get("orderedQuantity")),
-      );
-      const netReceived = input.quantity * Number(target.get("unitCostMinor")),
-        now = FieldValue.serverTimestamp();
-      transaction.update(purchaseOrder, {
-        status: complete ? "received" : "partially_received",
-        receivedNetAmountMinor:
-          Number(currentOrder.get("receivedNetAmountMinor") ?? 0) + netReceived,
-        updatedAt: now,
-      });
-      transaction.create(
-        receipt,
-        clean({
-          organizationId: actor.organizationId,
-          purchaseOrderId: purchaseOrder.id,
-          purchaseOrderNumber: currentOrder.get("purchaseOrderNumber"),
-          purchaseOrderItemId: item.id,
-          receiptNumber: `GRN-${inventoryResult.transactionNumber}`,
-          supplierId: currentOrder.get("supplierId"),
-          branchId: currentOrder.get("branchId"),
-          warehouseId: currentOrder.get("warehouseId"),
-          operationalLocationType: currentOrder.get("operationalLocationType"),
-          operationalLocationId: currentOrder.get("operationalLocationId"),
-          receivingLocationId: currentOrder.get("receivingLocationId"),
-          productId: target.get("productId"),
-          sku: target.get("sku"),
-          productName: target.get("productName"),
-          unitOfMeasure: target.get("unitOfMeasure"),
-          receivingLocationName: currentOrder.get("receivingLocationName"),
-          quantity: input.quantity,
-          unitCostMinor: target.get("unitCostMinor"),
-          netAmountMinor: netReceived,
-          supplierReference: input.supplierReference,
-          inventoryTransactionId: inventoryResult.transactionId,
-          receivedAt: Timestamp.fromDate(new Date(input.receivedAt)),
-          receivedBy: actor.userId,
-          receivedByName: typeof request.auth?.token.name === "string" ? request.auth.token.name : undefined,
-          lotNumber: input.lot?.lotNumber,
-          notes: input.notes,
-          createdAt: now,
-        }),
-      );
-      transaction.create(operation, {
-        organizationId: actor.organizationId,
-        action: "receivePurchaseOrderItem",
-        entityId: purchaseOrder.id,
-        receiptId: receipt.id,
-        inventoryTransactionId: inventoryResult.transactionId,
-        status: "completed",
-        createdAt: now,
-        createdBy: actor.userId,
-      });
-      writeAuditLog(transaction, actor, {
-        action: "purchase_order.received",
-        entityType: "purchaseOrder",
-        entityId: purchaseOrder.id,
-        correlationId: correlationId(),
-        sourceFunction: "receivePurchaseOrderItem",
-        after: {
-          purchaseOrderItemId: item.id,
-          receiptId: receipt.id,
-          receiptNumber: `GRN-${inventoryResult.transactionNumber}`,
-          quantity: input.quantity,
-          inventoryTransactionId: inventoryResult.transactionId,
-        },
-      });
-    });
-    return result;
+    const input = parseInput(receivePurchaseOrderItemInput, request.data);
+    return postPurchaseReceipt(actor, input, typeof request.auth?.token.name === "string" ? request.auth.token.name : undefined);
   },
 );
 
 export const submitSupplierInvoice = onCall(
   { enforceAppCheck },
   async (request) => {
-    const actor = await requireAccess(request);
+    const actor = await procurementAccess(await requireAccess(request));
     requirePermission(actor, "payables.create");
     const input = parseInput(submitSupplierInvoiceInput, request.data),
       purchaseOrder = db.doc(`purchaseOrders/${input.purchaseOrderId}`);
     const order = await purchaseOrder.get();
     if (!order.exists || order.get("organizationId") !== actor.organizationId)
       throw new HttpsError("not-found", "Purchase order not found.");
-    requireProcurementScope(actor, procurementScopeFrom(order));
+    requireProcurementScope(actor, procurementScopeFrom(order), "payables.create");
     const itemRefs = input.lines.map((line) =>
       db.doc(`purchaseOrderItems/${line.purchaseOrderItemId}`),
     );
@@ -1169,6 +936,10 @@ export const submitSupplierInvoice = onCall(
       const previous = snapshots[0]!,
         unique = snapshots[1]!;
       if (previous.exists) {
+        const original = await transaction.get(db.doc(`supplierInvoices/${previous.get("entityId")}`));
+        if (!original.exists || original.get("organizationId") !== actor.organizationId)
+          throw new HttpsError("not-found", "Original supplier invoice is unavailable.");
+        requireProcurementScope(actor, procurementScopeFrom(original), "payables.create");
         result = {
           supplierInvoiceId: String(previous.get("entityId")),
           submitted: false,
@@ -1296,7 +1067,7 @@ export const submitSupplierInvoice = onCall(
 export const approveSupplierInvoice = onCall(
   { enforceAppCheck },
   async (request) => {
-    const actor = await requireAccess(request);
+    const actor = await procurementAccess(await requireAccess(request));
     requirePermission(actor, "payables.approve");
     const input = parseInput(supplierInvoiceActionInput, request.data);
     const invoice = db.doc(`supplierInvoices/${input.supplierInvoiceId}`),
@@ -1306,7 +1077,7 @@ export const approveSupplierInvoice = onCall(
       initial.get("organizationId") !== actor.organizationId
     )
       throw new HttpsError("not-found", "Supplier invoice not found.");
-    requireProcurementScope(actor, procurementScopeFrom(initial));
+    requireProcurementScope(actor, procurementScopeFrom(initial), "payables.approve");
     const invoiceItems = await db
       .collection("supplierInvoiceItems")
       .where("supplierInvoiceId", "==", invoice.id)
@@ -1355,6 +1126,7 @@ export const approveSupplierInvoice = onCall(
         order = snapshots[cursor++]!,
         journalCounterSnapshot = snapshots[cursor++]!;
       const accountingPeriodSnapshot = snapshots[cursor++]!;
+      requireProcurementScope(actor, procurementScopeFrom(current), "payables.approve");
       if (previous.exists) return;
       if (!current.exists || current.get("status") !== "submitted")
         throw new HttpsError(
@@ -1494,7 +1266,7 @@ export const approveSupplierInvoice = onCall(
 );
 
 export const postSupplierReturn = onCall({ enforceAppCheck, timeoutSeconds: 120 }, async (request) => {
-  const actor = await requireAccess(request);
+  const actor = await procurementAccess(await requireAccess(request));
   requirePermission(actor, "procurement.receive");
   requirePermission(actor, "payables.approve");
   try {
@@ -1546,12 +1318,12 @@ interface SupplierReturnShared {
   current?: { outstanding: number; credited: number; balance: number; advance: number; advances: Record<string, number>; counter: number };
 }
 
-async function reverseSupplierReturn(actor: Awaited<ReturnType<typeof requireAccess>>, input: ReturnType<typeof reverseSupplierReturnInput.parse>) {
+async function reverseSupplierReturn(actor: Awaited<ReturnType<typeof procurementAccess>>, input: ReturnType<typeof reverseSupplierReturnInput.parse>) {
   requirePermission(actor, "inventory.reverse");
   const returned = db.doc(`supplierReturns/${input.returnId}`), initial = await returned.get();
   if (!initial.exists || initial.get("organizationId") !== actor.organizationId) throw new HttpsError("not-found", "Supplier return not found.");
   const scope = procurementScopeFrom(initial);
-  requireProcurementScope(actor, scope);
+  requireProcurementScope(actor, scope, ["procurement.receive", "payables.approve", "inventory.reverse"]);
   if (initial.get("heldHandoverId")) throw new HttpsError("failed-precondition", "This credit settled an earlier custody handover. It cannot be reversed by restoring stock; reconcile its supplier settlement separately.");
   const effectiveAt = Timestamp.fromDate(new Date(input.reversedAt));
   const originalTime = initial.get("effectiveAt")?.toMillis?.();
@@ -1579,7 +1351,7 @@ async function reverseSupplierReturn(actor: Awaited<ReturnType<typeof requireAcc
       const [record, invoice, line, receipt, item, supplier, originalJournal, counter, period, location] = await reader.getAll(returned, invoiceRef, lineRef, receiptRef, itemRef, supplierRef, originalJournalRef, journalCounter, periodRef, locationRef);
       if ([record, invoice, line, receipt, item, supplier, originalJournal, location].some(document => !document?.exists || document.get("organizationId") !== actor.organizationId))
         throw new HttpsError("failed-precondition", "Original stock, purchase or accounting evidence needs reconciliation.");
-      requireProcurementScope(actor, procurementScopeFrom(invoice!));
+      requireProcurementScope(actor, procurementScopeFrom(invoice!), ["procurement.receive", "payables.approve", "inventory.reverse"]);
       if (record!.get("status") !== "posted" || record!.get("heldHandoverId") || record!.get("inventoryTransactionId") !== movement.original.id
         || record!.get("supplierInvoiceId") !== invoiceRef.id || record!.get("supplierInvoiceItemId") !== lineRef.id || record!.get("receiptId") !== receiptRef.id
         || record!.get("purchaseOrderItemId") !== itemRef.id || record!.get("supplierId") !== supplierRef.id || record!.get("sourceLocationId") !== locationRef.id
@@ -1661,12 +1433,12 @@ async function reverseSupplierReturn(actor: Awaited<ReturnType<typeof requireAcc
   return result(posted.reversed, posted.transactionId);
 }
 
-async function prepareSupplierReturn(actor: Awaited<ReturnType<typeof requireAccess>>, input: ReturnType<typeof postSupplierReturnInput.parse>, shared?: SupplierReturnShared, documentId?: string) {
+async function prepareSupplierReturn(actor: Awaited<ReturnType<typeof procurementAccess>>, input: ReturnType<typeof postSupplierReturnInput.parse>, shared?: SupplierReturnShared, documentId?: string) {
   const invoiceRef = db.doc(`supplierInvoices/${input.supplierInvoiceId}`), lineRef = db.doc(`supplierInvoiceItems/${input.supplierInvoiceItemId}`), receiptRef = db.doc(`purchaseReceipts/${input.receiptId}`);
   const [initialInvoice, initialLine, initialReceipt] = await Promise.all([invoiceRef.get(), lineRef.get(), receiptRef.get()]);
   if (!initialInvoice.exists || initialInvoice.get("organizationId") !== actor.organizationId) throw new HttpsError("not-found", "Supplier invoice not found.");
   const scope = procurementScopeFrom(initialInvoice);
-  requireProcurementScope(actor, scope);
+  requireProcurementScope(actor, scope, ["procurement.receive", "payables.approve", ...(input.heldHandoverId ? ["sales.returns.approve" as const] : [])]);
   if (!initialLine.exists || !initialReceipt.exists || initialLine.get("organizationId") !== actor.organizationId || initialReceipt.get("organizationId") !== actor.organizationId || initialLine.get("supplierInvoiceId") !== invoiceRef.id || initialReceipt.get("purchaseOrderItemId") !== initialLine.get("purchaseOrderItemId")) throw new HttpsError("permission-denied", "Choose the original invoice product and its receipt.");
   const returnRef = db.doc(`supplierReturns/${uniquenessDocumentId(actor.organizationId, "supplier-return", input.idempotencyKey)}`);
   const requestHash = uniquenessDocumentId(JSON.stringify(input));
@@ -1699,7 +1471,7 @@ async function prepareSupplierReturn(actor: Awaited<ReturnType<typeof requireAcc
   const prepare = async (reader: Pick<FirebaseFirestore.Transaction, "get" | "getAll">, movement: InventoryPostingContext) => {
       const [invoice, line, receipt, supplier, order, item, counter, period, lock, reversed, originalMovement] = await Promise.all([reader.get(invoiceRef), reader.get(lineRef), reader.get(receiptRef), reader.get(supplierRef), reader.get(orderRef), reader.get(orderItemRef), reader.get(journalCounter), reader.get(accountingPeriod), reader.get(creditLock), reader.get(db.doc(`inventoryReversals/${originalMovementId}`)), reader.get(db.doc(`inventoryTransactions/${originalMovementId}`))]);
       if ([invoice, line, receipt, supplier, order, item, originalMovement].some((document) => !document.exists || document.get("organizationId") !== actor.organizationId)) throw new HttpsError("failed-precondition", "Original purchasing evidence is unavailable.");
-      requireProcurementScope(actor, procurementScopeFrom(invoice));
+      requireProcurementScope(actor, procurementScopeFrom(invoice), ["procurement.receive", "payables.approve", ...(input.heldHandoverId ? ["sales.returns.approve" as const] : [])]);
       if (invoice.get("supplierId") !== supplierRef.id || invoice.get("purchaseOrderId") !== order.id || order.get("supplierId") !== supplier.id || line.get("supplierInvoiceId") !== invoice.id || line.get("purchaseOrderItemId") !== item.id || item.get("purchaseOrderId") !== order.id || receipt.get("purchaseOrderId") !== order.id || receipt.get("purchaseOrderItemId") !== item.id || receipt.get("supplierId") !== supplier.id || line.get("productId") !== movement.productId || item.get("productId") !== movement.productId || receipt.get("productId") !== movement.productId || receipt.get("receivingLocationId") !== movement.sourceLocationId || order.get("receivingLocationId") !== movement.sourceLocationId || receipt.get("inventoryTransactionId") !== originalMovementId || line.get("unitCostMinor") !== receipt.get("unitCostMinor")) throw new HttpsError("failed-precondition", "Receipt, invoice and stock evidence do not match.");
       if ((scope.branchId ?? null) !== (invoice.get("branchId") ?? null) || (scope.warehouseId ?? null) !== (invoice.get("warehouseId") ?? null) || (scope.branchId ?? null) !== (movement.sourceBranchId ?? null) || (scope.warehouseId ?? null) !== (movement.sourceWarehouseId ?? null)) throw new HttpsError("permission-denied", "Return goods from their original recording store.");
       if (!["approved", "partially_paid", "paid"].includes(String(invoice.get("status"))) || reversed.exists || originalMovement.get("status") !== "posted" || originalMovement.get("transactionType") !== "inventory_receipt" || originalMovement.get("referenceType") !== "purchase_order" || originalMovement.get("referenceId") !== order.id) throw new HttpsError("failed-precondition", "Only posted, unreversed purchases with an approved invoice can be returned.");
@@ -1772,11 +1544,11 @@ async function prepareSupplierReturn(actor: Awaited<ReturnType<typeof requireAcc
 export const recordSupplierPayment = onCall(
   { enforceAppCheck },
   async (request) => {
-    const actor = await requireAccess(request);
+    const actor = await procurementAccess(await requireAccess(request));
     requirePermission(actor, "payables.pay");
     const input = parseInput(recordSupplierPaymentInput, request.data);
-    if (input.branchId) requireBranchScope(actor, input.branchId);
-    if (input.warehouseId) requireWarehouseScope(actor, input.warehouseId);
+    const fingerprint = requestFingerprint(input);
+    if (input.branchId || input.warehouseId) requireProcurementScope(actor, input, "payables.pay");
     const supplier = db.doc(`suppliers/${input.supplierId}`),
       invoiceRefs = input.allocations.map((allocation) =>
         db.doc(`supplierInvoices/${allocation.supplierInvoiceId}`),
@@ -1816,10 +1588,13 @@ export const recordSupplierPayment = onCall(
         accountingPeriodSnapshot = snapshots[3]!,
         bankAccountSnapshot = snapshots[4]!, locationSnapshot = snapshots[5]!;
       if (previous.exists) {
-        result = {
-          paymentId: String(previous.get("entityId")),
-          recorded: false,
-        };
+        const original = await transaction.get(db.doc(`supplierPayments/${previous.get("entityId")}`));
+        if (!original.exists || original.get("organizationId") !== actor.organizationId)
+          throw new HttpsError("not-found", "Original supplier payment is unavailable.");
+        requireProcurementScope(actor, procurementScopeFrom(original), "payables.pay");
+        if (previous.get("requestFingerprint") !== fingerprint || previous.get("createdBy") !== actor.userId)
+          throw new HttpsError("failed-precondition", "This payment reference cannot confirm these instructions. Retry the original saved payment or check supplier history.", { code: "RETRY_INSTRUCTIONS_MISMATCH" });
+        result = { paymentId: original.id, recorded: false };
         return;
       }
       assertAccountingPeriodOpen(accountingPeriodSnapshot);
@@ -1839,7 +1614,7 @@ export const recordSupplierPayment = onCall(
         );
       input.allocations.forEach((allocation, index) => {
         const invoice = invoices[index]!;
-        requireProcurementScope(actor, procurementScopeFrom(invoice));
+        requireProcurementScope(actor, procurementScopeFrom(invoice), "payables.pay");
         if (
           !invoice.exists ||
           invoice.get("organizationId") !== actor.organizationId ||
@@ -1995,6 +1770,7 @@ export const recordSupplierPayment = onCall(
       transaction.create(operation, {
         organizationId: actor.organizationId,
         action: "recordSupplierPayment",
+        requestFingerprint: fingerprint,
         entityId: payment.id,
         status: "completed",
         createdAt: now,

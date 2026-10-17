@@ -64,3 +64,13 @@ Lint, both TypeScript checks, all 139 unit tests across 33 files, the Functions 
 `stockTransfers`, `reconcileTransfer`, `reconcileWarehouseOperations`, and `reverseInventoryTransaction` are ACTIVE Gen 2 Functions with `APP_ENV=production` and callable App Check enabled. The owner approved disabling the Cloud Run invoker IAM check for `stockTransfers` only because organization policy blocked the callable transport configuration; Firebase Auth, App Check, authorization-version, organization and location enforcement remain active. An unauthenticated HTTPS request was rejected with HTTP 401 `UNAUTHENTICATED`.
 
 App Hosting completed the rollout at the existing production URL. The login and protected transfer routes returned HTTP 200, and the deployed login HTML contained the expected AB Ramadan identity. No Firestore/Storage rules, indexes, scheduled services, monitoring policy, production data or legacy transfer records were changed. The full simplified journey was browser-tested against isolated demo emulators; no live stock movement was created, so authenticated production business-flow validation remains an owner smoke-test activity.
+
+## Custom-role action scope
+
+Organization-wide transfer reading does not grant organization-wide approval,
+receiving or discrepancy resolution. A user who holds a scoped manager role
+alongside a read-only custom operations role retains only their assigned
+locations for those actions. Custom operations roles can act organization-wide
+only for the exact actions explicitly granted on that operations role; unrelated
+roles cannot supply the missing global action. The server rechecks active role
+grants and original location authority on retries as well as new actions.

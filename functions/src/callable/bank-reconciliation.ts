@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { FieldValue, Timestamp } from "firebase-admin/firestore";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
 import { db } from "../admin.js";
+import { scopedAccess, requirePermissionScope } from "../auth/permission-scope.js";
 import { accountingPeriodReference, assertAccountingPeriodOpen } from "../accounting/period-lock.js";
 import { resolveSettlementAccount } from "../accounting/settlement-account.js";
 import { writeJournal } from "../accounting/write-journal.js";
@@ -10,7 +11,6 @@ import {
   canSelfAuthorize,
   requireAccess,
   requireBranchScope,
-  requirePermission,
 } from "../auth/authorize.js";
 import { enforceAppCheck } from "../config.js";
 import { uniquenessDocumentId } from "../inventory/calculations.js";
@@ -28,8 +28,8 @@ import {
 
 // Records money already moved by authorized staff; this does not initiate a bank payment.
 export const recordCompanyFundsTransfer = onCall({ enforceAppCheck }, async (request) => {
-  const actor = await requireAccess(request);
-  requirePermission(actor, "banking.transfer");
+  const actor = await scopedAccess(await requireAccess(request));
+  requirePermissionScope(actor, {}, "banking.transfer");
   const input = parseInput(companyFundsTransferInput, request.data);
   requireBranchScope(actor, input.branchId);
   const effectiveAt = Timestamp.fromDate(new Date(input.transferredAt));
@@ -175,8 +175,8 @@ function clean(values: Record<string, unknown>) {
 export const getBankReconciliationWorkspace = onCall(
   { enforceAppCheck },
   async (request) => {
-    const actor = await requireAccess(request);
-    requirePermission(actor, "banking.read");
+    const actor = await scopedAccess(await requireAccess(request));
+    requirePermissionScope(actor, {}, "banking.read");
     const input = parseInput(bankWorkspaceInput, request.data ?? {});
     const accountsSnapshot = await db
       .collection("bankAccounts")
@@ -243,8 +243,8 @@ export const getBankReconciliationWorkspace = onCall(
 );
 
 export const saveBankAccount = onCall({ enforceAppCheck }, async (request) => {
-  const actor = await requireAccess(request);
-  requirePermission(actor, "banking.manage");
+  const actor = await scopedAccess(await requireAccess(request));
+  requirePermissionScope(actor, {}, "banking.manage");
   const input = parseInput(saveBankAccountInput, request.data);
   const account = input.bankAccountId
     ? db.doc(`bankAccounts/${input.bankAccountId}`)
@@ -320,8 +320,8 @@ export const saveBankAccount = onCall({ enforceAppCheck }, async (request) => {
 export const importBankStatement = onCall(
   { enforceAppCheck },
   async (request) => {
-    const actor = await requireAccess(request);
-    requirePermission(actor, "banking.reconcile");
+    const actor = await scopedAccess(await requireAccess(request));
+    requirePermissionScope(actor, {}, "banking.reconcile");
     const input = parseInput(importBankStatementInput, request.data);
     const account = await db.doc(`bankAccounts/${input.bankAccountId}`).get();
     if (
@@ -409,8 +409,8 @@ export const importBankStatement = onCall(
 export const matchBankTransaction = onCall(
   { enforceAppCheck },
   async (request) => {
-    const actor = await requireAccess(request);
-    requirePermission(actor, "banking.reconcile");
+    const actor = await scopedAccess(await requireAccess(request));
+    requirePermissionScope(actor, {}, "banking.reconcile");
     const input = parseInput(bankMatchInput, request.data),
       statement = db.doc(
         `bankStatementTransactions/${input.statementTransactionId}`,
@@ -498,8 +498,8 @@ export const matchBankTransaction = onCall(
 export const unmatchBankTransaction = onCall(
   { enforceAppCheck },
   async (request) => {
-    const actor = await requireAccess(request);
-    requirePermission(actor, "banking.reconcile");
+    const actor = await scopedAccess(await requireAccess(request));
+    requirePermissionScope(actor, {}, "banking.reconcile");
     const input = parseInput(bankUnmatchInput, request.data),
       statement = db.doc(
         `bankStatementTransactions/${input.statementTransactionId}`,
@@ -689,8 +689,8 @@ async function periodEvidence(
 export const prepareBankReconciliation = onCall(
   { enforceAppCheck, timeoutSeconds: 120 },
   async (request) => {
-    const actor = await requireAccess(request);
-    requirePermission(actor, "banking.reconcile");
+    const actor = await scopedAccess(await requireAccess(request));
+    requirePermissionScope(actor, {}, "banking.reconcile");
     const input = parseInput(prepareBankReconciliationInput, request.data),
       operation = db.doc(
         `idempotencyOperations/${uniquenessDocumentId(actor.organizationId, "prepareBankReconciliation", input.idempotencyKey)}`,
@@ -817,8 +817,8 @@ export const prepareBankReconciliation = onCall(
 export const completeBankReconciliation = onCall(
   { enforceAppCheck, timeoutSeconds: 120 },
   async (request) => {
-    const actor = await requireAccess(request);
-    requirePermission(actor, "banking.approve");
+    const actor = await scopedAccess(await requireAccess(request));
+    requirePermissionScope(actor, {}, "banking.approve");
     const input = parseInput(completeBankReconciliationInput, request.data),
       reconciliation = db.doc(`bankReconciliations/${input.reconciliationId}`),
       operation = db.doc(

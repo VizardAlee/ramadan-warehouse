@@ -45,6 +45,29 @@ order, a physical receipt, a supplier invoice, and a payment as the same event.
 - Firestore clients cannot directly mutate purchasing, receipt, supplier
   invoice, payment, supplier-account, journal, or inventory records.
 
+## Receiving confirmation and recovery
+
+New goods receipts commit stock, the goods-received note, purchase-order received
+quantities/totals and retry evidence in one Firestore transaction. A failure leaves
+all of them unchanged. The browser saves the exact delivery instructions before
+sending. If confirmation is interrupted, use **Retry same receipt**, including
+after reloading the same browser tab; return to the original recording store
+first. Further receiving stays locked until the saved result is confirmed. A
+confirmed receipt clears the entered quantity before registers refresh.
+
+Do not invent a new delivery reference or receive goods again to resolve an
+uncertain result. Older completed operations without exact-instruction evidence
+must be checked in receiving history. An old split-commit stock posting missing
+its GRN, or an unresolved item lock belonging to another request, requires an
+authorized inventory/accounting reconciliation. The application neither reposts
+that stock nor silently clears its evidence. No historical data repair is part
+of this correction.
+
+New receipt/payment retry records bind the parsed instructions and actor, and
+recheck original store authority. Changed instructions are rejected rather than
+acknowledged as another receipt or supplier payment. Existing credit limits and
+administrator credit exceptions are unchanged.
+
 ## Accounting mapping
 
 ### Linked correction of an ordinary supplier return
@@ -93,6 +116,18 @@ their assigned operating location when their combined roles grant those
 permissions. Officers only receive approved goods. Finance users operate
 organization-wide but retain separation when approving their own entries.
 Auditors are read-only. System administrators retain organization-wide access.
+A combined role cannot borrow organization-wide reading authority for a local
+write action. Each procurement, receiving, approval, return and payment action
+requires its own explicit global permission or the assigned recording store.
+Current custom-role permissions are checked on each request, including retries;
+no user profile, role definition or historical transaction is rewritten.
+Supplier invoices, statements and unpaid balances use their own `payables.read`
+authority. Global procurement reading does not grant financial reading for other
+stores. Local readers receive only assigned-store advance balances; organization
+control totals and stored organization-wide running balances are withheld.
+Raw supplier/payable Firestore documents are restricted to built-in global
+financial readers. Custom-role and local readers use callable projections, which
+refresh current custom grants and redact balances outside their authority.
 
 New purchase orders persist canonical `operationalLocationType`,
 `operationalLocationId`, and `operationalLocationName` fields alongside the

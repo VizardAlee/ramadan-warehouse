@@ -2,7 +2,8 @@ import { createHash } from "node:crypto";
 import { FieldPath, FieldValue, Timestamp } from "firebase-admin/firestore";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
 import { db } from "../admin.js";
-import { hasServerPermission, requireAccess, requireBranchScope, requirePermission } from "../auth/authorize.js";
+import { scopedAccess, requirePermissionScope } from "../auth/permission-scope.js";
+import { requireAccess, requirePermission } from "../auth/authorize.js";
 import { budgetInput, budgetMonthDates, budgetMonths, budgetVariance } from "../accounting/budgets.js";
 import { dailyBounds } from "../accounting/daily-close.js";
 import { uniquenessDocumentId } from "../inventory/calculations.js";
@@ -14,12 +15,9 @@ import { enforceAppCheck } from "../config.js";
 const fail = (message: string): never => { throw new HttpsError("failed-precondition", message); };
 const row = (doc: FirebaseFirestore.DocumentSnapshot) => ({ id: doc.id, ...Object.fromEntries(Object.entries(doc.data() ?? {}).map(([key, value]) => [key, value instanceof Timestamp ? value.toDate().toISOString() : value])) });
 export const budgetWorkspace = onCall({ enforceAppCheck, timeoutSeconds: 300 }, async request => {
-  const actor = await requireAccess(request), input = parseInput(budgetInput, request.data);
+  const actor = await scopedAccess(await requireAccess(request)), input = parseInput(budgetInput, request.data);
   requirePermission(actor, input.action === "save" ? "finance.budget.manage" : "finance.journal.read");
-  const scope = (branchId?: string) => {
-    if (branchId) requireBranchScope(actor, branchId);
-    else if (!hasServerPermission(actor, "sales.read.all")) throw new HttpsError("permission-denied", "Select an assigned store. Consolidated budgets require organization-wide finance access.");
-  };
+  const scope = (branchId?: string) => requirePermissionScope(actor, { branchId }, input.action === "save" ? "finance.budget.manage" : "finance.journal.read");
   if (input.action === "history") {
     const budget = await db.doc(`budgets/${input.budgetId}`).get();
     if (!budget.exists || budget.get("organizationId") !== actor.organizationId) throw new HttpsError("not-found", "Budget not found.");

@@ -14,6 +14,9 @@ interface Workspace {
   date: string;
   branchName: string;
   evidence: Evidence;
+  evidenceChanged?: boolean;
+  canPrepare?: boolean;
+  canSign?: boolean;
   close: null | { id: string; version: number; status: "prepared" | "signed"; countedCashMinor: number; varianceMinor: number; explanation: string; preparedBy: string; signedBy?: string; evidence: Evidence };
 }
 function businessDate() { return new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Lagos", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date()); }
@@ -71,11 +74,16 @@ export function DailyClosePanel() {
   const countedCashMinor = Math.round(Number(cash) * 100);
   const validCash = /^\d+(\.\d{1,2})?$/.test(cash) && Number.isSafeInteger(countedCashMinor);
   const variance = workspace && validCash ? countedCashMinor - workspace.evidence.cash.closingMinor : null;
-  const changed = Boolean(workspace?.close && workspace.close.evidence.hash !== workspace.evidence.hash);
+  const changed = Boolean(workspace?.close && (workspace.evidenceChanged ?? (workspace.close.evidence.hash !== workspace.evidence.hash)));
   const locked = workspace?.close?.status === "signed" && !changed;
+  const canPrepare = hasPermission(profile!, "daily.close.prepare") && workspace?.canPrepare !== false;
+  const canSign = hasPermission(profile!, "daily.close.approve") && workspace?.canSign !== false;
   const unsaved = Boolean(workspace?.close && (countedCashMinor !== workspace.close.countedCashMinor || explanation.trim() !== workspace.close.explanation));
   async function mutate(name: "prepareDailyClose" | "signDailyClose") {
     if (!workspace || busy) return;
+    if (name === "prepareDailyClose" ? !canPrepare : !canSign) {
+      setError("Choose an assigned store or ask staff authorized for this daily-close action."); return;
+    }
     if (name === "prepareDailyClose" && (variance !== 0 || workspace.evidence.exceptions.length || workspace.close?.status === "signed") && explanation.trim().length < 5) {
       setError("Explain the cash difference, incomplete checks or revision after sign-off before preparing this close."); return;
     }
@@ -119,14 +127,14 @@ export function DailyClosePanel() {
       </div>
       {changed && <p role="status" className="mt-4 rounded-lg bg-amber-50 p-3 text-amber-900">New or changed postings/checks were found after preparation or sign-off. Review the current evidence and prepare a new revision. Previous signed evidence is retained.</p>}
       {workspace.close && <p className="mt-4 text-sm font-semibold">Revision {workspace.close.version} · {workspace.close.status === "signed" ? "Signed off" : "Prepared — ready for sign-off"}</p>}
-      <p className="mt-3 text-xs text-[var(--muted)]">{busy ? "Wait for the current daily-close request to finish." : locked ? "This signed revision retains its recorded cash count. New evidence requires authorized staff to prepare a new revision; sign-off does not lock the accounting month." : !hasPermission(profile!, "daily.close.prepare") ? "Ask authorized daily-close preparation staff to record physically counted cash and explain differences." : "Enter physically counted cash; do not change the count to force a zero difference."}</p>
+      <p className="mt-3 text-xs text-[var(--muted)]">{busy ? "Wait for the current daily-close request to finish." : locked ? "This signed revision retains its recorded cash count. New evidence requires authorized staff to prepare a new revision; sign-off does not lock the accounting month." : !canPrepare ? "Ask authorized daily-close preparation staff to record physically counted cash and explain differences." : "Enter physically counted cash; do not change the count to force a zero difference."}</p>
       <div className="mt-4 grid gap-4 sm:grid-cols-2">
-        <label className="grid gap-1 text-sm">Physical store cash counted (₦)<input className="form-input" inputMode="decimal" value={cash} disabled={busy || locked || !hasPermission(profile!, "daily.close.prepare")} onChange={(event) => setCash(event.target.value)} placeholder="0.00" /></label>
+        <label className="grid gap-1 text-sm">Physical store cash counted (₦)<input className="form-input" inputMode="decimal" value={cash} disabled={busy || locked || !canPrepare} onChange={(event) => setCash(event.target.value)} placeholder="0.00" /></label>
         <div><p className="text-sm">Difference from posted cash</p><p className={`mt-2 text-xl font-semibold ${variance ? "text-amber-700" : "text-emerald-700"}`}>{variance === null ? "Enter the cash counted" : formatNaira(variance)}</p></div>
       </div>
-      <label className="mt-4 grid gap-1 text-sm">Variance / exception explanation<textarea className="form-input min-h-24" maxLength={1000} value={explanation} disabled={busy || locked || !hasPermission(profile!, "daily.close.prepare")} onChange={(event) => setExplanation(event.target.value)} placeholder="Explain cash differences, incomplete checks or a revision after sign-off." /></label>
-      {!locked && hasPermission(profile!, "daily.close.prepare") && <Button className="mt-3" disabled={busy || !validCash} onClick={() => void mutate("prepareDailyClose")}>Prepare daily close</Button>}
-      {workspace.close?.status === "prepared" && !changed && hasPermission(profile!, "daily.close.approve") && <div className="mt-4 border-t pt-4"><label className="grid gap-1 text-sm">Sign-off notes<textarea className="form-input" maxLength={1000} value={notes} disabled={busy} onChange={(event) => setNotes(event.target.value)} /></label>{unsaved && <p className="mt-2 text-sm text-amber-800">Prepare your changed cash count or explanation before sign-off.</p>}<Button className="mt-3" disabled={busy || unsaved} onClick={() => void mutate("signDailyClose")}>Sign off this revision</Button></div>}
+      <label className="mt-4 grid gap-1 text-sm">Variance / exception explanation<textarea className="form-input min-h-24" maxLength={1000} value={explanation} disabled={busy || locked || !canPrepare} onChange={(event) => setExplanation(event.target.value)} placeholder="Explain cash differences, incomplete checks or a revision after sign-off." /></label>
+      {!locked && hasPermission(profile!, "daily.close.prepare") && <Button className="mt-3" disabled={busy || !validCash || !canPrepare} disabledReason={!canPrepare ? "Choose an assigned store or ask authorized preparation staff for this store." : undefined} onClick={() => void mutate("prepareDailyClose")}>Prepare daily close</Button>}
+      {workspace.close?.status === "prepared" && !changed && hasPermission(profile!, "daily.close.approve") && <div className="mt-4 border-t pt-4"><label className="grid gap-1 text-sm">Sign-off notes<textarea className="form-input" maxLength={1000} value={notes} disabled={busy || !canSign} onChange={(event) => setNotes(event.target.value)} /></label>{unsaved && <p className="mt-2 text-sm text-amber-800">Prepare your changed cash count or explanation before sign-off.</p>}<Button className="mt-3" disabled={busy || unsaved || !canSign} disabledReason={!canSign ? "Choose an assigned store or ask an authorized signer for this store." : undefined} onClick={() => void mutate("signDailyClose")}>Sign off this revision</Button></div>}
       <p className="mt-4 text-xs text-[var(--muted)]">Sign-off records an evidence snapshot, not an accounting lock or stock adjustment. Later/backdated postings are flagged for a new revision. The same authorized manager may prepare and sign; both actions remain audited.</p>
     </>}
   </section>;

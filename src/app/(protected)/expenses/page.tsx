@@ -1,5 +1,7 @@
 "use client";
 
+import { useExpenseAccess } from "@/features/expenses/use-expense-access";
+import { defaultExpenseScope, expenseScopeKey, expenseScopeFromKey, hasExpenseScope, type ExpenseScope } from "@/features/expenses/expense-access";
 import { ProviderFunds } from "@/features/accounting/provider-funds";
 
 import { CheckCircle2, HandCoins, RefreshCw, Send } from "lucide-react";
@@ -61,7 +63,18 @@ function ExpensesWorkspace() {
   const [pending, setPending] = useState<{ name: string; input: Record<string, unknown> } | null>(null);
   const [ready, setReady] = useState(false);
   const mutationFlight = useRef(false);
-  const [workspace, setWorkspace] = useState<Workspace | null>(null);
+  const { identity, access, error: accessError, loading: accessLoading } = useExpenseAccess();
+  const [selectedScope, setSelectedScope] = useState<string | null>(null);
+  const forcedScope: ExpenseScope | undefined = operatingContext ? operatingContext.type === "branch" ? { branchId: operatingContext.id } : { warehouseId: operatingContext.id }
+    : linkedId ? { branchId: linkedBranchId } : undefined;
+  const preferredScope = forcedScope ?? (selectedScope === null ? undefined : expenseScopeFromKey(selectedScope));
+  const eligiblePreferredScope = forcedScope ?? (access && preferredScope && hasExpenseScope(access, preferredScope, "expenses.read") ? preferredScope : undefined);
+  const readScope = access ? defaultExpenseScope(access, "expenses.read", eligiblePreferredScope) : null;
+  const scopeValue = expenseScopeKey(readScope);
+  const scopeIdentity = JSON.stringify([identity, scopeValue, access?.organizationPermissions]);
+  const [loadedWorkspace, setWorkspace] = useState<{ key: string; data: Workspace } | null>(null);
+  const workspace = access && loadedWorkspace?.key === scopeIdentity ? loadedWorkspace.data : null;
+  const loadSequence = useRef(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -86,13 +99,11 @@ function ExpensesWorkspace() {
   const loadSuppliers = useCallback(async (cursorId?: string) => { try { const page = await callAdministration<object, { providers: typeof suppliers; nextCursorId: string | null }>("getServiceBillingCase", { action: "providers", cursorId }); setSuppliers(current => cursorId ? [...new Map([...current, ...page.providers].map(item => [item.id, item])).values()] : page.providers); setSupplierCursor(page.nextCursorId); } catch (cause) { setError(cause instanceof Error ? cause.message : "Suppliers unavailable."); } }, []);
   useEffect(() => { if (profile) { const timer = window.setTimeout(() => void loadSuppliers(), 0); return () => window.clearTimeout(timer); } }, [profile, loadSuppliers]);
   const can = (permission: Parameters<typeof hasPermission>[1]) =>
-    Boolean(profile && hasPermission(profile, permission));
+    Boolean(access?.permissions.includes(permission));
   const canApproveOwnWork = Boolean(profile && canSelfAuthorize(profile));
-  const linkedScopeMismatch = !!linkedId && operatingContext?.type === "branch" && operatingContext.id !== linkedBranchId;
-  const contextInput =
-    operatingContext?.type === "branch"
-      ? { branchId: operatingContext.id }
-      : {};
+  const linkedScopeMismatch = !!linkedId && !!operatingContext && (operatingContext.type !== "branch" || operatingContext.id !== linkedBranchId);
+  const scopeBranchId = readScope?.branchId, scopeWarehouseId = readScope?.warehouseId;
+  const readReady = Boolean(access && readScope);
   useEffect(() => {
     const timer = window.setTimeout(() => {
       try {
@@ -107,41 +118,30 @@ function ExpensesWorkspace() {
     return () => window.clearTimeout(timer);
   }, [storageKey]);
 
-  async function load() {
-    if (!profile) return;
-    setBusy(true);
-    setError(null);
+  const load = useCallback(async () => {
+    if (!readReady) return;
+    const sequence = ++loadSequence.current;
+    setBusy(true); setError(null);
     try {
-      const result = await callAdministration<
-        { branchId?: string; warehouseId?: string },
-        Workspace
-      >("getExpenseWorkspace", contextInput);
-      setWorkspace(result);
-      if (linkedId && linkedBranchId) setForm(current => ({ ...current, scopeType: "branch", scopeId: linkedBranchId }));
-      else if (operatingContext?.type === "branch")
-        setForm((current) => ({
-          ...current,
-          scopeType: operatingContext.type,
-          scopeId: operatingContext.id,
-        }));
+      const contextInput = { ...(scopeBranchId ? { branchId: scopeBranchId } : {}), ...(scopeWarehouseId ? { warehouseId: scopeWarehouseId } : {}) };
+      const result = await callAdministration<object, Workspace>("getExpenseWorkspace", contextInput);
+      if (sequence !== loadSequence.current) return;
+      setWorkspace({ key: scopeIdentity, data: result });
+      const preferred = forcedScope ?? contextInput;
+      const allocation = access ? defaultExpenseScope(access, "expenses.create", hasExpenseScope(access, preferred, "expenses.create") ? preferred : undefined) : null;
+      const next = forcedScope ?? allocation;
+      if (next) setForm(current => ({ ...current, scopeType: next.branchId ? "branch" : next.warehouseId ? "warehouse" : "organization", scopeId: next.branchId ?? next.warehouseId ?? "" }));
     } catch (cause) {
-      setError(
-        cause instanceof Error
-          ? cause.message
-          : "Expense records could not be loaded.",
-      );
-    } finally {
-      setBusy(false);
-    }
-  }
+      if (sequence === loadSequence.current) setError(cause instanceof Error ? cause.message : "Expense records could not be loaded.");
+    } finally { if (sequence === loadSequence.current) setBusy(false); }
+  // IDs and the server authority identity define the request; unrelated form edits must not reload it.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [readReady, scopeBranchId, scopeWarehouseId, scopeIdentity]);
+  const invalidateLoad = useCallback(() => { loadSequence.current++; }, []);
   useEffect(() => {
-    const timeout = window.setTimeout(() => {
-      void load();
-    }, 0);
-    return () => window.clearTimeout(timeout);
-    // The selected operating context is the authoritative workspace boundary.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [profile, operatingContext?.type, operatingContext?.id, linkedId, linkedBranchId]);
+    const timeout = window.setTimeout(() => void load(), 0);
+    return () => { window.clearTimeout(timeout); invalidateLoad(); };
+  }, [load, invalidateLoad]);
 
   async function run(name: string, input: Record<string, unknown>, success: string) {
     if (mutationFlight.current || !ready) return false;
@@ -180,7 +180,7 @@ function ExpensesWorkspace() {
       setError("Enter valid positive net and non-negative VAT amounts with no more than two decimal places."); return;
     }
     const scope =
-      linkedId ? { branchId: linkedBranchId } : form.scopeType === "branch" ? { branchId: form.scopeId } : {};
+      linkedId ? { branchId: linkedBranchId } : form.scopeType === "branch" ? { branchId: form.scopeId } : form.scopeType === "warehouse" ? { warehouseId: form.scopeId } : {};
     const success = await run("createExpense", {
           categoryName: form.categoryName,
           payeeName: form.payeeName,
@@ -214,18 +214,21 @@ function ExpensesWorkspace() {
       dueDate: "",
     }));
   }
-  if (!profile || !can("expenses.read"))
+  if (!profile || !hasPermission(profile, "expenses.read"))
     return (
       <div className="rounded-xl border bg-white p-6">
         Your roles do not include expense access.
       </div>
     );
-  const scopeOptions =
-    form.scopeType === "branch" ? (workspace?.branches ?? []) : [];
+  const formScope: ExpenseScope = form.scopeType === "branch" ? { branchId: form.scopeId } : form.scopeType === "warehouse" ? { warehouseId: form.scopeId } : {};
+  const scopeOptions = (form.scopeType === "branch" ? workspace?.branches : workspace?.warehouses)?.filter(location =>
+    hasExpenseScope(access, form.scopeType === "branch" ? { branchId: location.id } : { warehouseId: location.id }, "expenses.create")) ?? [];
+  const readBranches = workspace?.branches.filter(location => hasExpenseScope(access, { branchId: location.id }, "expenses.read")) ?? [];
+  const readWarehouses = workspace?.warehouses.filter(location => hasExpenseScope(access, { warehouseId: location.id }, "expenses.read")) ?? [];
 
   return (
     <div className="space-y-5">
-      {profile && user && workspace && hasPermission(profile, "expenses.read") && operatingContext?.type !== "warehouse" && <ProviderFunds ownerKey={`${profile.organizationId}:${user.uid}`} branchId={operatingContext?.type === "branch" ? operatingContext.id : undefined} accounts={workspace.bankAccounts} canPay={hasPermission(profile, "expenses.pay")} canRecover={hasPermission(profile, "finance.journal.reverse")} />}
+      {profile && user && workspace && hasPermission(profile, "expenses.read") && !scopeWarehouseId && <ProviderFunds ownerKey={`${profile.organizationId}:${user.uid}`} branchId={scopeBranchId} accounts={workspace.bankAccounts} canPay={Boolean(readScope && hasExpenseScope(access, readScope, "expenses.pay"))} canRecover={Boolean(readScope && hasExpenseScope(access, readScope, "expenses.pay") && hasExpenseScope(access, readScope, "finance.journal.reverse"))} />}
       <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[.16em] text-[var(--brand)]">
@@ -242,6 +245,15 @@ function ExpensesWorkspace() {
           <RefreshCw className="mr-2 size-4" /> Refresh
         </Button>
       </header>
+      {accessLoading && <p role="status">Checking expense access…</p>}
+      {accessError && <p role="alert" className="text-red-800">{accessError}</p>}
+      {access && !readScope && <p role="alert">Choose an assigned store or ask an administrator to review your expense access.</p>}
+      {access && <label className="block text-sm">Expense register scope<select aria-label="Expense register scope" value={scopeValue} disabled={Boolean(forcedScope) || busy || Boolean(pending)} onChange={event => setSelectedScope(event.target.value)} className="ml-3 rounded-lg border p-2">
+        {!readScope && <option value="">Choose assigned store</option>}
+        {hasExpenseScope(access, {}, "expenses.read") && <option value="organization">Entire organization</option>}
+        {readBranches.map(location => <option key={`branch:${location.id}`} value={`branch:${location.id}`}>{location.name}</option>)}
+        {readWarehouses.map(location => <option key={`warehouse:${location.id}`} value={`warehouse:${location.id}`}>{location.name} · warehouse</option>)}
+      </select></label>}
       {error && (
         <div
           role="alert"
@@ -273,7 +285,7 @@ function ExpensesWorkspace() {
           <label className="my-3 block text-sm">Existing supplier / provider<select className="input ml-2" value={form.supplierId} onChange={event => { const supplier = suppliers.find(item => item.id === event.target.value); setForm(current => ({ ...current, supplierId: supplier?.id ?? "", payeeName: supplier?.name ?? "" })); }}><option value="">Other payee (enter name)</option>{suppliers.map(supplier => <option key={supplier.id} value={supplier.id}>{supplier.name} · {supplier.supplierType}</option>)}</select></label>{supplierCursor && <Button variant="outline" onClick={() => void loadSuppliers(supplierCursor)}>Load more existing suppliers</Button>}
           {linkedId && <label className="my-3 block text-sm">Separate company obligation reference (only if independent of invoice provider funds)<input className="input block w-full" value={form.independentObligationReference} onChange={event => setForm({ ...form, independentObligationReference: event.target.value })}/><span>A separate supplier document and this reference are required to recognize an additional company expense for a provider already paid through the invoice.</span></label>}
           {linkedId && <div className="my-3 rounded-xl border bg-blue-50 p-4"><strong>Linked {linkedCaseId ? "aftersales service" : "sale / delivery"} cost</strong><p>This records a provider bill, not a customer charge or bank transfer. The server verifies the related record and store. Do not enter delivery pass-through amounts already recorded as a liability.</p>{linkedScopeMismatch && <p role="alert">Switch to the original record&apos;s store before recording this cost.</p>}{linkedCaseId && <Link className="underline" href={`/aftersales?caseId=${encodeURIComponent(linkedCaseId)}`}>Return to service case</Link>}</div>}
-          <fieldset disabled={busy || !!pending || !ready} className="mt-4 grid gap-3 md:grid-cols-3">
+          <fieldset disabled={busy || !!pending || !ready || !workspace} className="mt-4 grid gap-3 md:grid-cols-3">
             <label className="text-sm">Cost purpose<select value={form.costPurpose} onChange={event => setForm({ ...form, costPurpose: event.target.value })} className="mt-1 w-full rounded-lg border p-3"><option value="">General operating expense</option><option value="service">Service / outsourced technician</option><option value="logistics">Delivery / logistics provider</option></select></label>
             <label className="text-sm">
               Category
@@ -331,8 +343,9 @@ function ExpensesWorkspace() {
                 }
                 className="mt-1 w-full rounded-lg border p-3"
               >
-                <option value="organization">Whole organization</option>
-                <option value="branch">Store / Head Office</option>
+                {hasExpenseScope(access, {}, "expenses.create") && <option value="organization">Whole organization</option>}
+                {workspace?.branches.some(location => hasExpenseScope(access, { branchId: location.id }, "expenses.create")) && <option value="branch">Store / Head Office</option>}
+                {workspace?.warehouses.some(location => hasExpenseScope(access, { warehouseId: location.id }, "expenses.create")) && <option value="warehouse">Warehouse</option>}
               </select>
             </label>
             <label className="text-sm">Payment due date (optional)<input type="date" value={form.dueDate} onChange={event => setForm({ ...form, dueDate: event.target.value })} className="mt-1 w-full rounded-lg border p-3" /></label>
@@ -412,6 +425,7 @@ function ExpensesWorkspace() {
             disabled={
               busy ||
               !!pending || !ready ||
+              !hasExpenseScope(access, formScope, "expenses.create") || !workspace ||
               linkedScopeMismatch ||
               (!!linkedId && (!linkedBranchId || !form.costPurpose || Boolean(linkedCaseId && linkedSaleId))) ||
               form.categoryName.trim().length < 2 ||
@@ -420,6 +434,7 @@ function ExpensesWorkspace() {
               Number(form.netAmountNaira) <= 0 ||
               (form.scopeType !== "organization" && !form.scopeId)
             }
+            disabledReason={!readScope ? "The selected record or working store is outside your expense access. Select an assigned store or ask authorized staff to review the record." : !workspace ? "Wait for the selected store's expense records to load." : !hasExpenseScope(access, formScope, "expenses.create") ? "Choose a store where you can create expenses; organization-wide reading does not grant wider expense actions." : undefined}
             onClick={() => void createExpense()}
           >
             <HandCoins className="mr-2 size-4" /> Create draft expense
@@ -475,7 +490,7 @@ function ExpensesWorkspace() {
                     {expense.costPurpose && <p className="mt-2 text-sm"><strong>{expense.costPurpose === "service" ? "Service provider cost" : "Logistics provider cost"}</strong>{expense.costReferenceLabel && ` · ${expense.costReferenceLabel}`}{expense.costReferenceType === "aftersales" && expense.costReferenceId && <> · <Link className="underline" href={`/aftersales?caseId=${encodeURIComponent(expense.costReferenceId)}`}>Open service case</Link></>}</p>}
                   </div>
                   <div className="flex flex-wrap gap-2">
-                    {expense.status === "draft" && can("expenses.create") && (
+                    {expense.status === "draft" && hasExpenseScope(access, expense, "expenses.create") && (
                       <Button
                         disabled={busy || !!pending || !ready}
                         onClick={() =>
@@ -492,7 +507,7 @@ function ExpensesWorkspace() {
                       </Button>
                     )}
                     {expense.status === "submitted" &&
-                      can("expenses.approve") &&
+                      hasExpenseScope(access, expense, "expenses.approve") &&
                       (expense.createdBy !== user?.uid ||
                         canApproveOwnWork) && (
                         <Button
@@ -520,7 +535,7 @@ function ExpensesWorkspace() {
                   </div>
                 </div>
                 {["approved", "partially_paid"].includes(expense.status) &&
-                  can("expenses.pay") && (
+                  hasExpenseScope(access, expense, "expenses.pay") && (
                     <div className="mt-4 grid gap-2 border-t pt-4 md:grid-cols-2 xl:grid-cols-[10rem_11rem_minmax(14rem,1fr)_minmax(12rem,1fr)_auto]">
                       <input
                         aria-label="Payment amount in naira"

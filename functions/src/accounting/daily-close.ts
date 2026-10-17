@@ -3,10 +3,10 @@ import { FieldPath, Timestamp, type Transaction } from "firebase-admin/firestore
 import { HttpsError } from "firebase-functions/v2/https";
 import { db } from "../admin.js";
 
-/** Nigerian business dates, not UTC dates: midnight in Kano is 23:00 UTC. */
+/** Nigerian day [start, end): midnight in Kano is 23:00 UTC. */
 export function dailyBounds(date: string) {
   const start = Timestamp.fromDate(new Date(`${date}T00:00:00.000+01:00`));
-  const end = Timestamp.fromMillis(start.toMillis() + 86_400_000 - 1);
+  const end = Timestamp.fromMillis(start.toMillis() + 86_400_000);
   return { start, end };
 }
 export function safeMinor(value: unknown): number {
@@ -30,7 +30,7 @@ async function pages(transaction: Transaction, query: FirebaseFirestore.Query,
 
 export async function dailyEvidence(transaction: Transaction, organizationId: string, branchId: string, date: string) {
   const { start, end } = dailyBounds(date);
-  const digest = createHash("sha256");
+  const digest = createHash("sha256"), legacyDigest = createHash("sha256");
   const cash = { openingMinor: 0, receiptsMinor: 0, paymentsMinor: 0, closingMinor: 0, lineCount: 0 };
   // Include every source of posted cash, not just POS totals. No editable opening-balance field.
   await pages(transaction, db.collection("journalLines").where("organizationId", "==", organizationId)
@@ -38,12 +38,13 @@ export async function dailyEvidence(transaction: Transaction, organizationId: st
     const effectiveAt = line.get("effectiveAt");
     if (!(effectiveAt instanceof Timestamp))
       throw new HttpsError("failed-precondition", "A cash posting is missing its accounting date.");
-    if (effectiveAt.toMillis() > end.toMillis()) return;
+    if (effectiveAt.valueOf() >= end.valueOf()) return;
     const debit = safeMinor(line.get("debitMinor") ?? 0), credit = safeMinor(line.get("creditMinor") ?? 0);
     if (debit < 0 || credit < 0) throw new HttpsError("failed-precondition", "A cash posting has a negative debit or credit.");
-    digest.update(JSON.stringify([line.id, effectiveAt.toMillis(), debit, credit, line.get("journalEntryId") ?? null]));
+    digest.update(JSON.stringify([line.id, effectiveAt.seconds, effectiveAt.nanoseconds, debit, credit, line.get("journalEntryId") ?? null]));
+    legacyDigest.update(JSON.stringify([line.id, effectiveAt.toMillis(), debit, credit, line.get("journalEntryId") ?? null]));
     cash.lineCount += 1;
-    if (effectiveAt.toMillis() < start.toMillis()) cash.openingMinor = safeMinor(cash.openingMinor + debit - credit);
+    if (effectiveAt.valueOf() < start.valueOf()) cash.openingMinor = safeMinor(cash.openingMinor + debit - credit);
     else {
       cash.receiptsMinor = safeMinor(cash.receiptsMinor + debit);
       cash.paymentsMinor = safeMinor(cash.paymentsMinor + credit);
@@ -56,19 +57,22 @@ export async function dailyEvidence(transaction: Transaction, organizationId: st
     if (stockCounts.length >= 500) throw new HttpsError("resource-exhausted", "Too many stock checks for one daily close. Contact an administrator.");
     stockCounts.push({ id: count.id, reference: String(count.get("countNumber") ?? count.id), status: String(count.get("status")) });
     digest.update(JSON.stringify([count.id, count.get("status"), count.updateTime.toMillis()]));
+    legacyDigest.update(JSON.stringify([count.id, count.get("status"), count.updateTime.toMillis()]));
   });
   let openShiftCount = 0, closedShiftCount = 0, tillVarianceMinor = 0;
   await pages(transaction, db.collection("posShifts").where("organizationId", "==", organizationId)
     .where("branchId", "==", branchId), (shift) => {
     const openedAt = shift.get("openedAt"), closedAt = shift.get("closedAt");
-    if (!(openedAt instanceof Timestamp) || openedAt.toMillis() > end.toMillis()) return;
-    if (!(closedAt instanceof Timestamp) || closedAt.toMillis() > end.toMillis()) {
+    if (!(openedAt instanceof Timestamp) || openedAt.valueOf() >= end.valueOf()) return;
+    if (!(closedAt instanceof Timestamp) || closedAt.valueOf() >= end.valueOf()) {
       openShiftCount += 1;
       digest.update(JSON.stringify([shift.id, "open", shift.updateTime.toMillis()]));
-    } else if (closedAt.toMillis() >= start.toMillis()) {
+      legacyDigest.update(JSON.stringify([shift.id, "open", shift.updateTime.toMillis()]));
+    } else if (closedAt.valueOf() >= start.valueOf()) {
       closedShiftCount += 1;
       tillVarianceMinor = safeMinor(tillVarianceMinor + safeMinor(shift.get("cashVarianceMinor") ?? 0));
       digest.update(JSON.stringify([shift.id, "closed", shift.updateTime.toMillis()]));
+      legacyDigest.update(JSON.stringify([shift.id, "closed", shift.updateTime.toMillis()]));
     }
   });
   const exceptions: string[] = [];
@@ -78,5 +82,15 @@ export async function dailyEvidence(transaction: Transaction, organizationId: st
   if (tillVarianceMinor) exceptions.push("Closed POS shifts have a cash variance. Review the shift records.");
   const evidence = { cash, stockCounts, openShiftCount, closedShiftCount, tillVarianceMinor, exceptions };
   digest.update(JSON.stringify([organizationId, branchId, date, evidence]));
-  return { ...evidence, hash: digest.digest("hex") };
+  legacyDigest.update(JSON.stringify([organizationId, branchId, date, evidence]));
+  return { ...evidence, hash: digest.digest("hex"), hashVersion: 2 as const, legacyHash: legacyDigest.digest("hex") };
+}
+
+/** Legacy sign-offs retain their original digest; new evidence never falls back. */
+export function dailyEvidenceMatches(stored: { hash?: unknown; hashVersion?: unknown } | null | undefined,
+  live: Awaited<ReturnType<typeof dailyEvidence>>) {
+  if (!stored || typeof stored.hash !== "string") return false;
+  if (stored.hashVersion === 2) return stored.hash === live.hash;
+  if (stored.hashVersion !== undefined) return false;
+  return stored.hash === live.legacyHash;
 }

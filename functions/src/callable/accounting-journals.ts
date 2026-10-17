@@ -2,7 +2,9 @@ import { createHash } from "node:crypto";
 import { FieldPath, FieldValue, Timestamp } from "firebase-admin/firestore";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
 import { db } from "../admin.js";
-import { hasServerPermission, requireAccess, requireBranchScope, requirePermission } from "../auth/authorize.js";
+import { bankAccountSummary } from "../accounting/settlement-account.js";
+import { scopedAccess, hasOrganizationPermission, requirePermissionScope } from "../auth/permission-scope.js";
+import { requireAccess, requirePermission } from "../auth/authorize.js";
 import { accountingPeriodReference, assertAccountingPeriodOpen } from "../accounting/period-lock.js";
 import { assertSafeJournal } from "../accounting/journal-validation.js";
 import { writeJournal } from "../accounting/write-journal.js";
@@ -19,14 +21,16 @@ function row(document: FirebaseFirestore.DocumentSnapshot) {
     [key, value instanceof Timestamp ? value.toDate().toISOString() : value])) };
 }
 export const accountingJournals = onCall({ enforceAppCheck }, async request => {
-  const actor = await requireAccess(request);
+  const actor = await scopedAccess(await requireAccess(request));
   const input = parseInput(accountingJournalInput, request.data);
-  requirePermission(actor, input.action === "post" ? "finance.journal.create" : input.action === "reverse" ? "finance.journal.reverse" : input.action === "save_account" ? "finance.accounts.manage" : "finance.journal.read");
-  const organizationWide = hasServerPermission(actor, "sales.read.all");
-  const assertScope = (branchId?: string) => {
-    if (branchId) requireBranchScope(actor, branchId);
-    else if (!organizationWide) throw new HttpsError("permission-denied", "Select an assigned store for this accounting record.");
+  const permission = input.action === "post" ? "finance.journal.create" : input.action === "reverse" ? "finance.journal.reverse" : input.action === "save_account" ? "finance.accounts.manage" : "finance.journal.read";
+  requirePermission(actor, permission);
+  const organizationWide = hasOrganizationPermission(actor, permission);
+  if (input.action === "access") return {
+    branchIds: actor.branchIds, organizationPermissions: actor.organizationPermissions,
+    permissions: actor.effectivePermissions,
   };
+  const assertScope = (branchId?: string) => requirePermissionScope(actor, { branchId }, permission);
   if (input.action === "detail") {
     const entry = await db.doc(`journalEntries/${input.journalEntryId}`).get();
     if (!entry.exists || entry.get("organizationId") !== actor.organizationId) throw new HttpsError("not-found", "Journal not found.");
@@ -56,7 +60,7 @@ export const accountingJournals = onCall({ enforceAppCheck }, async request => {
     ]);
     if (accounts.size > 200 || banks.size > 200) fail("This organization needs a paged account selector before manual journal entry. No accounts were silently omitted.");
     return { entries: entries.docs.slice(0, input.pageSize).map(row), nextCursorId: entries.size > input.pageSize ? entries.docs[input.pageSize - 1]!.id : null,
-      accounts: accounts.docs.map(row), bankAccounts: banks.docs.map(row), branchId: branchId ?? null };
+      accounts: accounts.docs.map(row), bankAccounts: banks.docs.map(doc => ({ ...bankAccountSummary(doc), active: doc.get("active") === true })), branchId: branchId ?? null };
   }
   if (input.action === "save_account" && !organizationWide)
     throw new HttpsError("permission-denied", "Company account configuration requires organization-wide accounting access.");

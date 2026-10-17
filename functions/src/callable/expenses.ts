@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { FieldValue, Timestamp } from "firebase-admin/firestore";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
 import { db } from "../admin.js";
+import { scopedAccess, hasOrganizationPermission, hasPermissionScope, requirePermissionScope, type ScopedAccess } from "../auth/permission-scope.js";
 import {
   accountingPeriodReference,
   assertAccountingPeriodOpen,
@@ -11,12 +12,9 @@ import { bankAccountSummary, resolveSettlementAccount } from "../accounting/sett
 import { writeAuditLog } from "../audit/write-audit-log.js";
 import {
   canSelfAuthorize,
-  hasRole,
   hasServerPermission,
   requireAccess,
-  requireBranchScope,
   requirePermission,
-  requireWarehouseScope,
 } from "../auth/authorize.js";
 import { enforceAppCheck } from "../config.js";
 import {
@@ -54,38 +52,8 @@ function year() {
 function numbered(prefix: string, sequence: number) {
   return `${prefix}-${year()}-${String(sequence).padStart(6, "0")}`;
 }
-function organizationWide(actor: Awaited<ReturnType<typeof requireAccess>>) {
-  return (
-    hasRole(actor, "system_administrator") ||
-    hasRole(actor, "operations_administrator") ||
-    hasRole(actor, "finance_officer") ||
-    hasRole(actor, "auditor")
-  );
-}
-function requireExpenseScope(
-  actor: Awaited<ReturnType<typeof requireAccess>>,
-  branchId?: string,
-  warehouseId?: string,
-) {
-  if (branchId) requireBranchScope(actor, branchId);
-  if (warehouseId) requireWarehouseScope(actor, warehouseId);
-  if (!branchId && !warehouseId && !organizationWide(actor))
-    throw new HttpsError(
-      "failed-precondition",
-      "Select an assigned branch or warehouse for this expense.",
-    );
-}
-function expenseVisible(
-  actor: Awaited<ReturnType<typeof requireAccess>>,
-  data: FirebaseFirestore.DocumentData,
-) {
-  if (organizationWide(actor)) return true;
-  const branchId = data.branchId ? String(data.branchId) : "";
-  const warehouseId = data.warehouseId ? String(data.warehouseId) : "";
-  return Boolean(
-    (branchId && actor.branchIds.includes(branchId)) ||
-      (warehouseId && actor.warehouseIds.includes(warehouseId)),
-  );
+function requireExpenseScope(actor: ScopedAccess, branchId: string | undefined, warehouseId: string | undefined, permission: "expenses.create" | "expenses.approve" | "expenses.pay") {
+  requirePermissionScope(actor, { branchId, warehouseId }, permission);
 }
 function writeJournal(
   transaction: FirebaseFirestore.Transaction,
@@ -190,10 +158,14 @@ function writeJournal(
 export const getExpenseWorkspace = onCall(
   { enforceAppCheck },
   async (request) => {
-    const actor = await requireAccess(request);
+    const actor = await scopedAccess(await requireAccess(request));
     requirePermission(actor, "expenses.read");
     const input = parseInput(expenseWorkspaceInput, request.data);
-    requireExpenseScope(actor, input.branchId, input.warehouseId);
+    if (input.view === "access") return {
+      permissions: actor.effectivePermissions, organizationPermissions: actor.organizationPermissions,
+      branchIds: actor.branchIds, warehouseIds: actor.warehouseIds,
+    };
+    requirePermissionScope(actor, { branchId: input.branchId, warehouseId: input.warehouseId }, "expenses.read");
     let query: FirebaseFirestore.Query = db
       .collection("expenses")
       .where("organizationId", "==", actor.organizationId);
@@ -234,7 +206,7 @@ export const getExpenseWorkspace = onCall(
       branches: branches.docs
         .filter(
           (document) =>
-            organizationWide(actor) || actor.branchIds.includes(document.id),
+            hasOrganizationPermission(actor, "expenses.read") || hasOrganizationPermission(actor, "expenses.create") || actor.branchIds.includes(document.id),
         )
         .map((document) => ({
           id: document.id,
@@ -244,7 +216,7 @@ export const getExpenseWorkspace = onCall(
       warehouses: warehouses.docs
         .filter(
           (document) =>
-            organizationWide(actor) || actor.warehouseIds.includes(document.id),
+            hasOrganizationPermission(actor, "expenses.read") || hasOrganizationPermission(actor, "expenses.create") || actor.warehouseIds.includes(document.id),
         )
         .map((document) => ({
           id: document.id,
@@ -252,7 +224,7 @@ export const getExpenseWorkspace = onCall(
           code: document.get("code"),
         })),
       expenses: expenses.docs
-        .filter((document) => expenseVisible(actor, document.data()))
+        .filter((document) => hasPermissionScope(actor, document.data(), "expenses.read"))
         .map((document) => ({ id: document.id, ...document.data() })),
       bankAccounts: bankAccounts.docs.map(bankAccountSummary),
     };
@@ -260,10 +232,10 @@ export const getExpenseWorkspace = onCall(
 );
 
 export const createExpense = onCall({ enforceAppCheck }, async (request) => {
-  const actor = await requireAccess(request);
+  const actor = await scopedAccess(await requireAccess(request));
   requirePermission(actor, "expenses.create");
   const input = parseInput(createExpenseInput, request.data);
-  requireExpenseScope(actor, input.branchId, input.warehouseId);
+  requireExpenseScope(actor, input.branchId, input.warehouseId, "expenses.create");
   if (input.costReferenceType === "aftersales") requirePermission(actor, "sales.returns.read");
   if (input.costReferenceType === "sale" && !["sales.read.all", "sales.read.own_branch", "reports.sales.read"].some(permission => hasServerPermission(actor, permission as Parameters<typeof hasServerPermission>[1])))
     throw new HttpsError("permission-denied", "Sale access is required to link this cost.");
@@ -468,7 +440,7 @@ async function expenseStatusAction(
   request: Parameters<typeof requireAccess>[0],
   action: "submit" | "approve",
 ) {
-  const actor = await requireAccess(request);
+  const actor = await scopedAccess(await requireAccess(request));
   requirePermission(
     actor,
     action === "submit" ? "expenses.create" : "expenses.approve",
@@ -483,6 +455,7 @@ async function expenseStatusAction(
     actor,
     initial.get("branchId") || undefined,
     initial.get("warehouseId") || undefined,
+    action === "submit" ? "expenses.create" : "expenses.approve",
   );
   const operation = db.doc(
     `idempotencyKeys/${actor.organizationId}_${action}Expense_${input.idempotencyKey}`,
@@ -532,7 +505,7 @@ async function expenseStatusAction(
         { code: "EXPENSE_SELF_APPROVAL_FORBIDDEN" },
       );
     if (current.get("organizationId") !== actor.organizationId) throw new HttpsError("not-found", "Expense not found.");
-    requireExpenseScope(actor, current.get("branchId") || undefined, current.get("warehouseId") || undefined);
+    requireExpenseScope(actor, current.get("branchId") || undefined, current.get("warehouseId") || undefined, action === "submit" ? "expenses.create" : "expenses.approve");
     if (action === "approve") await assertIndependentProviderExpense(transaction, actor.organizationId, { costReferenceType: current.get("costReferenceType"), costReferenceId: current.get("costReferenceId"), supplierId: current.get("supplierId"), supplierDocumentNumber: current.get("supplierDocumentNumber"), independentObligationReference: current.get("independentObligationReference") });
     if (action === "approve") assertAccountingPeriodOpen(snapshots[3]!);
     const now = FieldValue.serverTimestamp();
@@ -612,7 +585,7 @@ export const approveExpense = onCall({ enforceAppCheck }, (request) =>
 export const recordExpensePayment = onCall(
   { enforceAppCheck },
   async (request) => {
-    const actor = await requireAccess(request);
+    const actor = await scopedAccess(await requireAccess(request));
     requirePermission(actor, "expenses.pay");
     const input = parseInput(recordExpensePaymentInput, request.data),
       expense = db.doc(`expenses/${input.expenseId}`);
@@ -627,6 +600,7 @@ export const recordExpensePayment = onCall(
       actor,
       initial.get("branchId") || undefined,
       initial.get("warehouseId") || undefined,
+      "expenses.pay",
     );
     const operation = db.doc(
       `idempotencyKeys/${actor.organizationId}_recordExpensePayment_${input.idempotencyKey}`,

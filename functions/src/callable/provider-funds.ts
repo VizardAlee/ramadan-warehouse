@@ -3,7 +3,8 @@ import { FieldValue, Timestamp } from "firebase-admin/firestore";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
 import { z } from "zod";
 import { db } from "../admin.js";
-import { hasServerPermission, requireAccess, requireBranchScope, requirePermission } from "../auth/authorize.js";
+import { scopedAccess, hasOrganizationPermission, requirePermissionScope } from "../auth/permission-scope.js";
+import { requireAccess, requirePermission } from "../auth/authorize.js";
 import { accountingPeriodReference, assertAccountingPeriodOpen } from "../accounting/period-lock.js";
 import { resolveSettlementAccount } from "../accounting/settlement-account.js";
 import { writeJournal } from "../accounting/write-journal.js";
@@ -24,12 +25,14 @@ const schema = z.discriminatedUnion("action", [
 ]);
 const fail = (message: string): never => { throw new HttpsError("failed-precondition", message); };
 export const providerFunds = onCall({ enforceAppCheck, timeoutSeconds: 300 }, async request => {
-  const actor = await requireAccess(request), input = parseInput(schema, request.data);
-  requirePermission(actor, input.action === "settle" || input.action === "recover" ? "expenses.pay" : "expenses.read");
+  const actor = await scopedAccess(await requireAccess(request)), input = parseInput(schema, request.data);
+  const permission = input.action === "settle" || input.action === "recover" ? "expenses.pay" : "expenses.read";
+  requirePermission(actor, permission);
   if (input.action === "recover") requirePermission(actor, "finance.journal.reverse");
   const scope = (sale: FirebaseFirestore.DocumentSnapshot) => {
     if (!sale.exists || sale.get("organizationId") !== actor.organizationId) throw new HttpsError("not-found", "Invoice not found.");
-    requireBranchScope(actor, String(sale.get("branchId")));
+    requirePermissionScope(actor, { branchId: String(sale.get("branchId")) }, permission);
+    if (input.action === "recover") requirePermissionScope(actor, { branchId: String(sale.get("branchId")) }, "finance.journal.reverse");
   };
   const rows = (sale: FirebaseFirestore.DocumentSnapshot) => {
     const state = sale.get("billing") as MixedBilling | undefined; if (!state) return [];
@@ -39,8 +42,8 @@ export const providerFunds = onCall({ enforceAppCheck, timeoutSeconds: 300 }, as
   if (input.action === "workspace") {
     if (input.fromDate > input.toDate) throw new HttpsError("invalid-argument", "Choose a valid date range.");
     let branchId = input.branchId;
-    if (!hasServerPermission(actor, "sales.read.all")) { branchId ??= actor.branchIds.length === 1 ? actor.branchIds[0] : undefined; if (!branchId) throw new HttpsError("invalid-argument", "Select an assigned store."); }
-    if (branchId) requireBranchScope(actor, branchId);
+    if (!hasOrganizationPermission(actor, "expenses.read")) { branchId ??= actor.branchIds.length === 1 ? actor.branchIds[0] : undefined; if (!branchId) throw new HttpsError("invalid-argument", "Select an assigned store."); }
+    requirePermissionScope(actor, { branchId }, "expenses.read");
     const start = Timestamp.fromDate(new Date(`${input.fromDate}T00:00:00+01:00`)), end = Timestamp.fromMillis(Date.parse(`${input.toDate}T00:00:00+01:00`) + 86_400_000);
     let base: FirebaseFirestore.Query = db.collection("sales").where("organizationId", "==", actor.organizationId).where("recordedAt", ">=", start).where("recordedAt", "<", end);
     if (branchId) base = base.where("branchId", "==", branchId);
@@ -63,9 +66,10 @@ export const providerFunds = onCall({ enforceAppCheck, timeoutSeconds: 300 }, as
   if (input.method === "cash" && input.bankAccountId) throw new HttpsError("invalid-argument", "Company cash cannot use a bank account.");
   const fingerprint = createHash("sha256").update(JSON.stringify(input)).digest("hex"), op = db.doc(`idempotencyOperations/${uniquenessDocumentId(actor.organizationId, "providerFunds", input.idempotencyKey)}`), paymentRef = db.collection("providerFundPayments").doc(), journal = db.collection("journalEntries").doc(), counter = db.doc(`journalCounters/${uniquenessDocumentId(actor.organizationId, "general")}`), effectiveAt = Timestamp.now();
   return db.runTransaction(async tx => {
-    const previous = await tx.get(op);
-    if (previous.exists) { if (previous.get("fingerprint") !== fingerprint || previous.get("organizationId") !== actor.organizationId) fail("This retry key belongs to different provider instructions."); return previous.get("result"); }
-    const [sale, sequence, period, bank] = await tx.getAll(saleRef, counter, accountingPeriodReference(actor.organizationId, effectiveAt), db.doc(`bankAccounts/${input.bankAccountId ?? "no-bank-account"}`)); scope(sale!); assertAccountingPeriodOpen(period!);
+    const [previous, sale] = await tx.getAll(op, saleRef);
+    scope(sale!);
+    if (previous!.exists) { if (previous!.get("fingerprint") !== fingerprint || previous!.get("organizationId") !== actor.organizationId) fail("This retry key belongs to different provider instructions."); return previous!.get("result"); }
+    const [sequence, period, bank] = await tx.getAll(counter, accountingPeriodReference(actor.organizationId, effectiveAt), db.doc(`bankAccounts/${input.bankAccountId ?? "no-bank-account"}`)); assertAccountingPeriodOpen(period!);
     const state = sale!.get("billing") as MixedBilling | undefined; if (!state) fail("This invoice has no provider-funds obligation."); validateBilling(state!); await readBillingMapping(tx, actor.organizationId, state!.mapping);
     const after = structuredClone(state!), component = after.components.find(c => c.id === input.componentId && c.kind === "provider"); if (!component) fail("Provider obligation not found on this invoice.");
     let original: FirebaseFirestore.DocumentSnapshot | null = null;

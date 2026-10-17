@@ -5,6 +5,7 @@ const optionalText = (max: number) => z.string().trim().max(max).optional();
 const positiveMoney = z.number().int().positive().max(Number.MAX_SAFE_INTEGER);
 
 export const expenseWorkspaceInput = z.object({
+  view: z.enum(["workspace", "access"]).default("workspace"),
   branchId: id.optional(),
   warehouseId: id.optional(),
   limit: z.number().int().min(1).max(200).default(100),

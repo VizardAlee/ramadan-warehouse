@@ -6,6 +6,10 @@ import ReportsPage from "@/app/(protected)/reports/page";
 import RequestReportsPage from "@/app/(protected)/requests/reports/page";
 import TaxPage from "@/app/(protected)/tax/page";
 
+vi.mock("@/features/accounting/use-financial-access", () => ({ useFinancialAccess: () => ({ access: { branchIds: [], permissions: ["finance.journal.read"], organizationPermissions: ["finance.journal.read"] }, loading: false }) }));
+
+vi.mock("@/features/accounting/use-financial-branches", () => ({ useFinancialBranches: () => ({ data: [], loading: false }) }));
+
 const api = vi.hoisted(() => ({ call: vi.fn() }));
 
 vi.mock("@/features/administration/api", () => ({ callAdministration: api.call }));

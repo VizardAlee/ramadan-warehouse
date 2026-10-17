@@ -1,4 +1,6 @@
 const messages: Record<string, string> = {
+  PURCHASE_RECEIPT_RECONCILIATION_REQUIRED: "An older receipt has unresolved stock evidence. Check receiving history and ask authorized inventory/accounting staff to reconcile its goods-received note. Do not receive the same goods again.",
+  RETRY_INSTRUCTIONS_MISMATCH: "This retry reference cannot confirm these instructions. Review the original saved request and transaction history; do not record the same stock or money again.",
   "functions/unauthenticated": "Your sign-in or device verification could not be confirmed. Refresh and try again; sign in again only if the app asks you to.",
   "functions/permission-denied": "This action is outside your current role or assigned location. Ask a system administrator to review access if it is part of your job; after an approved change, use Refresh authorization. Do not change accounts or locations just to bypass the check.",
   "functions/invalid-argument": "Some submitted information is invalid. Review the form and try again.",
