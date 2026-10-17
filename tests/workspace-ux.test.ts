@@ -19,7 +19,8 @@ describe("task-first workspaces", () => {
     const pos = source("src/app/(protected)/pos/page.tsx");
     expect(pos).toContain('aria-label="Point of sale workspace"');
     expect(pos).toContain('"Current sale and held sales"');
-    expect(pos).toContain('cartOpen && !customerDialogOpen');
+    // Cart focus and nested-dialog isolation have behavioral coverage in
+    // pos-cart-service-drafts.test.tsx rather than depending on hook placement.
     expect(pos).toContain("void holdSale()");
     expect(pos).toContain("confirmOrderPayment(order.id)");
   });
