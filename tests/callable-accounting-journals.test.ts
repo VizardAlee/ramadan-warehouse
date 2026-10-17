@@ -205,8 +205,12 @@ describe("finance branch picker existing-access integration", () => {
     const options = await loadFinancialBranches(target.store, profile, access, cursor => call({ action: "locations", ...(cursor ? { cursor } : {}) }, target, "getDailyCloseWorkspace"));
     expect(options).toEqual(expect.arrayContaining([{ id: branchId, name: "Head Office" }]));
     const selected = options.find(branch => branch.id === branchId)!;
-    // March is deliberately closed by the earlier retry regression. Use a separate open month.
-    const posted = await call<{ journalEntryId: string }>({ ...instructions(), branchId: selected.id, effectiveAt: "2025-09-15T12:00:00Z", reference: "PICKER-POST" }, target);
+    // Earlier cases close March and deactivate account6100. Keep this workflow fixture independent.
+    for (const [code, name] of [["6205", "Picker depreciation expense"], ["1595", "Picker accumulated depreciation"]])
+      await call({ action: "save_account", code, name, active: true, reason: "Create independent synthetic picker accounts", idempotencyKey: crypto.randomUUID() }, target);
+    const posted = await call<{ journalEntryId: string }>({ ...instructions(), branchId: selected.id, effectiveAt: "2025-09-15T12:00:00Z", reference: "PICKER-POST", lines: [
+      { accountId: accountId("6205"), debitMinor: 50000, creditMinor: 0 }, { accountId: accountId("1595"), debitMinor: 0, creditMinor: 50000 },
+    ] }, target);
     expect((await db.doc(`journalEntries/${posted.journalEntryId}`).get()).get("branchId")).toBe(selected.id);
     const reversed = await call<{ journalEntryId: string }>({ action: "reverse", branchId: selected.id, journalEntryId: posted.journalEntryId, effectiveAt: "2025-09-20T12:00:00Z", reference: "PICKER-REV", reason: "Synthetic picker reversal verification", idempotencyKey: crypto.randomUUID() }, target);
     expect((await db.doc(`journalEntries/${reversed.journalEntryId}`).get()).get("branchId")).toBe(selected.id);
