@@ -1,9 +1,9 @@
 .workspace { min-width: 0; padding-bottom: 4rem; }
-.workspace :is(input, select, textarea) { min-width: 0; max-width: 100%; }
+.workspace :is(input, select, textarea), .cart :is(input, select, textarea) { min-width: 0; max-width: 100%; }
 .dialog { overflow-wrap: anywhere; }
 .dialog :is(input, select, textarea, button) { min-width: 0; max-width: 100%; }
 .dialog button { white-space: normal; }
-.workspace :is(button, a, summary):focus-visible, .productCard :is(button, summary):focus-visible {
+.workspace :is(button, a, summary):focus-visible, .cart :is(button, a, summary):focus-visible, .productCard :is(button, summary):focus-visible {
   outline: 3px solid var(--focus); outline-offset: 3px;
 }
 .saleLayout { display: grid; gap: 1.25rem; align-items: start; min-width: 0; }
@@ -46,6 +46,8 @@
 .checkoutAction:has(button:disabled), .checkoutAction:has(details[open]) { position: static; }
 .mobileCartButton { gap: .75rem; flex-wrap: wrap; text-align: left; padding-block: .75rem; }
 .mobileCartButton > span { min-width: 0; overflow-wrap: anywhere; }
+.cartOverlay.cartOverlay { align-items: flex-end; padding: 0; }
+.cartDialog.cartDialog { position: relative; top: auto; width: 100%; max-width: 40rem; max-height: min(88dvh, 48rem); overflow-y: auto; }
 @media (min-width: 1024px) {
   .workspace { padding-bottom: 0; }
   .saleLayout { grid-template-columns: minmax(0, 1fr) minmax(20rem, 23rem); }

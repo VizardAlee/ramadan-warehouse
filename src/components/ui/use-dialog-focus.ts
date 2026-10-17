@@ -8,6 +8,7 @@ const focusableSelector = [
   "input:not([disabled])",
   "select:not([disabled])",
   "textarea:not([disabled])",
+  "summary:not([tabindex='-1'])",
   "[tabindex]:not([tabindex='-1'])",
 ].join(",");
 

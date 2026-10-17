@@ -2,6 +2,7 @@
 
 import { ServiceLineOptions } from "@/features/pos/service-line-options";
 import { PosProductCard } from "@/features/pos/product-card";
+import { PosCartSurface } from "@/features/pos/cart-surface";
 import styles from "@/features/pos/pos-layout.module.css";
 
 import { parseSaleSerials, validSaleSerials } from "@/features/pos/serial-selection";
@@ -1541,14 +1542,14 @@ export default function PosPage() {
             </div>
           </section>
 
-          {cartOpen && <button type="button" aria-label="Close sale cart" onClick={() => setCartOpen(false)} className="fixed inset-0 z-40 bg-slate-950/50 lg:hidden" />}
+          <PosCartSurface open={cartOpen} onClose={() => setCartOpen(false)}>
           <aside
             id="pos-cart"
             ref={cartDialogRef}
             role={cartOpen ? "dialog" : undefined}
             aria-modal={cartOpen ? true : undefined}
             aria-label={cartOpen ? "Current sale and held sales" : undefined}
-            className={`${styles.cart} pos-cart-panel scroll-mt-40 h-fit overflow-y-auto rounded-t-2xl p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] lg:sticky lg:block lg:rounded-2xl ${cartOpen ? "fixed inset-x-0 bottom-0 z-50 max-h-[min(88dvh,48rem)]" : "hidden"}`}
+            className={`${styles.cart} pos-cart-panel scroll-mt-40 h-fit overflow-y-auto rounded-t-2xl p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] lg:rounded-2xl ${cartOpen ? styles.cartDialog : "hidden lg:sticky lg:block"}`}
           >
             <div className={styles.cartHeader}>
               <h2 className="flex items-center gap-2 text-xl font-semibold">
@@ -1557,7 +1558,7 @@ export default function PosPage() {
               <a href="#pos-payment-controls">Payment &amp; checkout</a>
               <div className="flex items-center gap-2">
                 <span className="text-sm text-[var(--muted)]">{totals.totalQuantity} items</span>
-                <button type="button" onClick={() => setCartOpen(false)} aria-label="Close cart" className="grid size-9 place-items-center rounded-lg border lg:hidden"><X className="size-4" /></button>
+                {cartOpen && <button type="button" onClick={() => setCartOpen(false)} aria-label="Close cart" className="grid size-9 place-items-center rounded-lg border"><X className="size-4" /></button>}
               </div>
             </div>
             {receivedOrder.error && <p role="alert" className="mb-3 rounded-lg bg-red-50 p-3 text-sm text-red-800">{receivedOrder.error}</p>}
@@ -2154,6 +2155,7 @@ export default function PosPage() {
             </details>
             </fieldset>
           </aside>
+          </PosCartSurface>
         </div>
       )}
 
