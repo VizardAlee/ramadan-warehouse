@@ -172,6 +172,10 @@ describe.sequential("trusted manual journal workflow", () => {
       await expect(call({ ...statement, branchId }, target, "generateFinancialStatement")).resolves.toMatchObject({ expenseMinor: 12345 });
       await expect(call({}, target, "getBankReconciliationWorkspace")).rejects.toMatchObject({ code: "functions/permission-denied" });
       await expect(call({ periodKey: "2025-08" }, target, "getAccountingCloseWorkspace")).rejects.toMatchObject({ code: "functions/permission-denied" });
+      // Location metadata may support an explicit global creation grant without returning remote financial records.
+      await db.doc(`roles/${role.id}`).update({ permissionIds: ["expenses.create"] });
+      await expect(call({ branchId }, target, "getExpenseWorkspace")).resolves.toMatchObject({ branches: expect.arrayContaining([expect.objectContaining({ id: remote })]), expenses: [expect.objectContaining({ branchId })] });
+      await expect(call({ branchId: remote }, target, "getExpenseWorkspace")).rejects.toMatchObject({ code: "functions/permission-denied" });
     }
     await expect(call({ ...statement, branchId: remote }, accountant, "generateFinancialStatement")).resolves.toMatchObject({ expenseMinor: 99999, incomeMinor: 0, profitMinor: -99999 });
   });

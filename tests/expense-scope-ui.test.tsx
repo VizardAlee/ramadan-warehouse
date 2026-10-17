@@ -46,6 +46,16 @@ describe("expense authority and assigned-store initialization", () => {
     expect(screen.getAllByRole("button", { name: "Approve" })).toHaveLength(1);
     expect(screen.getByTestId("provider-scope").textContent).toBe("organization:false");
   });
+  it("keeps global creation locations available without widening local financial reads", async () => {
+    state.access.organizationPermissions = ["expenses.create"];
+    render(<ExpensesPage />);
+    await screen.findByText("EXP-own");
+    expect(state.call).toHaveBeenCalledWith("getExpenseWorkspace", { branchId: "own" });
+    expect(within(screen.getByLabelText("Expense register scope")).queryByRole("option", { name: "Remote store" })).toBeNull();
+    expect(within(screen.getByLabelText("Allocate to")).getByRole("option", { name: "Whole organization" })).toBeTruthy();
+    expect(within(screen.getByLabelText("Location")).getByRole("option", { name: "Remote store" })).toBeTruthy();
+    expect(screen.queryByText("EXP-remote")).toBeNull();
+  });
   it("uses the actual warehouse working scope for eligible warehouse expenses", async () => {
     state.context = { type: "warehouse", id: "warehouse" }; state.access.branchIds = []; state.access.warehouseIds = ["warehouse"];
     render(<ExpensesPage />);

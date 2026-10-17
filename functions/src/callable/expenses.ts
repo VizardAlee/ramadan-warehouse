@@ -206,7 +206,7 @@ export const getExpenseWorkspace = onCall(
       branches: branches.docs
         .filter(
           (document) =>
-            hasOrganizationPermission(actor, "expenses.read") || actor.branchIds.includes(document.id),
+            hasOrganizationPermission(actor, "expenses.read") || hasOrganizationPermission(actor, "expenses.create") || actor.branchIds.includes(document.id),
         )
         .map((document) => ({
           id: document.id,
@@ -216,7 +216,7 @@ export const getExpenseWorkspace = onCall(
       warehouses: warehouses.docs
         .filter(
           (document) =>
-            hasOrganizationPermission(actor, "expenses.read") || actor.warehouseIds.includes(document.id),
+            hasOrganizationPermission(actor, "expenses.read") || hasOrganizationPermission(actor, "expenses.create") || actor.warehouseIds.includes(document.id),
         )
         .map((document) => ({
           id: document.id,

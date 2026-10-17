@@ -1,14 +1,14 @@
 {
   "lastLiveAudit": {
     "project": "ramadan-warehouse-staging",
-    "verifiedAt": "2026-10-17T13:56:29.876Z",
+    "verifiedAt": "2026-10-17T14:02:58.502Z",
     "queryShapes": 529,
     "unsupportedQueries": 0,
     "readyIndexes": 256,
     "singleFieldOverrides": 0,
     "indexInventoryVerifiedAt": "2026-10-11T15:17:12.715Z",
     "probeMethod": "planner-only (analyze=false), with sentinel-scope missing-index diagnostics; no mutations",
-    "plannerEvidenceSha256": "f724a45ffb721526ebaa42908fe1bf14dc813b91a47a5afa649e22fa3d47cec8"
+    "plannerEvidenceSha256": "31796935b25e73347c386d4decb37e3888c2601aa1f88aeeacf03f0e04886398"
   },
   "catalogSha256": "7807aa548648af0f5fc3c4e85e6af7d6fcdf55511f076986008de1449190232e",
   "sourceFingerprints": {
@@ -32,7 +32,7 @@
     "functions/src/callable/customers.ts": "244922f3625716387ab1fd64ea625a8fedd796aec9bac9055d57d2fba66bdc1c",
     "functions/src/callable/daily-close.ts": "80dbe835d25df2ae5d1bfda2adc67a9f6e9407470907d726d54d6f8efd7716a7",
     "functions/src/callable/dashboard.ts": "1d15ada87d20bbcba8eee0725e54daf8aea05d24e7460ab0e1c2cd62cebc4feb",
-    "functions/src/callable/expenses.ts": "b19b442f3d133184a899120e39f1dd0ab27797ae3d962965719f1a0ece33299d",
+    "functions/src/callable/expenses.ts": "b97686f83cc356cd969d8b094300155d5843b68b7ea6b0828ee75d03a1142757",
     "functions/src/callable/financial-reports.ts": "c11a19a75a17051cdd6554228b6bb63cb07ada48af25ea126f88da2ff3782136",
     "functions/src/callable/get-my-access-context.ts": "5906a6e27b873f42bc21db88845358f5431ee6f9ec3b98da8e17f31765b377cb",
     "functions/src/callable/hr-history.ts": "c995088366d8316cb39b1d71e7c30c5cde5a43400caaa4a7de9ad1a6a6816766",
