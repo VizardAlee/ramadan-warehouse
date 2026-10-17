@@ -205,9 +205,10 @@ describe("finance branch picker existing-access integration", () => {
     const options = await loadFinancialBranches(target.store, profile, access, cursor => call({ action: "locations", ...(cursor ? { cursor } : {}) }, target, "getDailyCloseWorkspace"));
     expect(options).toEqual(expect.arrayContaining([{ id: branchId, name: "Head Office" }]));
     const selected = options.find(branch => branch.id === branchId)!;
-    const posted = await call<{ journalEntryId: string }>({ ...instructions(), branchId: selected.id }, target);
+    // March is deliberately closed by the earlier retry regression. Use a separate open month.
+    const posted = await call<{ journalEntryId: string }>({ ...instructions(), branchId: selected.id, effectiveAt: "2025-09-15T12:00:00Z", reference: "PICKER-POST" }, target);
     expect((await db.doc(`journalEntries/${posted.journalEntryId}`).get()).get("branchId")).toBe(selected.id);
-    const reversed = await call<{ journalEntryId: string }>({ action: "reverse", branchId: selected.id, journalEntryId: posted.journalEntryId, effectiveAt: "2025-03-20T12:00:00Z", reference: "PICKER-REV", reason: "Synthetic picker reversal verification", idempotencyKey: crypto.randomUUID() }, target);
+    const reversed = await call<{ journalEntryId: string }>({ action: "reverse", branchId: selected.id, journalEntryId: posted.journalEntryId, effectiveAt: "2025-09-20T12:00:00Z", reference: "PICKER-REV", reason: "Synthetic picker reversal verification", idempotencyKey: crypto.randomUUID() }, target);
     expect((await db.doc(`journalEntries/${reversed.journalEntryId}`).get()).get("branchId")).toBe(selected.id);
   });
   it("does not grant remote branch metadata to a global financial custom role lacking existing metadata authority", async () => {
