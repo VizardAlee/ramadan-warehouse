@@ -131,11 +131,11 @@ describe.sequential("trusted manual journal workflow", () => {
     await expect(call({ ...filter, branchId: remote }, target)).rejects.toMatchObject({ code: "functions/permission-denied" });
     await expect(call(filter, target)).resolves.toMatchObject({ branchId, entries: [expect.objectContaining({ branchId })] });
     await expect(call({ action: "detail", journalEntryId: `scope-operations_administrator-${remote}` }, target)).rejects.toMatchObject({ code: "functions/permission-denied" });
-    const statement = { reportType: "trial_balance", fromDate, toDate };
-    await expect(call({ ...statement, branchId }, target, "generateFinancialStatement")).resolves.toMatchObject({ totalDebitMinor: 12345, totalCreditMinor: 12345 });
+    const statement = { reportType: "income_statement", fromDate, toDate };
+    await expect(call({ ...statement, branchId }, target, "generateFinancialStatement")).resolves.toMatchObject({ expenseMinor: 12345, incomeMinor: 0, profitMinor: -12345 });
     await expect(call({ ...statement, branchId: remote }, target, "generateFinancialStatement")).rejects.toMatchObject({ code: "functions/permission-denied" });
     // Omitted branch defaults to the only assigned branch, despite global sales access.
-    await expect(call(statement, target, "generateFinancialStatement")).resolves.toMatchObject({ branchId, totalDebitMinor: 12345 });
+    await expect(call(statement, target, "generateFinancialStatement")).resolves.toMatchObject({ branchId, expenseMinor: 12345 });
     for (const action of ["workspace", "comparison"] as const) {
       const period = action === "workspace" ? { month: "2025-08" } : { fromMonth: "2025-08", toMonth: "2025-08" };
       await expect(call({ action, ...period, branchId }, target, "budgetWorkspace")).resolves.toMatchObject({ rows: [expect.objectContaining({ actualMinor: 12345 })] });
@@ -149,7 +149,7 @@ describe.sequential("trusted manual journal workflow", () => {
     if (base === "finance_officer") {
       // Current explicit finance permission is enough; sales.read.all is not required.
       await db.doc(`roles/${role.id}`).update({ permissionIds: ["finance.journal.read", "banking.read", "accounting.close.read"] });
-      await expect(call(statement, target, "generateFinancialStatement")).resolves.toMatchObject({ branchId: null, totalDebitMinor: 112344, totalCreditMinor: 112344 });
+      await expect(call(statement, target, "generateFinancialStatement")).resolves.toMatchObject({ branchId: null, expenseMinor: 112344, incomeMinor: 0, profitMinor: -112344 });
       await expect(call({ ...filter, branchId: remote }, target)).resolves.toMatchObject({ entries: [expect.objectContaining({ branchId: remote })] });
       await expect(call({ fromDate, toDate }, target, "getTaxWorkspace")).resolves.toMatchObject({ vat: { calculatedLiabilityMinor: 0 } });
       await expect(call({}, target, "getBankReconciliationWorkspace")).resolves.toMatchObject({ accounts: expect.any(Array) });
@@ -157,11 +157,11 @@ describe.sequential("trusted manual journal workflow", () => {
       // No profile refresh: the next callable must observe the revoked global grant.
       await db.doc(`roles/${role.id}`).update({ permissionIds: ["procurement.read"] });
       await expect(call({ ...statement, branchId: remote }, target, "generateFinancialStatement")).rejects.toMatchObject({ code: "functions/permission-denied" });
-      await expect(call({ ...statement, branchId }, target, "generateFinancialStatement")).resolves.toMatchObject({ totalDebitMinor: 12345 });
+      await expect(call({ ...statement, branchId }, target, "generateFinancialStatement")).resolves.toMatchObject({ expenseMinor: 12345 });
       await expect(call({}, target, "getBankReconciliationWorkspace")).rejects.toMatchObject({ code: "functions/permission-denied" });
       await expect(call({ periodKey: "2025-08" }, target, "getAccountingCloseWorkspace")).rejects.toMatchObject({ code: "functions/permission-denied" });
     }
-    await expect(call({ ...statement, branchId: remote }, accountant, "generateFinancialStatement")).resolves.toMatchObject({ totalDebitMinor: 99999, totalCreditMinor: 99999 });
+    await expect(call({ ...statement, branchId: remote }, accountant, "generateFinancialStatement")).resolves.toMatchObject({ expenseMinor: 99999, incomeMinor: 0, profitMinor: -99999 });
   });
 
 });

@@ -66,6 +66,7 @@ describe.sequential("bank reconciliation callables", () => {
 
   it("rejects unauthorized roles, foreign/inactive accounts, shared ledger codes and locked months without posting", async () => {
     const restricted = await createActor("bank-restricted@example.test", "finance_officer");
+    await adminDb.doc("roles/restricted").set({ id: "restricted", organizationId, name: "Read-only banking", baseRoleId: "finance_officer", permissionIds: ["banking.read"], status: "active" });
     await adminDb.doc(`users/${restricted.auth.currentUser!.uid}`).update({ directRoleIds: [], customRoleIds: ["restricted"], effectivePermissions: ["banking.read"] });
     const base = { sourceBankAccountId: "transfer-from", destinationBankAccountId: "transfer-to", branchId: "transfer-store", amountMinor: 1000,
       transferredAt: "2026-10-09T09:00:00Z", reference: "BANK-TRANSFER-2", reason: "Move reserve funds", confirmedCompleted: true };
