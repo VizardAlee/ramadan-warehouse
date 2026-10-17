@@ -32,7 +32,7 @@ function MountedCartSurface({ open, focusActive = true, onClose, children }: Car
   const overlayRef = useRef<HTMLDivElement>(null);
   const [host] = useState(() => {
     const element = document.createElement("div");
-    element.className = styles.cartSlot;
+    element.className = styles.cartSlot ?? "";
     return element;
   });
 
