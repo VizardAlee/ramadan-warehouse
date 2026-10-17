@@ -5,11 +5,11 @@ import Image from "next/image";
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { callAdministration } from "@/features/administration/api";
-import { useOrganizationCollection } from "@/features/administration/use-organization-collection";
+import { useFinancialBranches } from "@/features/accounting/use-financial-branches";
+import { financialScopeLabel } from "@/features/accounting/financial-branches";
 import { useAuth } from "@/features/auth/auth-context";
 import { formatNaira } from "@/features/inventory/format";
 import { useFinancialAccess } from "@/features/accounting/use-financial-access";
-import type { Branch } from "@/types/domain";
 
 import { ReportPeriodPicker, reportDateRange, type ReportPeriod } from "./date-range";
 
@@ -135,11 +135,11 @@ function StatementDocument({ statement, scope }: { statement: StatementResult; s
 export function FinancialStatements() {
   const { operatingContext } = useAuth();
   const { identity, access, error: accessError } = useFinancialAccess();
-  const branches = useOrganizationCollection<Branch>("branches");
+  const branches = useFinancialBranches(access, identity);
   const canReadOrganization = Boolean(access?.organizationPermissions.includes("finance.journal.read"));
   const [selectedBranchId, setSelectedBranchId] = useState("");
-  const branchId = selectedBranchId || (!canReadOrganization ?
-    (operatingContext?.type === "branch" ? operatingContext.id : access?.branchIds[0] ?? "") : "");
+  const preferredBranch = selectedBranchId || (!canReadOrganization && operatingContext?.type === "branch" ? operatingContext.id : "");
+  const branchId = preferredBranch && (canReadOrganization || access?.branchIds.includes(preferredBranch)) ? preferredBranch : !canReadOrganization ? access?.branchIds[0] ?? "" : "";
   const [reportType, setReportType] = useState<StatementType>("income_statement");
   const [period, setPeriod] = useState<ReportPeriod>("monthly");
   const [fromDate, setFromDate] = useState(() => reportDateRange("monthly").fromDate);
@@ -241,11 +241,13 @@ export function FinancialStatements() {
         <label className="text-sm font-medium">Scope
           <select value={branchId} onChange={(event) => setSelectedBranchId(event.target.value)} className="mt-1 w-full rounded-lg border p-2.5">
             {canReadOrganization && <option value="">Entire organization</option>}
-            {branches.data.filter((branch) => branch.status === "active" && (canReadOrganization || access?.branchIds.includes(branch.id))).map((branch) => <option key={branch.id} value={branch.id}>{branch.name}</option>)}
+            {branchId && !branches.data.some(branch => branch.id === branchId) && <option value={branchId}>{financialScopeLabel(branchId, branches.data)}</option>}
+            {branches.data.map((branch) => <option key={branch.id} value={branch.id}>{branch.name}</option>)}
           </select>
         </label>
       </section>
       {accessError && <p role="alert" className="text-red-800">{accessError}</p>}
+      {branches.error && <p role="alert">Store names are unavailable: {branches.error} Statements identify the selected store by its ID.</p>}
       {!validDates && <p role="alert" className="rounded-lg bg-amber-50 p-3 text-sm text-amber-900">Select a valid date range and an assigned store.</p>}
       {validDates && !currentResult && !(error && errorKey === reportKey) && <p role="status" className="flex items-center gap-2 text-sm text-[var(--muted)]"><Loader2 className="size-4 animate-spin" /> Updating statement…</p>}
       {error && errorKey === reportKey && <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-800">{error}</p>}
@@ -258,7 +260,7 @@ export function FinancialStatements() {
             </div>
             <div className="flex flex-wrap gap-2"><Button variant="secondary" disabled={busy} onClick={() => window.print()}><Printer className="mr-2 size-4" /> Print / Save PDF</Button><Button variant="secondary" disabled={busy} onClick={download}><Download className="mr-2 size-4" /> Download CSV</Button></div>
           </div>
-          <StatementDocument statement={currentResult} scope={branches.data.find((branch) => branch.id === branchId)?.name ?? "Entire organization"} />
+          <StatementDocument statement={currentResult} scope={financialScopeLabel(branchId, branches.data)} />
           <p className="rounded-lg bg-amber-50 p-3 text-sm text-amber-900" data-no-print>
             These are ledger-derived draft statements. The balance sheet includes cumulative unclosed earnings; the cash-flow grouping follows posted journal types. Review classifications, opening balances, adjustments, and any unmatched entries before external use.
             {currentResult.reportType === "balance_sheet" && currentResult.balanced === false && " The balance sheet does not balance; investigate the ledger before relying on it."}

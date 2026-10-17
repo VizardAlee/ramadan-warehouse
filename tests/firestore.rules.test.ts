@@ -1,11 +1,15 @@
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
-import { afterAll, afterEach, beforeAll, describe, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import type { RulesTestEnvironment } from "@firebase/rules-unit-testing";
 
 const require = createRequire(import.meta.url);
 const { assertFails, assertSucceeds, initializeTestEnvironment } =
   require("@firebase/rules-unit-testing") as typeof import("@firebase/rules-unit-testing");
+
+import { loadFinancialBranches } from "@/features/accounting/financial-branches";
+import type { Firestore } from "firebase/firestore";
+import type { UserProfile } from "@/types/domain";
 
 let environment: RulesTestEnvironment;
 
@@ -979,5 +983,30 @@ describe("Firestore baseline rules", () => {
         await assertFails(db.doc(path).set({ organizationId: "org-1" }));
       }
     }
+  });
+});
+
+
+describe("financial branch metadata against actual branch rules", () => {
+  it("loads assigned branch documents for a local custom financial reader without a broad query or extra permission", async () => {
+    await seed();
+    const profile = { organizationId: "org-1", status: "active", roleId: "branch_manager", roleIds: ["branch_manager", "finance_officer"], directRoleIds: [], customRoleIds: ["local-finance"], effectivePermissions: ["finance.journal.read"], branchIds: ["branch-1", "branch-2"], warehouseIds: [] } as unknown as UserProfile;
+    await environment.withSecurityRulesDisabled(async context => {
+      await context.firestore().doc("users/local-finance").set(profile);
+      for (const id of profile.branchIds) await context.firestore().doc(`branches/${id}`).update({ status: "active" });
+      await context.firestore().doc("branches/unassigned").set({ organizationId: "org-1", name: "Unassigned", status: "active" });
+    });
+    const store = environment.authenticatedContext("local-finance").firestore();
+    await assertFails(store.collection("branches").where("organizationId", "==", "org-1").get());
+    const result = await loadFinancialBranches(store as unknown as Firestore, profile, { branchIds: profile.branchIds, permissions: profile.effectivePermissions!, organizationPermissions: [] }, async () => { throw new Error("Daily-close access was not granted."); });
+    expect(result.map(branch => branch.id).sort()).toEqual(["branch-1", "branch-2"]);
+    await assertFails(store.doc("branches/unassigned").get());
+    await assertFails(store.doc("branches/foreign-branch").get());
+  });
+  it("keeps raw organization branch listing closed to an ordinary finance officer", async () => {
+    await seed();
+    const store = environment.authenticatedContext("finance").firestore();
+    await assertFails(store.collection("branches").where("organizationId", "==", "org-1").get());
+    await assertFails(store.doc("branches/branch-1").get());
   });
 });

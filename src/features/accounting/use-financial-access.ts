@@ -17,7 +17,11 @@ export function useFinancialAccess() {
     if (!enabled) return;
     let active = true;
     void callAdministration<object, FinancialAccess>("accountingJournals", { action: "access" })
-      .then(data => { if (active) setResponse({ key, data }); })
+      .then(data => {
+        if (![data.permissions, data.organizationPermissions, data.branchIds].every(Array.isArray))
+          throw new Error("Financial access is unavailable. Refresh after the service finishes updating.");
+        if (active) setResponse({ key, data });
+      })
       .catch(error => { if (active) setResponse({ key, error: error instanceof Error ? error.message : "Financial access could not be checked." }); });
     return () => { active = false; };
   }, [enabled, key]);

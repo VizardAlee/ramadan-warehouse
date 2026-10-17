@@ -3,8 +3,8 @@
 import Link from "next/link";
 import { useState } from "react";
 import { useFinancialAccess } from "@/features/accounting/use-financial-access";
-import { useOrganizationCollection } from "@/features/administration/use-organization-collection";
-import type { Branch } from "@/types/domain";
+import { useFinancialBranches } from "@/features/accounting/use-financial-branches";
+import { financialScopeLabel } from "@/features/accounting/financial-branches";
 import { FileBarChart, Landmark, LockKeyhole, Calculator } from "lucide-react";
 import { useAuth } from "@/features/auth/auth-context";
 import { hasPermission } from "@/lib/permissions/roles";
@@ -21,11 +21,12 @@ const destinations = [
 
 export default function FinancePage() {
   const { profile, user, operatingContext } = useAuth();
-  const { access, error, loading } = useFinancialAccess();
-  const branches = useOrganizationCollection<Branch>("branches");
+  const { identity, access, error, loading } = useFinancialAccess();
+  const branches = useFinancialBranches(access, identity);
   const [selectedBranch, setSelectedBranch] = useState<string | null>(null);
   const globalRead = Boolean(access?.organizationPermissions.includes("finance.journal.read"));
-  const branchId = (selectedBranch ?? (operatingContext?.type === "branch" && access?.branchIds.includes(operatingContext.id) ? operatingContext.id : !globalRead ? access?.branchIds[0] : undefined)) || undefined;
+  const preferred = selectedBranch ?? (operatingContext?.type === "branch" ? operatingContext.id : undefined);
+  const branchId = (preferred && (globalRead || access?.branchIds.includes(preferred)) ? preferred : !globalRead ? access?.branchIds[0] : undefined) || undefined;
   const ready = Boolean(access && (globalRead || branchId && access.branchIds.includes(branchId)));
   const can = (permission: "finance.journal.create" | "finance.journal.reverse" | "finance.accounts.manage" | "finance.budget.manage") => Boolean(access?.permissions.includes(permission));
   const visible = destinations.filter((item) => profile && hasPermission(profile, item.permission) &&
@@ -46,9 +47,12 @@ export default function FinancePage() {
       </div> : <p className="rounded-xl border bg-white p-5">Your roles do not include accounting access.</p>}
       {loading && <p role="status">Checking financial access…</p>}
       {error && <p role="alert" className="text-red-800">{error}</p>}
+      {branches.loading && <p role="status">Loading authorized store names…</p>}
+      {branches.error && <p role="alert">Store names are unavailable: {branches.error} Selected stores remain identified by their ID.</p>}
       {access && <label className="block text-sm">Accounting scope<select aria-label="Accounting scope" value={branchId ?? ""} onChange={event => setSelectedBranch(event.target.value)} className="ml-3 rounded-lg border p-2">
         {globalRead && <option value="">Entire organization</option>}
-        {branches.data.filter(branch => branch.status === "active" && (globalRead || access.branchIds.includes(branch.id))).map(branch => <option key={branch.id} value={branch.id}>{branch.name}</option>)}
+        {branchId && !branches.data.some(branch => branch.id === branchId) && <option value={branchId}>{financialScopeLabel(branchId, branches.data)}</option>}
+        {branches.data.map(branch => <option key={branch.id} value={branch.id}>{branch.name}</option>)}
       </select></label>}
       {access && !ready && <p>Select an assigned branch before reviewing accounting records.</p>}
       {profile && user && ready && <JournalWorkspace key={`${profile.organizationId}:${user.uid}:${branchId ?? "all"}`}

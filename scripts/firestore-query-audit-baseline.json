@@ -1,16 +1,16 @@
 {
   "lastLiveAudit": {
     "project": "ramadan-warehouse-staging",
-    "verifiedAt": "2026-10-17T14:02:58.502Z",
+    "verifiedAt": "2026-10-17T14:35:40.488Z",
     "queryShapes": 529,
     "unsupportedQueries": 0,
     "readyIndexes": 256,
     "singleFieldOverrides": 0,
     "indexInventoryVerifiedAt": "2026-10-11T15:17:12.715Z",
     "probeMethod": "planner-only (analyze=false), with sentinel-scope missing-index diagnostics; no mutations",
-    "plannerEvidenceSha256": "31796935b25e73347c386d4decb37e3888c2601aa1f88aeeacf03f0e04886398"
+    "plannerEvidenceSha256": "140d0adad31aa6b3d8e70d6bc62e8057f8bbc7f691d9a96eebdc767aef41a25a"
   },
-  "catalogSha256": "7807aa548648af0f5fc3c4e85e6af7d6fcdf55511f076986008de1449190232e",
+  "catalogSha256": "761ccb373ef07cbf33e68d3eefe0e33bf407647add8e50c855b01e6504aca8be",
   "sourceFingerprints": {
     "functions/src/accounting/daily-close.ts": "904fa0dee8c4af98feaf99f17900caa97d86a16560cd3d0d85846ac33cd26e8e",
     "functions/src/accounting/stock-postings.ts": "005230ec2a728e426d435a3574e4ccd3e08928f30db4f8c710069da12137f24e",
@@ -82,7 +82,6 @@
     "src/app/(protected)/administration/users/page.tsx": "767aeaa7db46defbec0d13892846cb0eab95c3ef8950171703a4462bccc499f6",
     "src/app/(protected)/customers/[customer_id]/page.tsx": "0a64be0533b6c281c775d8fd128a609a200a63b2a9cf17ddf43bc7ec365a596e",
     "src/app/(protected)/customers/page.tsx": "c2c6b605db8bb52711b2359e883cfc1efae569f8a827adc9ce34c0f51a1f3e3f",
-    "src/app/(protected)/finance/page.tsx": "5346f60fc377affc5d84e12ed1f6090000691006c3dc8a3478eef4b998bbcc50",
     "src/app/(protected)/hr/page.tsx": "e75e0944f1201b88792c18635ca7a1a56e3cb5c31cc4f11e2c37634c9eb73450",
     "src/app/(protected)/inventory/counts/page.tsx": "e659b71df39ec5b8758f6c67520cea233b006a7f1f8fe2130529cf19a726b88b",
     "src/app/(protected)/inventory/page.tsx": "587c809b9be1fb0c4975f08de51131ae3448023b20ee862b71e81b2802998be0",
@@ -92,6 +91,7 @@
     "src/app/(protected)/products/page.tsx": "d0be6083e6910238fffb0a596299b7b2158eef170b47b31c71ad90341fe152eb",
     "src/app/(protected)/reports/page.tsx": "54a6ea1d0c4189af254f07835cbbdc803dc0c92859d2f8aac03b155d9ecc6161",
     "src/app/(protected)/returns/page.tsx": "8e7cf76c8e20b4c2d79582f240d6c337f8203240c7778df90f8eeffa8629e9ed",
+    "src/features/accounting/financial-branches.ts": "b76e8598c9d777b28c0e1f8b37ca26629af68e0ee67df2be68c89588d88353dc",
     "src/features/administration/master-data-page.tsx": "c6bcbb00b58e4c59a4b6c0b9ceeb40d2ba66152ec0b177939a43107246098a7d",
     "src/features/administration/roles-manager.tsx": "5d0c394aa4278a969d74ee7c0e8ac3b6155cbc0575aa10a38109358ff20aa9c8",
     "src/features/administration/use-organization-collection.ts": "cac18c626939062e3ee50048cf22a2db6f90193a096ad387a6c970c1df71ff16",
@@ -101,7 +101,6 @@
     "src/features/inventory/posting-form.tsx": "0bcd637cf1e13f935650b069b3e91c2ecbfcd78a83143044f1981d8b4b8737ae",
     "src/features/notifications/use-notifications.ts": "094d5903d424e3b02b20ecc8d022f92d7e4cda379b165306878a08851b0a6833",
     "src/features/products/catalog-import-dialog.tsx": "11aae920191bff20ee1a4873862ca5e338eb6c397268459637e92e1340da2835",
-    "src/features/reports/financial-statements.tsx": "dfe9880ca0534cf78d4fdcf8901ce27c2bb55b94f618b7182af125cf78365e5e",
     "src/features/requests/request-form.tsx": "d834904b780ff9ec2d95dcc32c3bd37f12f2b61cd1d24b61672a1f6edb304fa7",
     "src/features/transfers/transfer-detail.tsx": "1417c0e7e4542139a6d988c97928579ad2104874993ece285a1aab3d7ea24531",
     "src/features/transfers/transfer-form.tsx": "ee3d92a168d8b2337366a15591e413b61017d38032c41b9f491e9839906d29d1"
