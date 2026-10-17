@@ -68,7 +68,8 @@ function ExpensesWorkspace() {
   const forcedScope: ExpenseScope | undefined = operatingContext ? operatingContext.type === "branch" ? { branchId: operatingContext.id } : { warehouseId: operatingContext.id }
     : linkedId ? { branchId: linkedBranchId } : undefined;
   const preferredScope = forcedScope ?? (selectedScope === null ? undefined : expenseScopeFromKey(selectedScope));
-  const readScope = access ? defaultExpenseScope(access, "expenses.read", preferredScope) : null;
+  const eligiblePreferredScope = forcedScope ?? (access && preferredScope && hasExpenseScope(access, preferredScope, "expenses.read") ? preferredScope : undefined);
+  const readScope = access ? defaultExpenseScope(access, "expenses.read", eligiblePreferredScope) : null;
   const scopeValue = expenseScopeKey(readScope);
   const scopeIdentity = JSON.stringify([identity, scopeValue, access?.organizationPermissions]);
   const [loadedWorkspace, setWorkspace] = useState<{ key: string; data: Workspace } | null>(null);

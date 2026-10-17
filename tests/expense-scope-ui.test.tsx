@@ -3,15 +3,15 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import ExpensesPage from "@/app/(protected)/expenses/page";
 import type { ExpenseAccess } from "@/features/expenses/expense-access";
-const state = vi.hoisted(() => ({ call: vi.fn(), params: new URLSearchParams(), access: {} as ExpenseAccess, context: null as { type: "branch" | "warehouse"; id: string } | null }));
+const state = vi.hoisted(() => ({ call: vi.fn(), params: new URLSearchParams(), version: 1, access: {} as ExpenseAccess, context: null as { type: "branch" | "warehouse"; id: string } | null }));
 vi.mock("next/navigation", () => ({ useSearchParams: () => state.params }));
-vi.mock("@/features/auth/auth-context", () => ({ useAuth: () => ({ user: { uid: "staff" }, profile: { uid: "staff", organizationId: "org", status: "active", roleId: "branch_manager", roleIds: ["branch_manager", "auditor"], directRoleIds: ["branch_manager"], customRoleIds: ["sales-reader"], branchIds: ["own", "second"], warehouseIds: [], effectivePermissions: ["expenses.read", "expenses.create", "expenses.approve", "expenses.pay", "sales.read.all"] }, operatingContext: state.context }) }));
+vi.mock("@/features/auth/auth-context", () => ({ useAuth: () => ({ user: { uid: "staff" }, profile: { uid: "staff", organizationId: "org", authorizationVersion: state.version, status: "active", roleId: "branch_manager", roleIds: ["branch_manager", "auditor"], directRoleIds: ["branch_manager"], customRoleIds: ["sales-reader"], branchIds: ["own", "second"], warehouseIds: [], effectivePermissions: ["expenses.read", "expenses.create", "expenses.approve", "expenses.pay", "sales.read.all"] }, operatingContext: state.context }) }));
 vi.mock("@/features/administration/api", () => ({ callAdministration: state.call }));
 vi.mock("@/features/accounting/provider-funds", () => ({ ProviderFunds: ({ branchId, canPay }: { branchId?: string; canPay: boolean }) => <p data-testid="provider-scope">{branchId ?? "organization"}:{String(canPay)}</p> }));
 const branches = [{ id: "own", name: "Own store", code: "A" }, { id: "second", name: "Second store", code: "B" }, { id: "remote", name: "Remote store", code: "R" }];
 function expense(branchId: string) { return { id: `bill-${branchId}`, branchId, expenseNumber: `EXP-${branchId}`, categoryName: "Utilities", payeeName: "Utility", status: "submitted", netAmountMinor: 1000, vatAmountMinor: 0, grossAmountMinor: 1000, outstandingAmountMinor: 1000, description: "Monthly bill", createdBy: "other" }; }
 beforeEach(() => {
-  state.params = new URLSearchParams(); state.context = null;
+  state.params = new URLSearchParams(); state.context = null; state.version = 1;
   state.access = { permissions: ["expenses.read", "expenses.create", "expenses.approve", "expenses.pay", "sales.read.all"], organizationPermissions: ["sales.read.all"], branchIds: ["own", "second"], warehouseIds: [] };
   state.call.mockReset();
   state.call.mockImplementation(async (name: string, input: Record<string, string>) => name === "getServiceBillingCase" ? { providers: [], nextCursorId: null } : name === "getExpenseWorkspace" && input.view === "access" ? state.access : name === "getExpenseWorkspace" ? { categories: [], branches, warehouses: [{ id: "warehouse", name: "Own warehouse", code: "W" }], expenses: input.warehouseId ? [] : input.branchId ? [expense(input.branchId)] : [expense("own"), expense("remote")], bankAccounts: [] } : { created: true });
@@ -69,6 +69,17 @@ describe("expense authority and assigned-store initialization", () => {
     fireEvent.click(screen.getByRole("button", { name: "Create draft expense" }));
     await waitFor(() => expect(state.call).toHaveBeenCalledWith("createExpense", expect.objectContaining({ warehouseId: "warehouse", netAmountMinor: 1000 })));
     expect(state.call.mock.calls.find(([name]) => name === "createExpense")![1]).not.toHaveProperty("branchId");
+  });
+  it("recovers to a still-assigned store after the selected store authority changes", async () => {
+    const view = render(<ExpensesPage />);
+    await screen.findByText("EXP-own");
+    fireEvent.change(screen.getByLabelText("Expense register scope"), { target: { value: "branch:second" } });
+    await screen.findByText("EXP-second");
+    state.access = { ...state.access, branchIds: ["own"] }; state.version++;
+    view.rerender(<ExpensesPage />);
+    await screen.findByText("EXP-own");
+    expect(screen.queryByText("EXP-second")).toBeNull();
+    expect((screen.getByLabelText("Expense register scope") as HTMLSelectElement).value).toBe("branch:own");
   });
   it("does not substitute another store for an unauthorized linked record", async () => {
     state.params = new URLSearchParams("caseId=service-case&branchId=remote");
