@@ -1,7 +1,8 @@
 import { FieldPath, Timestamp } from "firebase-admin/firestore";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
 import { db } from "../admin.js";
-import { hasServerPermission, requireAccess, requireBranchScope, requirePermission } from "../auth/authorize.js";
+import { scopedAccess, hasOrganizationPermission, requirePermissionScope } from "../auth/permission-scope.js";
+import { requireAccess, requirePermission } from "../auth/authorize.js";
 import { enforceAppCheck } from "../config.js";
 import { parseInput } from "../utils/callable.js";
 import { visitQueryPages } from "../utils/query-pages.js";
@@ -55,14 +56,14 @@ function sectionForIncome(code: string) {
 export const generateFinancialStatement = onCall(
   { enforceAppCheck, timeoutSeconds: 300 },
   async (request) => {
-    const actor = await requireAccess(request);
+    const actor = await scopedAccess(await requireAccess(request));
     requirePermission(actor, "finance.journal.read");
     const input = parseInput(financialReportInput, request.data);
-    const canReadOrganization = hasServerPermission(actor, "sales.read.all");
+    const canReadOrganization = hasOrganizationPermission(actor, "finance.journal.read");
     const branchId = input.branchId ?? (!canReadOrganization && actor.branchIds.length === 1 ? actor.branchIds[0] : undefined);
     if (!canReadOrganization && !branchId)
       throw new HttpsError("invalid-argument", "Select one assigned store for this statement.");
-    if (branchId) requireBranchScope(actor, branchId);
+    requirePermissionScope(actor, { branchId }, "finance.journal.read");
     let query: FirebaseFirestore.Query = db
       .collection("journalLines")
       .where("organizationId", "==", actor.organizationId)
@@ -218,9 +219,9 @@ export const generateFinancialStatement = onCall(
 export const getTaxWorkspace = onCall(
   { enforceAppCheck, timeoutSeconds: 300 },
   async (request) => {
-    const actor = await requireAccess(request);
+    const actor = await scopedAccess(await requireAccess(request));
     requirePermission(actor, "finance.journal.read");
-    if (!hasServerPermission(actor, "sales.read.all"))
+    if (!hasOrganizationPermission(actor, "finance.journal.read"))
       throw new HttpsError("permission-denied", "The organization Tax Centre requires organization-wide finance access.");
     const input = parseInput(taxWorkspaceInput, request.data);
     const totals = new Map<string, LedgerTotal>();

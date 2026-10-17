@@ -1005,6 +1005,10 @@ describe.sequential("procurement callables", () => {
     const supplier = adminDb.doc(`suppliers/${supplierId}`);
     await call(headOfficeManager, "recordSupplierPayment", { supplierId, branchId: headOfficeId, purpose: "advance", amountMinor: 40_000, method: "bank_transfer", bankAccountId, reference: "REF-ADV", paidAt: new Date().toISOString(), idempotencyKey: crypto.randomUUID() });
     await supplier.update({ active: false }); // Revoking new purchases must not trap existing money.
+    const refundWorkspace = await call<{ suppliers: Array<{ id: string; advanceBalancesByLocation: Record<string, number>; advanceBalanceMinor?: number }> }>(headOfficeManager, "getProcurementWorkspace", { branchId: headOfficeId });
+    const localSupplier = refundWorkspace.suppliers.find(row => row.id === supplierId)!;
+    expect(localSupplier).not.toHaveProperty("advanceBalanceMinor");
+    expect(localSupplier.advanceBalancesByLocation).toEqual({ [`branch:${headOfficeId}`]: 40_000 });
     const before = await adminDb.collection("inventoryTransactions").where("organizationId", "==", organizationId).get();
     const refund = { supplierId, branchId: headOfficeId, purpose: "advance_refund", amountMinor: 10_000, method: "bank_transfer", bankAccountId, reference: "REF-RECEIVED", notes: "Unused deposit returned", paidAt: new Date().toISOString(), idempotencyKey: crypto.randomUUID() };
     const results = await Promise.all([1, 2].map(() => call<{ paymentId: string; recorded: boolean }>(headOfficeManager, "recordSupplierPayment", refund)));

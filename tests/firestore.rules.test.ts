@@ -854,14 +854,14 @@ describe("Firestore baseline rules", () => {
       const db = context.firestore();
       for (const base of ["operations_administrator", "finance_officer", "auditor"]) {
         await db.doc(`users/financial-mixed-${base}`).set({ organizationId: "org-1", status: "active", roleId: "warehouse_manager",
-          roleIds: ["warehouse_manager", base], directRoleIds: ["warehouse_manager"], customRoleIds: [`financial-reader-${base}`],
-          effectivePermissions: ["procurement.read", "payables.read", "suppliers.read"], branchIds: [], warehouseIds: ["warehouse-1"] });
+          roleIds: ["warehouse_manager", "branch_manager", base], directRoleIds: ["warehouse_manager", "branch_manager"], customRoleIds: [`financial-reader-${base}`],
+          effectivePermissions: ["procurement.read", "payables.read", "suppliers.read", "finance.journal.read", "expenses.read"], branchIds: ["branch-1"], warehouseIds: ["warehouse-1"] });
       }
       await db.doc("supplierAccountEntries/financial-entry").set({ organizationId: "org-1", warehouseId: "warehouse-1", balanceAfterMinor: 999 });
     });
     for (const base of ["operations_administrator", "finance_officer", "auditor"]) {
       const mixed = environment.authenticatedContext(`financial-mixed-${base}`).firestore();
-      for (const path of ["suppliers/supplier-1", "supplierInvoices/supplier-invoice-1", "supplierAccountEntries/financial-entry"])
+      for (const path of ["suppliers/supplier-1", "supplierInvoices/supplier-invoice-1", "supplierAccountEntries/financial-entry", "journalEntries/journal-1", "journalLines/journal-1-line", "chartOfAccounts/account-1", "expenses/organization-expense-1"])
         await assertFails(mixed.doc(path).get());
     }
     const auditor = environment.authenticatedContext("auditor").firestore();

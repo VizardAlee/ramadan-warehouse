@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { FieldValue, Timestamp } from "firebase-admin/firestore";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
 import { db } from "../admin.js";
+import { scopedAccess, requirePermissionScope } from "../auth/permission-scope.js";
 import {
   accountingPeriodBounds,
   accountingPeriodReference,
@@ -10,7 +11,6 @@ import { writeAuditLog } from "../audit/write-audit-log.js";
 import {
   canSelfAuthorize,
   requireAccess,
-  requirePermission,
 } from "../auth/authorize.js";
 import { enforceAppCheck } from "../config.js";
 import { uniquenessDocumentId } from "../inventory/calculations.js";
@@ -299,8 +299,8 @@ async function buildCloseEvidence(organizationId: string, periodKey: string) {
 export const getAccountingCloseWorkspace = onCall(
   { enforceAppCheck, timeoutSeconds: 120 },
   async (request) => {
-    const actor = await requireAccess(request);
-    requirePermission(actor, "accounting.close.read");
+    const actor = await scopedAccess(await requireAccess(request));
+    requirePermissionScope(actor, {}, "accounting.close.read");
     const input = parseInput(accountingCloseWorkspaceInput, request.data),
       evidence = await buildCloseEvidence(
         actor.organizationId,
@@ -328,8 +328,8 @@ export const getAccountingCloseWorkspace = onCall(
 export const prepareAccountingPeriodClose = onCall(
   { enforceAppCheck, timeoutSeconds: 120 },
   async (request) => {
-    const actor = await requireAccess(request);
-    requirePermission(actor, "accounting.close.prepare");
+    const actor = await scopedAccess(await requireAccess(request));
+    requirePermissionScope(actor, {}, "accounting.close.prepare");
     const input = parseInput(prepareAccountingCloseInput, request.data),
       period = accountingPeriodReference(
         actor.organizationId,
@@ -491,8 +491,8 @@ export const prepareAccountingPeriodClose = onCall(
 export const completeAccountingPeriodClose = onCall(
   { enforceAppCheck, timeoutSeconds: 120 },
   async (request) => {
-    const actor = await requireAccess(request);
-    requirePermission(actor, "accounting.close.approve");
+    const actor = await scopedAccess(await requireAccess(request));
+    requirePermissionScope(actor, {}, "accounting.close.approve");
     const input = parseInput(completeAccountingCloseInput, request.data),
       period = db.doc(`accountingPeriods/${input.accountingPeriodId}`),
       operation = db.doc(

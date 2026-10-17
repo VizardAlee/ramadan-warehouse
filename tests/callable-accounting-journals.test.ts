@@ -5,6 +5,7 @@ import { getApps, initializeApp as initializeAdminApp } from "firebase-admin/app
 import { getAuth as getAdminAuth } from "firebase-admin/auth";
 import { FieldValue, Timestamp, getFirestore } from "firebase-admin/firestore";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { buildRoleAssignment, type StoredRole } from "../functions/src/auth/custom-roles";
 import { uniquenessDocumentId } from "../functions/src/inventory/calculations";
 
 const projectId = "demo-ramadan-warehouse", organizationId = "manual-journal-test-org", branchId = "journal-store";
@@ -104,4 +105,63 @@ describe.sequential("trusted manual journal workflow", () => {
     await expect(call({ action: "detail", journalEntryId: "foreign-journal" })).rejects.toMatchObject({ code: "functions/not-found" });
     await expect(call({ action: "detail", journalEntryId: originalId })).resolves.toMatchObject({ entry: { id: originalId }, lines: expect.any(Array), truncated: false });
   });
+  it.each(["operations_administrator", "finance_officer", "auditor"] as const)("keeps a local journal reader scoped with a custom %s base and unrelated sales authority", async base => {
+    const target = await actor(`journal-mixed-${base}@example.test`, "branch_manager");
+    const role: StoredRole = { id: `journal-mixed-${base}`, organizationId, name: "Procurement and sales reader", baseRoleId: base, permissionIds: ["procurement.read", "sales.read.all"], status: "active" };
+    await db.doc(`roles/${role.id}`).set(role);
+    await db.doc(`users/${target.auth.currentUser!.uid}`).update(buildRoleAssignment(["branch_manager"], [role]));
+    const remote = "journal-remote-store", fromDate = "2025-08-01", toDate = "2025-08-31";
+    await db.doc(`branches/${remote}`).set({ organizationId, status: "active", name: "Remote store" });
+    for (const [store, amount] of [[branchId, 12345], [remote, 99999]] as const) {
+      const entryId = `scope-${base}-${store}`;
+      // Reuse one pair across the parameterized actors: no repeated totals.
+      if (base === "operations_administrator") {
+        await db.doc(`journalEntries/${entryId}`).set({ organizationId, branchId: store, totalDebitMinor: amount, totalCreditMinor: amount, effectiveAt: Timestamp.fromDate(new Date("2025-08-12T12:00:00Z")) });
+        for (const [code, debit, credit] of [["6100", amount, 0], ["3000", 0, amount]] as const)
+          await db.doc(`journalLines/${entryId}-${code}`).set({ organizationId, branchId: store, journalEntryId: entryId, accountCode: code, accountName: code, debitMinor: debit, creditMinor: credit, effectiveAt: Timestamp.fromDate(new Date("2025-08-12T12:00:00Z")) });
+        await db.doc(`budgets/scope-${store}`).set({ organizationId, branchId: store, scopeKey: `store:${store}`, month: "2025-08", accountCode: "6100", amountMinor: 200000 });
+        await db.doc(`expenses/scope-${store}`).set({ organizationId, branchId: store, grossAmountMinor: amount });
+      }
+    }
+    await db.doc("bankAccounts/journal-scope-private-bank").set({ organizationId, active: true, bankName: "Scoped bank", accountName: "Company", ledgerAccountCode: "1032", openingBalanceMinor: 987654321 });
+    const selector = await call<{ bankAccounts: Array<Record<string, unknown>> }>({ action: "workspace", branchId, fromDate, toDate }, target);
+    expect(selector.bankAccounts.find(row => row.id === "journal-scope-private-bank")).not.toHaveProperty("openingBalanceMinor");
+    const filter = { action: "workspace", fromDate, toDate };
+    await expect(call({ ...filter, branchId }, target)).resolves.toMatchObject({ entries: [expect.objectContaining({ branchId })] });
+    await expect(call({ ...filter, branchId: remote }, target)).rejects.toMatchObject({ code: "functions/permission-denied" });
+    await expect(call(filter, target)).resolves.toMatchObject({ branchId, entries: [expect.objectContaining({ branchId })] });
+    await expect(call({ action: "detail", journalEntryId: `scope-operations_administrator-${remote}` }, target)).rejects.toMatchObject({ code: "functions/permission-denied" });
+    const statement = { reportType: "trial_balance", fromDate, toDate };
+    await expect(call({ ...statement, branchId }, target, "generateFinancialStatement")).resolves.toMatchObject({ totalDebitMinor: 12345, totalCreditMinor: 12345 });
+    await expect(call({ ...statement, branchId: remote }, target, "generateFinancialStatement")).rejects.toMatchObject({ code: "functions/permission-denied" });
+    // Omitted branch defaults to the only assigned branch, despite global sales access.
+    await expect(call(statement, target, "generateFinancialStatement")).resolves.toMatchObject({ branchId, totalDebitMinor: 12345 });
+    for (const action of ["workspace", "comparison"] as const) {
+      const period = action === "workspace" ? { month: "2025-08" } : { fromMonth: "2025-08", toMonth: "2025-08" };
+      await expect(call({ action, ...period, branchId }, target, "budgetWorkspace")).resolves.toMatchObject({ rows: [expect.objectContaining({ actualMinor: 12345 })] });
+      for (const scope of [{}, { branchId: remote }]) await expect(call({ action, ...period, ...scope }, target, "budgetWorkspace")).rejects.toMatchObject({ code: "functions/permission-denied" });
+    }
+    await expect(call({ action: "history", budgetId: `scope-${remote}` }, target, "budgetWorkspace")).rejects.toMatchObject({ code: "functions/permission-denied" });
+    await expect(call({ fromDate, toDate }, target, "getTaxWorkspace")).rejects.toMatchObject({ code: "functions/permission-denied" });
+    await expect(call({ branchId }, target, "getExpenseWorkspace")).resolves.toMatchObject({ expenses: [expect.objectContaining({ branchId, grossAmountMinor: 12345 })] });
+    await expect(call({ branchId: remote }, target, "getExpenseWorkspace")).rejects.toMatchObject({ code: "functions/permission-denied" });
+    await expect(call({ action: "access" }, target)).resolves.toMatchObject({ organizationPermissions: expect.not.arrayContaining(["finance.journal.read"]) });
+    if (base === "finance_officer") {
+      // Current explicit finance permission is enough; sales.read.all is not required.
+      await db.doc(`roles/${role.id}`).update({ permissionIds: ["finance.journal.read", "banking.read", "accounting.close.read"] });
+      await expect(call(statement, target, "generateFinancialStatement")).resolves.toMatchObject({ branchId: null, totalDebitMinor: 112344, totalCreditMinor: 112344 });
+      await expect(call({ ...filter, branchId: remote }, target)).resolves.toMatchObject({ entries: [expect.objectContaining({ branchId: remote })] });
+      await expect(call({ fromDate, toDate }, target, "getTaxWorkspace")).resolves.toMatchObject({ vat: { calculatedLiabilityMinor: 0 } });
+      await expect(call({}, target, "getBankReconciliationWorkspace")).resolves.toMatchObject({ accounts: expect.any(Array) });
+      await expect(call({ periodKey: "2025-08" }, target, "getAccountingCloseWorkspace")).resolves.toBeDefined();
+      // No profile refresh: the next callable must observe the revoked global grant.
+      await db.doc(`roles/${role.id}`).update({ permissionIds: ["procurement.read"] });
+      await expect(call({ ...statement, branchId: remote }, target, "generateFinancialStatement")).rejects.toMatchObject({ code: "functions/permission-denied" });
+      await expect(call({ ...statement, branchId }, target, "generateFinancialStatement")).resolves.toMatchObject({ totalDebitMinor: 12345 });
+      await expect(call({}, target, "getBankReconciliationWorkspace")).rejects.toMatchObject({ code: "functions/permission-denied" });
+      await expect(call({ periodKey: "2025-08" }, target, "getAccountingCloseWorkspace")).rejects.toMatchObject({ code: "functions/permission-denied" });
+    }
+    await expect(call({ ...statement, branchId: remote }, accountant, "generateFinancialStatement")).resolves.toMatchObject({ totalDebitMinor: 99999, totalCreditMinor: 99999 });
+  });
+
 });

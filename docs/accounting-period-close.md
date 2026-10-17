@@ -92,3 +92,9 @@ preparation/sign-off authority for the selected store, so globally readable
 stores can show disabled write actions with an explanation. Prepare/sign retries
 recheck current authority before acknowledging an old key. This authorization
 change does not migrate, rehash or rewrite existing daily-close records.
+
+### Financial read authority
+
+Journal registers/details, draft statements, budget actuals/history, and tax evidence resolve current active custom roles for every callable. A permission has organization scope only when a direct global role or an explicit current custom global grant supplies that same permission. Global sales/procurement access and a custom role's base name do not widen a local branch manager's journal or expense access. Local readers select an assigned branch; consolidated tax, banking and month-close evidence require their own global financial permission. Financial screens load server-reported authority before requesting totals. Manual journals, budget edits, expense actions and company controls keep their action-specific scope checks.
+
+Raw ledger, bank and month-close documents are restricted to directly assigned built-in global financial readers. Local and custom-role readers use refreshed callable projections; those projections omit bank opening balances from journal selectors. Existing administrator and explicit global financial grants remain available through the appropriate route. Supplier refund availability uses authorized location credit, without requiring the redacted organization-wide supplier balance.

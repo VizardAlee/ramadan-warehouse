@@ -2,7 +2,8 @@ import { createHash } from "node:crypto";
 import { FieldValue } from "firebase-admin/firestore";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
 import { db } from "../admin.js";
-import { hasServerPermission, requireAccess, requirePermission } from "../auth/authorize.js";
+import { scopedAccess, hasOrganizationPermission } from "../auth/permission-scope.js";
+import { requireAccess, requirePermission } from "../auth/authorize.js";
 import { writeAuditLog } from "../audit/write-audit-log.js";
 import { enforceAppCheck } from "../config.js";
 import { uniquenessDocumentId } from "../inventory/calculations.js";
@@ -11,10 +12,10 @@ import { correlationId, parseInput } from "../utils/callable.js";
 
 const fail = (message: string): never => { throw new HttpsError("failed-precondition", message); };
 export const taxRuleAdministration = onCall({ enforceAppCheck }, async request => {
-  const actor = await requireAccess(request);
+  const actor = await scopedAccess(await requireAccess(request));
   const input = parseInput(taxRuleAdministrationInput, request.data);
   requirePermission(actor, input.action === "preview" ? "finance.journal.read" : "finance.tax.manage");
-  if (!hasServerPermission(actor, "sales.read.all")) throw new HttpsError("permission-denied", "Tax configuration requires organization-wide finance access.");
+  if (!hasOrganizationPermission(actor, input.action === "preview" ? "finance.journal.read" : "finance.tax.manage")) throw new HttpsError("permission-denied", "Tax configuration requires organization-wide finance access.");
   if (input.action === "preview") {
     const record = await db.doc(`taxRules/${input.ruleId}`).get();
     if (!record.exists || record.get("organizationId") !== actor.organizationId) throw new HttpsError("not-found", "Tax rule not found.");

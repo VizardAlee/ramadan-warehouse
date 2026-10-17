@@ -1,6 +1,10 @@
 "use client";
 
 import Link from "next/link";
+import { useState } from "react";
+import { useFinancialAccess } from "@/features/accounting/use-financial-access";
+import { useOrganizationCollection } from "@/features/administration/use-organization-collection";
+import type { Branch } from "@/types/domain";
 import { FileBarChart, Landmark, LockKeyhole, Calculator } from "lucide-react";
 import { useAuth } from "@/features/auth/auth-context";
 import { hasPermission } from "@/lib/permissions/roles";
@@ -17,9 +21,15 @@ const destinations = [
 
 export default function FinancePage() {
   const { profile, user, operatingContext } = useAuth();
-  const branchId = operatingContext?.type === "branch" ? operatingContext.id : profile && !hasPermission(profile, "sales.read.all") && profile.branchIds.length === 1 ? profile.branchIds[0] : undefined;
+  const { access, error, loading } = useFinancialAccess();
+  const branches = useOrganizationCollection<Branch>("branches");
+  const [selectedBranch, setSelectedBranch] = useState<string | null>(null);
+  const globalRead = Boolean(access?.organizationPermissions.includes("finance.journal.read"));
+  const branchId = (selectedBranch ?? (operatingContext?.type === "branch" && access?.branchIds.includes(operatingContext.id) ? operatingContext.id : !globalRead ? access?.branchIds[0] : undefined)) || undefined;
+  const ready = Boolean(access && (globalRead || branchId && access.branchIds.includes(branchId)));
+  const can = (permission: "finance.journal.create" | "finance.journal.reverse" | "finance.accounts.manage" | "finance.budget.manage") => Boolean(access?.permissions.includes(permission));
   const visible = destinations.filter((item) => profile && hasPermission(profile, item.permission) &&
-    (item.href !== "/tax" || hasPermission(profile, "sales.read.all")));
+    (item.href !== "/tax" || globalRead));
   return (
     <div className="space-y-5">
       <header>
@@ -34,11 +44,18 @@ export default function FinancePage() {
           <span className="mt-1 block text-sm text-[var(--muted)]">{item.description}</span>
         </Link>)}
       </div> : <p className="rounded-xl border bg-white p-5">Your roles do not include accounting access.</p>}
-      {profile && user && hasPermission(profile, "finance.journal.read") && <JournalWorkspace key={`${profile.organizationId}:${user.uid}:${branchId ?? "all"}`}
+      {loading && <p role="status">Checking financial access…</p>}
+      {error && <p role="alert" className="text-red-800">{error}</p>}
+      {access && <label className="block text-sm">Accounting scope<select aria-label="Accounting scope" value={branchId ?? ""} onChange={event => setSelectedBranch(event.target.value)} className="ml-3 rounded-lg border p-2">
+        {globalRead && <option value="">Entire organization</option>}
+        {branches.data.filter(branch => branch.status === "active" && (globalRead || access.branchIds.includes(branch.id))).map(branch => <option key={branch.id} value={branch.id}>{branch.name}</option>)}
+      </select></label>}
+      {access && !ready && <p>Select an assigned branch before reviewing accounting records.</p>}
+      {profile && user && ready && <JournalWorkspace key={`${profile.organizationId}:${user.uid}:${branchId ?? "all"}`}
         ownerKey={`${profile.organizationId}:${user.uid}`} branchId={branchId}
-        canCreate={hasPermission(profile, "finance.journal.create")} canReverse={hasPermission(profile, "finance.journal.reverse")} canManageAccounts={hasPermission(profile, "finance.accounts.manage")} />}
-      {profile && user && hasPermission(profile, "finance.accounts.manage") && <BillingControls key={`billing:${profile.organizationId}:${user.uid}`} ownerKey={`${profile.organizationId}:${user.uid}`} />}
-      {profile && user && hasPermission(profile, "finance.journal.read") && <BudgetWorkspace key={`budget:${profile.organizationId}:${user.uid}:${branchId ?? "all"}`} ownerKey={`${profile.organizationId}:${user.uid}`} branchId={branchId} canManage={hasPermission(profile, "finance.budget.manage")} />}
+        canCreate={can("finance.journal.create")} canReverse={can("finance.journal.reverse")} canManageAccounts={can("finance.accounts.manage")} />}
+      {profile && user && can("finance.accounts.manage") && <BillingControls key={`billing:${profile.organizationId}:${user.uid}`} ownerKey={`${profile.organizationId}:${user.uid}`} />}
+      {profile && user && ready && <BudgetWorkspace key={`budget:${profile.organizationId}:${user.uid}:${branchId ?? "all"}`} ownerKey={`${profile.organizationId}:${user.uid}`} branchId={branchId} canManage={can("finance.budget.manage")} />}
     </div>
   );
 }

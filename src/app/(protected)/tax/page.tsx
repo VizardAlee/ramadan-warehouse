@@ -5,7 +5,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { callAdministration } from "@/features/administration/api";
 import { useAuth } from "@/features/auth/auth-context";
 import { formatNaira } from "@/features/inventory/format";
-import { hasPermission } from "@/lib/permissions/roles";
+import { useFinancialAccess } from "@/features/accounting/use-financial-access";
 import { TaxRuleWorkspace, type TaxRule } from "@/features/accounting/tax-rule-workspace";
 import { Button } from "@/components/ui/button";
 
@@ -30,7 +30,8 @@ function monthStart() {
 
 export default function TaxPage() {
   const { profile } = useAuth();
-  const allowed = Boolean(profile && hasPermission(profile, "finance.journal.read") && hasPermission(profile, "sales.read.all"));
+  const { access, error: accessError, loading: accessLoading } = useFinancialAccess();
+  const allowed = Boolean(access?.organizationPermissions.includes("finance.journal.read"));
   const [fromDate, setFromDate] = useState(monthStart);
   const [toDate, setToDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [workspace, setWorkspace] = useState<TaxWorkspace | null>(null);
@@ -73,6 +74,8 @@ export default function TaxPage() {
     };
   }, [allowed, fromDate, queryKey, toDate, validDates, rulePageSize, ruleCursorId]);
 
+  if (accessLoading) return <p role="status">Checking financial access…</p>;
+  if (accessError) return <p role="alert">{accessError}</p>;
   if (!allowed)
     return <div className="rounded-xl border bg-white p-6">Your roles do not include Tax Centre access.</div>;
 
@@ -105,7 +108,7 @@ export default function TaxPage() {
           </section>
         </>
       )}
-      <TaxRuleWorkspace key={`${profile!.organizationId}:${profile!.uid}`} ownerKey={`${profile!.organizationId}:${profile!.uid}`} rules={currentWorkspace?.rules ?? []} canManage={hasPermission(profile!, "finance.tax.manage")} onSaved={reload} />
+      <TaxRuleWorkspace key={`${profile!.organizationId}:${profile!.uid}`} ownerKey={`${profile!.organizationId}:${profile!.uid}`} rules={currentWorkspace?.rules ?? []} canManage={Boolean(access?.organizationPermissions.includes("finance.tax.manage"))} onSaved={reload} />
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-white p-3">
         <label className="text-sm">Rules per page<select className="ml-2 rounded-lg border p-2" value={rulePageSize} onChange={event => { setRulePageSize(Number(event.target.value)); setCursors([undefined]); }}>{[25, 50, 100].map(value => <option key={value}>{value}</option>)}</select></label>
         <div className="flex items-center gap-3"><Button variant="secondary" disabled={cursors.length === 1 || !currentWorkspace} onClick={() => setCursors(value => value.slice(0, -1))}>Previous</Button><span className="text-sm">Page {cursors.length}</span><Button variant="secondary" disabled={!currentWorkspace?.nextRuleCursorId} onClick={() => setCursors(value => [...value, currentWorkspace!.nextRuleCursorId!])}>Next</Button></div>
