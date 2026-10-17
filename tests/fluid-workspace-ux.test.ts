@@ -24,7 +24,7 @@ describe("fluid workspace foundations", () => {
   it("uses a readable POS cart surface and motion that honors reduced-motion settings", () => {
     const pos = source("src/app/(protected)/pos/page.tsx");
     const styles = source("src/app/globals.css");
-    expect(pos).toContain('className={`pos-cart-panel');
+    expect(pos).toMatch(/className=\{`[^`]*\bpos-cart-panel\b/);
     expect(styles).toContain(".pos-cart-panel { background: #fff");
     expect(styles).toContain("@media (prefers-reduced-motion: reduce)");
     expect(styles).toContain(".app-dialog-panel {");

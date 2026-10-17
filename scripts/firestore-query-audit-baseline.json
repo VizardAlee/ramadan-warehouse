@@ -1,14 +1,14 @@
 {
   "lastLiveAudit": {
     "project": "ramadan-warehouse-staging",
-    "verifiedAt": "2026-10-17T16:34:02.298Z",
+    "verifiedAt": "2026-10-17T19:39:05.109Z",
     "queryShapes": 529,
     "unsupportedQueries": 0,
     "readyIndexes": 256,
     "singleFieldOverrides": 0,
     "indexInventoryVerifiedAt": "2026-10-11T15:17:12.715Z",
     "probeMethod": "planner-only (analyze=false), with sentinel-scope missing-index diagnostics; no mutations",
-    "plannerEvidenceSha256": "861cd2e983dbb39db40b5f0bcbb245e6dbc1208a6b890869d6c2aaa869e53524"
+    "plannerEvidenceSha256": "664f87cb952330b4846011fabf2daaced11d7997d6ad38ad6194b70386b86d7d"
   },
   "catalogSha256": "761ccb373ef07cbf33e68d3eefe0e33bf407647add8e50c855b01e6504aca8be",
   "sourceFingerprints": {
@@ -85,7 +85,7 @@
     "src/app/(protected)/hr/page.tsx": "e75e0944f1201b88792c18635ca7a1a56e3cb5c31cc4f11e2c37634c9eb73450",
     "src/app/(protected)/inventory/counts/page.tsx": "e659b71df39ec5b8758f6c67520cea233b006a7f1f8fe2130529cf19a726b88b",
     "src/app/(protected)/inventory/page.tsx": "587c809b9be1fb0c4975f08de51131ae3448023b20ee862b71e81b2802998be0",
-    "src/app/(protected)/pos/page.tsx": "87a78d0a3a149ceaa97e6a444ff6271a442275ecc1409970fd4b11b352c7050d",
+    "src/app/(protected)/pos/page.tsx": "410a8326396cc68159df2985607b30140ab274c75a9ae7c153d54e21953a197d",
     "src/app/(protected)/products/[product_id]/page.tsx": "25ffd4523e31a20ecd1c8bb7c8689d0e4484addfdf07e69234761b56ca950039",
     "src/app/(protected)/products/categories/page.tsx": "825f82bca475cc5200fc2784bd8acf166ee06bbbe9eccee26aa7ef6bec1599f3",
     "src/app/(protected)/products/page.tsx": "d0be6083e6910238fffb0a596299b7b2158eef170b47b31c71ad90341fe152eb",

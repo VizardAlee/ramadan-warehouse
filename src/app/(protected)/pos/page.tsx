@@ -1,6 +1,8 @@
 "use client";
 
 import { ServiceLineOptions } from "@/features/pos/service-line-options";
+import { PosProductCard } from "@/features/pos/product-card";
+import styles from "@/features/pos/pos-layout.module.css";
 
 import { parseSaleSerials, validSaleSerials } from "@/features/pos/serial-selection";
 
@@ -9,7 +11,6 @@ import {
   CheckCircle2,
   CircleAlert,
   Minus,
-  PackagePlus,
   PauseCircle,
   Pencil,
   Play,
@@ -165,6 +166,7 @@ export default function PosPage() {
     () => setCustomerDialogOpen(false),
   );
   const salePriceDialogRef = useDialogFocus<HTMLFormElement>(Boolean(salePriceProductId), () => setSalePriceProductId(null));
+  const branchPriceDialogRef = useDialogFocus<HTMLElement>(Boolean(priceProductId), () => setPriceProductId(null));
   const cartDialogRef = useDialogFocus<HTMLElement>(cartOpen && !customerDialogOpen && !salePriceProductId && !priceProductId, () => setCartOpen(false));
   const branchContextId =
     operatingContext?.type === "branch" ? operatingContext.id : undefined;
@@ -1180,7 +1182,7 @@ export default function PosPage() {
     );
 
   return (
-    <div className="space-y-5 pb-16 lg:pb-0">
+    <div className={`${styles.workspace} space-y-5`}>
       <header className="brand-hero flex flex-col gap-5 rounded-2xl p-5 sm:flex-row sm:items-end sm:justify-between sm:p-7">
         <div>
           <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[.16em] text-emerald-100">
@@ -1235,6 +1237,7 @@ export default function PosPage() {
         <a href="#pos-orders" className="inline-flex min-h-10 items-center rounded-lg border px-4 text-sm font-semibold text-slate-700">
           Awaiting action{workspace?.pendingOrders.length ? ` (${workspace.pendingOrders.length})` : ""}
         </a>
+        {workspace?.openShift && <a href="#pos-cart" className="hidden min-h-10 items-center rounded-lg border px-4 text-sm font-semibold text-slate-700 lg:inline-flex">Current sale / checkout</a>}
         <button type="button" disabled={!workspace?.openShift} onClick={() => {
           if (window.matchMedia("(max-width: 1023px)").matches) setCartOpen(true);
           document.getElementById("pos-cart")?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -1475,8 +1478,8 @@ export default function PosPage() {
           )}
         </section>
       ) : (
-        <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_24rem]">
-          <section id="pos-catalogue" className="scroll-mt-40 space-y-4">
+        <div className={styles.saleLayout}>
+          <section id="pos-catalogue" className={`${styles.catalogue} scroll-mt-40 space-y-4`}>
             <div className="glass-panel rounded-2xl p-4">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
@@ -1499,6 +1502,7 @@ export default function PosPage() {
                 <input
                   value={search}
                   onChange={(event) => setSearch(event.target.value)}
+                  aria-label="Search product name or SKU"
                   placeholder="Search product name or SKU"
                   className="w-full rounded-lg border py-3 pl-10 pr-3"
                 />
@@ -1507,82 +1511,26 @@ export default function PosPage() {
                 Need a different price for one customer? Add the product, then choose
                 <strong> Change sale price</strong> in Current sale.
               </p>
+              <details className="mt-2 text-sm text-[var(--muted)]">
+                <summary className="min-h-11 cursor-pointer py-3">Availability and pricing help</summary>
+                <p className="pb-3 leading-6">Goods need available stock at the selling branch after this device’s queued orders. Services need an internet connection. Open “Why unavailable?” on a product for its current reasons. Prices are before VAT; store-wide pricing changes future sales and is managed by authorized catalogue staff.</p>
+              </details>
             </div>
-            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            <div className={styles.productGrid}>
               {visibleProducts.map((product) => {
                 const available = product.itemKind === "service" ? 100_000 : Math.max(
                   0,
                   product.availableQuantity -
                     (queuedQuantityByProduct.get(product.id) ?? 0),
                 );
-                return (
-                  <article
-                    key={product.id}
-                    className="interactive-card relative min-h-44 overflow-hidden rounded-2xl border bg-white p-4 text-left shadow-[var(--shadow-sm)]"
-                  >
-                    <div className="flex items-start gap-3">
-                      <span className="grid size-11 shrink-0 place-items-center rounded-xl bg-emerald-50 text-emerald-700">
-                        <PackagePlus className="size-5" />
-                      </span>
-                      <div className="min-w-0">
-                        <span className="block font-semibold">
-                          {product.name}
-                        </span>
-                        <span className="mt-1 block truncate font-mono text-xs text-[var(--muted)]">
-                          {product.sku}
-                        </span>
-                      </div>
-                    </div>
-                    <span className="mt-4 block text-2xl font-semibold tracking-tight">
-                      {formatNaira(product.unitPriceMinor)}
-                    </span>
-                    <span className="block text-xs text-[var(--muted)]">
-                      before VAT · {product.priceSource} price
-                    </span>
-                    <div className="mt-3 flex items-center justify-between gap-2 text-sm">
-                      <span>
-                        {product.itemKind === "service" ? "Service · online confirmation" : `${available} ${product.unitOfMeasure} available`}
-                      </span>
-                      <span
-                        className={`size-2.5 rounded-full ${available > 0 ? "bg-emerald-500" : "bg-red-400"}`}
-                      />
-                    </div>
-                    <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-100">
-                      <span
-                        className={`block h-full rounded-full ${available > 0 ? "bg-emerald-500" : "bg-red-400"}`}
-                        style={{
-                          width:
-                            available > 0
-                              ? `${Math.min(100, Math.max(12, available * 5))}%`
-                              : "100%",
-                        }}
-                      />
-                    </div>
-                    <div className="mt-3 flex gap-2">
-                      <Button
-                        className="flex-1"
-                        disabled={Boolean(receivedOrder.pending) || !receivedOrder.ready || available <= 0 || (product.itemKind === "service" && !online)}
-                        onClick={() => addProduct(product.id)}
-                      >
-                        Add
-                      </Button>
-                      {canManageBranchPrice && online && (
-                        <Button
-                          variant="outline"
-                          onClick={() => {
-                            setPriceProductId(product.id);
-                            setBranchPrice(
-                              String(product.unitPriceMinor / 100),
-                            );
-                            setPriceReason("");
-                          }}
-                        >
-                          Store-wide price
-                        </Button>
-                      )}
-                    </div>
-                  </article>
-                );
+                return <PosProductCard key={product.id} product={product} available={available}
+                  pending={Boolean(receivedOrder.pending)} ready={receivedOrder.ready} online={online}
+                  onAdd={() => addProduct(product.id)}
+                  onManagePrice={canManageBranchPrice && online ? () => {
+                    setPriceProductId(product.id);
+                    setBranchPrice(String(product.unitPriceMinor / 100));
+                    setPriceReason("");
+                  } : undefined} />;
               })}
               {visibleProducts.length === 0 && (
                 <div className="col-span-full rounded-xl border bg-white p-8 text-center text-[var(--muted)]">
@@ -1600,8 +1548,18 @@ export default function PosPage() {
             role={cartOpen ? "dialog" : undefined}
             aria-modal={cartOpen ? true : undefined}
             aria-label={cartOpen ? "Current sale and held sales" : undefined}
-            className={`pos-cart-panel scroll-mt-40 h-fit overflow-y-auto rounded-t-2xl p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] lg:sticky lg:top-20 lg:block lg:max-h-[calc(100dvh-7rem)] lg:rounded-2xl ${cartOpen ? "fixed inset-x-0 bottom-0 z-50 max-h-[min(88dvh,48rem)]" : "hidden"}`}
+            className={`${styles.cart} pos-cart-panel scroll-mt-40 h-fit overflow-y-auto rounded-t-2xl p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] lg:sticky lg:block lg:rounded-2xl ${cartOpen ? "fixed inset-x-0 bottom-0 z-50 max-h-[min(88dvh,48rem)]" : "hidden"}`}
           >
+            <div className={styles.cartHeader}>
+              <h2 className="flex items-center gap-2 text-xl font-semibold">
+                <ShoppingCart className="size-5" /> Current sale
+              </h2>
+              <a href="#pos-payment-controls">Payment &amp; checkout</a>
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-[var(--muted)]">{totals.totalQuantity} items</span>
+                <button type="button" onClick={() => setCartOpen(false)} aria-label="Close cart" className="grid size-9 place-items-center rounded-lg border lg:hidden"><X className="size-4" /></button>
+              </div>
+            </div>
             {receivedOrder.error && <p role="alert" className="mb-3 rounded-lg bg-red-50 p-3 text-sm text-red-800">{receivedOrder.error}</p>}
             {receivedOrder.pending && <div role="status" className="mb-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm">
               <p>The previous order has an unconfirmed result. Retry the exact saved order before starting another. Do not collect the money again.</p>
@@ -1610,15 +1568,6 @@ export default function PosPage() {
             {error && cartOpen && <p role="alert" className="mb-3 rounded-lg bg-red-50 p-3 text-sm text-red-800">{error}</p>}
             <fieldset disabled={Boolean(receivedOrder.pending) || !receivedOrder.ready} className="min-w-0 border-0 p-0">
 
-            <div className="flex items-center justify-between">
-              <h2 className="flex items-center gap-2 text-xl font-semibold">
-                <ShoppingCart className="size-5" /> Current sale
-              </h2>
-              <div className="flex items-center gap-2">
-                <span className="text-sm text-[var(--muted)]">{totals.totalQuantity} items</span>
-                <button type="button" onClick={() => setCartOpen(false)} aria-label="Close cart" className="grid size-9 place-items-center rounded-lg border lg:hidden"><X className="size-4" /></button>
-              </div>
-            </div>
             <Button
               type="button"
               variant="outline"
@@ -1683,15 +1632,15 @@ export default function PosPage() {
                 )}
               </details>
             )}
-            <div className="my-4 max-h-72 space-y-3 overflow-y-auto">
+            <div className={styles.cartLines}>
               {cart.length === 0 ? (
                 <p className="rounded-lg bg-slate-50 p-5 text-center text-sm text-[var(--muted)]">
                   Tap a product to add it.
                 </p>
               ) : (
                 cart.map((line) => (
-                  <div key={line.product.id} className="rounded-lg border p-3">
-                    <div className="flex justify-between gap-3">
+                  <div key={line.product.id} className={`${styles.cartLine} rounded-lg border p-3`}>
+                    <div className={styles.cartLineHeading}>
                       <strong className="text-sm">{line.product.name}</strong>
                       <span className="text-sm">
                         {formatNaira(line.quantity * posLineUnitPriceMinor(line))}
@@ -1704,7 +1653,7 @@ export default function PosPage() {
                       try { const selected = changePosPriceTier(line, original, tier); setCart(lines => lines.map(item => item.product.id === original.id ? { ...item, product: selected.product, priceTier: selected.priceTier, sellingPriceMinor: undefined, priceOverrideReason: undefined } : item)); }
                       catch (cause) { setError(cause instanceof Error ? cause.message : "The selected price level is unavailable."); }
                     }} />
-                    <div className="mt-3 flex items-center justify-between">
+                    <div className={styles.quantityRow}>
                       <span className="text-xs text-[var(--muted)]">
                         {formatNaira(posLineUnitPriceMinor(line))} each
                         {line.sellingPriceMinor !== undefined && (
@@ -1837,7 +1786,7 @@ export default function PosPage() {
               </label>
             </div>
             <div className="mt-4 rounded-xl border bg-white p-3">
-              <div className="flex items-center justify-between gap-3">
+              <div className={styles.customerRow}>
                 <label className="min-w-0 flex-1 text-sm font-medium">
                   Customer
                   <select
@@ -1886,7 +1835,7 @@ export default function PosPage() {
                 </select><span className="mt-1 block text-xs text-[var(--muted)]">Keeps this sale and any credit in the selected arrangement. The customer’s overall credit limit still applies.</span>
               </label>}
             </div>
-            <fieldset className="mt-4">
+            <fieldset id="pos-payment-controls" className="mt-4 scroll-mt-24">
               <legend className="text-sm font-semibold">How is the customer paying?</legend>
               <div className="mt-2 grid grid-cols-3 gap-2">
                 {([
@@ -2138,6 +2087,7 @@ export default function PosPage() {
             ) : null}
             {creditAmountMinor > 0 && <label className="mt-3 block text-sm font-medium">Payment due date<input type="date" value={creditDueDate} onChange={(event) => setCreditDueDate(event.target.value)} className="mt-1 w-full rounded-lg border p-3" /><span className="mt-1 block text-xs text-[var(--muted)]">Leave blank only when terms have not been agreed; undated debt is not marked overdue.</span></label>}
             {checkoutHints.length > 0 && <div id="pos-checkout-prerequisites" role="status" className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950"><strong>Before receiving this order</strong><ul className="mt-2 list-disc space-y-2 pl-5">{checkoutHints.map(hint => <li key={hint}>{hint}</li>)}</ul></div>}
+            <div className={styles.checkoutAction}>
             <Button
               className="mt-5 w-full"
               aria-describedby={checkoutHints.length ? "pos-checkout-prerequisites" : undefined}
@@ -2172,6 +2122,7 @@ export default function PosPage() {
               {online ? "Receive order" : "Save order offline"} ·{" "}
               {formatNaira(amountToAllocateMinor)}
             </Button>
+            </div>
             <p className="mt-2 text-center text-xs text-[var(--muted)]">
               {online
                 ? "This records the order only. Payment acceptance and final confirmation happen in the workflow queue above."
@@ -2207,7 +2158,7 @@ export default function PosPage() {
       )}
 
       {workspace?.openShift && (
-        <button type="button" onClick={() => setCartOpen(true)} className="fixed inset-x-4 bottom-[calc(4.6rem+env(safe-area-inset-bottom))] z-30 flex min-h-12 items-center justify-between rounded-xl bg-[var(--brand)] px-4 font-semibold text-white shadow-xl lg:hidden">
+        <button type="button" onClick={() => setCartOpen(true)} className={`${styles.mobileCartButton} fixed inset-x-4 bottom-[calc(4.6rem+env(safe-area-inset-bottom))] z-30 flex min-h-12 items-center justify-between rounded-xl bg-[var(--brand)] px-4 font-semibold text-white shadow-xl lg:hidden`}>
           <span className="flex items-center gap-2"><ShoppingCart className="size-5" /> Current sale · {totals.totalQuantity} items</span>
           <span>{formatNaira(amountToAllocateMinor)}</span>
         </button>
@@ -2222,7 +2173,7 @@ export default function PosPage() {
         >
           <form
             ref={customerDialogRef}
-            className="app-dialog-panel max-w-lg rounded-2xl bg-white p-5 shadow-2xl sm:p-6"
+            className={`${styles.dialog} app-dialog-panel max-w-lg rounded-2xl bg-white p-5 shadow-2xl sm:p-6`}
             onSubmit={(event) => void createCustomerFromPos(event)}
           >
             <div className="flex items-start justify-between gap-4">
@@ -2416,7 +2367,7 @@ export default function PosPage() {
               aria-modal="true"
               aria-label="Store-wide selling price"
             >
-              <section className="app-dialog-panel max-w-md rounded-2xl bg-white p-6 shadow-2xl">
+              <section ref={branchPriceDialogRef} className={`${styles.dialog} app-dialog-panel max-w-md rounded-2xl bg-white p-6 shadow-2xl`}>
                 <h2 className="text-xl font-semibold">Set store-wide price</h2>
                 <p className="mt-1 text-sm text-[var(--muted)]">
                   {product.name} · Central base{" "}
@@ -2452,7 +2403,7 @@ export default function PosPage() {
                     className="mt-1 w-full rounded-lg border p-3"
                   />
                 </label>
-                <div className="mt-5 flex justify-end gap-3">
+                <div className="mt-5 flex flex-wrap justify-end gap-3">
                   <Button
                     variant="secondary"
                     onClick={() => setPriceProductId(null)}
