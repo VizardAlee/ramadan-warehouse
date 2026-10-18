@@ -19,7 +19,7 @@ import { stockTransfers } from "../functions/src/callable/stock-transfers";
 const invoke = (data: object) => stockTransfers.run({ data } as Parameters<typeof stockTransfers.run>[0]);
 function custom(base: RoleId, permissions: Permission[] = []) {
   state.actor = { userId: "restricted", organizationId: "org", roleId: base, roleIds: [base],
-    directRoleIds: [], effectivePermissions: permissions, branchIds: ["store"], warehouseIds: ["warehouse"], authorizationVersion: 1 };
+    directRoleIds: [], effectivePermissions: permissions, branchIds: base === "warehouse_manager" ? [] : ["store"], warehouseIds: base === "branch_manager" ? [] : ["warehouse"], authorizationVersion: 1 };
 }
 beforeEach(() => { vi.clearAllMocks(); state.customRoles = []; state.loadRoles.mockImplementation(async () => state.customRoles); state.read.mockResolvedValue({ docs: [] }); });
 describe("simple transfers honor effective permissions", () => {
@@ -68,6 +68,7 @@ function combined(manager: "branch_manager" | "warehouse_manager", grants: Permi
   custom(manager);
   state.customRoles = [{ id: "ops-reader", organizationId: "org", name: "Operations reader", baseRoleId: "operations_administrator", permissionIds: grants, status: "active" }];
   state.actor = accessProfileFromRecord("restricted", { ...state.actor, status: "active", ...buildRoleAssignment([manager], state.customRoles) });
+  state.actor = { ...state.actor, branchIds: manager === "branch_manager" ? ["store"] : [], warehouseIds: manager === "warehouse_manager" ? ["warehouse"] : [] };
 }
 function transferSnapshot(fields: Record<string, unknown> = {}) {
   const values = { organizationId: "org", version: 0, status: "awaiting_receipt", sourceBranchId: "foreign-source", destinationBranchId: "foreign-destination", ...fields };
@@ -82,6 +83,21 @@ function instruction(action: "approve" | "receive" | "resolve" | "report_problem
   return { action, ...common, note: "Missing delivery" };
 }
 describe("combined custom global reading and scoped transfer actions", () => {
+  it("requires a working location for multiple assigned stores despite a global reader role", async () => {
+    combined("branch_manager");
+    state.actor = { ...state.actor, branchIds: ["store", "other-store"] };
+    await expect(invoke(instruction("report_problem"))).rejects.toMatchObject({ details: { code: "OPERATING_CONTEXT_REQUIRED" } });
+    expect(state.transaction).not.toHaveBeenCalled();
+  });
+  it("rechecks the selected store before a simple-flow replay", async () => {
+    combined("branch_manager");
+    state.actor = { ...state.actor, branchIds: ["store", "other-store"] };
+    const input = { action: "report_problem", transferId: "transfer", version: 0, idempotencyKey: crypto.randomUUID(), note: "Missing delivery" };
+    const previous = { actorId: state.actor.userId, action: input.action, transferId: "transfer", fingerprint: createHash("sha256").update(JSON.stringify(input)).digest("hex") };
+    state.transaction.mockImplementation(async handler => handler({ get: async (ref: { id: string }) => ref.id === "transfer" ? transferSnapshot({ sourceBranchId: "store" }) : { exists: true, get: (key: keyof typeof previous) => previous[key] } }));
+    await expect(invoke({ ...input, operatingContext: { type: "branch", id: "store" } })).resolves.toMatchObject({ repeated: true });
+    await expect(invoke({ ...input, operatingContext: { type: "branch", id: "other-store" } })).rejects.toMatchObject({ code: "permission-denied" });
+  });
   it.each(["branch_manager", "warehouse_manager"] as const)("does not promote a direct %s through read-only operations membership", async role => {
     combined(role);
     state.get.mockResolvedValue(transferSnapshot());

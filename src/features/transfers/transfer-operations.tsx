@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button";
 import { callAdministration } from "@/features/administration/api";
 import { useAuth } from "@/features/auth/auth-context";
 import { hasOrganizationWideOperatingAccess } from "@/features/auth/operating-context";
+import { goodDispatchReceipt, stockResumeAction } from "./legacy-stock-actions";
 import { hasPermission } from "@/lib/permissions/roles";
 import type {
   StockReservation,
@@ -29,6 +30,8 @@ interface TransferOperationsProps {
   reservations: StockReservation[];
   packages: RelatedRecord[];
   dispatches: RelatedRecord[];
+  dispatchItems?: Array<Record<string, unknown>>;
+  receiptBalances?: Array<Record<string, unknown>>;
   online: boolean;
   onComplete: () => Promise<void>;
 }
@@ -90,6 +93,8 @@ export function TransferOperations({
   reservations,
   packages,
   dispatches,
+  dispatchItems = [],
+  receiptBalances = [],
   online,
   onComplete,
 }: TransferOperationsProps) {
@@ -113,6 +118,10 @@ export function TransferOperations({
   const activeDispatch = dispatches.find((item) =>
     ["in_transit", "partially_received"].includes(String(item.status)),
   );
+  const pendingTransfer = transfer as WarehouseTransfer & Record<string, unknown>;
+  const pending = Boolean(pendingTransfer.activeStockExecutionId);
+  const resume = stockResumeAction(pendingTransfer);
+  const goodReceipt = goodDispatchReceipt(activeDispatch?.id, dispatchItems, receiptBalances);
   if (!profile) return null;
 
   async function run(task: () => Promise<void>, success: string) {
@@ -128,6 +137,7 @@ export function TransferOperations({
       await onComplete();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "This transfer step could not be completed.");
+      try { await onComplete(); } catch { /* Preserve the original action error if refresh also fails. */ }
     } finally {
       setBusy(false);
     }
@@ -193,26 +203,8 @@ export function TransferOperations({
 
   async function receiveAll() {
     if (!activeDispatch) return;
-    const lines = items.flatMap((item) => {
-      const quantity = Math.max(0, item.dispatchedQuantity - item.receivedQuantity - item.damagedQuantity);
-      if (quantity <= 0) return [];
-      const reservation = reservations.find((candidate) => candidate.transferItemId === item.id);
-      return [{
-        transferItemId: item.id,
-        receivedQuantity: quantity,
-        damagedQuantity: 0,
-        missingQuantity: 0,
-        rejectedQuantity: 0,
-        serialItemIds: item.trackingType === "serial"
-          ? (reservation?.serialItemIds ?? []).slice(item.receivedQuantity, item.receivedQuantity + quantity)
-          : [],
-        damagedSerialItemIds: [],
-        lotAllocations: item.trackingType === "batch"
-          ? allocationSlice(reservation?.lotAllocations, item.receivedQuantity, quantity)
-              .map((allocation) => ({ ...allocation, disposition: "received" as const }))
-          : [],
-      }];
-    });
+    if (goodReceipt.review) { setMessage(goodReceipt.review); return; }
+    const lines = goodReceipt.lines;
     const payload = {
       transferId: transfer.id,
       expectedVersion: transfer.version,
@@ -251,6 +243,15 @@ export function TransferOperations({
       </div>
       <div className="p-5 sm:p-6">
         {message && <p role="status" className="mb-4 rounded-xl bg-amber-50 p-3 text-sm text-amber-950">{message}</p>}
+        {pending && <div className="mb-4 rounded-xl border border-amber-300 bg-amber-50 p-4">
+          <h3 className="font-semibold">Finish the saved stock confirmation</h3>
+          <p className="mt-2 text-sm">An earlier confirmation is unfinished. Resume its saved quantities before starting another dispatch, receipt or cancellation.</p>
+          {resume && hasPermission(profile, resume.kind === "dispatch" ? "transfers.dispatch" : "transfers.receive")
+            ? <Button className="mt-3" disabled={busy || !online || (resume.kind === "dispatch" && warehouseContextRequired)} onClick={() => void run(async () => {
+              await callAdministration(resume.callable, { ...resume.input, idempotencyKey: crypto.randomUUID() });
+            }, "Saved stock confirmation completed.")}>Resume saved {resume.kind === "dispatch" ? "dispatch" : "receipt"}</Button>
+            : <p className="mt-2 text-sm">Ask the responsible source or destination manager to reopen and resume the original confirmation. If its saved details are unavailable, request evidence review.</p>}
+        </div>}
         {warehouseContextRequired && (
           <div className="mb-4 flex gap-3 rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950">
             <MapPin className="mt-0.5 size-5 shrink-0" />
@@ -258,7 +259,7 @@ export function TransferOperations({
           </div>
         )}
 
-        {transfer.status === "picking" && hasPermission(profile, "transfers.pick") && (
+        {!pending && transfer.status === "picking" && hasPermission(profile, "transfers.pick") && (
           <div className="grid items-center gap-4 md:grid-cols-[auto_1fr_auto]">
             <span className="grid size-12 place-items-center rounded-2xl bg-emerald-100 text-emerald-800"><CheckCircle2 /></span>
             <div><h3 className="font-semibold">Record picked goods</h3><p className="text-sm text-[var(--muted)]">Record all {pickLines.reduce((sum, line) => sum + line.quantity, 0)} reserved units physically collected.</p></div>
@@ -266,7 +267,7 @@ export function TransferOperations({
           </div>
         )}
 
-        {["picked", "partially_picked", "packing"].includes(transfer.status) && hasPermission(profile, "transfers.pack") && (
+        {!pending && ["picked", "partially_picked", "packing"].includes(transfer.status) && hasPermission(profile, "transfers.pack") && (
           <div className="grid items-center gap-4 md:grid-cols-[auto_1fr_auto]">
             <span className="grid size-12 place-items-center rounded-2xl bg-blue-100 text-blue-800"><Boxes /></span>
             <div><h3 className="font-semibold">Pack and seal</h3><p className="text-sm text-[var(--muted)]">Create one auditable package for the {packLines.reduce((sum, line) => sum + line.quantity, 0)} picked units.</p></div>
@@ -274,7 +275,7 @@ export function TransferOperations({
           </div>
         )}
 
-        {transfer.status === "ready_for_dispatch" && hasPermission(profile, "transfers.dispatch") && (
+        {!pending && transfer.status === "ready_for_dispatch" && hasPermission(profile, "transfers.dispatch") && (
           <div className="space-y-5">
             <div className="flex items-start gap-3"><span className="grid size-12 shrink-0 place-items-center rounded-2xl bg-amber-100 text-amber-800"><Truck /></span><div><h3 className="font-semibold">Dispatch sealed goods</h3><p className="text-sm text-[var(--muted)]">Add the essential delivery details. Confirmation moves inventory into transit immediately.</p></div></div>
             <div className="form-grid">
@@ -288,11 +289,11 @@ export function TransferOperations({
           </div>
         )}
 
-        {["dispatched", "partially_received"].includes(transfer.status) && hasPermission(profile, "transfers.receive") && activeDispatch && (
+        {!pending && ["dispatched", "partially_dispatched", "partially_received"].includes(transfer.status) && hasPermission(profile, "transfers.receive") && activeDispatch && (
           <div className="grid items-center gap-4 md:grid-cols-[auto_1fr_auto]">
             <span className="grid size-12 place-items-center rounded-2xl bg-emerald-100 text-emerald-800"><PackageCheck /></span>
             <div><h3 className="font-semibold">Confirm destination receipt</h3><p className="text-sm text-[var(--muted)]">Use this only when every dispatched item arrived in good condition. Damage or shortages must use discrepancy receiving.</p></div>
-            <Button disabled={busy} onClick={() => void receiveAll()}>{busy ? <Loader2 className="mr-2 size-4 animate-spin" /> : null}Receive all in good condition</Button>
+            <Button disabled={busy || !online || Boolean(goodReceipt.review)} disabledReason={goodReceipt.review || (!online ? "Reconnect before confirming receipt." : undefined)} onClick={() => void receiveAll()}>{busy ? <Loader2 className="mr-2 size-4 animate-spin" /> : null}Receive all in good condition</Button>
           </div>
         )}
       </div>

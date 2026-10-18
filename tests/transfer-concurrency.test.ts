@@ -250,11 +250,18 @@ beforeAll(async () => {
       organizationId,
       transferId: "receipt-transfer",
       dispatchNumber: "DSP-A",
+      packageIds: ["receipt-package"],
       quantity: 5,
       dispatchedBy: "warehouse-user",
       status: "in_transit",
     });
   await Promise.all([
+    db.doc("transferPackages/receipt-package").set({
+      organizationId,
+      transferId: "receipt-transfer",
+      quantity: 5,
+      status: "dispatched",
+    }),
     db.doc("transferPicks/receipt-pick").set({
       organizationId,
       transferId: "receipt-transfer",
@@ -264,15 +271,24 @@ beforeAll(async () => {
     db.doc("transferPackageItems/receipt-package-item").set({
       organizationId,
       transferId: "receipt-transfer",
+      packageId: "receipt-package",
       transferItemId: "receipt-item",
+      productId: "product-a",
       quantity: 5,
+      serialItemIds: [],
+      lotAllocations: [],
     }),
     db.doc("transferDispatchItems/receipt-dispatch-item").set({
       organizationId,
       transferId: "receipt-transfer",
       dispatchId: "dispatch-a",
       transferItemId: "receipt-item",
+      productId: "product-a",
+      trackingType: "quantity",
+      allocationVersion: 2,
       quantity: 5,
+      serialItemIds: [],
+      lotAllocations: [],
     }),
     db.doc("inventoryEntries/receipt-transit-entry").set({
       organizationId,

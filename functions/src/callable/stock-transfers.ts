@@ -21,6 +21,7 @@ import {
 import { parseInput } from "../utils/callable.js";
 import { writeAuditLog } from "../audit/write-audit-log.js";
 import { balanceDocumentId } from "../inventory/calculations.js";
+import { narrowTransferWorkingContext } from "../transfers/working-context.js";
 import {
   pendingStock,
   type StockTransfer,
@@ -453,6 +454,7 @@ export const stockTransfers = onCall({ enforceAppCheck }, async (request) => {
       "permission-denied",
       "Only a manager can change a transfer.",
     );
+  actor = narrowTransferWorkingContext(actor, request.data, organizationAction(actor, mutationPermission(input)), input.action === "receive" ? "destination" : "either");
   const operation = db.doc(
     `idempotencyKeys/${actor.organizationId}_stockTransfer_${input.idempotencyKey}`,
   );

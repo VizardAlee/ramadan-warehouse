@@ -1,16 +1,17 @@
+import "./helpers/transfer-recovery-security-cases";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { balanceDocumentId } from "../functions/src/inventory/calculations";
 import { call, setupTransferHarness, type TransferHarness } from "./helpers/transfer-workflow";
 
 let harness: TransferHarness;
 
-beforeAll(async () => {
-  harness = await setupTransferHarness({ suffix: "remainder", openingQuantity: 20 });
-}, 60_000);
-
-afterAll(async () => harness?.cleanup());
-
 describe.sequential("partial-dispatch remainder cancellation callable E2E", () => {
+  beforeAll(async () => {
+    harness = await setupTransferHarness({ suffix: "remainder", openingQuantity: 20 });
+  }, 60_000);
+
+  afterAll(async () => harness?.cleanup());
+
   it("releases only the undispatched reservation and preserves the confirmed dispatch", async () => {
     const prepared = await harness.prepareTransfer(20, [12, 8]);
     const dispatched = await harness.dispatch(prepared.transferId, [prepared.packageIds[0]!]);
@@ -44,7 +45,7 @@ describe.sequential("partial-dispatch remainder cancellation callable E2E", () =
         decision: "approved",
       }),
       harness.db.doc(`transfers/${prepared.transferId}`).update({ sourceType: "branch_request", sourceRequestId: requestId }),
-      harness.db.doc(`transferItems/${prepared.transferItemId}`).update({ sourceRequestItemId: requestItemId }),
+      harness.db.doc(`transferItems/${prepared.transferItemId}`).update({ sourceRequestItemId: requestItemId, requestAllocatedQuantity: 20 }),
     ]);
     const draftBase = {
       transferId: prepared.transferId,
@@ -67,6 +68,9 @@ describe.sequential("partial-dispatch remainder cancellation callable E2E", () =
     const first = await call<{ remainingCancelled: boolean }>(harness.creator, "cancelTransfer", cancellation);
     expect(first.remainingCancelled).toBe(true);
     expect(await call(harness.creator, "cancelTransfer", cancellation)).toMatchObject({ cancelled: false });
+    expect(await call(harness.creator, "cancelTransfer", { ...cancellation, idempotencyKey: crypto.randomUUID() })).toMatchObject({ cancelled: false, remainingCancelled: false });
+    const cancellationOutbox = await harness.db.collection("integrationOutbox").where("entityId", "==", prepared.transferId).get();
+    expect(cancellationOutbox.docs.filter(event => event.get("eventType") === "warehouse.transfer.cancelled.v1")).toHaveLength(1);
 
     const item = await harness.db.doc(`transferItems/${prepared.transferItemId}`).get();
     expect(item.data()).toMatchObject({ approvedQuantity: 20, dispatchedQuantity: 12, cancelledQuantity: 8, outstandingQuantity: 12 });

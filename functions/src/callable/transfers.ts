@@ -20,17 +20,23 @@ import {
 } from "../auth/authorize.js";
 import { writeAuditLog } from "../audit/write-audit-log.js";
 import { enforceAppCheck } from "../config.js";
-import { postInventoryTransaction } from "../inventory/post-inventory-transaction.js";
+import { postInventoryTransaction, type PostingRequest } from "../inventory/post-inventory-transaction.js";
 import {
   createIntegrationEvent,
   writeIntegrationOutbox,
 } from "../integrations/outbox.js";
-import { applyTransferFulfilmentToRequest } from "../requests/apply-transfer-fulfilment.js";
 import {
   reserveTransferStockService,
   releaseTransferReservationService,
+  prepareTransferReservationRelease,
   type ReservationLine,
 } from "../transfers/reservation-service.js";
+import { startStockExecution, postStockExecution, prepareStockExecutionFinish, executionRef, executionIdentity, stockMovementChunks, assertNoStockExecution, stockReview } from "../transfers/stock-execution.js";
+import { securedTransferCallable } from "../transfers/command-security.js";
+import { readDispatchContents, type DispatchContents } from "../transfers/dispatch-contents.js";
+import { buildReceiptMovements, prepareReceiptClaims, type ReceiptClaimChange } from "../transfers/receipt-contents.js";
+import { remainingLots, subtractLots, ownedRequestAllocation } from "../transfers/reservation-ownership.js";
+import { prepareRequestAllocationChange } from "../transfers/request-allocation.js";
 import { assertTransferTransition } from "../transfers/transfer-state-machine.js";
 import { assertTransferInvariantGate } from "../transfers/validate-transfer-invariants.js";
 import { correlationId, parseInput } from "../utils/callable.js";
@@ -157,7 +163,7 @@ function event(
     | undefined;
   if (integrationType) {
     const occurrence = String(
-      extra.dispatchId ?? extra.receiptId ?? transfer.id,
+      extra.receiptId ?? extra.dispatchId ?? transfer.id,
     );
     writeIntegrationOutbox(
       transaction,
@@ -410,6 +416,7 @@ async function createTransfer(
           productName: product.get("name"),
           trackingType: product.get("trackingType"),
           unitOfMeasure: product.get("unitOfMeasure"),
+          requestAllocatedQuantity: sourceType === "branch_request" ? line.quantity : 0,
           plannedQuantity: line.quantity,
           approvedQuantity: 0,
           reservedQuantity: 0,
@@ -557,8 +564,7 @@ async function createTransfer(
   });
 }
 
-export const createTransferFromRequest = onCall(
-  { enforceAppCheck },
+export const createTransferFromRequest = securedTransferCallable("createTransferFromRequest", createTransferFromRequestInput, "transfers.create.from_request", "source",
   async (request) =>
     createTransfer(
       await requireAccess(request),
@@ -566,8 +572,7 @@ export const createTransferFromRequest = onCall(
       "branch_request",
     ),
 );
-export const createAdminTransfer = onCall(
-  { enforceAppCheck },
+export const createAdminTransfer = securedTransferCallable("createAdminTransfer", createAdminTransferInput, "transfers.create.direct", "source",
   async (request) =>
     createTransfer(
       await requireAccess(request),
@@ -576,8 +581,7 @@ export const createAdminTransfer = onCall(
     ),
 );
 
-export const updateTransferDraft = onCall(
-  { enforceAppCheck },
+export const updateTransferDraft = securedTransferCallable("updateTransferDraft", updateTransferDraftInput, "transfers.update_draft", "source",
   async (request) => {
     const actor = await requireAccess(request);
     requirePermission(actor, "transfers.update_draft");
@@ -611,6 +615,18 @@ export const updateTransferDraft = onCall(
           "permission-denied",
           "Only the creator can edit this draft.",
         );
+      // Unit identity also determines the transfer number, request ownership,
+      // and system transit/damage locations. A draft may change bins within
+      // those units; a different route requires cancellation and recreation.
+      if (input.originWarehouseId !== transfer.get("originWarehouseId") || input.destinationBranchId !== transfer.get("destinationBranchId"))
+        throw new HttpsError("failed-precondition", "The sending warehouse and destination branch are fixed. Cancel and recreate the transfer to change its route.");
+      const routing = await transaction.getAll(
+        db.doc(`warehouses/${input.originWarehouseId}`), db.doc(`branches/${input.destinationBranchId}`),
+        db.doc(`inventoryLocations/${input.originLocationId}`), db.doc(`inventoryLocations/${input.destinationLocationId}`),
+      );
+      if (routing.some(doc => !doc.exists || doc.get("organizationId") !== actor.organizationId || doc.get("status") !== "active")
+        || routing[2]!.get("warehouseId") !== input.originWarehouseId || routing[3]!.get("branchId") !== input.destinationBranchId)
+        throw new HttpsError("failed-precondition", "Choose active inventory locations belonging to the original sending warehouse and destination branch.");
       const items = await transaction.get(
         db
           .collection("transferItems")
@@ -627,6 +643,8 @@ export const updateTransferDraft = onCall(
           "failed-precondition",
           "Changing draft product identity is not supported; cancel and recreate the transfer.",
         );
+      const requestChange = await prepareRequestAllocationChange(transaction, actor, transfer,
+        input.items.map(line => ({ item: currentByProduct.get(line.productId)!, release: number(currentByProduct.get(line.productId)!, "plannedQuantity") - line.quantity })), cid);
       let total = 0;
       const now = FieldValue.serverTimestamp();
       for (const line of input.items) {
@@ -679,6 +697,7 @@ export const updateTransferDraft = onCall(
           updatedBy: actor.userId,
         }),
       );
+      requestChange(transaction);
       event(transaction, actor, transfer, "updated", cid);
       operation(
         transaction,
@@ -734,6 +753,7 @@ async function transition(
         .where("transferId", "==", input.transferId),
     );
     assertTransferScope(actor, transfer);
+    assertNoStockExecution(transfer);
     if (
       !config.from.includes(String(transfer.get("status"))) ||
       number(transfer, "version") !== input.expectedVersion
@@ -855,7 +875,7 @@ async function transition(
   });
 }
 const actionCallable = (config: Parameters<typeof transition>[2]) =>
-  onCall({ enforceAppCheck }, async (request) =>
+  securedTransferCallable(config.action, transferActionInput, config.permission, "source", async (request) =>
     transition(
       await requireAccess(request),
       parseInput(transferActionInput, request.data),
@@ -901,8 +921,7 @@ export const rejectTransfer = actionCallable({
   makerCheck: true,
 });
 
-export const reserveTransferStock = onCall(
-  { enforceAppCheck },
+export const reserveTransferStock = securedTransferCallable("reserveTransferStock", reserveTransferInput, "transfers.reserve", "source",
   async (request) => {
     const actor = await requireAccess(request);
     requirePermission(actor, "transfers.reserve");
@@ -953,8 +972,7 @@ export const reserveTransferStock = onCall(
     );
   },
 );
-export const releaseTransferReservation = onCall(
-  { enforceAppCheck },
+export const releaseTransferReservation = securedTransferCallable("releaseTransferReservation", releaseReservationInput, "transfers.release_reservation", "source",
   async (request) => {
     const actor = await requireAccess(request);
     requirePermission(actor, "transfers.release_reservation");
@@ -969,6 +987,7 @@ export const releaseTransferReservation = onCall(
       input.reservationIds,
       input.idempotencyKey,
       correlationId(),
+      input.expectedVersion,
     );
   },
 );
@@ -980,8 +999,7 @@ export const startTransferPicking = actionCallable({
   to: "picking",
   eventType: "picking_started",
 });
-export const recordPickedItems = onCall(
-  { enforceAppCheck },
+export const recordPickedItems = securedTransferCallable("recordPickedItems", pickedItemsInput, "transfers.pick", "source",
   async (request) => {
     const actor = await requireAccess(request);
     requirePermission(actor, "transfers.pick");
@@ -1009,6 +1027,7 @@ export const recordPickedItems = onCall(
       const items = snapshots.slice(cursor, (cursor += itemRefs.length));
       const serials = snapshots.slice(cursor);
       assertTransferScope(actor, transfer);
+    assertNoStockExecution(transfer);
       requireWarehouseScope(actor, String(transfer.get("originWarehouseId")));
       if (
         ![
@@ -1126,8 +1145,7 @@ export const recordPickedItems = onCall(
     });
   },
 );
-export const verifyPickedItems = onCall(
-  { enforceAppCheck },
+export const verifyPickedItems = securedTransferCallable("verifyPickedItems", verifyPickInput, "transfers.check_pick", "source",
   async (request) => {
     const actor = await requireAccess(request);
     requirePermission(actor, "transfers.check_pick");
@@ -1144,6 +1162,7 @@ export const verifyPickedItems = onCall(
       )) as [Snapshot, Snapshot, Snapshot];
       if (previous.exists) return { verified: false };
       assertTransferScope(actor, transfer);
+    assertNoStockExecution(transfer);
       if (
         !pick.exists ||
         pick.get("transferId") !== input.transferId ||
@@ -1189,8 +1208,7 @@ export const verifyPickedItems = onCall(
   },
 );
 
-export const createTransferPackage = onCall(
-  { enforceAppCheck },
+export const createTransferPackage = securedTransferCallable("createTransferPackage", packageInput, "transfers.pack", "source",
   async (request) => {
     const actor = await requireAccess(request);
     requirePermission(actor, "transfers.pack");
@@ -1216,6 +1234,7 @@ export const createTransferPackage = onCall(
       const transfer = snapshots[cursor++]!;
       const items = snapshots.slice(cursor);
       assertTransferScope(actor, transfer);
+    assertNoStockExecution(transfer);
       if (
         !["picked", "partially_picked", "packing"].includes(
           String(transfer.get("status")),
@@ -1360,8 +1379,7 @@ export const createTransferPackage = onCall(
   },
 );
 export const updateTransferPackage = createTransferPackage;
-export const sealTransferPackage = onCall(
-  { enforceAppCheck },
+export const sealTransferPackage = securedTransferCallable("sealTransferPackage", packageActionInput, "transfers.pack", "source",
   async (request) => {
     const actor = await requireAccess(request);
     requirePermission(actor, "transfers.pack");
@@ -1387,6 +1405,7 @@ export const sealTransferPackage = onCall(
       );
       const transferItems = await transaction.getAll(...transferItemRefs);
       assertTransferScope(actor, transfer);
+    assertNoStockExecution(transfer);
       if (
         !pkg.exists ||
         pkg.get("transferId") !== input.transferId ||
@@ -1448,28 +1467,25 @@ export const sealTransferPackage = onCall(
     });
   },
 );
-export const verifyPacking = onCall({ enforceAppCheck }, async (request) => {
+export const verifyPacking = securedTransferCallable("verifyPacking", packageActionInput, "transfers.check_pack", "source", async (request) => {
   const actor = await requireAccess(request);
   requirePermission(actor, "transfers.check_pack");
   const input = parseInput(packageActionInput, request.data);
-  const pkg = await db.doc(`transferPackages/${input.packageId}`).get();
-  if (
-    !pkg.exists ||
-    pkg.get("transferId") !== input.transferId ||
-    pkg.get("organizationId") !== actor.organizationId ||
-    pkg.get("status") !== "sealed"
-  )
-    throw new HttpsError("failed-precondition", "Sealed package not found.");
-  await pkg.ref.update({
-    checkedBy: actor.userId,
-    checkedAt: FieldValue.serverTimestamp(),
-    updatedAt: FieldValue.serverTimestamp(),
+  const op = operationRef(actor, "verifyPacking", input.idempotencyKey);
+  return db.runTransaction(async transaction => {
+    const [previous, transfer, pkg] = await transaction.getAll(op, transferRef(input.transferId), db.doc(`transferPackages/${input.packageId}`));
+    if (previous!.exists) return { verified: false };
+    assertTransferScope(actor, transfer!);
+    assertNoStockExecution(transfer!);
+    if (!pkg!.exists || pkg!.get("transferId") !== input.transferId || pkg!.get("organizationId") !== actor.organizationId || pkg!.get("status") !== "sealed")
+      throw new HttpsError("failed-precondition", "Sealed package not found.");
+    transaction.update(pkg!.ref, { checkedBy: actor.userId, checkedAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() });
+    operation(transaction, op, actor, "verifyPacking", input.transferId);
+    return { verified: true };
   });
-  return { verified: true };
 });
 
-export const createTransferDispatch = onCall(
-  { enforceAppCheck },
+export const createTransferDispatch = securedTransferCallable("createTransferDispatch", dispatchInput, "transfers.dispatch", "source",
   async (request) => {
     const actor = await requireAccess(request);
     requirePermission(actor, "transfers.dispatch");
@@ -1493,6 +1509,7 @@ export const createTransferDispatch = onCall(
       if (previous.exists)
         return { dispatchId: String(previous.get("resultId")), created: false };
       assertTransferScope(actor, transfer);
+    assertNoStockExecution(transfer);
       requireWarehouseScope(actor, String(transfer.get("originWarehouseId")));
       if (
         !["ready_for_dispatch", "packing", "partially_dispatched"].includes(
@@ -1595,8 +1612,7 @@ export const createTransferDispatch = onCall(
   },
 );
 
-export const confirmTransferDispatch = onCall(
-  { enforceAppCheck },
+export const confirmTransferDispatch = securedTransferCallable("confirmTransferDispatch", dispatchInput, "transfers.dispatch", "source",
   async (request) => {
     const actor = await requireAccess(request);
     requirePermission(actor, "transfers.dispatch");
@@ -1624,107 +1640,61 @@ export const confirmTransferDispatch = onCall(
       };
     assertTransferScope(actor, transfer);
     requireWarehouseScope(actor, String(transfer.get("originWarehouseId")));
-    if (
+    const existingExecution = await executionRef("dispatch", input.dispatchId).get();
+    if (existingExecution.exists && (existingExecution.get("organizationId") !== actor.organizationId || existingExecution.get("transferId") !== input.transferId || existingExecution.get("entityId") !== input.dispatchId))
+      stockReview("The dispatch execution belongs to a different transfer document.");
+    if (existingExecution.exists && existingExecution.get("confirmationFingerprint") !== executionIdentity(Object.fromEntries(Object.entries(input).filter(([key]) => key !== "idempotencyKey"))))
+      stockReview("This dispatch confirmation differs from its original frozen payload or lacks verified payload evidence.");
+    if (existingExecution.get("status") === "completed")
+      return { dispatchId: input.dispatchId, confirmed: false, inventoryTransactionIds: Object.values(existingExecution.get("progress") ?? {}) };
+    if (!existingExecution.exists && (
       !dispatch.exists ||
       dispatch.get("transferId") !== input.transferId ||
       dispatch.get("status") !== "draft" ||
       number(transfer, "version") !== input.expectedVersion
-    )
+    ))
       throw new HttpsError(
         "failed-precondition",
         "Dispatch is not awaiting confirmation.",
       );
-    await assertTransferInvariantGate(
+    if (!existingExecution.exists) await assertTransferInvariantGate(
       actor.organizationId,
       input.transferId,
       "before_dispatch",
     );
-    const packageIds = dispatch.get("packageIds") as string[];
-    const packageItems = await db
-      .collection("transferPackageItems")
-      .where("packageId", "in", packageIds.slice(0, 30))
-      .get();
-    const grouped = new Map<
-      string,
-      {
-        itemId: string;
-        productId: string;
-        quantity: number;
-        serialItemIds: string[];
-        lotAllocations: { lotId: string; quantity: number }[];
-      }
-    >();
-    for (const row of packageItems.docs) {
-      const itemIdValue = String(row.get("transferItemId"));
-      const current = grouped.get(itemIdValue) ?? {
-        itemId: itemIdValue,
-        productId: String(row.get("productId")),
-        quantity: 0,
-        serialItemIds: [],
-        lotAllocations: [],
-      };
-      current.quantity += number(row, "quantity");
-      current.serialItemIds.push(
-        ...((row.get("serialItemIds") as string[] | undefined) ?? []),
-      );
-      current.lotAllocations.push(
-        ...((row.get("lotAllocations") as
-          | { lotId: string; quantity: number }[]
-          | undefined) ?? []),
-      );
-      grouped.set(itemIdValue, current);
-    }
-    const transactionIds: string[] = [];
     const cid = correlationId();
-    for (const line of grouped.values()) {
-      const reservation = await db
-        .doc(`stockReservations/${input.transferId}__${line.itemId}`)
-        .get();
-      if (
-        !reservation.exists ||
-        number(reservation, "remainingQuantity") < line.quantity
-      )
-        throw new HttpsError(
-          "failed-precondition",
-          "Dispatch exceeds active reservation.",
-        );
-      const movements = line.lotAllocations.length
-        ? line.lotAllocations
-        : [{ lotId: undefined, quantity: line.quantity }];
-      for (
-        let movementIndex = 0;
-        movementIndex < movements.length;
-        movementIndex++
-      ) {
-        const movement = movements[movementIndex]!;
-        const posted = await postInventoryTransaction(actor, {
-          transactionType: "transfer_dispatch",
-          productId: line.productId,
-          quantity: movement.quantity,
-          sourceLocationId: String(transfer.get("originLocationId")),
-          destinationLocationId: String(transfer.get("transitLocationId")),
-          serialNumbers: await serialNumbersForIds(
-            actor,
-            line.productId,
-            line.serialItemIds,
-          ),
-          lotId: movement.lotId,
-          effectiveAt: new Date().toISOString(),
-          reason: "Confirmed warehouse transfer dispatch",
-          referenceType: "transfer_dispatch",
-          referenceId: input.dispatchId,
-          referenceNumber: String(dispatch.get("dispatchNumber")),
-          idempotencyKey: `${input.idempotencyKey.slice(0, 22)}-${line.itemId.slice(-20)}-${movementIndex}`,
-          correlationId: cid,
-          sourceFunction: "confirmTransferDispatch",
-          transferContext: {
-            transferId: input.transferId,
-            consumeReservedQuantity: movement.quantity,
-          },
-        });
-        transactionIds.push(posted.transactionId);
+    const plan = await startStockExecution(actor, { kind: "dispatch", transferId: input.transferId, entityId: input.dispatchId, expectedVersion: input.expectedVersion, identity: { transferId: input.transferId, dispatchId: input.dispatchId }, confirmationInput: Object.fromEntries(Object.entries(input).filter(([key]) => key !== "idempotencyKey")) }, async (reader, currentTransfer, currentDispatch) => {
+      const lines = await readDispatchContents(reader, currentTransfer, currentDispatch, true);
+      if (20 + 3 * lines.length + (currentDispatch.get("packageIds") as string[]).length > 450)
+        stockReview("Split this dispatch before posting; its finalization exceeds the safe write budget.");
+      const reservations = await reader.getAll(...lines.map(line => db.doc(`stockReservations/${input.transferId}__${line.itemId}`)));
+      const movements: PostingRequest[] = [];
+      for (const [index, line] of lines.entries()) {
+        const reservation = reservations[index]!;
+        if (!reservation.exists || reservation.get("organizationId") !== actor.organizationId || reservation.get("transferId") !== input.transferId
+          || reservation.get("productId") !== line.productId || reservation.get("sourceLocationId") !== currentTransfer.get("originLocationId")
+          || number(reservation, "remainingQuantity") < line.quantity)
+          stockReview("Dispatch exceeds this transfer's active reservation.");
+        if (line.trackingType === "batch") subtractLots(remainingLots(reservation), line.lotAllocations);
+        if (line.trackingType === "serial" && line.serialItemIds.some(id => !((reservation.get("serialItemIds") ?? []) as string[]).includes(id)))
+          stockReview("A dispatch serial does not belong to this transfer's reservation.");
+        const serials = line.serialItemIds.length ? await reader.getAll(...line.serialItemIds.map(id => db.doc(`serializedItems/${id}`))) : [];
+        if (serials.some(serial => !serial.exists || serial.get("organizationId") !== actor.organizationId || serial.get("productId") !== line.productId))
+          stockReview("Dispatch serial ownership is inconsistent.");
+        for (const movement of line.lotAllocations.length ? line.lotAllocations : [{ quantity: line.quantity, lotId: undefined }])
+        for (const chunk of stockMovementChunks(movement.quantity, serials.map(serial => String(serial.get("serialNumber")))))
+          movements.push({ transactionType: "transfer_dispatch", productId: line.productId, quantity: chunk.quantity,
+            sourceLocationId: String(currentTransfer.get("originLocationId")), destinationLocationId: String(currentTransfer.get("transitLocationId")),
+            serialNumbers: chunk.serialNumbers, lotId: movement.lotId,
+            effectiveAt: "", reason: "Confirmed warehouse transfer dispatch", referenceType: "transfer_dispatch", referenceId: input.dispatchId,
+            referenceNumber: String(currentDispatch.get("dispatchNumber")), idempotencyKey: "", correlationId: cid, sourceFunction: "confirmTransferDispatch",
+            transferContext: { transferId: input.transferId, consumeReservedQuantity: chunk.quantity } });
       }
-    }
+      return { movements, details: { lines, packageIds: currentDispatch.get("packageIds") } };
+    });
+    const packageIds = plan.details.packageIds as string[];
+    const grouped = new Map((plan.details.lines as DispatchContents[]).map(line => [line.itemId, line]));
+    const transactionIds = await postStockExecution(actor, plan);
     return db.runTransaction(async (transaction) => {
       const [currentConfirmation, currentTransfer, currentDispatch] =
         (await transaction.getAll(confirmOp, ref, dispatchRef)) as [
@@ -1747,6 +1717,8 @@ export const confirmTransferDispatch = onCall(
             "inventoryTransactionIds",
           ),
         };
+      const finishExecution = await prepareStockExecutionFinish(transaction, plan);
+      if (!finishExecution) return { dispatchId: input.dispatchId, confirmed: false, inventoryTransactionIds: transactionIds };
       const itemRefs = [...grouped.values()].map((line) =>
         db.doc(`transferItems/${line.itemId}`),
       );
@@ -1785,7 +1757,13 @@ export const confirmTransferDispatch = onCall(
               : "partially_dispatched",
           updatedAt: now,
         });
+        transaction.create(db.doc(`transferDispatchItems/${input.dispatchId}__${line.itemId}`), {
+          organizationId: actor.organizationId, transferId: input.transferId, dispatchId: input.dispatchId, transferItemId: line.itemId,
+          productId: line.productId, trackingType: line.trackingType, quantity: line.quantity, serialItemIds: line.serialItemIds,
+          lotAllocations: line.lotAllocations, allocationVersion: 2, createdAt: now,
+        });
         transaction.update(reservation.ref, {
+          ...(line.trackingType === "batch" ? { remainingLotAllocations: subtractLots(remainingLots(reservation), line.lotAllocations), allocationVersion: 2 } : {}),
           consumedQuantity:
             number(reservation, "consumedQuantity") + line.quantity,
           remainingQuantity: remaining,
@@ -1822,6 +1800,7 @@ export const confirmTransferDispatch = onCall(
         updatedAt: now,
         updatedBy: actor.userId,
       });
+      finishExecution(transaction);
       operation(
         transaction,
         confirmOp,
@@ -1861,8 +1840,7 @@ export const confirmTransferDispatch = onCall(
   },
 );
 
-export const createTransferReceipt = onCall(
-  { enforceAppCheck },
+export const createTransferReceipt = securedTransferCallable("createTransferReceipt", receiptInput, "transfers.receive", "destination",
   async (request) => {
     const actor = await requireAccess(request);
     requirePermission(actor, "transfers.receive");
@@ -1884,6 +1862,7 @@ export const createTransferReceipt = onCall(
       if (previous.exists)
         return { receiptId: String(previous.get("resultId")), created: false };
       assertTransferScope(actor, transfer);
+    assertNoStockExecution(transfer);
       requireBranchScope(actor, String(transfer.get("destinationBranchId")));
       if (
         !dispatch.exists ||
@@ -1921,6 +1900,7 @@ export const createTransferReceipt = onCall(
         receiptNumber,
         destinationBranchId: transfer.get("destinationBranchId"),
         destinationLocationId: transfer.get("destinationLocationId"),
+        lines: input.lines,
         deliveryCondition: input.deliveryCondition,
         receiverNote: input.receiverNote ?? null,
         signatureReference: input.signatureReference ?? null,
@@ -1949,8 +1929,7 @@ export const createTransferReceipt = onCall(
   },
 );
 
-export const confirmTransferReceipt = onCall(
-  { enforceAppCheck },
+export const confirmTransferReceipt = securedTransferCallable("confirmTransferReceipt", receiptInput, "transfers.receive", "destination",
   async (request) => {
     const actor = await requireAccess(request);
     requirePermission(actor, "transfers.receive");
@@ -1980,14 +1959,21 @@ export const confirmTransferReceipt = onCall(
       };
     assertTransferScope(actor, transfer);
     requireBranchScope(actor, String(transfer.get("destinationBranchId")));
-    if (
+    const existingExecution = await executionRef("receipt", input.receiptId).get();
+    if (existingExecution.exists && (existingExecution.get("organizationId") !== actor.organizationId || existingExecution.get("transferId") !== input.transferId || existingExecution.get("entityId") !== input.receiptId || receipt.get("dispatchId") !== input.dispatchId))
+      stockReview("The receipt execution belongs to a different transfer or dispatch document.");
+    if (existingExecution.exists && existingExecution.get("confirmationFingerprint") !== executionIdentity(Object.fromEntries(Object.entries(input).filter(([key]) => key !== "idempotencyKey"))))
+      stockReview("This receipt confirmation differs from its original frozen payload or lacks verified payload evidence.");
+    if (existingExecution.get("status") === "completed")
+      return { receiptId: input.receiptId, confirmed: false, inventoryTransactionIds: Object.values(existingExecution.get("progress") ?? {}) };
+    if (!existingExecution.exists && (
       !dispatch.exists ||
       dispatch.get("transferId") !== input.transferId ||
       !receipt.exists ||
       receipt.get("dispatchId") !== input.dispatchId ||
       receipt.get("status") !== "draft" ||
       number(transfer, "version") !== input.expectedVersion
-    )
+    ))
       throw new HttpsError(
         "failed-precondition",
         "Receipt is not awaiting confirmation.",
@@ -2000,7 +1986,7 @@ export const confirmTransferReceipt = onCall(
         "permission-denied",
         "The dispatcher cannot confirm branch receipt.",
       );
-    await assertTransferInvariantGate(
+    if (!existingExecution.exists) await assertTransferInvariantGate(
       actor.organizationId,
       input.transferId,
       "before_receipt",
@@ -2008,228 +1994,19 @@ export const confirmTransferReceipt = onCall(
     const itemRefs = input.lines.map((line) =>
       db.doc(`transferItems/${line.transferItemId}`),
     );
-    const items = await db.getAll(...itemRefs);
     const cid = correlationId();
-    await db.runTransaction(async (transaction) => {
-      const claimRefs = input.lines.map((line) =>
-        db.doc(
-          `dispatchReceiptBalances/${input.dispatchId}__${line.transferItemId}`,
-        ),
-      );
-      const receiptClaimRefs = input.lines.map((line) =>
-        db.doc(
-          `transferReceiptClaims/${input.receiptId}__${line.transferItemId}`,
-        ),
-      );
-      const snapshots = await transaction.getAll(
-        ...claimRefs,
-        ...receiptClaimRefs,
-      );
-      const claims = snapshots.slice(0, claimRefs.length);
-      const receiptClaims = snapshots.slice(claimRefs.length);
-      const now = FieldValue.serverTimestamp();
-      for (let index = 0; index < input.lines.length; index++) {
-        if (receiptClaims[index]!.exists) continue;
-        const line = input.lines[index]!;
-        const item = items[index]!;
-        if (!item.exists || item.get("transferId") !== input.transferId)
-          throw new HttpsError(
-            "failed-precondition",
-            "Receipt item is invalid.",
-          );
-        const disposition =
-          line.receivedQuantity + line.damagedQuantity + line.rejectedQuantity;
-        if (disposition <= 0 && line.missingQuantity <= 0)
-          throw new HttpsError(
-            "invalid-argument",
-            "Receipt line must record a disposition or missing quantity.",
-          );
-        const claimed = number(claims[index]!, "claimedQuantity");
-        if (claimed + disposition > number(item, "dispatchedQuantity"))
-          throw new HttpsError(
-            "failed-precondition",
-            "Receipt exceeds outstanding dispatched quantity.",
-          );
-        transaction.set(
-          claimRefs[index]!,
-          {
-            organizationId: actor.organizationId,
-            transferId: input.transferId,
-            dispatchId: input.dispatchId,
-            transferItemId: line.transferItemId,
-            dispatchedQuantity: item.get("dispatchedQuantity"),
-            claimedQuantity: claimed + disposition,
-            updatedAt: now,
-          },
-          { merge: true },
-        );
-        transaction.create(receiptClaimRefs[index]!, {
-          organizationId: actor.organizationId,
-          transferId: input.transferId,
-          dispatchId: input.dispatchId,
-          receiptId: input.receiptId,
-          transferItemId: line.transferItemId,
-          quantity: disposition,
-          createdAt: now,
-        });
-      }
-    });
-    const transactionIds: string[] = [];
-    for (let index = 0; index < input.lines.length; index++) {
-      const line = input.lines[index]!;
-      const item = items[index]!;
-      if (
-        item.get("trackingType") === "batch" &&
-        line.lotAllocations.reduce(
-          (total, allocation) => total + allocation.quantity,
-          0,
-        ) !==
-          line.receivedQuantity + line.damagedQuantity
-      )
-        throw new HttpsError(
-          "invalid-argument",
-          "Receipt lot allocations must equal received and damaged quantities.",
-        );
-      if (line.receivedQuantity > 0) {
-        if (
-          item.get("trackingType") === "serial" &&
-          line.serialItemIds.length !== line.receivedQuantity
-        )
-          throw new HttpsError(
-            "invalid-argument",
-            "Accepted serial count must equal received quantity.",
-          );
-        const movements =
-          item.get("trackingType") === "batch"
-            ? line.lotAllocations.filter(
-                (allocation) => allocation.disposition === "received",
-              )
-            : [{ lotId: undefined, quantity: line.receivedQuantity }];
-        if (
-          movements.reduce(
-            (total, movement) => total + movement.quantity,
-            0,
-          ) !== line.receivedQuantity
-        )
-          throw new HttpsError(
-            "invalid-argument",
-            "Received lot allocations do not reconcile.",
-          );
-        for (
-          let movementIndex = 0;
-          movementIndex < movements.length;
-          movementIndex++
-        ) {
-          const movement = movements[movementIndex]!;
-          const posted = await postInventoryTransaction(actor, {
-            transactionType: "transfer_receipt",
-            productId: String(item.get("productId")),
-            quantity: movement.quantity,
-            sourceLocationId: String(transfer.get("transitLocationId")),
-            destinationLocationId: String(
-              transfer.get("destinationLocationId"),
-            ),
-            serialNumbers: await serialNumbersForIds(
-              actor,
-              String(item.get("productId")),
-              line.serialItemIds,
-            ),
-            lotId: movement.lotId,
-            effectiveAt: new Date().toISOString(),
-            reason: "Confirmed branch transfer receipt",
-            referenceType: "transfer_receipt",
-            referenceId: input.receiptId,
-            referenceNumber: String(receipt.get("receiptNumber")),
-            idempotencyKey: `${input.idempotencyKey.slice(0, 20)}-ok-${index}-${movementIndex}`,
-            correlationId: cid,
-            sourceFunction: "confirmTransferReceipt",
-            transferContext: { transferId: input.transferId },
-          });
-          transactionIds.push(posted.transactionId);
-        }
-      }
-      if (line.damagedQuantity > 0) {
-        if (
-          item.get("trackingType") === "serial" &&
-          line.damagedSerialItemIds.length !== line.damagedQuantity
-        )
-          throw new HttpsError(
-            "invalid-argument",
-            "Damaged serial count must equal damaged quantity.",
-          );
-        const movements =
-          item.get("trackingType") === "batch"
-            ? line.lotAllocations.filter(
-                (allocation) => allocation.disposition === "damaged",
-              )
-            : [{ lotId: undefined, quantity: line.damagedQuantity }];
-        if (
-          movements.reduce(
-            (total, movement) => total + movement.quantity,
-            0,
-          ) !== line.damagedQuantity
-        )
-          throw new HttpsError(
-            "invalid-argument",
-            "Damaged lot allocations do not reconcile.",
-          );
-        for (
-          let movementIndex = 0;
-          movementIndex < movements.length;
-          movementIndex++
-        ) {
-          const movement = movements[movementIndex]!;
-          const posted = await postInventoryTransaction(actor, {
-            transactionType: "transfer_receipt",
-            productId: String(item.get("productId")),
-            quantity: movement.quantity,
-            sourceLocationId: String(transfer.get("transitLocationId")),
-            destinationLocationId: String(transfer.get("damagedLocationId")),
-            serialNumbers: await serialNumbersForIds(
-              actor,
-              String(item.get("productId")),
-              line.damagedSerialItemIds,
-            ),
-            lotId: movement.lotId,
-            effectiveAt: new Date().toISOString(),
-            reason: "Confirmed damaged branch transfer receipt",
-            referenceType: "transfer_receipt_damage",
-            referenceId: input.receiptId,
-            referenceNumber: String(receipt.get("receiptNumber")),
-            idempotencyKey: `${input.idempotencyKey.slice(0, 18)}-dmg-${index}-${movementIndex}`,
-            correlationId: cid,
-            sourceFunction: "confirmTransferReceipt",
-            transferContext: { transferId: input.transferId },
-          });
-          transactionIds.push(posted.transactionId);
-        }
-      }
-    }
-    if (transfer.get("sourceType") === "branch_request") {
-      const fulfilmentLines = input.lines
-        .map((line, index) => ({
-          requestItemId: String(items[index]!.get("sourceRequestItemId")),
-          quantity: line.receivedQuantity,
-        }))
-        .filter((line) => line.quantity > 0);
-      if (fulfilmentLines.length)
-        await applyTransferFulfilmentToRequest(actor, {
-          organizationId: actor.organizationId,
-          requestId: String(transfer.get("sourceRequestId")),
-          transferId: input.transferId,
-          receiptId: input.receiptId,
-          lines: fulfilmentLines,
-          correlationId: cid,
-        });
-    }
-    const dispatchClaimsSnapshot = await db
-      .collection("dispatchReceiptBalances")
-      .where("dispatchId", "==", input.dispatchId)
-      .get();
-    const cumulativeDispatchClaimed = dispatchClaimsSnapshot.docs.reduce(
-      (total, claim) => total + number(claim, "claimedQuantity"),
-      0,
-    );
+    const plan = await startStockExecution(actor, { kind: "receipt", transferId: input.transferId, entityId: input.receiptId,
+      expectedVersion: input.expectedVersion, confirmationInput: Object.fromEntries(Object.entries(input).filter(([key]) => key !== "idempotencyKey")), identity: { transferId: input.transferId, dispatchId: input.dispatchId, receiptId: input.receiptId,
+        lines: input.lines, deliveryCondition: input.deliveryCondition, receiverNote: input.receiverNote, signatureReference: input.signatureReference, photoReferences: input.photoReferences } },
+      async (reader, currentTransfer, currentReceipt) => {
+        if (currentReceipt.get("lines") && executionIdentity(currentReceipt.get("lines")) !== executionIdentity(input.lines))
+          stockReview("Receipt quantities differ from the saved draft. Reopen the original receipt.");
+        const items = await reader.getAll(...input.lines.map(line => db.doc(`transferItems/${line.transferItemId}`)));
+        await prepareRequestAllocationChange(reader, actor, currentTransfer,
+          input.lines.map((line, index) => ({ item: items[index]!, release: line.receivedQuantity, fulfilled: line.receivedQuantity })), cid, input.receiptId);
+        return buildReceiptMovements(reader, actor, currentTransfer, currentReceipt, input.dispatchId, input.lines, cid);
+      });
+    const transactionIds = await postStockExecution(actor, plan);
     return db.runTransaction(async (transaction) => {
       const [
         currentConfirmation,
@@ -2259,6 +2036,15 @@ export const confirmTransferReceipt = onCall(
             "inventoryTransactionIds",
           ),
         };
+      const finishExecution = await prepareStockExecutionFinish(transaction, plan);
+      if (!finishExecution) return { receiptId: input.receiptId, confirmed: false, inventoryTransactionIds: transactionIds };
+      const claimChanges = plan.details.claimChanges as ReceiptClaimChange[];
+      const writeClaims = await prepareReceiptClaims(transaction, actor, input.transferId, input.dispatchId, input.receiptId!, claimChanges);
+      const dispatchClaims = await transaction.get(db.collection("dispatchReceiptBalances").where("dispatchId", "==", input.dispatchId));
+      const cumulativeDispatchClaimed = dispatchClaims.docs.reduce((total, claim) => total + number(claim, "claimedQuantity"), 0)
+        + claimChanges.reduce((total, change) => total + change.claimedQuantity - change.before, 0);
+      const requestChange = await prepareRequestAllocationChange(transaction, actor, currentTransfer,
+        input.lines.map((line, index) => ({ item: currentItems[index]!, release: line.receivedQuantity, fulfilled: line.receivedQuantity })), cid, input.receiptId);
       let received = 0;
       let damaged = 0;
       let missing = 0;
@@ -2405,6 +2191,9 @@ export const confirmTransferReceipt = onCall(
         updatedAt: now,
         updatedBy: actor.userId,
       });
+      writeClaims();
+      requestChange(transaction);
+      finishExecution(transaction);
       operation(
         transaction,
         confirmOp,
@@ -2463,8 +2252,7 @@ export const confirmTransferReceipt = onCall(
   },
 );
 
-export const reportTransferDiscrepancy = onCall(
-  { enforceAppCheck },
+export const reportTransferDiscrepancy = securedTransferCallable("reportTransferDiscrepancy", discrepancyInput, "transfers.report_discrepancy", "either",
   async (request) => {
     const actor = await requireAccess(request);
     requirePermission(actor, "transfers.report_discrepancy");
@@ -2501,6 +2289,7 @@ export const reportTransferDiscrepancy = onCall(
           created: false,
         };
       assertTransferScope(actor, transfer);
+    assertNoStockExecution(transfer);
       if (!dispatch.exists || dispatch.get("transferId") !== input.transferId)
         throw new HttpsError("failed-precondition", "Dispatch is unavailable.");
       const discrepancy = db.collection("transferDiscrepancies").doc();
@@ -2619,32 +2408,24 @@ export const reportTransferDiscrepancy = onCall(
     });
   },
 );
-export const assignTransferDiscrepancy = onCall(
-  { enforceAppCheck },
-  async (request) => {
-    const actor = await requireAccess(request);
-    requirePermission(actor, "transfers.resolve_discrepancy");
-    const input = parseInput(resolveDiscrepancyInput, request.data);
-    const discrepancy = await db
-      .doc(`transferDiscrepancies/${input.discrepancyId}`)
-      .get();
-    if (
-      !discrepancy.exists ||
-      discrepancy.get("organizationId") !== actor.organizationId ||
-      discrepancy.get("transferId") !== input.transferId
-    )
+export const assignTransferDiscrepancy = securedTransferCallable("assignTransferDiscrepancy", resolveDiscrepancyInput, "transfers.resolve_discrepancy", "source", async request => {
+  const actor = await requireAccess(request);
+  requirePermission(actor, "transfers.resolve_discrepancy");
+  const input = parseInput(resolveDiscrepancyInput, request.data);
+  const op = operationRef(actor, "assignTransferDiscrepancy", input.idempotencyKey);
+  return db.runTransaction(async transaction => {
+    const [previous, transfer, discrepancy] = await transaction.getAll(op, transferRef(input.transferId), db.doc(`transferDiscrepancies/${input.discrepancyId}`));
+    if (previous!.exists) return { assigned: false };
+    assertTransferScope(actor, transfer!);
+    assertNoStockExecution(transfer!);
+    if (!discrepancy!.exists || discrepancy!.get("organizationId") !== actor.organizationId || discrepancy!.get("transferId") !== input.transferId)
       throw new HttpsError("not-found", "Discrepancy not found.");
-    await discrepancy.ref.update({
-      status: "under_investigation",
-      assignedUserId: actor.userId,
-      investigationNote: input.note,
-      updatedAt: FieldValue.serverTimestamp(),
-    });
+    transaction.update(discrepancy!.ref, { status: "under_investigation", assignedUserId: actor.userId, investigationNote: input.note, updatedAt: FieldValue.serverTimestamp() });
+    operation(transaction, op, actor, "assignTransferDiscrepancy", input.transferId);
     return { assigned: true };
-  },
-);
-export const resolveTransferDiscrepancy = onCall(
-  { enforceAppCheck },
+  });
+});
+export const resolveTransferDiscrepancy = securedTransferCallable("resolveTransferDiscrepancy", resolveDiscrepancyInput, "transfers.resolve_discrepancy", "source",
   async (request) => {
     const actor = await requireAccess(request);
     requirePermission(actor, "transfers.resolve_discrepancy");
@@ -2658,6 +2439,7 @@ export const resolveTransferDiscrepancy = onCall(
       Snapshot,
     ];
     assertTransferScope(actor, transfer);
+    assertNoStockExecution(transfer);
     if (
       !discrepancy.exists ||
       discrepancy.get("transferId") !== input.transferId
@@ -2695,12 +2477,13 @@ export const resolveTransferDiscrepancy = onCall(
       requireWarehouseScope(actor, String(transfer.get("originWarehouseId")));
     }
     const claimed = await db.runTransaction(async (transaction) => {
-      const current = await transaction.get(discrepancyRef);
-      if (["resolved", "closed"].includes(String(current.get("status"))))
+      const [current, currentTransfer] = await transaction.getAll(discrepancyRef, ref);
+      assertNoStockExecution(currentTransfer!);
+      if (["resolved", "closed"].includes(String(current!.get("status"))))
         return false;
       if (
-        current.get("resolutionInProgress") === true &&
-        current.get("resolutionIdempotencyKey") !== input.idempotencyKey
+        current!.get("resolutionInProgress") === true &&
+        current!.get("resolutionIdempotencyKey") !== input.idempotencyKey
       )
         throw new HttpsError(
           "aborted",
@@ -2717,7 +2500,7 @@ export const resolveTransferDiscrepancy = onCall(
       const current = await discrepancyRef.get();
       return {
         resolved: false,
-        inventoryTransactionIds: current.get("resolutionTransactionIds") ?? [],
+        inventoryTransactionIds: current!.get("resolutionTransactionIds") ?? [],
       };
     }
     try {
@@ -2734,6 +2517,10 @@ export const resolveTransferDiscrepancy = onCall(
           );
       const transactionIds: string[] = [];
       const cid = correlationId();
+      if (input.resolutionType === "delivered_later") await db.runTransaction(async transaction => {
+        await prepareRequestAllocationChange(transaction, actor, transfer,
+          resolutionItems.map((item, index) => ({ item, release: number(lines.docs[index]!, "quantity"), fulfilled: number(lines.docs[index]!, "quantity") })), cid, `discrepancy-${input.discrepancyId}`);
+      });
       const requiresMovement =
         ["delivered_later", "returned_to_warehouse", "written_off"].includes(
           input.resolutionType,
@@ -2791,26 +2578,6 @@ export const resolveTransferDiscrepancy = onCall(
         });
         transactionIds.push(posted.transactionId);
       }
-      if (
-        input.resolutionType === "delivered_later" &&
-        transfer.get("sourceType") === "branch_request"
-      ) {
-        const fulfilmentLines = resolutionItems
-          .map((item, index) => ({
-            requestItemId: String(item.get("sourceRequestItemId") ?? ""),
-            quantity: number(lines.docs[index]!, "quantity"),
-          }))
-          .filter((line) => line.requestItemId && line.quantity > 0);
-        if (fulfilmentLines.length)
-          await applyTransferFulfilmentToRequest(actor, {
-            organizationId: actor.organizationId,
-            requestId: String(transfer.get("sourceRequestId")),
-            transferId: input.transferId,
-            receiptId: `discrepancy-${input.discrepancyId}`,
-            lines: fulfilmentLines,
-            correlationId: cid,
-          });
-      }
       return await db.runTransaction(async (transaction) => {
         const itemRefs = lines.docs.map((line) =>
           db.doc(`transferItems/${String(line.get("transferItemId"))}`),
@@ -2854,6 +2621,10 @@ export const resolveTransferDiscrepancy = onCall(
               "write_off_pending",
             ]),
         );
+        const requestChange = input.resolutionType === "delivered_later"
+          ? await prepareRequestAllocationChange(transaction, actor, currentTransfer,
+            currentItems.map((item, index) => ({ item, release: number(lines.docs[index]!, "quantity"), fulfilled: number(lines.docs[index]!, "quantity") })), cid, `discrepancy-${input.discrepancyId}`)
+          : () => {};
         const now = FieldValue.serverTimestamp();
         let resolvedQuantity = 0;
         for (let index = 0; index < lines.size; index++) {
@@ -2935,6 +2706,7 @@ export const resolveTransferDiscrepancy = onCall(
           transaction.update(item.ref, updates);
           resolvedQuantity += quantity;
         }
+        requestChange(transaction);
         transaction.update(discrepancyRef, {
           status: "resolved",
           resolutionInProgress: false,
@@ -3081,9 +2853,9 @@ export const resolveTransferDiscrepancy = onCall(
         const current = await transaction.get(discrepancyRef);
         if (
           current.exists &&
-          current.get("resolutionInProgress") === true &&
-          current.get("resolutionIdempotencyKey") === input.idempotencyKey &&
-          !["resolved", "closed"].includes(String(current.get("status")))
+          current!.get("resolutionInProgress") === true &&
+          current!.get("resolutionIdempotencyKey") === input.idempotencyKey &&
+          !["resolved", "closed"].includes(String(current!.get("status")))
         )
           transaction.update(discrepancyRef, {
             resolutionInProgress: false,
@@ -3096,8 +2868,7 @@ export const resolveTransferDiscrepancy = onCall(
   },
 );
 
-export const createTransferCost = onCall(
-  { enforceAppCheck },
+export const createTransferCost = securedTransferCallable("createTransferCost", costInput, "transfers.cost.create", "source",
   async (request) => {
     const actor = await requireAccess(request);
     requirePermission(actor, "transfers.cost.create");
@@ -3301,15 +3072,14 @@ async function costTransition(
     return { changed: true, status };
   });
 }
-export const submitTransferCost = onCall({ enforceAppCheck }, async (request) =>
+export const submitTransferCost = securedTransferCallable("submitTransferCost", costActionInput, "transfers.cost.create", "source", async (request) =>
   costTransition(
     await requireAccess(request),
     parseInput(costActionInput, request.data),
     "submit",
   ),
 );
-export const approveTransferCost = onCall(
-  { enforceAppCheck },
+export const approveTransferCost = securedTransferCallable("approveTransferCost", costActionInput, "transfers.cost.approve", "source",
   async (request) =>
     costTransition(
       await requireAccess(request),
@@ -3317,8 +3087,7 @@ export const approveTransferCost = onCall(
       "approve",
     ),
 );
-export const recordActualTransferCost = onCall(
-  { enforceAppCheck },
+export const recordActualTransferCost = securedTransferCallable("recordActualTransferCost", costActionInput, "transfers.cost.create", "source",
   async (request) =>
     costTransition(
       await requireAccess(request),
@@ -3326,8 +3095,7 @@ export const recordActualTransferCost = onCall(
       "actual",
     ),
 );
-export const reconcileTransferCosts = onCall(
-  { enforceAppCheck },
+export const reconcileTransferCosts = securedTransferCallable("reconcileTransferCosts", costActionInput, "transfers.cost.reconcile", "source",
   async (request) =>
     costTransition(
       await requireAccess(request),
@@ -3336,7 +3104,7 @@ export const reconcileTransferCosts = onCall(
     ),
 );
 
-export const cancelTransfer = onCall({ enforceAppCheck }, async (request) => {
+export const cancelTransfer = securedTransferCallable("cancelTransfer", transferActionInput, "transfers.cancel", "source", async (request) => {
   const actor = await requireAccess(request);
   requirePermission(actor, "transfers.cancel");
   const input = parseInput(transferActionInput, request.data);
@@ -3346,7 +3114,7 @@ export const cancelTransfer = onCall({ enforceAppCheck }, async (request) => {
       "A cancellation reason is required.",
     );
   const ref = transferRef(input.transferId);
-  let transfer = await ref.get();
+  const transfer = await ref.get();
   assertTransferScope(actor, transfer);
   if (
     ["received", "closed", "cancelled"].includes(String(transfer.get("status")))
@@ -3355,16 +3123,6 @@ export const cancelTransfer = onCall({ enforceAppCheck }, async (request) => {
       "failed-precondition",
       "This transfer cannot be cancelled.",
     );
-  if (number(transfer, "totalReservedQuantity") > 0) {
-    await releaseTransferReservationService(
-      actor,
-      input.transferId,
-      undefined,
-      `${input.idempotencyKey}-release`,
-      correlationId(),
-    );
-    transfer = await ref.get();
-  }
   const op = operationRef(actor, "cancelTransfer", input.idempotencyKey);
   const cid = correlationId();
   return db.runTransaction(async (transaction) => {
@@ -3375,6 +3133,9 @@ export const cancelTransfer = onCall({ enforceAppCheck }, async (request) => {
     if (previous.exists) return { cancelled: false };
     if (number(current, "version") !== input.expectedVersion)
       throw new HttpsError("aborted", "The transfer version changed.");
+    assertNoStockExecution(current);
+    if (["received", "closed", "cancelled"].includes(String(current.get("status"))))
+      throw new HttpsError("failed-precondition", "This transfer cannot be cancelled.");
     const items = await transaction.get(
       db
         .collection("transferItems")
@@ -3386,24 +3147,30 @@ export const cancelTransfer = onCall({ enforceAppCheck }, async (request) => {
         .where("transferId", "==", input.transferId)
         .where("status", "==", "draft"),
     );
-    const requestItemRefs =
-      current.get("sourceType") === "branch_request"
-        ? items.docs
-            .filter((item) => item.get("sourceRequestItemId"))
-            .map((item) =>
-              db.doc(
-                `branchRequestItems/${String(item.get("sourceRequestItemId"))}`,
-              ),
-            )
-        : [];
-    const requestItemSnapshots = requestItemRefs.length
-      ? await transaction.getAll(...requestItemRefs)
-      : [];
-    const requestItemsById = new Map(
-      requestItemSnapshots.map((item) => [item.id, item]),
-    );
-    const now = FieldValue.serverTimestamp();
+    if (items.docs.some(item => !["approvedQuantity", "dispatchedQuantity", "cancelledQuantity"].every(field => Number.isSafeInteger(number(item, field)) && number(item, field) >= 0)
+      || number(item, "dispatchedQuantity") + number(item, "cancelledQuantity") > number(item, "approvedQuantity")))
+      stockReview("Cancellation quantities do not reconcile to the original approval.");
     const partial = number(current, "totalDispatchedQuantity") > 0;
+    if (partial && items.docs.every(item => number(item, "approvedQuantity") - number(item, "dispatchedQuantity") - number(item, "cancelledQuantity") === 0)) {
+      if (!items.size || number(current, "totalReservedQuantity") !== 0
+        || items.docs.reduce((sum, item) => sum + number(item, "approvedQuantity"), 0) !== number(current, "totalApprovedQuantity")
+        || items.docs.reduce((sum, item) => sum + number(item, "dispatchedQuantity"), 0) !== number(current, "totalDispatchedQuantity")
+        || items.docs.reduce((sum, item) => sum + number(item, "cancelledQuantity"), 0) !== number(current, "cancelledRemainingQuantity"))
+        stockReview("The recorded zero remainder does not reconcile to the transfer's item and reservation evidence.");
+      const result = { cancelled: false, remainingCancelled: false };
+      operation(transaction, op, actor, "cancelTransfer", input.transferId);
+      transaction.update(op, { result });
+      return result;
+    }
+    const release = number(current, "totalReservedQuantity") > 0
+      ? await prepareTransferReservationRelease(transaction, actor, current, undefined, cid) : null;
+    const requestChanges = items.docs.map(item => ({ item, release: number(current, "totalApprovedQuantity") === 0
+      ? (current.get("sourceType") === "branch_request" ? ownedRequestAllocation(item) : 0)
+      : Math.max(0, number(item, "approvedQuantity") - number(item, "dispatchedQuantity") - number(item, "cancelledQuantity")) }));
+    const requestChange = await prepareRequestAllocationChange(transaction, actor, current, requestChanges, cid);
+    const now = FieldValue.serverTimestamp();
+    release?.apply();
+    requestChange(transaction);
     for (const draftDispatch of draftDispatches.docs)
       transaction.update(draftDispatch.ref, {
         status: "cancelled",
@@ -3432,23 +3199,7 @@ export const cancelTransfer = onCall({ enforceAppCheck }, async (request) => {
             : "cancelled",
         updatedAt: now,
       });
-      if (
-        current.get("sourceType") === "branch_request" &&
-        item.get("sourceRequestItemId") &&
-        undispatched > 0
-      ) {
-        const requestItemRef = db.doc(
-          `branchRequestItems/${String(item.get("sourceRequestItemId"))}`,
-        );
-        const requestItem = requestItemsById.get(requestItemRef.id)!;
-        transaction.update(requestItemRef, {
-          transferAllocatedQuantity: Math.max(
-            0,
-            number(requestItem, "transferAllocatedQuantity") - undispatched,
-          ),
-          updatedAt: now,
-        });
-      }
+
     }
     transaction.update(ref, {
       status: partial ? "partially_dispatched" : "cancelled",
@@ -3481,6 +3232,7 @@ export const cancelTransfer = onCall({ enforceAppCheck }, async (request) => {
       reason: input.reason,
     });
     operation(transaction, op, actor, "cancelTransfer", input.transferId);
+    transaction.update(op, { result: { cancelled: !partial, remainingCancelled: true } });
     writeAuditLog(transaction, actor, {
       action: "transfer.cancelled",
       entityType: "transfer",
@@ -3494,7 +3246,7 @@ export const cancelTransfer = onCall({ enforceAppCheck }, async (request) => {
   });
 });
 
-export const closeTransfer = onCall({ enforceAppCheck }, async (request) => {
+export const closeTransfer = securedTransferCallable("closeTransfer", transferActionInput, "transfers.close", "source", async (request) => {
   const actor = await requireAccess(request);
   requirePermission(actor, "transfers.close");
   const input = parseInput(transferActionInput, request.data);
@@ -3513,6 +3265,7 @@ export const closeTransfer = onCall({ enforceAppCheck }, async (request) => {
     ];
     if (previous.exists) return { closed: false };
     assertTransferScope(actor, transfer);
+    assertNoStockExecution(transfer);
     if (
       number(transfer, "version") !== input.expectedVersion ||
       !["received", "partially_received", "cost_reconciliation"].includes(
@@ -3642,6 +3395,8 @@ export const getTransfer = onCall({ enforceAppCheck }, async (request) => {
       "transferVersions",
       "transferApprovals",
       "stockReservations",
+      "transferDispatchItems",
+      "dispatchReceiptBalances",
     ].map((collection) =>
       db
         .collection(collection)
@@ -3686,6 +3441,8 @@ export const getTransfer = onCall({ enforceAppCheck }, async (request) => {
     versions: versions.docs.map(serialize),
     approvals: approvals.docs.map(serialize),
     reservations: reservations.docs.map(serialize),
+    dispatchItems: related[9]!.docs.map(serialize),
+    receiptBalances: related[10]!.docs.map(serialize),
     costs: costs?.docs.map(serialize) ?? [],
   };
 });
@@ -3830,8 +3587,7 @@ export const generateTransferCostReport = generateTransferReport;
 export const generateTransferDiscrepancyReport = generateTransferReport;
 export const generateBranchSupplyReport = generateTransferReport;
 
-export const saveTransferLogisticsResource = onCall(
-  { enforceAppCheck },
+export const saveTransferLogisticsResource = securedTransferCallable("saveTransferLogisticsResource", logisticsResourceInput, "transfers.dispatch", "catalog",
   async (request) => {
     const actor = await requireAccess(request);
     requirePermission(actor, "transfers.dispatch");

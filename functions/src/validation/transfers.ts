@@ -113,7 +113,7 @@ export const packageActionInput = transferActionInput.extend({
 });
 export const dispatchInput = transferActionInput.extend({
   dispatchId: id.optional(),
-  packageIds: z.array(id).min(1).max(100),
+  packageIds: z.array(id).min(1).max(100).refine(ids => new Set(ids).size === ids.length, "Each dispatch package may appear only once."),
   vehicleId: id.optional(),
   vehicleRegistration: z.string().trim().max(40).optional(),
   driverName: text(2, 160),

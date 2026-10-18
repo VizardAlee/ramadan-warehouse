@@ -52,6 +52,8 @@ interface TransferDetailResult {
   events: Array<Record<string, unknown>>;
   costs: TransferCost[];
   reservations: StockReservation[];
+  dispatchItems?: Array<Record<string, unknown>>;
+  receiptBalances?: Array<Record<string, unknown>>;
 }
 const progressSteps = [
   "Draft",
@@ -412,6 +414,8 @@ export function TransferDetail({ transferId }: { transferId: string }) {
             Record<string, unknown> & { id: string; status?: string }
           >
         }
+        dispatchItems={result.dispatchItems ?? []}
+        receiptBalances={result.receiptBalances ?? []}
         online={online}
         onComplete={load}
       />

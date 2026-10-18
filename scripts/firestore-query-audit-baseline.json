@@ -1,16 +1,16 @@
 {
   "lastLiveAudit": {
     "project": "ramadan-warehouse-staging",
-    "verifiedAt": "2026-10-18T08:34:44.818Z",
-    "queryShapes": 537,
+    "verifiedAt": "2026-10-18T12:52:26.313Z",
+    "queryShapes": 541,
     "unsupportedQueries": 0,
     "readyIndexes": 256,
     "singleFieldOverrides": 0,
     "indexInventoryVerifiedAt": "2026-10-11T15:17:12.715Z",
     "probeMethod": "planner-only (analyze=false), with sentinel-scope missing-index diagnostics; no mutations",
-    "plannerEvidenceSha256": "7c03fd97a8ae596e6bc66f6c8b660eec2e2a4b889ff8a503e3552b2cc35c75b6"
+    "plannerEvidenceSha256": "f7fb6b95d7e0e4fa336729bd8be1543a3e7c7d32e6e22d94c71d481d9ab18075"
   },
-  "catalogSha256": "aade9c8605d8660f6e58c0a4d78dd01e70c26b671d858933f9859e5bbed6d56a",
+  "catalogSha256": "b09e052b1fe2b4c38f6baf1e8ffc42cd69e446c7f5cbcc26de3c1c7033015c65",
   "sourceFingerprints": {
     "functions/src/accounting/daily-close.ts": "904fa0dee8c4af98feaf99f17900caa97d86a16560cd3d0d85846ac33cd26e8e",
     "functions/src/accounting/stock-postings.ts": "005230ec2a728e426d435a3574e4ccd3e08928f30db4f8c710069da12137f24e",
@@ -53,9 +53,9 @@
     "functions/src/callable/sales.ts": "6f24de241299d0bcb0f16f81946913623c2861422a88ce292594a21d68017b03",
     "functions/src/callable/service-billing-case.ts": "d25d22cf87525e286b2099a810985f097e373161ae5350f6c543d43b77347a39",
     "functions/src/callable/stock-counts.ts": "48abce107f67ac91b68dd77a86fdf58eec0d544cfe60eb608a02d0b87fb5094d",
-    "functions/src/callable/stock-transfers.ts": "8444162929e691b1bd6ce6cb5a43236f4d4c0ea9e370ff037416625ce6266a37",
+    "functions/src/callable/stock-transfers.ts": "b0bab88a5a464d69f0554c776608ba21825f96059bbd42a57ae1d9e30a17cb97",
     "functions/src/callable/tax-rule-administration.ts": "afebddca779ad527ba5701f81f287e1d43a8b0d202195831af8d53d8ee54de07",
-    "functions/src/callable/transfers.ts": "40f6059886b760b10f6dcec2f08ad3b53070db51b384454d8eb96fe58de59497",
+    "functions/src/callable/transfers.ts": "c34a1a30ad27f9b57a18cfe32ea79679634f656919d5173176be587bbbda0c20",
     "functions/src/dashboard/ceo.ts": "3f5bbd60d8dfc5b19aea957828c4bbc89fa7a892551b3551445d44f74ce6e765",
     "functions/src/inventory/held-supplier-credit.ts": "76a07b0fd445ca88aa847c50439ec2dce45c1684bf36691215c45f5db5dff43f",
     "functions/src/inventory/post-inventory-transaction.ts": "c7a0e761d304b325ab5cbd1f5edde35a3041fc6615d25e71737e438b4849acdd",
@@ -77,8 +77,12 @@
     "functions/src/sales/return-follow-up.ts": "90b542fff7750c1d0f3dad17e589764d942794fb78355d18387740c161ee0fd0",
     "functions/src/sales/serials.ts": "f8cb2ba59ceb0ed584c247e4a7cefb5c97096d43a601ea28d85a4f22d631c6c5",
     "functions/src/services/assignments.ts": "66d89ec81eb211c73c678e9e39b492877e20f66382d1fddd968ae546e37c8259",
-    "functions/src/transfers/reservation-service.ts": "36e8c51eed244b4b1b35fffdd4e787fc41cb55b7e1c316ad4cc14fce1b2449e9",
+    "functions/src/transfers/dispatch-contents.ts": "f05492004d3caac1f02781312720e3a4441470da3727990d32b3733e4ac5825b",
+    "functions/src/transfers/receipt-contents.ts": "af2796287c6fb6d26caf22242b756d2434bad8f00de0f5069318f30bfd7e85f6",
+    "functions/src/transfers/request-allocation.ts": "7b1f019dbea4c60c789760da89fd3ae4b4e5f681804e05cbaf493e8e9de9c5eb",
+    "functions/src/transfers/reservation-service.ts": "4bced0177667a705a038619f139568050433fa00a1e1e6a1fc46b748d9fbfbae",
     "functions/src/transfers/scheduled-monitoring.ts": "69f55e620c0ae474524a4ceb9e0a980eaf1e25463c3c80998b492ffb3c2db463",
+    "functions/src/transfers/stock-execution.ts": "3ff92079380c373f3770f9ce3f6e86d1bf51eb702528c71ea6a19d2280720c45",
     "functions/src/transfers/validate-simple-transfer.ts": "2c0fa652b03e898b1966636b2dc1e366695b451d4346e06b8f7ed07c1bbef96b",
     "functions/src/transfers/validate-transfer-invariants.ts": "4064ec7642f48b5f40f88318620581a7c93e3e9ef7c068a9bb1305379bb6d1e8",
     "functions/src/utils/query-pages.ts": "e7fdf2e45031ba39d6758f4c4763a8d3a28810afe88bd2e65cf8a4c2568fd4a9",
@@ -106,7 +110,7 @@
     "src/features/notifications/use-notifications.ts": "094d5903d424e3b02b20ecc8d022f92d7e4cda379b165306878a08851b0a6833",
     "src/features/products/catalog-import-dialog.tsx": "11aae920191bff20ee1a4873862ca5e338eb6c397268459637e92e1340da2835",
     "src/features/requests/request-form.tsx": "d834904b780ff9ec2d95dcc32c3bd37f12f2b61cd1d24b61672a1f6edb304fa7",
-    "src/features/transfers/transfer-detail.tsx": "1417c0e7e4542139a6d988c97928579ad2104874993ece285a1aab3d7ea24531",
+    "src/features/transfers/transfer-detail.tsx": "6e7af5990185cf0cef6bb37ae2e10ce2fc2c2f8dec020317e77845a2af0cd82a",
     "src/features/transfers/transfer-form.tsx": "ee3d92a168d8b2337366a15591e413b61017d38032c41b9f491e9839906d29d1"
   },
   "indexSignatures": [
