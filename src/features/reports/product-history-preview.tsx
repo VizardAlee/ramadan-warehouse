@@ -10,32 +10,64 @@ import type { InventoryEntry } from "@/types/domain";
 
 interface Props {
   productId: string;
+  locationIds?: readonly string[];
   productName: string;
   locations: Readonly<Record<string, string>>;
   reportRow: Record<string, unknown>;
 }
 
-export function ProductHistoryPreview({ productId, productName, locations, reportRow }: Props) {
+function movementInstant(value: InventoryEntry["effectiveAt"]): readonly [number, number] {
+  if (typeof value === "string") {
+    const milliseconds = Date.parse(value);
+    const seconds = Math.floor(milliseconds / 1000);
+    return Number.isFinite(milliseconds) ? [seconds, (milliseconds - seconds * 1000) * 1_000_000] : [-Infinity, 0];
+  }
+  return Number.isFinite(value?.seconds) ? [value.seconds, value.nanoseconds ?? 0] : [-Infinity, 0];
+}
+
+export function ProductHistoryPreview(props: Props) {
+  return <HistoryPreview key={JSON.stringify([props.productId, props.locationIds ? [...props.locationIds].sort() : "all"])} {...props} />;
+}
+
+function HistoryPreview({ productId, productName, locations, reportRow, locationIds }: Props) {
+  const locationKey = locationIds ? JSON.stringify([...locationIds].sort()) : "all";
   const [entries, setEntries] = useState<InventoryEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   useEffect(() => {
     let active = true;
-    callAdministration<object, { rows: InventoryEntry[] }>("getSkuMovementHistory", {
-      productId,
-      limit: 30,
-      includeCosts: false,
-    }).then((result) => {
-      if (active) setEntries(result.rows);
-    }).catch(() => {
+    async function load() {
+      const scopes: (string | undefined)[] = locationKey === "all" ? [undefined] : JSON.parse(locationKey) as string[];
+      const rows: InventoryEntry[] = [];
+      for (const locationId of scopes) {
+        const result = await callAdministration<object, { rows: InventoryEntry[] }>("getSkuMovementHistory", {
+          productId, locationId, limit: 30, includeCosts: false,
+        });
+        if (!active) return;
+        rows.push(...result.rows.filter((row) => !locationId || row.locationId === locationId));
+      }
+      if (active) setEntries(rows);
+    }
+    void load().catch(() => {
       if (active) setError(true);
     }).finally(() => {
       if (active) setLoading(false);
     });
     return () => { active = false; };
-  }, [productId]);
+  }, [productId, locationKey]);
   const events = useMemo(
-    () => summarizeInventoryMovements(entries, locations).slice(0, 5),
+    () => {
+      const chronological = [...entries].sort((left, right) => {
+        const [leftSeconds, leftNanoseconds] = movementInstant(left.effectiveAt);
+        const [rightSeconds, rightNanoseconds] = movementInstant(right.effectiveAt);
+        if (leftSeconds !== rightSeconds) return leftSeconds > rightSeconds ? -1 : 1;
+        if (leftNanoseconds !== rightNanoseconds) return rightNanoseconds - leftNanoseconds;
+        return left.id < right.id ? -1 : left.id > right.id ? 1 : 0;
+      });
+      // Group every matching line before limiting events so movements spanning
+      // areas retain both their source and destination.
+      return summarizeInventoryMovements(chronological, locations).slice(0, 5);
+    },
     [entries, locations],
   );
   return (

@@ -93,6 +93,13 @@ export function queryCatalog() {
       add("stock adjustments", "inventoryEntries", [...filters, ["transactionType", "=="]], [["__name__", "ASCENDING"]]);
       add("stock variance report", "stockCountItems", [...filters, ["variance", "!="]], [["variance", "ASCENDING"], ["__name__", "ASCENDING"]]);
     }
+    // Selected-location position pages and projected membership share a bounded
+    // in-filter. Projection/withSummary do not change the underlying index shape.
+    for (const optional of subsets(["productId"])) {
+      const filters = [org, ...scope, ...eq(optional), ["locationId", "in"]];
+      add("selected-location inventory rows/membership", "inventoryBalances", filters, [["__name__", "ASCENDING"]]);
+      add("selected-location inventory totals", "inventoryBalances", filters, [], ["onHandQuantity", "reservedQuantity", "availableQuantity", "totalValueMinor"]);
+    }
     for (const collection of ["inventoryBalances", "serializedItems"]) add("product details scoped stock", collection, [org, ...scope, ["productId", "=="]]);
   }
   for (const scope of [[], [["branchId", "=="]], [["branchId", "in"]]]) {
@@ -181,6 +188,7 @@ export function queryCatalog() {
   }
   add("notification inbox/clear all", "notifications", [org], [["occurredAt", "DESCENDING"]], null, "users/index-audit-probe");
   for (const collection of ["branches", "users", "products", "suppliers", "inventoryLocations", "auditLogs", "roles", "bankAccounts", "taxRules", "journalEntries", "journalLines"]) add("organization-scoped client registers", collection, [org]);
+  for (const field of ["branchId", "warehouseId"]) add("selected inventory location metadata", "inventoryLocations", eq(["organizationId", field]));
   add("daily close cash evidence", "journalLines", eq(["organizationId", "branchId", "accountCode"]), [["__name__", "ASCENDING"]]);
   add("monthly budget register", "budgets", eq(["organizationId", "month", "scopeKey"]), [["__name__", "ASCENDING"]]);
   add("monthly budget revision history", "budgetRevisions", eq(["organizationId", "budgetId"]), [["__name__", "ASCENDING"]]);

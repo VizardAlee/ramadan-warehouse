@@ -22,7 +22,7 @@ import {
 import { writeAuditLog } from "../audit/write-audit-log.js";
 import { enforceAppCheck } from "../config.js";
 import { correlationId, parseInput } from "../utils/callable.js";
-import { pageInput, reconciliationInput } from "../validation/inventory.js";
+import { pageInput, reconciliationInput, stockPositionInput } from "../validation/inventory.js";
 import { uniquenessDocumentId } from "../inventory/calculations.js";
 
 function organizationWide(actor: AccessProfile) {
@@ -34,9 +34,14 @@ function organizationWide(actor: AccessProfile) {
   ].some((roleId) => hasRole(actor, roleId as Parameters<typeof hasRole>[1]));
 }
 
-function scopedQuery(query: Query, actor: AccessProfile): Query {
+function scopedQuery(query: Query, actor: AccessProfile, readOnly = false): Query {
   if (organizationWide(actor)) return query;
-  if (hasRole(actor, "warehouse_manager") || hasRole(actor, "warehouse_officer")) {
+  // requireAccess has already validated and narrowed the selected context.
+  // A branch manager keeps that existing branch authority when also assigned a
+  // warehouse role. Write/audit callers retain the legacy precedence unchanged.
+  const selectedBranchRead = readOnly && hasRole(actor, "branch_manager") &&
+    actor.branchIds.length > 0 && actor.warehouseIds.length === 0;
+  if (!selectedBranchRead && (hasRole(actor, "warehouse_manager") || hasRole(actor, "warehouse_officer"))) {
     if (actor.warehouseIds.length === 0)
       throw new HttpsError("permission-denied", "No warehouse is assigned.");
     if (actor.warehouseIds.length > 30)
@@ -62,9 +67,12 @@ function scopedQuery(query: Query, actor: AccessProfile): Query {
 function recordInScope(
   actor: AccessProfile,
   snapshot: FirebaseFirestore.DocumentSnapshot,
+  readOnly = false,
 ) {
   if (organizationWide(actor)) return true;
-  if (hasRole(actor, "warehouse_manager") || hasRole(actor, "warehouse_officer"))
+  const selectedBranchRead = readOnly && hasRole(actor, "branch_manager") &&
+    actor.branchIds.length > 0 && actor.warehouseIds.length === 0;
+  if (!selectedBranchRead && (hasRole(actor, "warehouse_manager") || hasRole(actor, "warehouse_officer")))
     return actor.warehouseIds.includes(String(snapshot.get("warehouseId")));
   if (hasRole(actor, "branch_manager"))
     return actor.branchIds.includes(String(snapshot.get("branchId")));
@@ -134,7 +142,7 @@ export const getSkuMovementHistory = onCall(
     const includeCosts =
       input.includeCosts && hasServerPermission(actor, "inventory.cost.read");
     let query = applyEntryFilters(
-      scopedQuery(db.collection("inventoryEntries"), actor),
+      scopedQuery(db.collection("inventoryEntries"), actor, true),
       input,
       actor.organizationId,
     );
@@ -178,7 +186,7 @@ export const getSerialItemHistory = onCall(
     if (
       !item.exists ||
       item.get("organizationId") !== actor.organizationId ||
-      !recordInScope(actor, item)
+      !recordInScope(actor, item, true)
     )
       throw new HttpsError("not-found", "Serialized item not found.");
     const includeCosts =
@@ -231,7 +239,7 @@ export const getProductStockSummary = onCall(
           .collection("inventoryBalances")
           .where("organizationId", "==", actor.organizationId)
           .where("productId", "==", input.productId),
-        actor,
+        actor, true,
       )
         .limit(200)
         .get(),
@@ -240,7 +248,7 @@ export const getProductStockSummary = onCall(
           .collection("serializedItems")
           .where("organizationId", "==", actor.organizationId)
           .where("productId", "==", input.productId),
-        actor,
+        actor, true,
       )
         .limit(100)
         .get(),
@@ -289,14 +297,73 @@ export const getProductStockSummary = onCall(
   },
 );
 
+/** Read-only, bounded pages. Inventory locations retain their own identities;
+ * a Store/Warehouse mapping is supplied as location IDs, never merged entity IDs.
+ * Multiple 30-ID query groups are merged by the same document-ID order. */
+async function stockPositionReport(request: CallableRequest<unknown>) {
+  const actor = await requireAccess(request);
+  requirePermission(actor, "inventory.read");
+  const input = parseInput(stockPositionInput, request.data);
+  const membership = input.view === "membership";
+  const includeCosts = !membership && input.includeCosts &&
+    hasServerPermission(actor, "inventory.cost.read");
+  const ids = input.locationIds ? [...new Set(input.locationIds)] : null;
+  const groups: (string[] | null)[] = ids
+    ? Array.from({ length: Math.ceil(ids.length / 30) }, (_, index) => ids.slice(index * 30, index * 30 + 30))
+    : [null];
+  const pages: { documents: FirebaseFirestore.QueryDocumentSnapshot[]; summary: Record<string, number> | null }[] = [];
+  // Bound concurrent reads even for unusually many physical inventory areas.
+  for (let start = 0; start < groups.length; start += 3) {
+    const batch = await Promise.all(groups.slice(start, start + 3).map(async (locationIds) => {
+      let query = scopedQuery(db.collection("inventoryBalances")
+        .where("organizationId", "==", actor.organizationId), actor, true);
+      if (input.productId) query = query.where("productId", "==", input.productId);
+      if (input.locationId) query = query.where("locationId", "==", input.locationId);
+      if (locationIds) query = query.where("locationId", "in", locationIds);
+      const summaryQuery = !membership && input.withSummary ? query.aggregate({
+        count: AggregateField.count(),
+        onHandQuantity: AggregateField.sum("onHandQuantity"),
+        reservedQuantity: AggregateField.sum("reservedQuantity"),
+        availableQuantity: AggregateField.sum("availableQuantity"),
+        valueMinor: AggregateField.sum("totalValueMinor"),
+      }) : null;
+      query = query.orderBy(FieldPath.documentId());
+      if (input.cursor) query = query.startAfter(input.cursor);
+      if (membership) query = query.select("productId");
+      const [snapshot, aggregate] = await Promise.all([query.limit(input.limit + 1).get(), summaryQuery?.get()]);
+      return {
+        documents: snapshot.docs,
+        summary: aggregate ? Object.fromEntries(Object.entries(aggregate.data()).filter(([key]) => includeCosts || key !== "valueMinor").map(([key, value]) => [key, Number(value ?? 0)])) : null,
+      };
+    }));
+    pages.push(...batch);
+  }
+  const documents = pages.flatMap((page) => page.documents)
+    .sort((left, right) => Buffer.compare(Buffer.from(left.id), Buffer.from(right.id)));
+  const visible = documents.slice(0, input.limit);
+  const summary = pages.some((page) => page.summary) ? pages.reduce<Record<string, number>>((total, page) => {
+    for (const [key, value] of Object.entries(page.summary ?? {})) total[key] = (total[key] ?? 0) + value;
+    return total;
+  }, {}) : null;
+  return {
+    reportType: "stock",
+    summary,
+    rows: membership
+      ? visible.map((document) => ({ id: document.id, productId: document.get("productId") }))
+      : visible.map((document) => serialize(document, includeCosts)),
+    nextCursor: documents.length > input.limit ? visible.at(-1)?.id ?? null : null,
+    includeCosts,
+  };
+}
+
 async function report(
   request: CallableRequest<unknown>,
-  kind: "stock" | "movement" | "valuation" | "serial",
+  kind: "movement" | "valuation" | "serial",
 ) {
   const actor = await requireAccess(request);
   requirePermission(
     actor,
-    kind === "stock" ? "inventory.read" : "reports.inventory.read",
+    "reports.inventory.read",
   );
   const input = parseInput(pageInput, request.data);
   const includeCosts =
@@ -310,7 +377,7 @@ async function report(
   let query: Query;
   if (kind === "movement") {
     query = applyEntryFilters(
-      scopedQuery(db.collection(collectionName), actor),
+      scopedQuery(db.collection(collectionName), actor, true),
       input,
       actor.organizationId,
     );
@@ -319,7 +386,7 @@ async function report(
       db
         .collection(collectionName)
         .where("organizationId", "==", actor.organizationId),
-      actor,
+      actor, true,
     );
     if (input.productId)
       query = query.where("productId", "==", input.productId);
@@ -330,7 +397,7 @@ async function report(
         input.locationId,
       );
   }
-  const summaryQuery = kind === "stock" || kind === "valuation" ? query.aggregate({
+  const summaryQuery = kind === "valuation" ? query.aggregate({
     count: AggregateField.count(),
     onHandQuantity: AggregateField.sum("onHandQuantity"),
     reservedQuantity: AggregateField.sum("reservedQuantity"),
@@ -358,7 +425,7 @@ async function report(
 }
 export const generateStockPositionReport = onCall(
   { enforceAppCheck },
-  (request) => report(request, "stock"),
+  (request) => stockPositionReport(request),
 );
 export const generateSkuMovementReport = onCall(
   { enforceAppCheck },
@@ -385,7 +452,7 @@ export const generateStockAdjustmentReport = onCall(
       db
         .collection("inventoryEntries")
         .where("organizationId", "==", actor.organizationId),
-      actor,
+      actor, true,
     )
       .where("transactionType", "==", "stock_adjustment")
       .orderBy(FieldPath.documentId());
@@ -418,7 +485,7 @@ export const generateStockCountVarianceReport = onCall(
       db
         .collection("stockCountItems")
         .where("organizationId", "==", actor.organizationId),
-      actor,
+      actor, true,
     )
       .where("variance", "!=", 0)
       .orderBy("variance")

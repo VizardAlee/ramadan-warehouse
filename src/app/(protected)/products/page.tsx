@@ -16,6 +16,8 @@ import { useDialogFocus } from "@/components/ui/use-dialog-focus";
 import { callAdministration } from "@/features/administration/api";
 import { useOrganizationCollection } from "@/features/administration/use-organization-collection";
 import { useAuth } from "@/features/auth/auth-context";
+import { hasOrganizationWideOperatingAccess } from "@/features/auth/operating-context";
+import { useLocationProductMembership } from "@/features/inventory/use-location-inventory";
 import {
   formatNaira,
   koboToNaira,
@@ -94,7 +96,12 @@ const defaults: Values = {
   active: true,
 };
 export default function ProductsPage() {
-  const { profile } = useAuth();
+  const { profile, operatingContext } = useAuth();
+  return <ProductCatalogue key={JSON.stringify([profile?.organizationId, profile?.uid, profile?.authorizationVersion, profile?.roleId, profile?.roleIds, profile?.branchIds, profile?.warehouseIds, operatingContext])} />;
+}
+
+function ProductCatalogue() {
+  const { profile, operatingContext } = useAuth();
   const products = useOrganizationCollection<Product>("products");
   const categories =
     useOrganizationCollection<ProductCategory>("productCategories");
@@ -115,7 +122,13 @@ export default function ProductsPage() {
     active: boolean;
   }>("productSalesPrices");
   const canReadInventory = Boolean(profile && hasPermission(profile, "inventory.read"));
-  const locations = useOrganizationCollection<InventoryLocation>("inventoryLocations", canReadInventory);
+  const locations = useOrganizationCollection<InventoryLocation>("inventoryLocations", canReadInventory,
+    operatingContext ? { field: operatingContext.type === "branch" ? "branchId" : "warehouseId", id: operatingContext.id } : undefined);
+  const locationScoped = canReadInventory && (Boolean(operatingContext) || !profile || !hasOrganizationWideOperatingAccess(profile));
+  const scopedInventory = useLocationProductMembership(locations, locationScoped);
+  const localProductIds = scopedInventory.productIds;
+  const loading = products.loading || scopedInventory.loading;
+  const inventoryError = scopedInventory.error;
   const [search, setSearch] = useState("");
   const [expandedProductId, setExpandedProductId] = useState<string | null>(null);
   const [tracking, setTracking] = useState("");
@@ -137,13 +150,14 @@ export default function ProductsPage() {
     () =>
       products.data.filter(
         (product) =>
+          (!locationScoped || localProductIds.has(product.id)) &&
           (!search ||
             `${product.name} ${product.sku} ${product.brand ?? ""}`
               .toLowerCase()
               .includes(search.toLowerCase())) &&
           (!tracking || product.trackingType === tracking),
       ),
-    [products.data, search, tracking],
+    [products.data, search, tracking, locationScoped, localProductIds],
   );
   const pagination = useTablePagination(filtered);
   function edit(product?: Product) {
@@ -257,17 +271,20 @@ export default function ProductsPage() {
         <div>
           <h1 className="text-3xl font-semibold">Product catalogue</h1>
           <p className="text-[var(--muted)]">
-            Organization SKUs and tracking policies.
+            {operatingContext && canReadInventory ? "Products with inventory history at the selected Store/Warehouse, including zero stock." : canReadInventory && !locationScoped ? "All locations · Organization product catalogue and tracking policies." : "Organization product catalogue and tracking policies."}
           </p>
         </div>
+        <div className="flex flex-wrap gap-2">
+          <Button variant="secondary" onClick={scopedInventory.refresh}>Refresh catalogue</Button>
         {canCreate && (
           <div className="flex flex-wrap gap-2">
             <CatalogImportDialog
-              onImported={(count, stockedRows) =>
+              onImported={(count, stockedRows) => {
+                if (stockedRows && locationScoped) scopedInventory.refresh();
                 setMessage(
                   `${count} product${count === 1 ? " was" : "s were"} imported securely.${stockedRows ? ` Opening stock posted for ${stockedRows} product${stockedRows === 1 ? "" : "s"}.` : ""}`,
-                )
-              }
+                );
+              }}
             />
             <Button onClick={() => edit()}>
               <Plus className="mr-2 size-4" />
@@ -275,6 +292,7 @@ export default function ProductsPage() {
             </Button>
           </div>
         )}
+        </div>
       </div>
       <div className="grid gap-3 rounded-xl border bg-white p-4 md:grid-cols-2">
         <label className="relative">
@@ -306,6 +324,7 @@ export default function ProductsPage() {
       {message && (
         <p className="rounded-lg bg-amber-50 p-3 text-sm">{message}</p>
       )}
+      {inventoryError && <p role="alert" className="rounded-lg bg-red-50 p-3 text-red-800">{inventoryError}</p>}
       <div className="responsive-table-wrap">
         <table className="responsive-table">
           <thead className="bg-slate-50">
@@ -328,7 +347,7 @@ export default function ProductsPage() {
             </tr>
           </thead>
           <tbody>
-            {products.loading ? (
+            {loading ? (
               <tr>
                 <td colSpan={9} className="p-8 text-center">
                   Loading…
@@ -337,7 +356,7 @@ export default function ProductsPage() {
             ) : filtered.length === 0 ? (
               <tr>
                 <td colSpan={9} className="p-8 text-center text-[var(--muted)]">
-                  No products found.
+                  {inventoryError ? "Inventory could not be loaded." : operatingContext && canReadInventory && !search && !tracking ? "No products with inventory history at this location." : "No products found."}
                 </td>
               </tr>
             ) : (
@@ -410,14 +429,14 @@ export default function ProductsPage() {
                     )}
                   </td>
                 </tr>
-                {expandedProductId === product.id && canReadInventory && <tr id={`product-history-preview-${product.id}`}><td colSpan={9} className="p-2 sm:p-3"><ProductHistoryPreview productId={product.id} productName={product.name} locations={Object.fromEntries(locations.data.map((location) => [location.id, location.name]))} reportRow={{}} /></td></tr>}
+                {expandedProductId === product.id && canReadInventory && <tr id={`product-history-preview-${product.id}`}><td colSpan={9} className="p-2 sm:p-3"><ProductHistoryPreview locationIds={locationScoped ? locations.data.filter((location) => operatingContext?.type === "branch" ? location.branchId === operatingContext.id : operatingContext?.type === "warehouse" && location.warehouseId === operatingContext.id).map((location) => location.id) : undefined} productId={product.id} productName={product.name} locations={Object.fromEntries(locations.data.map((location) => [location.id, location.name]))} reportRow={{}} /></td></tr>}
                 </Fragment>
               ))
             )}
           </tbody>
         </table>
       </div>
-      {!products.loading && filtered.length > 0 && (
+      {!loading && !inventoryError && filtered.length > 0 && (
         <PaginatedTableControls
           pagination={pagination}
           total={filtered.length}

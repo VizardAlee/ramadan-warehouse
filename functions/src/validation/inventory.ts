@@ -139,6 +139,20 @@ export const pageInput = z.object({
   limit: z.number().int().min(1).max(100).default(50),
   includeCosts: z.boolean().default(false),
 });
+
+// The selected-location view pages positions and requests only product IDs for
+// catalogue membership. Existing report callers keep their original defaults.
+export const stockPositionInput = pageInput.extend({
+  locationIds: z.array(id).min(1).max(300).optional(),
+  cursor: z.string().min(1).max(1500).refine((value) => !value.includes("/")).optional(),
+  view: z.enum(["positions", "membership"]).default("positions"),
+  limit: z.number().int().min(1).max(500).default(50),
+  withSummary: z.boolean().default(true),
+}).refine((input) => input.view === "membership" || input.limit <= 100, {
+  message: "Inventory position pages support at most 100 rows.",
+}).refine((input) => !(input.locationId && input.locationIds), {
+  message: "Choose a single inventory location or a list, not both.",
+});
 export const reconciliationInput = z.object({
   productId: id.optional(),
   locationId: id.optional(),

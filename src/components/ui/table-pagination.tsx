@@ -143,6 +143,7 @@ export function CursorTablePagination({
   page,
   pageSize,
   rowCount,
+  total,
   hasNextPage,
   loading = false,
   onPrevious,
@@ -153,6 +154,7 @@ export function CursorTablePagination({
   page: number;
   pageSize: number;
   rowCount: number;
+  total?: number;
   hasNextPage: boolean;
   loading?: boolean;
   onPrevious: () => void;
@@ -186,7 +188,7 @@ export function CursorTablePagination({
         </select>
       </div>
       <p aria-live="polite" className="text-[var(--muted)]">
-        {rowCount === 0 ? `0 ${itemLabel}` : `${start}–${end} ${itemLabel}`}
+        {rowCount === 0 ? `0 ${itemLabel}` : `${start}–${end}${total === undefined ? "" : ` of ${total}`} ${itemLabel}`}
       </p>
       <div className="flex items-center gap-2">
         <Button type="button" variant="secondary" disabled={loading || page <= 1} onClick={onPrevious}>
