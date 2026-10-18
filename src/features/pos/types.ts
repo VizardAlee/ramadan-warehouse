@@ -106,6 +106,7 @@ export interface PosCartLine extends ServiceLineDetails {
 }
 
 export interface HeldPosSale {
+  proformaId?: string;
   creditDueDate?: string;
   customerAccountId?: string;
   id: string;
@@ -138,6 +139,7 @@ export interface HeldPosSale {
 }
 
 export interface PosSalePayload {
+  proformaId?: string;
   calculationVersion?: 2;
   creditDueDate?: string;
   customerAccountId?: string;
@@ -190,6 +192,7 @@ export interface SaleDocument {
   collectionsNextCursorId?: string | null;
   collections?: Array<{
     evidenceIds?: string[];
+    dispatcherPhone?: string | null; vehiclePlate?: string | null; deliveryRecipientName?: string | null; dispatchDetailsVersion?: number;
     id: string; referenceNumber?: string; waybillNumber?: string; collector: string; collectedAt: string | null;
     releasedBy: string; releasedByName?: string; notes?: string | null; totalQuantity: number;
     lines: Array<{ saleItemId?: string; productName: string; quantity: number; serialNumbers?: string[]; sku?: string; unitOfMeasure?: string }>;

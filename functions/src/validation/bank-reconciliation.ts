@@ -7,6 +7,8 @@ export const companyFundsTransferInput = z.object({
   sourceBankAccountId: accountId,
   destinationBankAccountId: accountId,
   branchId: accountId,
+  sourceBranchId: accountId.optional(),
+  destinationBranchId: accountId.optional(),
   amountMinor: z.number().int().positive().safe(),
   transferredAt: z.string().datetime(),
   reference: z.string().trim().min(2).max(160),
@@ -22,6 +24,7 @@ export const bankWorkspaceInput = z.object({
 });
 
 export const saveBankAccountInput = z.object({
+  branchId: accountId.nullable().optional(),
   bankAccountId: z.string().trim().min(1).max(180).optional(),
   bankName: z.string().trim().min(2).max(120),
   accountName: z.string().trim().min(2).max(160),

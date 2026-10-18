@@ -392,7 +392,7 @@ export const recordAftersalesPayment = onCall(
           throw new HttpsError("failed-precondition", "The original receipt journal requires reconciliation before refunding.");
       } else if (current!.get("chargeStatus") === "not_quoted" || input.amountMinor > outstanding || outstanding <= 0 || current!.get("status") === "cancelled")
         throw new HttpsError("failed-precondition", "The service has no payable balance for this amount.");
-      const settlement = resolveSettlementAccount(actor.organizationId, input.method, input.bankAccountId, accountSnapshot);
+      const settlement = resolveSettlementAccount(actor.organizationId, input.method, input.bankAccountId, accountSnapshot, { branchId: String(current!.get("branchId")) });
       if (!/^10\d{2}$/.test(settlement.accountCode))
         throw new HttpsError("failed-precondition", "The selected payout or receiving account must be a company cash/bank ledger account.");
       const sequence = Number(counterSnapshot!.get("value") ?? 0) + 1;

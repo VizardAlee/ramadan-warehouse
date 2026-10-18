@@ -288,7 +288,7 @@ export const createSaleReturn = onCall({ enforceAppCheck }, async (request) => {
       return;
     }
     if (refundMethod === "card" || refundMethod === "bank_transfer")
-      resolveSettlementAccount(actor.organizationId, refundMethod, input.bankAccountId, bankAccountSnapshot);
+      resolveSettlementAccount(actor.organizationId, refundMethod, input.bankAccountId, bankAccountSnapshot, { branchId: input.branchId });
     const items = snapshots.slice(1, 1 + input.lines.length);
     const counters = snapshots.slice(1 + input.lines.length);
     const saleSerials = await readSaleSerials(transaction, { organizationId: actor.organizationId, locationId: String(sale.get("locationId")), saleId: sale.id }, input.lines.map((line, index) => ({ ...line, productId: String(items[index]!.get("productId")), trackingType: String(items[index]!.get("trackingType")) })), input.kind === "reservation_cancellation" ? "cancel" : "return");
@@ -680,7 +680,7 @@ export const approveSaleReturn = onCall(
       if (current.get("bankAccountId") && input.bankAccountId && current.get("bankAccountId") !== input.bankAccountId)
         throw new HttpsError("invalid-argument", "The refund account must match the submitted return.");
       const settlement = fundingMethod === "card" || fundingMethod === "bank_transfer"
-        ? resolveSettlementAccount(actor.organizationId, fundingMethod, refundBankAccountId || undefined, bankAccountSnapshot)
+        ? resolveSettlementAccount(actor.organizationId, fundingMethod, refundBankAccountId || undefined, bankAccountSnapshot, { branchId: String(current.get("branchId")) })
         : null;
       const refundAccount = settlement ? { code: settlement.accountCode, name: settlement.accountName } : refundAccounts[fundingMethod]!;
       const journalLines: BillingJournalLine[] = [

@@ -1,5 +1,6 @@
 "use client";
 
+import { ReleaseNotes } from "@/features/releases/release-notes";
 import { ThemeSwitch } from "@/features/theme/theme-switch";
 
 import {
@@ -53,10 +54,12 @@ import { CeoViewSwitch } from "@/features/dashboard/ceo-switch";
 const navigation = [
   { href: "/dashboard", label: "Dashboard", icon: Gauge, permissions: [] },
   { href: "/pos", label: "POS", icon: ShoppingCart, permissions: ["sales.create", "sales.order.create", "sales.payment.accept", "sales.payment.confirm", "sales.stock.release"] },
+  { href: "/proformas", label: "Proformas", icon: ReceiptText, permissions: ["sales.order.create", "sales.read.own_branch", "sales.read.all"] },
   { href: "/invoices", label: "Invoice History", icon: ReceiptText, permissions: ["reports.sales.read"] },
   { href: "/customers", label: "Customers", icon: ContactRound, permissions: ["customers.read"] },
   { href: "/returns", label: "Returns", icon: RotateCcw, permissions: ["sales.returns.read"] },
   { href: "/aftersales", label: "Aftersales", icon: Wrench, permissions: ["sales.returns.read"] },
+  { href: "/suppliers", label: "Dealers / Suppliers", icon: ContactRound, permissions: ["procurement.read"] },
   { href: "/procurement", label: "Purchasing", icon: ShoppingBasket, permissions: ["procurement.read", "payables.read"] },
   { href: "/expenses", label: "Expenses", icon: HandCoins, permissions: ["expenses.read"] },
   { href: "/banking", label: "Banking", icon: Landmark, permissions: ["banking.read"] },
@@ -76,9 +79,9 @@ const navigation = [
   { href: "/guide", label: "User guide", icon: CircleHelp, permissions: [] },
 ] as const;
 const navigationGroups = [
-  { label: "Sales & customers", hrefs: ["/pos", "/invoices", "/customers", "/returns", "/aftersales"] },
+  { label: "Sales & customers", hrefs: ["/pos", "/proformas", "/invoices", "/customers", "/returns", "/aftersales"] },
   { label: "Stock & movement", hrefs: ["/products", "/inventory", "/requests", "/transfers", "/daily-reconciliation"] },
-  { label: "Purchasing", hrefs: ["/procurement", "/costs"] },
+  { label: "Purchasing", hrefs: ["/suppliers", "/procurement", "/costs"] },
   { label: "Money & accounts", hrefs: ["/expenses", "/banking", "/finance", "/accounting", "/tax"] },
   { label: "Insights", hrefs: ["/reports", "/audit"] },
   { label: "People & settings", hrefs: ["/administration", "/hr", "/guide"] },
@@ -429,6 +432,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           </div>
         )}
         <main className="min-w-0 px-[var(--page-gutter)] py-[clamp(1rem,2.4vw,2rem)] pb-[calc(5.5rem+env(safe-area-inset-bottom))] xl:pb-8">
+          <ReleaseNotes />
           <div key={contextValue || "organization"} className="app-view"><ActionGuidanceProvider pathname={pathname} profile={profile}><WorkspacePrerequisites />{children}</ActionGuidanceProvider></div>
         </main>
         <nav

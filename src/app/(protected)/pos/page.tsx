@@ -49,6 +49,7 @@ import {
   provisionalReceiptReference,
   reconcileHeldCart,
 } from "@/features/pos/calculations";
+import { ProformaLoader } from "@/features/pos/proforma-loader";
 import { SaleDocumentDialog } from "@/features/pos/sale-document";
 import { CollectionQueue } from "@/features/pos/collection-queue";
 import { usePosOrderReceive } from "@/features/pos/use-pos-order-receive";
@@ -117,6 +118,7 @@ export default function PosPage() {
   const receivedOrder = usePosOrderReceive(`${profile?.organizationId ?? "loading"}:${user?.uid ?? "loading"}`);
   const [manualBranchId, setManualBranchId] = useState("");
   const [workspace, setWorkspace] = useState<PosWorkspace | null>(null);
+  const [proformaId, setProformaId] = useState<string>();
   const [cart, setCart] = useState<PosCartLine[]>([]);
   const [heldSales, setHeldSales] = useState<HeldPosSale[]>([]);
   const [queued, setQueued] = useState<QueuedPosSale[]>([]);
@@ -473,7 +475,7 @@ export default function PosPage() {
   }
 
   function resetSaleDraft() {
-    setCart([]);
+    setCart([]); setProformaId(undefined);
     setSalePriceProductId(null);
     setPaymentMethod("cash");
     setPaymentReference("");
@@ -527,6 +529,7 @@ export default function PosPage() {
         creditUpfrontMethod,
         splitPayments: paymentMethod === "split" ? splitPayments : undefined,
         splitAllowCredit: paymentMethod === "split" ? splitAllowCredit : undefined,
+        ...(proformaId ? { proformaId } : {}),
         grossAmountMinor: totals.grossAmountMinor,
         totalQuantity: totals.totalQuantity,
         createdAt: now,
@@ -593,7 +596,7 @@ export default function PosPage() {
       restoredDiscountAmount = "";
       restoredDiscountReason = "";
     }
-    setCart(restored.lines);
+    setCart(restored.lines); setProformaId(heldSale.proformaId);
     setCustomerId(customerStillAvailable ? heldSale.customerId ?? "" : "");
     setCustomerAccountId(customerStillAvailable ? heldSale.customerAccountId ?? "general" : "general");
     setPaymentMethod(restoredPaymentMethod);
@@ -735,6 +738,7 @@ export default function PosPage() {
       amountToAllocateMinor < 0
     )
       return;
+    if (proformaId && !online) { setError("Proforma conversion requires online price, customer and stock checks."); return; }
     if (cart.some(line => line.product.itemKind === "service") && !online) { setError("Services and mixed billing require online confirmation."); return; }
     if (cart.some(line => line.serviceCase && !line.caseVerified)) { setError("Refresh every linked case before receiving this order."); return; }
     if (cart.some((line) => line.sellingPriceMinor !== undefined &&
@@ -829,6 +833,7 @@ export default function PosPage() {
       amountToAllocateMinor,
     );
     const payload: PosSalePayload = {
+      ...(proformaId ? { proformaId } : {}),
       calculationVersion: 2,
       branchId: workspace.branch.id,
       shiftId: workspace.openShift.id,
@@ -1480,6 +1485,13 @@ export default function PosPage() {
       ) : (
         <div className={styles.saleLayout}>
           <section id="pos-catalogue" className={`${styles.catalogue} scroll-mt-40 space-y-4`}>
+            <ProformaLoader branchId={selectedBranchId} online={online} disabled={cart.length > 0 || Boolean(receivedOrder.pending) || !receivedOrder.ready || !canReceiveOrder} queued={queuedQuantityByProduct} onLoad={(quote, fresh) => {
+              if (cart.length || receivedOrder.pending || !receivedOrder.ready || fresh.branch.id !== selectedBranchId) { setError("Keep the current basket/order; finish or hold it before loading a proforma."); return false; }
+              try {
+                const lines = quote.lines.map(line => ({ product: productForPriceTier(fresh.products.find(product => product.id === line.productId)!, line.priceTier), quantity: line.quantity, priceTier: line.priceTier }));
+                setWorkspace(fresh); setCart(lines); setProformaId(quote.id); setCustomerId(quote.customerId ?? ""); setCustomerAccountId("general"); setDiscountAmount(String(quote.discountAmountMinor / 100)); setDiscountReason(quote.discountReason ?? ""); setPaymentMethod("cash"); setSplitPayments([]); setPaymentReference(""); setPaymentBankAccountId(""); setCartOpen(true); setError(null); return true;
+              } catch (cause) { setError(cause instanceof Error ? cause.message : "Current catalogue prices could not be loaded."); return false; }
+            }} />
             <div className="glass-panel rounded-2xl p-4">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>

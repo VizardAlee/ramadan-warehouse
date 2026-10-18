@@ -92,6 +92,9 @@ describe.sequential("trusted manual journal workflow", () => {
     await db.doc("bankAccounts/journal-shared-code").set({ organizationId, active: true, accountName: "Ambiguous bank", ledgerAccountCode: "1031" });
     await expect(call(value)).rejects.toMatchObject({ code: "functions/failed-precondition" });
     await db.doc("bankAccounts/journal-shared-code").update({ active: false });
+    await db.doc("bankAccounts/journal-bank").update({ branchId: "another-store" });
+    await expect(call(value)).rejects.toMatchObject({ code: "functions/failed-precondition" });
+    await db.doc("bankAccounts/journal-bank").update({ branchId });
     const posted = await call<{ journalEntryId: string }>(value);
     const moneyLines = await db.collection("journalLines").where("journalEntryId", "==", posted.journalEntryId).get();
     expect(moneyLines.docs.find(line => line.get("accountCode") === "1031")?.get("bankAccountId")).toBe("journal-bank");

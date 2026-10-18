@@ -38,6 +38,7 @@ export const recordCompanyFundsTransfer = onCall({ enforceAppCheck }, async (req
   const fingerprint = createHash("sha256").update(JSON.stringify(input)).digest("hex");
   const operation = db.doc(`idempotencyOperations/${uniquenessDocumentId(actor.organizationId, "recordCompanyFundsTransfer", input.idempotencyKey)}`);
   const journal = db.collection("journalEntries").doc();
+  const destinationJournal = db.collection("journalEntries").doc();
   const counter = db.doc(`journalCounters/${uniquenessDocumentId(actor.organizationId, "general")}`);
   const referenceNumber = `FTR-${input.idempotencyKey.replaceAll("-", "").slice(0, 16).toUpperCase()}`;
   return db.runTransaction(async transaction => {
@@ -45,7 +46,7 @@ export const recordCompanyFundsTransfer = onCall({ enforceAppCheck }, async (req
     if (previous.exists) {
       if (previous.get("organizationId") !== actor.organizationId || previous.get("fingerprint") !== fingerprint)
         throw new HttpsError("failed-precondition", "This retry key belongs to a different transfer. Retry the original instructions.");
-      return { journalEntryId: String(previous.get("journalEntryId")), journalNumber: String(previous.get("journalNumber")), referenceNumber, posted: true };
+      return { journalEntryId: String(previous.get("journalEntryId")), journalNumber: String(previous.get("journalNumber")), referenceNumber, posted: true, ...(previous.get("destinationJournalEntryId") ? { destinationJournalEntryId: previous.get("destinationJournalEntryId"), destinationJournalNumber: previous.get("destinationJournalNumber") } : {}) };
     }
     const [source, destination, period, sequence, branch] = await Promise.all([
       db.doc(`bankAccounts/${input.sourceBankAccountId}`), db.doc(`bankAccounts/${input.destinationBankAccountId}`),
@@ -56,28 +57,31 @@ export const recordCompanyFundsTransfer = onCall({ enforceAppCheck }, async (req
     if (!branch.exists || branch.get("organizationId") !== actor.organizationId || branch.get("status") === "inactive")
       throw new HttpsError("failed-precondition", "Select an active store for the transfer record.");
     assertAccountingPeriodOpen(period);
-    const from = resolveSettlementAccount(actor.organizationId, "bank_transfer", source.id, source);
-    const to = resolveSettlementAccount(actor.organizationId, "bank_transfer", destination.id, destination);
+    const sourceBranchId = String(source.get("branchId") || input.sourceBranchId || input.branchId), destinationBranchId = String(destination.get("branchId") || input.destinationBranchId || input.branchId);
+    if (input.branchId !== sourceBranchId || (input.sourceBranchId && input.sourceBranchId !== sourceBranchId) || (input.destinationBranchId && input.destinationBranchId !== destinationBranchId))
+      throw new HttpsError("invalid-argument", "Recording/source and destination stores must match the actual account owners. Company-wide accounts need the intended store attribution.");
+    requireBranchScope(actor, sourceBranchId); requireBranchScope(actor, destinationBranchId);
+    const ownerBranches = await transaction.getAll(...[...new Set([sourceBranchId, destinationBranchId])].map(id => db.doc(`branches/${id}`)));
+    if (ownerBranches.some(row => !row.exists || row.get("organizationId") !== actor.organizationId || row.get("status") !== "active")) throw new HttpsError("failed-precondition", "Choose active company stores for both sides of the transfer.");
+    const from = resolveSettlementAccount(actor.organizationId, "bank_transfer", source.id, source, { branchId: sourceBranchId });
+    const to = resolveSettlementAccount(actor.organizationId, "bank_transfer", destination.id, destination, { branchId: destinationBranchId });
     if (!/^10\d{2}$/.test(from.accountCode) || !/^10\d{2}$/.test(to.accountCode) || from.accountCode === to.accountCode)
       throw new HttpsError("failed-precondition", "The company accounts must have distinct configured money-ledger codes.");
-    const journalNumber = writeJournal(transaction, actor, {
-      journal, journalCounter: counter, journalCounterValue: Number(sequence.get("value") ?? 0) + 1,
-      journalType: "internal_funds_transfer", referenceType: "companyFundsTransfer", referenceId: journal.id,
-      referenceNumber, description: `Company funds transfer · ${input.reference}`, branchId: input.branchId, effectiveAt,
-      details: { sourceBankAccountId: source.id, destinationBankAccountId: destination.id, sourceAccountName: from.accountName,
-        destinationAccountName: to.accountName, amountMinor: input.amountMinor, bankReference: input.reference, reason: input.reason,
-        confirmedCompleted: true },
-      lines: [ { accountCode: to.accountCode, accountName: to.accountName, debitMinor: input.amountMinor, creditMinor: 0 },
-        { accountCode: from.accountCode, accountName: from.accountName, debitMinor: 0, creditMinor: input.amountMinor } ],
-    });
+    const crossBranch = sourceBranchId !== destinationBranchId, sequenceNumber = Number(sequence.get("value") ?? 0) + 1;
+    const details = { sourceBankAccountId: source.id, destinationBankAccountId: destination.id, sourceAccountName: from.accountName, destinationAccountName: to.accountName, sourceBranchId, destinationBranchId, amountMinor: input.amountMinor, bankReference: input.reference, reason: input.reason, confirmedCompleted: true, bankFeesExcludedFromThisTransfer: true };
+    const sourceLines = crossBranch
+      ? [{ accountCode: "1380", accountName: "Interbranch funds clearing", debitMinor: input.amountMinor, creditMinor: 0 }, { accountCode: from.accountCode, accountName: from.accountName, bankAccountId: source.id, debitMinor: 0, creditMinor: input.amountMinor }]
+      : [{ accountCode: to.accountCode, accountName: to.accountName, bankAccountId: destination.id, debitMinor: input.amountMinor, creditMinor: 0 }, { accountCode: from.accountCode, accountName: from.accountName, bankAccountId: source.id, debitMinor: 0, creditMinor: input.amountMinor }];
+    const journalNumber = writeJournal(transaction, actor, { journal, journalCounter: counter, journalCounterValue: sequenceNumber, journalType: "internal_funds_transfer", referenceType: "companyFundsTransfer", referenceId: journal.id, referenceNumber, description: `Company funds transfer · ${input.reference}`, branchId: sourceBranchId, effectiveAt, details, lines: sourceLines });
+    const destinationJournalNumber = crossBranch ? writeJournal(transaction, actor, { journal: destinationJournal, journalCounter: counter, journalCounterValue: sequenceNumber + 1, journalType: "internal_funds_transfer", referenceType: "companyFundsTransfer", referenceId: journal.id, referenceNumber, description: `Company funds transfer received · ${input.reference}`, branchId: destinationBranchId, effectiveAt, details, lines: [{ accountCode: to.accountCode, accountName: to.accountName, bankAccountId: destination.id, debitMinor: input.amountMinor, creditMinor: 0 }, { accountCode: "1380", accountName: "Interbranch funds clearing", debitMinor: 0, creditMinor: input.amountMinor }] }) : undefined;
     transaction.create(operation, { organizationId: actor.organizationId, fingerprint, journalEntryId: journal.id, journalNumber,
-      referenceNumber, actorUserId: actor.userId, createdAt: FieldValue.serverTimestamp() });
+      referenceNumber, ...(destinationJournalNumber ? { destinationJournalEntryId: destinationJournal.id, destinationJournalNumber } : {}), actorUserId: actor.userId, createdAt: FieldValue.serverTimestamp() });
     writeAuditLog(transaction, actor, { action: "banking.funds_transferred", entityType: "journalEntry", entityId: journal.id,
       correlationId: correlationId(), sourceFunction: "recordCompanyFundsTransfer", reason: input.reason,
       after: { referenceNumber, journalNumber, sourceBankAccountId: source.id, destinationBankAccountId: destination.id,
         sourceAccountName: from.accountName, destinationAccountName: to.accountName,
-        branchId: input.branchId, amountMinor: input.amountMinor, bankReference: input.reference } });
-    return { journalEntryId: journal.id, journalNumber, referenceNumber, posted: true };
+        branchId: sourceBranchId, destinationBranchId, amountMinor: input.amountMinor, bankReference: input.reference } });
+    return { journalEntryId: journal.id, journalNumber, referenceNumber, posted: true, ...(destinationJournalNumber ? { destinationJournalEntryId: destinationJournal.id, destinationJournalNumber } : {}) };
   });
 });
 
@@ -182,13 +186,15 @@ export const getBankReconciliationWorkspace = onCall(
       .collection("bankAccounts")
       .where("organizationId", "==", actor.organizationId)
       .get();
+    const stores = await db.collection("branches").where("organizationId", "==", actor.organizationId).where("status", "==", "active").get();
+    const branches = stores.docs.map(row => ({ id: row.id, name: row.get("name") }));
     const accounts = accountsSnapshot.docs.map((document) => ({
       id: document.id,
       ...document.data(),
     }));
     if (!input.bankAccountId)
       return {
-        accounts,
+        accounts, branches,
         statementTransactions: [],
         journalLines: [],
         reconciliations: [],
@@ -218,7 +224,7 @@ export const getBankReconciliationWorkspace = onCall(
         .get(),
     ]);
     return {
-      accounts,
+      accounts, branches,
       statementTransactions: statements.docs
         .sort((a, b) =>
           String(b.get("transactionDate")).localeCompare(
@@ -275,11 +281,19 @@ export const saveBankAccount = onCall({ enforceAppCheck }, async (request) => {
         "already-exists",
         "That bank ledger code is already assigned to another account.",
       );
+    const ownerBranchId = input.branchId === undefined ? current.get("branchId") ?? null : input.branchId;
+    if (current.get("branchId") && current.get("branchId") !== ownerBranchId) throw new HttpsError("failed-precondition", "An assigned bank account cannot be reassigned to another store. Create a separate account/ledger and record an authorized transfer instead.");
+    if (ownerBranchId) {
+      requireBranchScope(actor, ownerBranchId);
+      const owner = await transaction.get(db.doc(`branches/${ownerBranchId}`));
+      if (!owner.exists || owner.get("organizationId") !== actor.organizationId || owner.get("status") !== "active") throw new HttpsError("failed-precondition", "Choose an active company store as the bank account owner.");
+    }
     const now = FieldValue.serverTimestamp();
     transaction.set(
       account,
       clean({
         organizationId: actor.organizationId,
+        branchId: ownerBranchId,
         bankName: input.bankName,
         accountName: input.accountName,
         accountNumberLast4: input.accountNumberLast4,
@@ -307,7 +321,9 @@ export const saveBankAccount = onCall({ enforceAppCheck }, async (request) => {
       entityId: account.id,
       correlationId: correlationId(),
       sourceFunction: "saveBankAccount",
+      before: { branchId: current.get("branchId") ?? null },
       after: {
+        branchId: ownerBranchId,
         bankName: input.bankName,
         accountNumberLast4: input.accountNumberLast4,
         ledgerAccountCode: input.ledgerAccountCode,

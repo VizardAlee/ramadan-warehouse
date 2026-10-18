@@ -1,4 +1,6 @@
+import { dispatchDetailsShape } from "./dispatch-details.js";
 import { z } from "zod";
+import { accountTenderInput, refineAccountTenders } from "./account-tenders.js";
 
 const saleSerialNumbers = z.array(z.string().trim().min(1).max(160)).max(50).optional();
 
@@ -99,6 +101,7 @@ export const customerPaymentInput = z.object({
   method: z.enum(["cash", "card", "bank_transfer"]),
   bankAccountId: id.optional(),
   amountMinor: positiveMoney,
+  tenders: z.array(accountTenderInput).min(1).max(20).optional(),
   purpose: z.enum(["repayment", "advance", "advance_refund"]).default("repayment"),
   source: z.enum(["receipt", "advance_balance"]).default("receipt"),
   invoiceAllocations: z.array(z.object({ saleId: id, amountMinor: positiveMoney })).min(1).max(50).optional(),
@@ -107,6 +110,9 @@ export const customerPaymentInput = z.object({
   notes: z.string().trim().max(500).optional(),
   idempotencyKey: z.string().uuid(),
 }).superRefine((value, context) => {
+  refineAccountTenders(value.tenders, value.amountMinor, context);
+  if (value.tenders && (value.source === "advance_balance" || value.bankAccountId))
+    context.addIssue({ code: "custom", path: ["tenders"], message: "Apply an existing deposit separately; select each money account inside its payment part." });
   if (value.invoiceAllocations && (new Set(value.invoiceAllocations.map((item) => item.saleId)).size !== value.invoiceAllocations.length || value.invoiceAllocations.reduce((sum, item) => sum + item.amountMinor, 0) > value.amountMinor))
     context.addIssue({ code: "custom", path: ["invoiceAllocations"], message: "Use each invoice once without exceeding the payment total." });
   if ((value.purpose === "advance" && (value.source !== "receipt" || value.invoiceAllocations)) || (value.source === "advance_balance" && value.bankAccountId))
@@ -116,9 +122,9 @@ export const customerPaymentInput = z.object({
       context.addIssue({ code: "custom", path: ["source"], message: "An advance refund pays unused funds back; it cannot repay an invoice." });
     if (!value.notes || value.notes.length < 5)
       context.addIssue({ code: "custom", path: ["notes"], message: "Explain why this unused advance is being refunded." });
-    if (value.method !== "cash" && (!value.bankAccountId || !value.reference || value.reference.length < 3))
+    if (!value.tenders && value.method !== "cash" && (!value.bankAccountId || !value.reference || value.reference.length < 3))
       context.addIssue({ code: "custom", path: ["reference"], message: "Select the paying company account and provide the actual refund reference." });
-    if (value.method === "cash" && value.bankAccountId)
+    if (!value.tenders && value.method === "cash" && value.bankAccountId)
       context.addIssue({ code: "custom", path: ["bankAccountId"], message: "A cash refund cannot debit a bank account." });
   }
   if (value.allocations && (new Set(value.allocations.map((item) => item.accountId)).size !== value.allocations.length || value.allocations.reduce((sum, item) => sum + item.amountMinor, 0) !== value.amountMinor))
@@ -126,7 +132,8 @@ export const customerPaymentInput = z.object({
 });
 
 export const customerHistoryInput = z.object({
-  view: z.enum(["activity", "receivables", "statement"]).default("activity"),
+  view: z.enum(["activity", "receivables", "statement", "payment_receipt"]).default("activity"),
+  paymentId: id.refine(value => !value.includes("/"), "Invalid payment reference.").optional(),
   includeSummary: z.boolean().default(true),
   customerId: id,
   customerAccountId: id.optional(),
@@ -140,6 +147,7 @@ export const customerHistoryInput = z.object({
     account: z.string().regex(/^[A-Za-z0-9_-]{1,128}$/).optional(),
   }).optional(),
 }).superRefine((value, context) => {
+  if (value.view === "payment_receipt" && !value.paymentId) context.addIssue({ code: "custom", path: ["paymentId"], message: "Choose the recorded payment." });
   if (value.fromDate && value.toDate && value.fromDate > value.toDate)
     context.addIssue({ code: "custom", path: ["toDate"], message: "The end date cannot be before the start date." });
 });
@@ -273,6 +281,7 @@ export const approveSaleReturnInput = z.object({
 });
 
 export const commitSaleInput = z.object({
+  proformaId: id.refine(value => !value.includes("/"), "Invalid proforma reference.").optional(),
   // Absence preserves the method used by existing queued and received orders.
   calculationVersion: z.literal(2).optional(),
   branchId: id,
@@ -410,6 +419,7 @@ export const collectSaleInput = z.object({
   saleId: id,
   lines: z.array(z.object({ saleItemId: id, quantity: z.number().int().positive().max(1000000), serialNumbers: saleSerialNumbers })).min(1).max(50),
   collector: z.string().trim().min(2).max(120),
+  ...dispatchDetailsShape,
   evidenceIds: z.array(id).max(5).optional().refine(value => !value || new Set(value).size === value.length, "Choose each collection photo once."),
   notes: z.string().trim().max(500).optional(),
   idempotencyKey: z.string().uuid(),

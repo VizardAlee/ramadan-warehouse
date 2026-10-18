@@ -136,6 +136,7 @@ export const accountingJournals = onCall({ enforceAppCheck }, async request => {
         const bank = banks[index];
         if (/^10\d{2}$/.test(accountCode) && accountCode !== "1010") {
           if (!bank?.exists || bank.get("organizationId") !== actor.organizationId || bank.get("active") !== true || bank.get("ledgerAccountCode") !== accountCode) fail("Select the active company financial account for this money line.");
+          if (bank!.get("branchId") && bank!.get("branchId") !== input.branchId) fail("This company account belongs to another store. Record it in its owning store; use Company funds transfer for a cross-store movement.");
           if (moneyAccounts.get(accountCode)?.size !== 1) fail("This ledger code is shared by multiple financial accounts. Give each account its own code before posting manual money entries.");
           bankEvidence.push({ bankAccountId: bank!.id, accountCode, accountName: String(bank!.get("accountName")) });
         } else if (line.bankAccountId) fail("A financial account was supplied for a non-bank ledger line.");

@@ -1,19 +1,32 @@
 "use client";
 
 import Image from "next/image";
+import { useState } from "react";
+import { useAuth } from "@/features/auth/auth-context";
+import { hasPermission } from "@/lib/permissions/roles";
+import { DispatchDetailsForm, type DispatchDetails } from "./dispatch-details-form";
 import { Printer } from "lucide-react";
+import { useDialogFocus } from "@/components/ui/use-dialog-focus";
 import { AppDialog } from "@/components/ui/app-dialog";
 import { Button } from "@/components/ui/button";
 import type { SaleDocument } from "./types";
 
-export function CollectionWaybill({ document, collection, onBack, onClose }: {
+export function CollectionWaybill({ document, collection, onBack, onClose, onUpdated, backLabel = "Back to invoice" }: {
   document: SaleDocument;
   collection: NonNullable<SaleDocument["collections"]>[number];
   onBack: () => void;
   onClose: () => void;
+  onUpdated?: (details: DispatchDetails) => void;
+  backLabel?: string;
 }) {
+  const { profile } = useAuth();
+  const canEdit = Boolean(document.official && profile && hasPermission(profile, "sales.stock.release"));
+  const [editing, setEditing] = useState(false);
+  const dialogRef = useDialogFocus<HTMLElement>(true, editing ? undefined : onClose);
+  const [details, setDetails] = useState<DispatchDetails>(collection);
+  function saved(value: DispatchDetails) { setDetails(value); setEditing(false); onUpdated?.(value); }
   return <AppDialog role="dialog" aria-modal="true" aria-label="Collection waybill" data-sale-document-overlay>
-    <section className="app-dialog-panel max-w-3xl rounded-2xl bg-white shadow-2xl" data-print-document>
+    <section ref={dialogRef} className="app-dialog-panel max-w-3xl rounded-2xl bg-white shadow-2xl" data-print-document>
       <div className="space-y-6 p-5 sm:p-8">
         <header className="flex items-start gap-4 border-b-2 border-[var(--brand)] pb-5">
           <Image src="/abr-logo.jpg" alt="AB Ramadan logo" width={64} height={76} className="h-20 w-16 object-contain" />
@@ -31,6 +44,12 @@ export function CollectionWaybill({ document, collection, onBack, onClose }: {
           <div><h3 className="font-bold">Released from</h3><p>{document.branch.name}</p><p>{[document.branch.address, document.branch.state].filter(Boolean).join(", ")}</p><p>Releasing staff: {collection.releasedByName || "Authorized staff"}</p></div>
           <div><h3 className="font-bold">Customer / destination</h3><p>{document.sale.customerName || "Walk-in customer"}</p><p>{document.sale.customerPhone}</p><p>{document.sale.customerAddress || "Collected at store"}</p><p className="mt-2">Collected by: <strong>{collection.collector}</strong></p></div>
         </section>
+        <section className="grid min-w-0 gap-3 [overflow-wrap:anywhere] rounded-xl border p-4 text-sm sm:grid-cols-3" aria-label="Dispatch details">
+          <div><h3 className="font-bold">Dispatcher phone</h3><p>{details.dispatcherPhone || "Not recorded"}</p></div>
+          <div><h3 className="font-bold">Vehicle plate</h3><p>{details.vehiclePlate || "Not recorded"}</p></div>
+          <div><h3 className="font-bold">Delivery recipient</h3><p>{details.deliveryRecipientName || "Not recorded"}</p></div>
+        </section>
+        {canEdit && (editing ? <DispatchDetailsForm saleId={document.sale.id} collection={{ ...collection, ...details }} onSaved={saved} onCancel={() => setEditing(false)} /> : <Button variant="outline" data-no-print onClick={() => setEditing(true)}>Edit dispatch details</Button>)}
         <div className="overflow-x-auto">
           <table className="w-full text-left text-sm">
             <thead className="border-y-2 border-slate-700"><tr><th className="py-3 pr-3">No.</th><th className="py-3 pr-3">Goods handed over</th><th className="py-3 text-right">Quantity</th></tr></thead>
@@ -43,7 +62,7 @@ export function CollectionWaybill({ document, collection, onBack, onClose }: {
         <div className="grid grid-cols-2 gap-8 pt-10 text-sm"><div className="border-t pt-2">Released by — signature</div><div className="border-t pt-2">Received by — signature</div></div>
       </div>
       <footer className="flex flex-wrap justify-end gap-3 border-t p-5" data-no-print>
-        <Button variant="outline" onClick={onBack}>Back to invoice</Button><Button variant="secondary" onClick={onClose}>Close</Button><Button onClick={() => window.print()}><Printer className="mr-2 size-4" />Print waybill / save PDF</Button>
+        <Button variant="outline" disabled={editing} onClick={onBack}>{backLabel}</Button><Button variant="secondary" disabled={editing} onClick={onClose}>Close</Button><Button disabled={editing} disabledReason="Save or cancel editing before printing the recorded dispatch details." onClick={() => window.print()}><Printer className="mr-2 size-4" />Print waybill / save PDF</Button>
       </footer>
     </section>
   </AppDialog>;

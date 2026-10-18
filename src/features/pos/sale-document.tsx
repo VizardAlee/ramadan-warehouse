@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { AppDialog } from "@/components/ui/app-dialog";
 import { formatNaira } from "@/features/inventory/format";
 import type { SaleDocument } from "@/features/pos/types";
+import { SaleWaybills } from "./sale-waybills";
 import { CollectionWaybill } from "./collection-waybill";
 import { CollectionPhotoViewer } from "./collection-photos";
 import { useAuth } from "@/features/auth/auth-context";
@@ -41,6 +42,7 @@ function SaleDocumentContent({ document, onClose }: { document: SaleDocument; on
     window.addEventListener("beforeprint", fit);
     return () => window.removeEventListener("beforeprint", fit);
   }, []);
+  const [waybillSelector, setWaybillSelector] = useState(false);
   const [waybillId, setWaybillId] = useState<string | null>(null);
   const [page, setPage] = useState(document);
   const [cursors, setCursors] = useState<Array<string | undefined>>([undefined]);
@@ -68,7 +70,8 @@ function SaleDocumentContent({ document, onClose }: { document: SaleDocument; on
     } finally { flight.current = false; if (mounted.current) setBusy(false); }
   }
   const selectedCollection = document.official ? page.collections?.find((collection) => collection.id === waybillId) : undefined;
-  if (selectedCollection) return <CollectionWaybill document={document} collection={selectedCollection} onBack={() => setWaybillId(null)} onClose={onClose} />;
+  if (waybillSelector) return <SaleWaybills document={page} onClose={() => setWaybillSelector(false)} onUpdated={(id, details) => setPage(previous => ({ ...previous, collections: previous.collections?.map(row => row.id === id ? { ...row, ...details } : row) }))} />;
+  if (selectedCollection) return <CollectionWaybill document={document} collection={selectedCollection} onBack={() => setWaybillId(null)} onClose={onClose} onUpdated={details => setPage(previous => ({ ...previous, collections: previous.collections?.map(row => row.id === selectedCollection.id ? { ...row, ...details } : row) }))} />;
   const issuedAt = document.sale.recordedAt
     ? new Date(document.sale.recordedAt).toLocaleString("en-NG", {
         dateStyle: "medium",
@@ -336,6 +339,7 @@ function SaleDocumentContent({ document, onClose }: { document: SaleDocument; on
           data-no-print
         >
           {document.official && profile && hasPermission(profile, "expenses.create") && hasPermission(profile, "expenses.read") && <Link className="self-center text-sm font-semibold underline" href={`/expenses?saleId=${encodeURIComponent(document.sale.id)}&branchId=${encodeURIComponent(document.branch.id)}`}>Record delivery / service provider cost</Link>}
+          {document.official && <Button variant="outline" onClick={() => setWaybillSelector(true)}>Print waybill</Button>}
           <Button variant="secondary" onClick={onClose}>
             Close
           </Button>

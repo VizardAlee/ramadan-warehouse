@@ -16,6 +16,7 @@ export function resolveSettlementAccount(
   method: SettlementMethod,
   bankAccountId: string | undefined,
   bankAccount: FirebaseFirestore.DocumentSnapshot | undefined,
+  scope: { branchId?: string } = {},
 ): ResolvedSettlementAccount {
   if (method === "cash")
     return { accountCode: "1010", accountName: "Cash on hand" };
@@ -34,6 +35,10 @@ export function resolveSettlementAccount(
       "failed-precondition",
       "The selected company bank account is unavailable.",
     );
+
+  const ownerBranch = bankAccount.get("branchId");
+  if (ownerBranch && ownerBranch !== scope.branchId)
+    throw new HttpsError("failed-precondition", "This company account belongs to another store. Select an account owned by the recording store or a company-wide account; record cross-store movements through Company funds transfer.");
 
   const accountCode = String(bankAccount.get("ledgerAccountCode") ?? "").trim();
   if (!accountCode)
@@ -63,5 +68,6 @@ export function bankAccountSummary(
     accountName: document.get("accountName"),
     accountNumberLast4: document.get("accountNumberLast4"),
     ledgerAccountCode: document.get("ledgerAccountCode"),
+    branchId: document.get("branchId") ?? null,
   };
 }

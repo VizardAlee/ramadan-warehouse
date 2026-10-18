@@ -1,7 +1,11 @@
 "use client";
 
+import { createPortal } from "react-dom";
 import { useEffect, useRef, useState } from "react";
 import { AppDialog } from "@/components/ui/app-dialog";
+import { AccountReceiptButton } from "@/features/finance/account-receipt";
+import { AccountPosition } from "@/features/finance/account-position";
+import { MoneyTenderEditor, parseMoneyTenders, type MoneyTenderDraft } from "@/features/finance/money-tender-editor";
 import { Button } from "@/components/ui/button";
 import { firstBlocker } from "@/features/guidance/first-blocker";
 import { CursorTablePagination } from "@/components/ui/table-pagination";
@@ -10,10 +14,10 @@ import { downloadCsv, formatNaira, nairaToKobo } from "@/features/inventory/form
 import type { Supplier, SupplierInvoice } from "@/types/domain";
 
 interface Scope { branchId?: string; warehouseId?: string }
-interface Bank { id: string; bankName: string; accountName: string; accountNumberLast4: string }
-interface Entry { id: string; entryType: string; referenceNumber: string; amountMinor: number; advanceAmountMinor?: number; effectiveAt: { _seconds?: number; seconds?: number }; journalEntryId?: string }
+interface Bank { branchId?: string | null; id: string; bankName: string; accountName: string; accountNumberLast4: string }
+interface Entry { runningPayableMinor?: number; runningAdvanceMinor?: number; referenceType?: string; referenceId?: string; id: string; entryType: string; referenceNumber: string; amountMinor: number; advanceAmountMinor?: number; effectiveAt: { _seconds?: number; seconds?: number }; journalEntryId?: string }
 interface Statement {
-  entries: Entry[]; nextCursor: string | null; scopeNote: string;
+  complete?: boolean; from?: string | null; through?: string | null; branchId?: string | null; warehouseId?: string | null; statementVersion?: string; supplier?: { name: string; supplierNumber: string }; entries: Entry[]; nextCursor: string | null; scopeNote: string;
   openingPayableMinor: number; closingPayableMinor: number;
   openingAdvanceMinor: number; closingAdvanceMinor: number;
 }
@@ -26,7 +30,7 @@ const labels: Record<string, string> = {
 };
 
 interface Payables {
-  asOfDate: string; totalOutstandingMinor: number; note: string;
+  unusedCreditMinor?: number | null; asOfDate: string; totalOutstandingMinor: number; note: string;
   aging: Array<{ name: string; amountMinor: number }>;
   invoices: SupplierInvoice[]; nextCursor: string | null;
 }
@@ -54,6 +58,7 @@ function SupplierPayables({ supplierId, scope, canPay, onPay }: {
     {data && <>
       <p className="text-sm">Outstanding approved invoices: <strong className="finance-attention">{formatNaira(data.totalOutstandingMinor)}</strong> · as at {data.asOfDate}</p>
       <p className="text-xs text-[var(--muted)]">{data.note}</p>
+      <AccountPosition party="supplier" scope={scope.branchId || scope.warehouseId ? "Current balances in the selected store" : "Current balances across all permitted stores"} debt={data.totalOutstandingMinor} credit={data.unusedCreditMinor} />
       <div className="grid grid-cols-2 gap-2 lg:grid-cols-3">{data.aging.map((bucket) => <div className="rounded-lg bg-slate-50 p-3" key={bucket.name}><p className="text-xs">{bucket.name}</p><strong className={bucket.name === "Current" ? "finance-balance" : "finance-attention"}>{formatNaira(bucket.amountMinor)}</strong></div>)}</div>
       <div className="overflow-x-auto"><table className="w-full text-left text-sm"><thead><tr><th className="p-2">Invoice</th><th className="p-2">Invoice date</th><th className="p-2">Due date</th><th className="p-2 text-right">Still owed</th><th className="p-2">Action</th></tr></thead><tbody>
         {data.invoices.map((invoice) => <tr className="border-t" key={invoice.id}><td className="p-2">{invoice.supplierInvoiceNumber}</td><td className="p-2 whitespace-nowrap">{invoice.invoiceDate ?? "Not recorded"}</td><td className={`p-2 whitespace-nowrap ${invoice.dueDate && invoice.dueDate < data.asOfDate ? "finance-outflow" : ""}`}>{invoice.dueDate ?? "Not recorded"}</td><td className="p-2 text-right finance-attention">{formatNaira(invoice.outstandingAmountMinor)}</td><td className="p-2">{canPay && <Button variant="outline" onClick={() => onPay(invoice)}>Pay / apply advance</Button>}</td></tr>)}
@@ -65,6 +70,10 @@ function SupplierPayables({ supplierId, scope, canPay, onPay }: {
 }
 
 function SupplierStatement({ supplierId, scope }: { supplierId: string; scope: Scope }) {
+  const [printing, setPrinting] = useState<Statement>();
+  const [preparing, setPreparing] = useState(false);
+  const [prepareError, setPrepareError] = useState<string>();
+  useEffect(() => { if (!printing) return; const timer = window.setTimeout(() => window.print(), 50); const done = () => setPrinting(undefined); window.addEventListener("afterprint", done); return () => { clearTimeout(timer); window.removeEventListener("afterprint", done); }; }, [printing]);
   const [from, setFrom] = useState("");
   const [through, setThrough] = useState("");
   const [limit, setLimit] = useState(25);
@@ -83,6 +92,21 @@ function SupplierStatement({ supplierId, scope }: { supplierId: string; scope: S
       .catch((cause) => { if (active) setResponse({ key, error: cause instanceof Error ? cause.message : "Supplier history could not be loaded." }); });
     return () => { active = false; };
   }, [supplierId, scope, from, through, limit, cursor, key]);
+  async function fullStatement(print: boolean) {
+    if (preparing) return; setPreparing(true); setPrepareError(undefined);
+    try {
+      const complete = await callAdministration<object, Statement>("getProcurementWorkspace", { view: "supplier_account", supplierId, ...scope, from: from || undefined, through: through || undefined, complete: true });
+      if (!complete.complete || !complete.statementVersion || complete.nextCursor) throw new Error("Complete statement evidence is unavailable. Refresh after the current release.");
+      if (data?.statementVersion && complete.statementVersion !== data.statementVersion) throw new Error("Supplier history changed. Refresh this account before issuing the complete statement.");
+      if (print) setPrinting(complete);
+      else downloadCsv("supplier-statement.csv", [
+        { activity: "Opening recorded balance", reference: "", date: "", payableChangeNaira: 0, advanceChangeNaira: 0, journal: "", payableNaira: complete.openingPayableMinor / 100, advanceNaira: complete.openingAdvanceMinor / 100 },
+        ...complete.entries.map(entry => ({ activity: labels[entry.entryType] ?? entry.entryType, reference: entry.referenceNumber, date: new Date(Number(entry.effectiveAt?._seconds ?? entry.effectiveAt?.seconds ?? 0) * 1000).toISOString(), payableChangeNaira: entry.amountMinor / 100, advanceChangeNaira: (entry.advanceAmountMinor ?? 0) / 100, payableNaira: entry.runningPayableMinor === undefined ? "" : entry.runningPayableMinor / 100, advanceNaira: entry.runningAdvanceMinor === undefined ? "" : entry.runningAdvanceMinor / 100, journal: entry.journalEntryId ?? "" })),
+        { activity: "Closing recorded balance", reference: "", date: "", payableChangeNaira: 0, advanceChangeNaira: 0, journal: "", payableNaira: complete.closingPayableMinor / 100, advanceNaira: complete.closingAdvanceMinor / 100 },
+      ]);
+    } catch (cause) { setPrepareError(cause instanceof Error ? cause.message : "Complete statement could not be prepared."); }
+    finally { setPreparing(false); }
+  }
   return <section aria-label="Supplier account statement" className="mt-4 space-y-3">
     <div className="grid gap-3 sm:grid-cols-2">
       <label>From<input aria-label="Supplier statement from" type="date" value={from} onChange={(event) => { setFrom(event.target.value); setPages([null]); }} className="mt-1 w-full rounded-lg border p-2" /></label>
@@ -95,14 +119,17 @@ function SupplierStatement({ supplierId, scope }: { supplierId: string; scope: S
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         {[ ["Opening payable", data.openingPayableMinor], ["Closing payable", data.closingPayableMinor], ["Opening advance", data.openingAdvanceMinor], ["Closing advance", data.closingAdvanceMinor] ].map(([label, amount]) => <div key={String(label)} className="rounded-lg bg-slate-50 p-3"><p className="text-xs">{label}</p><strong className={String(label).includes("payable") ? "finance-attention" : "finance-balance"}>{formatNaira(Number(amount))}</strong></div>)}
       </div>
-      <div className="overflow-x-auto"><table className="w-full text-left text-sm"><thead><tr><th className="p-2">Date</th><th className="p-2">Activity / reference</th><th className="p-2 text-right">Payable change</th><th className="p-2 text-right">Advance change</th></tr></thead><tbody>
-        {data.entries.map((entry) => <tr key={entry.id} className="border-t"><td className="p-2 whitespace-nowrap">{new Date(Number(entry.effectiveAt?._seconds ?? entry.effectiveAt?.seconds ?? 0) * 1000).toLocaleDateString("en-GB", { timeZone: "Africa/Lagos" })}</td><td className="p-2">{labels[entry.entryType] ?? entry.entryType.replaceAll("_", " ")}<small className="block text-[var(--muted)]">{entry.referenceNumber}</small></td><td className={`p-2 text-right ${entry.amountMinor > 0 ? "finance-attention" : "finance-income"}`}>{formatNaira(entry.amountMinor)}</td><td className="p-2 text-right finance-balance">{formatNaira(entry.advanceAmountMinor ?? 0)}</td></tr>)}
-        {!data.entries.length && <tr><td colSpan={4} className="p-4">No supplier activity in this period.</td></tr>}
+      <div className="overflow-x-auto"><table className="w-full text-left text-sm"><thead><tr><th className="p-2">Date</th><th className="p-2">Activity / reference</th><th className="p-2 text-right">Payable change</th><th className="p-2 text-right">Advance change</th><th className="p-2 text-right">Running payable</th><th className="p-2 text-right">Running credit</th></tr></thead><tbody>
+        {data.entries.map((entry) => <tr key={entry.id} className="border-t"><td className="p-2 whitespace-nowrap">{new Date(Number(entry.effectiveAt?._seconds ?? entry.effectiveAt?.seconds ?? 0) * 1000).toLocaleDateString("en-GB", { timeZone: "Africa/Lagos" })}</td><td className="p-2">{labels[entry.entryType] ?? entry.entryType.replaceAll("_", " ")}<small className="block text-[var(--muted)]">{entry.referenceNumber}</small>{entry.referenceType === "supplierPayment" && entry.referenceId && <AccountReceiptButton party="supplier" partyId={supplierId} paymentId={entry.referenceId} branchId={scope.branchId} warehouseId={scope.warehouseId} />}</td><td className={`p-2 text-right ${entry.amountMinor > 0 ? "finance-attention" : "finance-income"}`}>{formatNaira(entry.amountMinor)}</td><td className="p-2 text-right finance-balance">{formatNaira(entry.advanceAmountMinor ?? 0)}</td><td className="p-2 text-right">{entry.runningPayableMinor === undefined ? "Not established" : formatNaira(entry.runningPayableMinor)}</td><td className="p-2 text-right">{entry.runningAdvanceMinor === undefined ? "Not established" : formatNaira(entry.runningAdvanceMinor)}</td></tr>)}
+        {!data.entries.length && <tr><td colSpan={6} className="p-4">No supplier activity in this period.</td></tr>}
       </tbody></table></div>
       <p className="text-xs text-[var(--muted)]">A positive payable change increases what we owe. A negative change reduces it. Advances remain separate from debt until applied.</p>
       <CursorTablePagination page={pages.length} pageSize={limit} rowCount={data.entries.length} hasNextPage={Boolean(data.nextCursor)} loading={false} onPrevious={() => setPages((value) => value.slice(0, -1))} onNext={() => { if (data.nextCursor) setPages((value) => [...value, data.nextCursor]); }} onPageSizeChange={(size) => { setLimit(size); setPages([null]); }} itemLabel="supplier entries" />
       <Button variant="outline" disabled={!data.entries.length} onClick={() => downloadCsv("supplier-statement-page.csv", data.entries.map((entry) => ({ activity: labels[entry.entryType] ?? entry.entryType, reference: entry.referenceNumber, payableChangeNaira: entry.amountMinor / 100, advanceChangeNaira: (entry.advanceAmountMinor ?? 0) / 100, journal: entry.journalEntryId ?? "" })))}>Export this page</Button>
+      <div className="flex flex-wrap gap-2"><Button variant="outline" disabled={preparing} onClick={() => void fullStatement(false)}>Export full statement CSV</Button><Button variant="outline" disabled={preparing} onClick={() => void fullStatement(true)}>Print full statement / save PDF</Button></div>
+      {prepareError && <p role="alert">{prepareError}</p>}
     </>}
+    {printing && createPortal(<section data-print-document className="customer-statement-print-only"><h1>Supplier account statement</h1><h2>{printing.supplier?.name} · {printing.supplier?.supplierNumber}</h2><p>{printing.from || "Beginning of recorded history"} to {printing.through || "Latest entry"} · {printing.branchId || printing.warehouseId ? "Selected store" : "Consolidated"} · NGN · Lagos time</p><p>{printing.scopeNote}</p><p>Opening payable {formatNaira(printing.openingPayableMinor)} · Opening advance / credit {formatNaira(printing.openingAdvanceMinor)}</p><table className="w-full text-left text-sm"><thead><tr><th>Date / reference</th><th>Activity</th><th>Payable change</th><th>Credit change</th><th>Running payable</th><th>Running credit</th></tr></thead><tbody>{printing.entries.map(entry => <tr key={entry.id}><td>{new Date(Number(entry.effectiveAt?._seconds ?? entry.effectiveAt?.seconds ?? 0) * 1000).toLocaleDateString("en-GB", { timeZone: "Africa/Lagos" })} · {entry.referenceNumber}</td><td>{labels[entry.entryType] ?? entry.entryType}</td><td>{formatNaira(entry.amountMinor)}</td><td>{formatNaira(entry.advanceAmountMinor ?? 0)}</td><td>{entry.runningPayableMinor === undefined ? "Not established" : formatNaira(entry.runningPayableMinor)}</td><td>{entry.runningAdvanceMinor === undefined ? "Not established" : formatNaira(entry.runningAdvanceMinor)}</td></tr>)}</tbody></table><p>Closing payable {formatNaira(printing.closingPayableMinor)} · Closing advance / credit {formatNaira(printing.closingAdvanceMinor)}</p><p>Recorded ledger only. Printing does not post a payment or stock movement.</p></section>, document.body)}
   </section>;
 }
 
@@ -111,6 +138,8 @@ function SupplierPaymentDialog({ supplier, invoice, refund = false, scope, banks
   branches: Array<{ id: string; name: string }>; onClose: () => void; onComplete: () => void;
 }) {
   const [amount, setAmount] = useState(invoice ? String(invoice.outstandingAmountMinor / 100) : "");
+  const [split, setSplit] = useState(false);
+  const [parts, setParts] = useState<MoneyTenderDraft[]>([]);
   const [source, setSource] = useState<"disbursement" | "advance_balance">("disbursement");
   const [method, setMethod] = useState<"cash" | "card" | "bank_transfer">("bank_transfer");
   const [bankAccountId, setBank] = useState("");
@@ -129,16 +158,19 @@ function SupplierPaymentDialog({ supplier, invoice, refund = false, scope, banks
     : scope.warehouseId ? scope : { branchId };
   const scopeKey = paymentScope.branchId ? `branch:${paymentScope.branchId}` : `warehouse:${paymentScope.warehouseId}`;
   const availableAdvance = supplier.advanceBalancesByLocation?.[scopeKey] ?? 0;
+  const splitResult = parseMoneyTenders(parts, amountMinor);
+  const splitMoney = split && source === "disbursement";
   const valid = Number.isSafeInteger(amountMinor) && amountMinor > 0 &&
     (!refund || (amountMinor <= availableAdvance && Boolean(notes.trim()))) &&
     (!invoice || amountMinor <= invoice.outstandingAmountMinor) && Boolean(paymentScope.branchId || paymentScope.warehouseId) &&
-    (source === "advance_balance" ? amountMinor <= availableAdvance : method === "cash" || Boolean(bankAccountId && reference.trim()));
+    (source === "advance_balance" ? amountMinor <= availableAdvance : splitMoney ? !splitResult.error : method === "cash" || Boolean(bankAccountId && reference.trim()));
   async function submit() {
     if (!valid && !pending.current) return;
     setBusy(true); setError(""); setUncertain(true);
     pending.current ??= {
       supplierId: supplier.id, purpose: refund ? "advance_refund" : invoice ? "payment" : "advance", source, ...paymentScope,
-      method, bankAccountId: source === "disbursement" && method !== "cash" ? bankAccountId : undefined,
+      method, bankAccountId: source === "disbursement" && !splitMoney && method !== "cash" ? bankAccountId : undefined,
+      tenders: splitMoney ? splitResult.parts : undefined,
       reference: reference || undefined, notes: notes || undefined,
       amountMinor: invoice ? undefined : amountMinor,
       allocations: invoice ? [{ supplierInvoiceId: invoice.id, amountMinor }] : [],
@@ -164,9 +196,11 @@ function SupplierPaymentDialog({ supplier, invoice, refund = false, scope, banks
       {invoice && <label className="block text-sm">Payment source<select aria-label="Payment source" value={source} onChange={(event) => setSource(event.target.value as typeof source)} className="mt-1 w-full rounded-lg border p-3"><option value="disbursement">New company payment</option><option value="advance_balance">Apply unused supplier advance</option></select><small className="block">Unused advance in this store: {formatNaira(availableAdvance)}. Applying it does not pay money twice.</small></label>}
       <label className="block text-sm">Amount (₦)<input aria-label="Supplier payment amount" type="number" min="0.01" step="0.01" value={amount} onChange={(event) => setAmount(event.target.value)} className="mt-1 w-full rounded-lg border p-3" /></label>
       {amountError && <p role="alert" className="text-sm text-red-800">{amountError}</p>}
-      {source === "disbursement" && <>
+      {source === "disbursement" && <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={split} onChange={event => { setSplit(event.target.checked); if (!parts.length) setParts([{ id: "first", method, amount, bankAccountId, reference }]); }} />Split money across methods / accounts</label>}
+      {splitMoney && <MoneyTenderEditor value={parts} onChange={setParts} total={amountMinor} branchId={paymentScope.branchId} banks={banks} />}
+      {source === "disbursement" && !splitMoney && <>
         <label className="block text-sm">Payment method<select aria-label="Supplier payment method" value={method} onChange={(event) => setMethod(event.target.value as typeof method)} className="mt-1 w-full rounded-lg border p-3"><option value="bank_transfer">Bank transfer</option><option value="card">Card / POS</option><option value="cash">Cash</option></select></label>
-        {method !== "cash" && <label className="block text-sm">{refund ? "Company account money received into" : "Company account paid from"}<select aria-label={refund ? "Supplier refund receiving account" : "Supplier funding account"} value={bankAccountId} onChange={(event) => setBank(event.target.value)} className="mt-1 w-full rounded-lg border p-3"><option value="">Choose account</option>{banks.map((bank) => <option key={bank.id} value={bank.id}>{bank.bankName} · {bank.accountName} · ••••{bank.accountNumberLast4}</option>)}</select></label>}
+        {method !== "cash" && <label className="block text-sm">{refund ? "Company account money received into" : "Company account paid from"}<select aria-label={refund ? "Supplier refund receiving account" : "Supplier funding account"} value={bankAccountId} onChange={(event) => setBank(event.target.value)} className="mt-1 w-full rounded-lg border p-3"><option value="">Choose account</option>{banks.filter(bank => !bank.branchId || bank.branchId === paymentScope.branchId).map((bank) => <option key={bank.id} value={bank.id}>{bank.bankName} · {bank.accountName} · ••••{bank.accountNumberLast4}</option>)}</select></label>}
         <label className="block text-sm">Payment reference{method === "cash" ? " (optional)" : ""}<input value={reference} onChange={(event) => setReference(event.target.value)} className="mt-1 w-full rounded-lg border p-3" /></label>
       </>}
       <label className="block text-sm">{refund ? "Refund reason (required)" : "Notes (optional)"}<textarea value={notes} maxLength={500} onChange={(event) => setNotes(event.target.value)} className="mt-1 w-full rounded-lg border p-3" /></label>
@@ -176,18 +210,19 @@ function SupplierPaymentDialog({ supplier, invoice, refund = false, scope, banks
       [amountError || !Number.isSafeInteger(amountMinor) || amountMinor <= 0, "Enter a positive amount with no more than two decimal places."],
       [invoice && amountMinor > invoice.outstandingAmountMinor, `Payment cannot exceed the invoice outstanding ${formatNaira(invoice?.outstandingAmountMinor ?? 0)}. Enter the amount actually paid.`],
       [(refund || source === "advance_balance") && amountMinor > availableAdvance, `Only ${formatNaira(availableAdvance)} unused supplier advance/credit is available in this store. Reduce the application/refund to the real available amount.`],
+      [splitMoney && Boolean(splitResult.error), splitResult.error ?? "Review payment parts."],
       [refund && !notes.trim(), "Enter the reason for the actual supplier refund received."],
-      [source !== "advance_balance" && method !== "cash" && !bankAccountId, banks.length ? "Select the company account actually used." : "No company account is available. Ask authorized finance staff to configure an active account for this store, then refresh; do not invent a cash movement."],
-      [source !== "advance_balance" && method !== "cash" && !reference.trim(), "Enter the actual noncash payment reference."]
+      [source !== "advance_balance" && !splitMoney && method !== "cash" && !bankAccountId, banks.length ? "Select the company account actually used." : "No company account is available. Ask authorized finance staff to configure an active account for this store, then refresh; do not invent a cash movement."],
+      [source !== "advance_balance" && !splitMoney && method !== "cash" && !reference.trim(), "Enter the actual noncash payment reference."]
     ])} disabled={busy || (!valid && !uncertain)} onClick={() => void submit()}>{uncertain ? "Retry same transaction" : refund ? "Record refund received" : source === "advance_balance" ? "Apply advance" : invoice ? "Record payment" : "Record advance"}</Button></div>
   </div></AppDialog>;
 }
 
-export function SupplierAccounts({ suppliers, scope, banks, branches, canPay, invoice, closeInvoice, onComplete }: {
-  suppliers: Supplier[]; scope: Scope; banks: Bank[]; branches: Array<{ id: string; name: string }>;
+export function SupplierAccounts({ suppliers, scope, banks, branches, canPay, invoice, closeInvoice, onComplete, initialSupplierId = "" }: {
+  initialSupplierId?: string; suppliers: Supplier[]; scope: Scope; banks: Bank[]; branches: Array<{ id: string; name: string }>;
   canPay: boolean; invoice: SupplierInvoice | null; closeInvoice: () => void; onComplete: () => void;
 }) {
-  const [supplierId, setSupplierId] = useState("");
+  const [supplierId, setSupplierId] = useState(initialSupplierId);
   const [advanceSupplier, setAdvanceSupplier] = useState<string | null>(null);
   const [refund, setRefund] = useState(false);
   const [selectedInvoice, setSelectedInvoice] = useState<SupplierInvoice | null>(null);

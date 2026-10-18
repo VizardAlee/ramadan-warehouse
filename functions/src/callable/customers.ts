@@ -1,3 +1,5 @@
+import { scopedAccess, requirePermissionScope } from "../auth/permission-scope.js";
+import { accountReceipt } from "../accounting/account-receipt.js";
 import { receiveBilling, type MixedBilling, type BillingJournalLine } from "../billing/allocations.js";
 import { prepareBillingTransition, writeBillingTransition } from "../billing/transitions.js";
 import { createHash } from "node:crypto";
@@ -5,7 +7,8 @@ import { AggregateField, FieldValue, Timestamp } from "firebase-admin/firestore"
 import { HttpsError, onCall } from "firebase-functions/v2/https";
 import { db } from "../admin.js";
 import { accountingPeriodReference, assertAccountingPeriodOpen } from "../accounting/period-lock.js";
-import { bankAccountSummary, resolveSettlementAccount } from "../accounting/settlement-account.js";
+import { bankAccountSummary } from "../accounting/settlement-account.js";
+import { paymentTenders, resolvePaymentTenders } from "../accounting/payment-tenders.js";
 import { writeAuditLog } from "../audit/write-audit-log.js";
 import {
   hasRole,
@@ -48,6 +51,15 @@ export const getCustomerHistory = onCall({ enforceAppCheck, timeoutSeconds: 300 
   if (!allBranches && !branchId)
     throw new HttpsError("invalid-argument", "Select an assigned branch for this customer history.");
   if (branchId) requireBranchScope(actor, branchId);
+  if (input.view === "payment_receipt") {
+    const payment = await db.doc(`customerPayments/${input.paymentId}`).get();
+    if (!payment.exists || payment.get("organizationId") !== actor.organizationId || payment.get("customerId") !== customer.id || payment.get("status") !== "recorded" || (branchId && payment.get("branchId") !== branchId))
+      throw new HttpsError("not-found", "Recorded customer payment not found in this store.");
+    const receiptAccess = await scopedAccess(actor);
+    requirePermissionScope(receiptAccess, { branchId: String(payment.get("branchId")) }, "customers.read");
+    const company = await db.doc(`organizations/${actor.organizationId}`).get();
+    return accountReceipt(payment, "customer", String(company.get("tradingName") || company.get("legalName") || "Company"), true);
+  }
   if (input.customerAccountId && input.view !== "statement")
     throw new HttpsError("invalid-argument", "Select Account statement before filtering an arrangement.");
   const arrangement = input.customerAccountId ? selectedArrangement(customer.data()!, input.customerAccountId, true) : null;
@@ -74,7 +86,7 @@ export const getCustomerHistory = onCall({ enforceAppCheck, timeoutSeconds: 300 
       return entry ? [{ id: `account:${record.id}`, kind: "account" as const, reference: record.get("referenceNumber"),
         branchId: record.get("branchId"), detail: String(record.get("entryType") ?? "account activity"),
         at: record.get("effectiveAt") instanceof Timestamp ? statementInstant(record.get("effectiveAt")).toISOString() : null,
-        journalEntryId: record.get("journalEntryId") ?? null, ...entry }] : [];
+        journalEntryId: record.get("journalEntryId") ?? null, paymentId: record.get("referenceType") === "customerPayment" ? record.get("referenceId") : null, ...entry }] : [];
     });
     // Walk newest first, matching the existing paginated index order. For each
     // visible row retain only the movements after it, then subtract those from
@@ -164,6 +176,7 @@ export const getCustomerHistory = onCall({ enforceAppCheck, timeoutSeconds: 300 
     const visible = invoices.docs.slice(0, input.limit);
     return {
       invoices: visible.map((sale) => ({ id: sale.id, reference: sale.get("saleNumber"), accountId: sale.get("customerAccountId") ?? "general", accountName: sale.get("customerAccountName") ?? "General account", dueDate: sale.get("receivableDueDate") === UNDATED_DEBT ? null : sale.get("receivableDueDate"), outstandingMinor: sale.get("receivableOutstandingMinor"), paidMinor: sale.get("receivablePaidMinor") ?? 0, creditedMinor: sale.get("receivableCreditedMinor") ?? 0 })),
+      outstandingBalanceMinor: Number(customer.get("outstandingBalanceMinor") ?? 0),
       aging, historicalUnallocatedMinor: customerArrangements(customer.data()!).reduce((sum, account) => sum + legacyDebt(account.outstandingBalanceMinor, customer.get("invoiceDebtByAccount"), account.id), 0),
       advanceBalances: moneyBalances(customer.get("advanceBalances")),
       moreAvailable: invoices.size > input.limit, nextCursor: invoices.size > input.limit ? { sale: visible.at(-1)!.id } : null,
@@ -231,6 +244,7 @@ export const getCustomerHistory = onCall({ enforceAppCheck, timeoutSeconds: 300 
       id: `account:${record.id}`, kind: "account" as const, reference: record.get("referenceNumber"),
       branchId: record.get("branchId"), amountMinor: Number(record.get("amountMinor") ?? 0),
       detail: String(record.get("entryType") ?? "account activity"),
+      paymentId: record.get("referenceType") === "customerPayment" ? record.get("referenceId") : null,
       accountName: record.get("customerAccountName") ?? "General account",
       allocations: record.get("allocations") ?? [],
       invoiceAllocations: record.get("invoiceAllocations") ?? [],
@@ -259,7 +273,7 @@ export const getCustomerHistory = onCall({ enforceAppCheck, timeoutSeconds: 300 
       creditStatus: customer.get("creditStatus"), creditLimitMinor: Number(customer.get("creditLimitMinor") ?? 0),
       outstandingBalanceMinor: Number(customer.get("outstandingBalanceMinor") ?? 0),
       availableCreditMinor: Number(customer.get("availableCreditMinor") ?? 0), arrangements: customerArrangements(customer.data()!), advanceBalances: moneyBalances(customer.get("advanceBalances")) },
-    rows: page.map((row) => ({ id: row.id, kind: row.kind, reference: row.reference, branchId: row.branchId, amountMinor: row.amountMinor, detail: row.detail, at: row.at, accountName: row.accountName, allocations: "allocations" in row ? row.allocations : [], invoiceAllocations: "invoiceAllocations" in row ? row.invoiceAllocations : [],
+    rows: page.map((row) => ({ ...("paymentId" in row ? { paymentId: row.paymentId } : {}), id: row.id, kind: row.kind, reference: row.reference, branchId: row.branchId, amountMinor: row.amountMinor, detail: row.detail, at: row.at, accountName: row.accountName, allocations: "allocations" in row ? row.allocations : [], invoiceAllocations: "invoiceAllocations" in row ? row.invoiceAllocations : [],
       ...(row.kind === "sale" && "paidMinor" in row ? { invoiceNumber: row.invoiceNumber, paidMinor: row.paidMinor, creditMinor: row.creditMinor, itemCount: row.itemCount, quantity: row.quantity, journalEntryId: row.journalEntryId } : {}) })),
     moreAvailable,
     nextCursor: moreAvailable ? nextCursor : null,
@@ -469,7 +483,8 @@ export const recordCustomerPayment = onCall(
       `journalCounters/${uniquenessDocumentId(actor.organizationId, "general")}`,
     );
     const payment = db.collection("customerPayments").doc();
-    const bankAccount = db.doc(`bankAccounts/${input.bankAccountId ?? "no-bank-account"}`);
+    const parts = input.source === "advance_balance" ? [] : paymentTenders(input, input.amountMinor);
+    const bankRefs = [...new Set(parts.flatMap(part => part.bankAccountId ? [part.bankAccountId] : []))].map(id => db.doc(`bankAccounts/${id}`));
     const journal = db.collection("journalEntries").doc();
     const operation = db.doc(
       `idempotencyKeys/${actor.organizationId}_recordCustomerPayment_${input.idempotencyKey}`,
@@ -479,14 +494,17 @@ export const recordCustomerPayment = onCall(
     const cid = correlationId();
     let result = { paymentId: payment.id, paymentNumber: "", recorded: true };
     await db.runTransaction(async (transaction) => {
-      const [current, branchSnapshot, counterSnapshot, journalCounterSnapshot, accountingPeriodSnapshot, previousOperation, bankAccountSnapshot] =
-        await transaction.getAll(customer, branch, counter, journalCounter, accountingPeriod, operation, bankAccount);
+      const snapshots = await transaction.getAll(customer, branch, counter, journalCounter, accountingPeriod, operation, ...bankRefs);
+      const [current, branchSnapshot, counterSnapshot, journalCounterSnapshot, accountingPeriodSnapshot, previousOperation] = snapshots;
+      const bankSnapshots = snapshots.slice(6);
       if (previousOperation!.exists) {
         if (previousOperation!.get("fingerprint")) {
           if (previousOperation!.get("fingerprint") !== fingerprint)
             throw new HttpsError("already-exists", "This retry reference belongs to different payment instructions.");
         } else {
           // Keep older valid retries working, but never reinterpret a receipt as a refund.
+          if (input.tenders)
+            throw new HttpsError("already-exists", "This historical retry reference cannot confirm new payment parts. Review the original receipt before recording different instructions.");
           const previous = await transaction.get(db.doc(`customerPayments/${previousOperation!.get("entityId")}`));
           const allocations = input.allocations ?? [{ accountId: "general", amountMinor: input.amountMinor }];
           const storedAllocations = previous.get("allocations") ?? [{ accountId: "general", amountMinor: previous.get("amountMinor") }];
@@ -573,18 +591,24 @@ export const recordCustomerPayment = onCall(
         for (const allocation of allocations) advanceBalances = changeMoneyBalance(advanceBalances, allocation.accountId, input.purpose === "advance" ? allocation.amountMinor : -allocation.amountMinor);
       }
       const creditLimit = Number(current!.get("creditLimitMinor") ?? 0);
-      const account = input.source === "advance_balance" ? { accountCode: "2210", accountName: "Customer advances", bankAccountId: undefined, bankName: undefined, bankAccountName: undefined, accountNumberLast4: undefined } : resolveSettlementAccount(actor.organizationId, input.method, input.bankAccountId, bankAccountSnapshot);
+      const tenders = resolvePaymentTenders(actor.organizationId, parts, bankSnapshots, { branchId: input.branchId });
+      const account = tenders.length === 1 ? tenders[0]! : undefined;
+      const recordedMethod = input.source === "advance_balance" ? "customer_advance" : tenders.length > 1 ? "split" : tenders[0]!.method;
+      const settlementLines = input.source === "advance_balance"
+        ? [{ accountCode: "2210", accountName: "Customer advances", debitMinor: input.amountMinor, creditMinor: 0 }]
+        : tenders.map(part => ({ accountCode: part.accountCode, accountName: part.accountName, ...(part.bankAccountId ? { bankAccountId: part.bankAccountId } : {}),
+          debitMinor: refund ? 0 : part.amountMinor, creditMinor: refund ? part.amountMinor : 0 }));
       const journalLines: BillingJournalLine[] = refund ? [
         { accountCode: "2210", accountName: "Customer advances", debitMinor: input.amountMinor, creditMinor: 0 },
-        { accountCode: account.accountCode, accountName: account.accountName, debitMinor: 0, creditMinor: input.amountMinor },
+        ...settlementLines,
       ] : [
-        { accountCode: account.accountCode, accountName: account.accountName, debitMinor: input.amountMinor, creditMinor: 0 },
+        ...settlementLines,
         { accountCode: input.purpose === "advance" ? "2210" : "1100", accountName: input.purpose === "advance" ? "Customer advances" : "Accounts receivable", debitMinor: 0, creditMinor: input.amountMinor },
       ];
       journalLines.push(...mixedTransitions.flatMap(item => item.prepared.lines));
       assertBalancedJournal(journalLines);
       const now = FieldValue.serverTimestamp();
-      const invoiceAllocations = invoicePayments.map((item) => ({ saleId: item.sale.id, saleNumber: item.sale.get("saleNumber"), accountId: item.accountId, amountMinor: item.amountMinor }));
+      const invoiceAllocations = invoicePayments.map((item) => ({ saleId: item.sale.id, saleNumber: item.sale.get("saleNumber"), invoiceNumber: item.sale.get("invoiceNumber") ?? item.sale.get("saleNumber"), accountId: item.accountId, amountMinor: item.amountMinor, outstandingBeforeMinor: Number(item.sale.get("receivableOutstandingMinor")), outstandingAfterMinor: Number(item.sale.get("receivableOutstandingMinor")) - item.amountMinor }));
       mixedTransitions.forEach(item => writeBillingTransition(transaction, item.sale.ref, item.prepared, actor.userId));
       for (const item of invoicePayments) transaction.update(item.sale.ref, { ...reduceInvoice(Number(item.sale.get("receivableOutstandingMinor")), item.amountMinor), receivablePaidMinor: Number(item.sale.get("receivablePaidMinor") ?? 0) + item.amountMinor, receivableUpdatedAt: now });
       transaction.update(customer, {
@@ -618,15 +642,20 @@ export const recordCustomerPayment = onCall(
         customerNumber: current!.get("customerNumber"),
         customerName: current!.get("name"),
         paymentNumber,
-        method: input.source === "advance_balance" ? "customer_advance" : input.method,
+        method: recordedMethod,
+        tenders,
+        evidenceVersion: 2,
+        outstandingBeforeMinor: outstanding,
+        outstandingAfterMinor: nextOutstanding,
+        advanceBalancesAfter: advanceBalances,
         purpose: input.purpose,
         source: input.source,
         direction: refund ? "outflow" : input.source === "advance_balance" ? "non_cash" : "inflow",
-        bankAccountId: account.bankAccountId,
-        bankName: account.bankName,
-        bankAccountName: account.bankAccountName,
-        accountNumberLast4: account.accountNumberLast4,
-        ledgerAccountCode: account.accountCode,
+        bankAccountId: account?.bankAccountId,
+        bankName: account?.bankName,
+        bankAccountName: account?.bankAccountName,
+        accountNumberLast4: account?.accountNumberLast4,
+        ledgerAccountCode: input.source === "advance_balance" ? "2210" : account?.accountCode,
         journalEntryId: journal.id,
         amountMinor: input.amountMinor,
         allocations,
@@ -701,6 +730,7 @@ export const recordCustomerPayment = onCall(
           accountId: chartAccount.id,
           accountCode: line.accountCode,
           accountName: line.accountName,
+          ...(line.bankAccountId ? { bankAccountId: line.bankAccountId } : {}),
           debitMinor: line.debitMinor,
           creditMinor: line.creditMinor,
           currency: "NGN",
@@ -729,8 +759,10 @@ export const recordCustomerPayment = onCall(
           paymentNumber,
           amountMinor: input.amountMinor,
           balanceAfterMinor: nextOutstanding,
-          bankAccountId: account.bankAccountId ?? null,
-          ledgerAccountCode: account.accountCode,
+          bankAccountId: account?.bankAccountId ?? null,
+          ledgerAccountCode: input.source === "advance_balance" ? "2210" : account?.accountCode ?? null,
+          method: recordedMethod,
+          tenders,
           allocations,
           invoiceAllocations,
           purpose: input.purpose,

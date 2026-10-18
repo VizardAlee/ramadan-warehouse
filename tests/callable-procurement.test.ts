@@ -531,6 +531,7 @@ describe.sequential("procurement callables", () => {
     expect(results[0]!.documentId).toBe(payload.idempotencyKey);
     expect((await invoiceRef.get()).data()).toMatchObject({ outstandingAmountMinor: 0, creditedAmountMinor: 3000, status: "paid" });
     expect((await supplierRef.get()).data()).toMatchObject({ outstandingBalanceMinor: 0, advanceBalanceMinor: 18500, advanceBalancesByLocation: { [`branch:${headOfficeId}`]: 18500 } });
+    expect((await supplierRef.get()).get("advanceSourceBalancesByLocation")).toMatchObject({ [`branch:${headOfficeId}`]: { returnCreditMinor: 18500, cashAdvanceMinor: 0, legacyUnclassifiedMinor: 0 } });
     expect((await adminDb.getAll(...stockRefs)).map(snapshot => snapshot.get("onHandQuantity"))).toEqual([2, 2]);
     const returns = await adminDb.getAll(...results[0]!.returns.map(result => adminDb.doc(`supplierReturns/${result.returnId}`)));
     expect(returns.every(record => record.get("creditDocumentId") === payload.idempotencyKey)).toBe(true);
@@ -609,6 +610,7 @@ describe.sequential("procurement callables", () => {
     expect((await adminDb.doc(`supplierInvoices/${invoice.supplierInvoiceId}`).get()).data()).toMatchObject({ status: "paid", grossAmountMinor: 32_250, outstandingAmountMinor: 0, creditedAmountMinor: 7_250 });
     const supplierRef = adminDb.doc(`suppliers/${supplier.supplierId}`);
     expect((await supplierRef.get()).data()).toMatchObject({ outstandingBalanceMinor: 0, advanceBalanceMinor: 3_500, advanceBalancesByLocation: { [`branch:${headOfficeId}`]: 3_500 } });
+    expect((await supplierRef.get()).get("advanceSourceBalancesByLocation")).toMatchObject({ [`branch:${headOfficeId}`]: { returnCreditMinor: 3500, cashAdvanceMinor: 0, legacyUnclassifiedMinor: 0 } });
     const journal = await adminDb.doc(`journalEntries/${first.journalEntryId}`).get();
     expect(journal.get("totalDebitMinor")).toBe(journal.get("totalCreditMinor"));
     expect(journal.get("referenceId")).toBe(first.returnId);

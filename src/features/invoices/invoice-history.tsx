@@ -7,6 +7,7 @@ import { PaginatedTableControls, useTablePagination } from "@/components/ui/tabl
 import { useAuth } from "@/features/auth/auth-context";
 import { callAdministration } from "@/features/administration/api";
 import { formatNaira } from "@/features/inventory/format";
+import { SaleWaybills } from "@/features/pos/sale-waybills";
 import { SaleDocumentDialog } from "@/features/pos/sale-document";
 import type { SaleDocument } from "@/features/pos/types";
 import { ReportPeriodPicker, reportDateRange, type ReportPeriod } from "@/features/reports/date-range";
@@ -32,7 +33,7 @@ export function InvoiceHistory() {
   const validDates = /^\d{4}-\d{2}-\d{2}$/.test(fromDate) && /^\d{4}-\d{2}-\d{2}$/.test(toDate) && fromDate <= toDate;
   const ready = access.allowed && validDates && (access.global || Boolean(branchId));
   const [result, setResult] = useState<{ key: string; rows?: InvoiceRow[]; error?: string }>();
-  const [document, setDocument] = useState<{ key: string; value: SaleDocument }>();
+  const [document, setDocument] = useState<{ key: string; value: SaleDocument; waybills?: boolean }>();
   const [opening, setOpening] = useState<{ key: string; id: string }>();
   const [documentError, setDocumentError] = useState<{ key: string; message: string }>();
   const documentVersion = useRef(0);
@@ -59,14 +60,14 @@ export function InvoiceHistory() {
   for (const row of rows) branches.set(row.branchId, row.branchName || `Store ${row.branchId}`);
   if (branchId && !branches.has(branchId)) branches.set(branchId, `Store ${branchId}`);
   const statuses = [...new Set(rows.map(row => row.paymentStatus).filter((value): value is string => typeof value === "string" && value.length > 0))].sort();
-  async function openInvoice(row: InvoiceRow) {
+  async function openInvoice(row: InvoiceRow, waybills = false) {
     const version = ++documentVersion.current;
     setOpening({ key, id: row.id }); setDocumentError(undefined);
     try {
       const value = await callAdministration<{ saleId: string }, SaleDocument>("getSaleDocument", { saleId: row.id });
       if (!value.official || value.sale.id !== row.id || value.branch.id !== row.branchId)
         throw new Error("The document does not match this invoice. Refresh history before trying again.");
-      if (version === documentVersion.current) setDocument({ key, value });
+      if (version === documentVersion.current) setDocument({ key, value, waybills });
     } catch (cause) {
       if (version === documentVersion.current) setDocumentError({ key, message: cause instanceof Error ? cause.message : "The invoice could not be opened. Try again." });
     } finally { if (version === documentVersion.current) setOpening(undefined); }
@@ -99,9 +100,9 @@ export function InvoiceHistory() {
       <td data-label="Issued">{row.recordedAt ? new Date(row.recordedAt).toLocaleString("en-NG", { timeZone: "Africa/Lagos" }) : "Date unavailable"}</td>
       <td data-label="Store">{row.branchName || `Store ${row.branchId}`}</td><td data-label="Customer">{row.customerName}<span className="block text-sm text-[var(--muted)]">{row.customerNumber}</span></td>
       <td data-label="Recorded payment status">{readable(row.paymentStatus)}</td><td data-label="Invoice total" className="tabular-nums">{formatNaira(row.grossAmountMinor)}</td>
-      <td data-label="Actions" data-actions="true"><Button variant="outline" aria-busy={opening?.key === key && opening.id === row.id} disabled={opening?.key === key} onClick={() => void openInvoice(row)}>{opening?.key === key && opening.id === row.id ? "Opening…" : "View invoice"}</Button></td>
+      <td data-label="Actions" data-actions="true"><Button variant="outline" aria-busy={opening?.key === key && opening.id === row.id} disabled={opening?.key === key} onClick={() => void openInvoice(row)}>{opening?.key === key && opening.id === row.id ? "Opening…" : "View invoice"}</Button><Button variant="outline" disabled={opening?.key === key} onClick={() => void openInvoice(row, true)}>Print waybill</Button></td>
     </tr>)}</tbody></table></div><PaginatedTableControls pagination={pagination} total={filtered.length} itemLabel="invoices" /></>}
     <p className="text-sm"><Link className="underline" href="/reports?family=sales">Open Sales register</Link> for sales summaries. Supplier invoices remain in Purchasing.</p>
-    {ready && document?.key === key && <SaleDocumentDialog document={document.value} onClose={() => setDocument(undefined)} />}
+    {ready && document?.key === key && (document.waybills ? <SaleWaybills document={document.value} onClose={() => setDocument(undefined)} /> : <SaleDocumentDialog document={document.value} onClose={() => setDocument(undefined)} />)}
   </div>;
 }

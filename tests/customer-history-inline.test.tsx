@@ -57,12 +57,12 @@ describe("customer account history", () => {
     api.call.mockRejectedValueOnce(Object.assign(new Error("Choose an active account"), { diagnosticCode: "functions/failed-precondition" }));
     api.call.mockResolvedValueOnce({ paymentNumber: "CRP-ADVANCE" });
     render(<CustomersPage />);
-    fireEvent.click(screen.getAllByRole("button", { name: "Record advance" })[0]!);
+    fireEvent.click(screen.getAllByRole("button", { name: "Record deposit" })[0]!);
     fireEvent.change(screen.getByLabelText("Amount received (₦)"), { target: { value: "100" } });
-    fireEvent.click(screen.getAllByRole("button", { name: "Record advance" }).at(-1)!);
+    fireEvent.click(screen.getAllByRole("button", { name: "Record deposit" }).at(-1)!);
     await waitFor(() => expect(screen.getAllByText("Choose an active account").length).toBeGreaterThan(0));
-    expect(screen.getByText("Record customer advance")).toBeTruthy();
-    fireEvent.click(screen.getAllByRole("button", { name: "Record advance" }).at(-1)!);
+    expect(screen.getByText("Record customer deposit")).toBeTruthy();
+    fireEvent.click(screen.getAllByRole("button", { name: "Record deposit" }).at(-1)!);
     await waitFor(() => expect(api.call.mock.calls.filter(([name]) => name === "recordCustomerPayment")).toHaveLength(2));
     expect(api.call.mock.calls.filter(([name]) => name === "recordCustomerPayment").every(([, input]) => input.purpose === "advance" && input.source === "receipt")).toBe(true);
   });
@@ -128,4 +128,27 @@ describe("customer account history", () => {
     expect(screen.getAllByRole("region", { name: "Amina Musa account history" })).toHaveLength(2);
     expect(screen.getAllByRole("link", { name: /View full history/ })[0]!.getAttribute("href")).toBe("/customers/c1");
   });
+});
+
+it("records a customer deposit with exact split money and preserves its payload on retry", async () => {
+  api.call.mockResolvedValueOnce({ customer: {}, rows: [], bankAccounts: [{ id: "bank1", bankName: "Test Bank", accountName: "Operating", accountNumberLast4: "1234" }] }).mockRejectedValueOnce(new Error("Payment interrupted")).mockResolvedValueOnce({ paymentNumber: "CRP-SPLIT" });
+  render(<CustomersPage />);
+  fireEvent.click(screen.getAllByRole("button", { name: "Record deposit" })[0]!);
+  await waitFor(() => expect(api.call).toHaveBeenCalledWith("getCustomerHistory", expect.anything()));
+  fireEvent.change(screen.getByLabelText("Amount received (₦)"), { target: { value: "100.01" } });
+  fireEvent.click(screen.getByLabelText("Split money across payment methods / accounts"));
+  fireEvent.change(screen.getByLabelText("Part 1 amount"), { target: { value: "33.33" } });
+  fireEvent.click(screen.getByRole("button", { name: "Add payment part" }));
+  fireEvent.change(screen.getByLabelText("Part 2 method"), { target: { value: "bank_transfer" } });
+  fireEvent.change(screen.getByLabelText("Part 2 amount"), { target: { value: "66.68" } });
+  fireEvent.change(screen.getByLabelText("Part 2 account"), { target: { value: "bank1" } });
+  fireEvent.change(screen.getByLabelText("Part 2 reference"), { target: { value: "BANK-SPLIT-1" } });
+  fireEvent.click(screen.getAllByRole("button", { name: "Record deposit" }).at(-1)!);
+  await waitFor(() => expect(screen.getAllByText("Payment interrupted").length).toBeGreaterThan(0));
+  const first = api.call.mock.calls.find(([name]) => name === "recordCustomerPayment")![1];
+  expect(first).toMatchObject({ purpose: "advance", amountMinor: 10001, tenders: [{ method: "cash", amountMinor: 3333 }, { method: "bank_transfer", bankAccountId: "bank1", reference: "BANK-SPLIT-1", amountMinor: 6668 }] });
+  expect(first.bankAccountId).toBeUndefined();
+  fireEvent.click(screen.getAllByRole("button", { name: "Record deposit" }).at(-1)!);
+  await waitFor(() => expect(api.call.mock.calls.filter(([name]) => name === "recordCustomerPayment")).toHaveLength(2));
+  expect(api.call.mock.calls.filter(([name]) => name === "recordCustomerPayment")[1]![1]).toEqual(first);
 });

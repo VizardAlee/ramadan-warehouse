@@ -1,3 +1,4 @@
+import { releaseAcknowledgements } from "../releases/acknowledgements.js";
 import { FieldValue } from "firebase-admin/firestore";
 import { onCall } from "firebase-functions/v2/https";
 import { db } from "../admin.js";
@@ -6,6 +7,7 @@ import { requireAccess } from "../auth/authorize.js";
 
 export const getMyAccessContext = onCall({ enforceAppCheck }, async (request) => {
   const profile = await requireAccess(request);
+  if (["release_notes", "acknowledge_release"].includes(request.data?.action)) return releaseAcknowledgements(profile, request.data);
   const userRef = db.collection("users").doc(profile.userId);
   await db.runTransaction(async (transaction) => {
     const current = await transaction.get(userRef);

@@ -1,5 +1,7 @@
 "use client";
 
+import { AccountReceiptButton } from "@/features/finance/account-receipt";
+
 import { createPortal } from "react-dom";
 import { useEffect, useState } from "react";
 import { callAdministration } from "@/features/administration/api";
@@ -68,6 +70,7 @@ export function CustomerAccountStatement({ result }: { result: CustomerHistory }
         <p className="font-semibold">Debt balance: {money(row.runningDebtMinor)}</p>
         <p>Advance received: {movement(statementDebit(row.advanceChangeMinor))} · Used / refunded: {movement(statementCredit(row.advanceChangeMinor))}</p>
         <p className="font-semibold">Advance balance: {money(row.runningAdvanceMinor)}</p>
+        {row.paymentId && <AccountReceiptButton party="customer" partyId={result.customer.id} paymentId={row.paymentId} branchId={row.branchId} />}
         {row.needsReview && <p className="finance-attention">Classification needs review</p>}
       </article>)}</div>
       {!result.rows.length && <p className="p-6 text-center text-sm text-[var(--muted)]">{result.nextCursor ? "No matching arrangement entries in this page. Choose Next to continue through older entries." : "No matching account entries in this page."}</p>}

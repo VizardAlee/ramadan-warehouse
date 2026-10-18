@@ -10,7 +10,7 @@ export interface BillingComponent {
   supplierId?: string; supplierName?: string; settledMinor?: number;
 }
 export interface MixedBilling { version: 1; mapping: BillingMapping; components: BillingComponent[]; epochReceivedMinor: number; paidMinor: number }
-export interface BillingJournalLine { accountCode: string; accountId?: string; accountName: string; debitMinor: number; creditMinor: number }
+export interface BillingJournalLine { bankAccountId?: string; accountCode: string; accountId?: string; accountName: string; debitMinor: number; creditMinor: number }
 const safe = (value: number) => { if (!Number.isSafeInteger(value) || value < 0) throw new Error("Billing amounts require non-negative safe minor units."); return value; };
 const sum = (values: number[]) => safe(values.reduce((a, b) => a + safe(b), 0));
 export const remainingCharge = (component: BillingComponent) => safe(component.grossMinor - component.creditedGrossMinor);

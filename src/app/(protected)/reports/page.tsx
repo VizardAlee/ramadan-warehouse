@@ -12,6 +12,7 @@ import { callAdministration } from "@/features/administration/api";
 import { useOrganizationCollection } from "@/features/administration/use-organization-collection";
 import { useAuth } from "@/features/auth/auth-context";
 import { formatNaira } from "@/features/inventory/format";
+import { SaleWaybills } from "@/features/pos/sale-waybills";
 import { SaleDocumentDialog } from "@/features/pos/sale-document";
 import type { SaleDocument } from "@/features/pos/types";
 import {
@@ -186,6 +187,7 @@ export default function ReportsPage() {
   const [salesRows, setSalesRows] = useState<SalesReportRow[]>([]);
   const [salesCursor, setSalesCursor] = useState<SalesCursor | null>(null);
   const [salesSummary, setSalesSummary] = useState<SalesReportResult["summary"]>(undefined);
+  const [showWaybills, setShowWaybills] = useState(false);
   const [saleDocument, setSaleDocument] = useState<SaleDocument | null>(null);
   const [loading, setLoading] = useState(false);
   const [familyMessages, setFamilyMessages] = useState<Partial<Record<ReportFamily, string>>>({});
@@ -447,16 +449,14 @@ export default function ReportsPage() {
     }
   }
 
-  async function openSaleDocument(saleId: string) {
+  async function openSaleDocument(saleId: string, waybills = false) {
     setLoading(true);
     setMessage(null);
     try {
-      setSaleDocument(
-        await callAdministration<{ saleId: string }, SaleDocument>(
-          "getSaleDocument",
-          { saleId },
-        ),
-      );
+      setShowWaybills(waybills);
+      const document = await callAdministration<{ saleId: string }, SaleDocument>("getSaleDocument", { saleId });
+      if (!document.official || document.sale.id !== saleId) throw new Error("This document does not match the selected sale. Refresh history before trying again.");
+      setSaleDocument(document);
     } catch (cause) {
       setMessage(
         cause instanceof Error
@@ -641,6 +641,7 @@ export default function ReportsPage() {
                       >
                         <FileText className="mr-1 size-4" /> View
                       </Button>
+                      <Button size="sm" variant="outline" disabled={loading} onClick={() => void openSaleDocument(row.id, true)}>Print waybill</Button>
                     </td>
                   </tr>
                 ))}
@@ -785,7 +786,7 @@ export default function ReportsPage() {
           {message}
         </p>
       )}
-      {saleDocument && (
+      {saleDocument && (showWaybills ? <SaleWaybills document={saleDocument} onClose={() => setSaleDocument(null)} /> :
         <SaleDocumentDialog
           document={saleDocument}
           onClose={() => setSaleDocument(null)}

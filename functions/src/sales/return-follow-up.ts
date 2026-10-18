@@ -129,7 +129,7 @@ export async function followUpSaleReturn(actor: Awaited<ReturnType<typeof requir
       throw new HttpsError("failed-precondition", "The unused exchange credit is unavailable or insufficient. Refresh before refunding.");
     if (request.method === "cash" && (!shift.exists || shift.get("organizationId") !== actor.organizationId || shift.get("branchId") !== record.get("branchId") || shift.get("status") !== "open"))
       throw new HttpsError("failed-precondition", "Select an open till in the return's store.");
-    const account = request.method === "cash" ? { accountCode: "1010", accountName: "Cash on hand", bankAccountId: null } : resolveSettlementAccount(actor.organizationId, request.method, request.bankAccountId, bank);
+    const account = request.method === "cash" ? { accountCode: "1010", accountName: "Cash on hand", bankAccountId: null } : resolveSettlementAccount(actor.organizationId, request.method, request.bankAccountId, bank, { branchId: String(record.get("branchId")) });
     const journal = db.collection("journalEntries").doc(), refund = db.collection("saleRefunds").doc();
     const sequence = Number(counter.get("value") ?? 0) + 1;
     const journalNumber = `JRN-${new Date().getUTCFullYear()}-${String(sequence).padStart(6, "0")}`;

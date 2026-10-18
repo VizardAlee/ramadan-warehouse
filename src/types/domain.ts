@@ -159,6 +159,7 @@ export interface CustomRole {
 }
 
 export interface BankAccount {
+  branchId?: string | null;
   id: string;
   organizationId: string;
   bankName: string;
@@ -228,6 +229,7 @@ export interface CustomerArrangement {
 }
 
 export interface Customer {
+  advanceBalances?: Record<string, number>;
   arrangements?: CustomerArrangement[];
   pricingTier?: "retail" | "wholesale";
   id: string;
@@ -277,6 +279,9 @@ export interface SaleReturn {
 }
 
 export interface Supplier {
+  supplierType?: "goods" | "service" | "logistics" | "mixed";
+  address?: string; taxId?: string;
+  advanceSourceBalancesByLocation?: Record<string, { cashAdvanceMinor: number; returnCreditMinor: number; legacyUnclassifiedMinor: number }>;
   id: string;
   organizationId: string;
   supplierNumber: string;

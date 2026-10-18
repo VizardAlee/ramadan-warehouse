@@ -69,7 +69,7 @@ describe("Invoice History", () => {
     fireEvent.click(screen.getByRole("button", { name: "View invoice" })); await screen.findByRole("dialog", { name: "Official sale invoice and receipt" });
     expect(state.call).toHaveBeenCalledWith("getSaleDocument", { saleId: "sale-a" }); fixture("invoice-dialog");
     fireEvent.click(screen.getByRole("button", { name: "Print or save PDF" })); expect(print).toHaveBeenCalledOnce();
-    expect(state.call.mock.calls.every(([name]) => ["generateSalesReport", "getSaleDocument"].includes(name))).toBe(true);
+    expect(state.call.mock.calls.every(([name, input]) => name === "getMyAccessContext" ? input?.action === "release_notes" : ["generateSalesReport", "getSaleDocument"].includes(name))).toBe(true);
   });
   it("downloads matching saved rows safely without creating an invoice or recording payment", async () => {
     let saved: Blob | undefined;

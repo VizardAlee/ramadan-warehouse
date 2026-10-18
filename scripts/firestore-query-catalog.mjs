@@ -109,6 +109,11 @@ export function queryCatalog() {
   add("supplier return history", "supplierReturns", [org, ["supplierInvoiceId", "=="]], dateOrder("createdAt"));
   add("supplier return invoice products", "supplierInvoiceItems", [org, ["supplierInvoiceId", "=="]]);
   add("supplier return receipt ledger", "inventoryEntries", [["transactionId", "=="], ["locationId", "=="]]);
+  add("supplier directory legacy-aware search pages", "suppliers", [org], [["__name__", "ASCENDING"]]);
+  for (const collection of ["purchaseOrders", "purchaseReceipts", "supplierAccountEntries", "providerFundPayments"])
+    add("supplier profile complete scoped history", collection, [org, ["supplierId", "=="]], [["__name__", "ASCENDING"]]);
+  add("supplier provider obligations complete history", "sales", [org], [["__name__", "ASCENDING"]]);
+  add("nonposting proforma store history", "proformaQuotes", [org, ["branchId", "=="]], [["__name__", "DESCENDING"]]);
   add("customer returns cursor pages", "saleReturns", [org, ...eq(["branchId", "status"])]);
   add("customer return inspection items", "saleReturnItems", [["returnId", "=="]]);
   add("purchase receipt stock evidence", "inventoryEntries", [org, ["transactionId", "=="], ["locationId", "=="]]);

@@ -9,6 +9,9 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { Fragment, useEffect, useRef, useState } from "react";
+import { AccountReceiptButton } from "@/features/finance/account-receipt";
+import { AccountPosition } from "@/features/finance/account-position";
+import { MoneyTenderEditor, parseMoneyTenders, type MoneyTenderDraft } from "@/features/finance/money-tender-editor";
 import { Button } from "@/components/ui/button";
 import { firstBlocker } from "@/features/guidance/first-blocker";
 import { AppDialog } from "@/components/ui/app-dialog";
@@ -52,6 +55,9 @@ export default function CustomersPage() {
   const [arrangementDraft, setArrangementDraft] = useState<{ id: string; name: string; active: boolean; reason: string } | null>(null);
   const [paymentAllocations, setPaymentAllocations] = useState([{ accountId: "general", amount: "" }]);
   const paymentRetryKey = useRef<string | null>(null);
+  const paymentRetryPayload = useRef<Record<string, unknown> | null>(null);
+  const [paymentSplit, setPaymentSplit] = useState(false);
+  const [paymentParts, setPaymentParts] = useState<MoneyTenderDraft[]>([]);
   const [paymentUncertain, setPaymentUncertain] = useState(false);
   const [paymentPurpose, setPaymentPurpose] = useState<"repayment" | "advance" | "advance_refund">("repayment");
   const [paymentSource, setPaymentSource] = useState<"receipt" | "advance_balance">("receipt");
@@ -101,8 +107,12 @@ export default function CustomersPage() {
   const initialHistoryBranchId = contextBranchId || assignedBranchId ||
     (profile && hasPermission(profile, "sales.read.all") ? "" : accessProfile?.branchIds[0] ?? "");
   const visible = customers.data;
+  let paymentMinor = 0;
+  try { paymentMinor = nairaToKobo(Number(paymentAmount)); } catch { /* submit explains invalid amounts */ }
+  const splitResult = parseMoneyTenders(paymentParts, paymentMinor);
+  const splitMoney = paymentSplit && paymentSource === "receipt";
   const validAdvanceRefund = !refundAdvance || (() => {
-    if (!history || historyLoading || reason.trim().length < 5 || (paymentMethod !== "cash" && paymentReference.trim().length < 3)) return false;
+    if (!history || historyLoading || reason.trim().length < 5 || (!splitMoney && paymentMethod !== "cash" && paymentReference.trim().length < 3)) return false;
     try {
       const total = nairaToKobo(Number(paymentAmount));
       const allocations = paymentAllocations.map((item) => ({ accountId: item.accountId, amount: nairaToKobo(Number(paymentAllocations.length === 1 ? paymentAmount : item.amount)) }));
@@ -132,6 +142,7 @@ export default function CustomersPage() {
     setPaymentAmount("");
     setArrangementDraft(null);
     setPaymentAllocations([{ accountId: "general", amount: "" }]);
+    setPaymentSplit(false); setPaymentParts([]); paymentRetryPayload.current = null;
     paymentRetryKey.current = null;
     setPaymentUncertain(false);
     setPaymentPurpose("repayment");
@@ -221,10 +232,11 @@ export default function CustomersPage() {
 
   async function recordPayment() {
     if (!selected || !branchId) return;
-    if (paymentSource === "receipt" && paymentMethod !== "cash" && !paymentBankAccountId) {
+    if (paymentSource === "receipt" && !splitMoney && paymentMethod !== "cash" && !paymentBankAccountId) {
       setError(refundAdvance ? "Select the paying company account." : "Select the receiving company account.");
       return;
     }
+    if (!paymentRetryPayload.current && splitMoney && splitResult.error) { setError(splitResult.error); return; }
     setBusy(true);
     setError(null);
     setMessage(null);
@@ -235,14 +247,15 @@ export default function CustomersPage() {
       const result = await callAdministration<
         Record<string, unknown>,
         { paymentNumber: string }
-      >("recordCustomerPayment", {
+      >("recordCustomerPayment", paymentRetryPayload.current ??= {
         customerId: selected.id,
         branchId,
         method: paymentMethod,
         purpose: paymentPurpose,
         source: paymentSource,
         invoiceAllocations: paymentInvoice ? [{ saleId: paymentInvoice.id, amountMinor }] : undefined,
-        bankAccountId: paymentSource === "receipt" && paymentMethod !== "cash" ? paymentBankAccountId : undefined,
+        bankAccountId: paymentSource === "receipt" && !splitMoney && paymentMethod !== "cash" ? paymentBankAccountId : undefined,
+        tenders: splitMoney ? splitResult.parts : undefined,
         amountMinor,
         allocations,
         reference: paymentReference || undefined,
@@ -256,7 +269,7 @@ export default function CustomersPage() {
     } catch (cause) {
       const code = typeof cause === "object" && cause !== null && "diagnosticCode" in cause ? String(cause.diagnosticCode) : "";
       if (["functions/invalid-argument", "functions/failed-precondition", "functions/permission-denied", "functions/not-found", "functions/unauthenticated", "functions/aborted"].includes(code)) {
-        paymentRetryKey.current = null;
+        paymentRetryKey.current = null; paymentRetryPayload.current = null;
         setPaymentUncertain(false);
       }
       setError(
@@ -328,7 +341,7 @@ export default function CustomersPage() {
         setSelected(customer); setPaymentAmount(""); setPaymentAllocations([{ accountId: "general", amount: "" }]);
         paymentRetryKey.current = null; setPaymentUncertain(false); setPaymentPurpose("advance"); setPaymentSource("receipt"); setPaymentInvoice(null);
         setAction("payment"); setPaymentBankAccountId(""); void loadHistory(customer, 1, branchId);
-      }}>Record advance</Button>}
+      }}>Record deposit</Button>}
       {canRefundAdvance && <Button size="sm" variant="outline" onClick={() => {
         setSelected(customer); setPaymentAmount(""); setPaymentAllocations([{ accountId: "general", amount: "" }]);
         paymentRetryKey.current = null; setPaymentUncertain(false); setPaymentPurpose("advance_refund"); setPaymentSource("receipt"); setPaymentInvoice(null);
@@ -355,12 +368,13 @@ export default function CustomersPage() {
         <div className="rounded-lg bg-amber-50 p-3 text-xs">Outstanding<strong className="mt-1 block text-base finance-attention">{formatNaira(history?.customer.outstandingBalanceMinor ?? customer.outstandingBalanceMinor)}</strong></div>
         <div className="rounded-lg bg-blue-50 p-3 text-xs">Available credit<strong className="mt-1 block text-base finance-balance">{formatNaira(history?.customer.availableCreditMinor ?? customer.availableCreditMinor)}</strong></div>
       </div>
+      {history && <AccountPosition party="customer" scope="Current balances across all stores" debt={history.customer.outstandingBalanceMinor} credit={Object.values(history.customer.advanceBalances ?? {}).reduce((sum, amount) => sum + amount, 0)} />}
       {historyLoading && <p role="status" className="text-sm text-[var(--muted)]">Loading customer activity…</p>}
       {error && !history && <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-800">{error}</p>}
       <div className="space-y-2">
         {history?.rows.map((row) => <div key={row.id} className="flex flex-wrap items-start justify-between gap-2 rounded-lg border p-3 text-sm">
           <div><strong className="capitalize">{`${customerHistoryLabel(row.kind, row.detail, row.invoiceAllocations)} · ${row.accountName ?? "General account"}${row.allocations?.length ? " — " + row.allocations.map((allocation) => `${allocation.accountName}: ${formatNaira(allocation.amountMinor)}`).join("; ") : ""}`}</strong><p className="text-xs text-[var(--muted)]">{row.reference} · {row.at ? new Date(row.at).toLocaleString("en-NG") : "Date pending"}</p></div>
-          <FinancialAmount tone={customerHistoryTone(row.kind, row.detail)} className="font-semibold">{formatNaira(Math.abs(row.amountMinor))}</FinancialAmount>
+          <div className="space-y-2"><FinancialAmount tone={customerHistoryTone(row.kind, row.detail)} className="font-semibold">{formatNaira(Math.abs(row.amountMinor))}</FinancialAmount>{row.paymentId && <AccountReceiptButton party="customer" partyId={customer.id} paymentId={row.paymentId} branchId={row.branchId} />}</div>
         </div>)}
         {history && history.rows.length === 0 && <p className="rounded-lg bg-slate-50 p-3 text-sm text-[var(--muted)]">No recorded activity in this store.</p>}
       </div>
@@ -514,7 +528,7 @@ export default function CustomersPage() {
                     ? "Edit customer"
                     : action === "credit"
                       ? "Administrator credit decision"
-                    : refundAdvance ? "Refund unused customer advance" : paymentPurpose === "advance" ? "Record customer advance" : "Record customer payment"}
+                    : refundAdvance ? "Refund unused customer advance" : paymentPurpose === "advance" ? "Record customer deposit" : "Record customer payment"}
               </h2>
             </div>
             {(action === "create" || action === "edit") && (
@@ -695,7 +709,9 @@ export default function CustomersPage() {
                     className="mt-1 w-full rounded-lg border p-3"
                   />
                 </label>
-                {paymentSource === "receipt" && <label className="block text-sm font-medium">
+                {paymentSource === "receipt" && <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={paymentSplit} onChange={event => { setPaymentSplit(event.target.checked); if (!paymentParts.length) setPaymentParts([{ id: "first", method: paymentMethod, amount: paymentAmount, bankAccountId: paymentBankAccountId, reference: paymentReference }]); }} />Split money across payment methods / accounts</label>}
+                {splitMoney && <MoneyTenderEditor value={paymentParts} onChange={setPaymentParts} total={paymentMinor} branchId={branchId} banks={history?.bankAccounts ?? []} />}
+                {paymentSource === "receipt" && !splitMoney && <label className="block text-sm font-medium">
                   Method
                   <select
                     value={paymentMethod}
@@ -721,16 +737,16 @@ export default function CustomersPage() {
                   </div>)}
                   <Button size="sm" variant="outline" disabled={paymentAllocations.length >= (history?.customer.arrangements?.length ?? 1)} onClick={() => setPaymentAllocations((items) => [...items.map((item) => ({ ...item, amount: items.length === 1 ? paymentAmount : item.amount })), { accountId: history?.customer.arrangements?.find((account) => !items.some((item) => item.accountId === account.id))?.id ?? "general", amount: "" }])}>Split across arrangements</Button>
                 </fieldset>
-                {paymentSource === "receipt" && paymentMethod !== "cash" && (
+                {paymentSource === "receipt" && !splitMoney && paymentMethod !== "cash" && (
                   <label className="block text-sm font-medium">{refundAdvance ? "Paying company account" : "Receiving company account"}
                     <select value={paymentBankAccountId} onChange={(event) => setPaymentBankAccountId(event.target.value)} className="mt-1 w-full rounded-lg border p-3">
                       <option value="">Select account</option>
-                      {history?.bankAccounts?.map((account) => <option key={account.id} value={account.id}>{account.bankName} · {account.accountName} · ••••{account.accountNumberLast4}</option>)}
+                      {history?.bankAccounts?.filter(account => !account.branchId || account.branchId === branchId).map((account) => <option key={account.id} value={account.id}>{account.bankName} · {account.accountName} · ••••{account.accountNumberLast4}</option>)}
                     </select>
                     <span className="mt-1 block text-xs text-[var(--muted)]">{historyLoading ? "Loading accounts…" : refundAdvance ? "This account pays the refund and is credited in the accounting journal." : "This account receives the money and is used in the accounting journal."}</span>
                   </label>
                 )}
-                {paymentSource === "receipt" && paymentMethod !== "cash" && (
+                {paymentSource === "receipt" && !splitMoney && paymentMethod !== "cash" && (
                   <label className="block text-sm font-medium">
                     {refundAdvance ? "Actual refund reference" : "Reference (optional)"}
                     <input
@@ -757,15 +773,16 @@ export default function CustomersPage() {
                 [action === "payment" && !paymentAmount, "Enter the actual positive payment/advance amount in naira."],
                 [action === "payment" && refundAdvance && historyLoading, "Wait for customer advance evidence to load."],
                 [action === "payment" && refundAdvance && reason.trim().length < 5, "Enter the advance-refund reason, at least 5 characters."],
-                [action === "payment" && refundAdvance && paymentMethod !== "cash" && paymentReference.trim().length < 3, "Enter the actual advance-refund reference, at least 3 characters."],
+                [action === "payment" && refundAdvance && !splitMoney && paymentMethod !== "cash" && paymentReference.trim().length < 3, "Enter the actual advance-refund reference, at least 3 characters."],
+                [action === "payment" && splitMoney && Boolean(splitResult.error), splitResult.error ?? "Review payment parts."],
                 [action === "payment" && !validAdvanceRefund, "Advance refund allocations must be unique positive amounts, total the refund exactly and stay within each arrangement's unused advance. Review the displayed available amounts; debt is separate."],
-                [action === "payment" && paymentSource === "receipt" && paymentMethod !== "cash" && !paymentBankAccountId, historyLoading ? "Wait for company accounts to load." : history?.bankAccounts?.length ? "Select the company account actually receiving/paying this money." : "No active company account is available. Ask authorized finance staff to configure it for this store, then refresh; cash is only for a real cash movement."]
+                [action === "payment" && paymentSource === "receipt" && !splitMoney && paymentMethod !== "cash" && !paymentBankAccountId, historyLoading ? "Wait for company accounts to load." : history?.bankAccounts?.length ? "Select the company account actually receiving/paying this money." : "No active company account is available. Ask authorized finance staff to configure it for this store, then refresh; cash is only for a real cash movement."]
               ])}
                 disabled={
                   busy ||
                   Boolean(arrangementDraft && (arrangementDraft.name.trim().length < 2 || arrangementDraft.reason.trim().length < 5)) ||
                   (action === "credit" && reason.trim().length < 3) ||
-                  (action === "payment" && (!paymentAmount || !branchId || !validAdvanceRefund || (paymentSource === "receipt" && paymentMethod !== "cash" && !paymentBankAccountId)))
+                  (action === "payment" && (!paymentAmount || !branchId || !validAdvanceRefund || (splitMoney && Boolean(splitResult.error)) || (paymentSource === "receipt" && !splitMoney && paymentMethod !== "cash" && !paymentBankAccountId)))
                 }
                 onClick={() =>
                   void (action === "create" || action === "edit"
@@ -781,7 +798,7 @@ export default function CustomersPage() {
                 {action === "credit"
                   ? "Save decision"
                   : action === "payment"
-                    ? refundAdvance ? "Record advance refund" : paymentPurpose === "advance" ? "Record advance" : paymentSource === "advance_balance" ? "Apply advance" : "Record payment"
+                    ? refundAdvance ? "Record advance refund" : paymentPurpose === "advance" ? "Record deposit" : paymentSource === "advance_balance" ? "Apply advance" : "Record payment"
                     : "Save customer"}
               </Button>
             </div>

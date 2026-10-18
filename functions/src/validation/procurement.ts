@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { accountTenderInput, refineAccountTenders } from "./account-tenders.js";
 
 const id = z.string().trim().min(1).max(128);
 const positiveMoney = z.number().int().positive().max(Number.MAX_SAFE_INTEGER);
@@ -21,7 +22,10 @@ export const saveSupplierInput = z.object({
 });
 
 export const procurementWorkspaceInput = z.object({
-  view: z.enum(["workspace", "supplier_account", "supplier_payables", "purchase_receipts", "supplier_returns", "supplier_return_receipts", "held_supplier_handover"]).default("workspace"),
+  view: z.enum(["workspace", "supplier_account", "supplier_payables", "purchase_receipts", "supplier_returns", "supplier_return_receipts", "held_supplier_handover", "supplier_payment_receipt", "supplier_directory", "supplier_profile", "supplier_activity"]).default("workspace"),
+  search: z.string().trim().max(160).optional(),
+  complete: z.boolean().default(false),
+  paymentId: id.refine(value => !value.includes("/"), "Invalid payment reference.").optional(),
   heldHandoverId: id.refine(value => !value.includes("/"), "Invalid handover reference.").optional(),
   supplierInvoiceId: id.optional(),
   supplierInvoiceItemId: id.optional(),
@@ -35,11 +39,12 @@ export const procurementWorkspaceInput = z.object({
   branchId: id.optional(),
   limit: z.number().int().min(1).max(200).default(100),
 }).superRefine((value, context) => {
+  if (value.view === "supplier_payment_receipt" && (!value.supplierId || !value.paymentId)) context.addIssue({ code: "custom", path: ["paymentId"], message: "Select the supplier and recorded payment." });
   if (value.view === "held_supplier_handover" && !value.heldHandoverId)
     context.addIssue({ code: "custom", path: ["heldHandoverId"], message: "Select the original handover." });
   if (value.branchId && value.warehouseId)
     context.addIssue({ code: "custom", path: ["branchId"], message: "Choose one operating location." });
-  if (["supplier_account", "supplier_payables"].includes(value.view) && !value.supplierId)
+  if (["supplier_account", "supplier_payables", "supplier_profile", "supplier_activity"].includes(value.view) && !value.supplierId)
     context.addIssue({ code: "custom", path: ["supplierId"], message: "Select a supplier." });
   if (value.view === "purchase_receipts" && !value.purchaseOrderId)
     context.addIssue({ code: "custom", path: ["purchaseOrderId"], message: "Select a purchase order." });
@@ -167,6 +172,7 @@ export const recordSupplierPaymentInput = z.object({
   branchId: id.optional(),
   warehouseId: id.optional(),
   method: z.enum(["cash", "card", "bank_transfer"]),
+  tenders: z.array(accountTenderInput).min(1).max(20).optional(),
   bankAccountId: id.optional(),
   reference: optionalText(160),
   allocations: z.array(z.object({
@@ -177,9 +183,11 @@ export const recordSupplierPaymentInput = z.object({
   notes: optionalText(500),
   idempotencyKey: z.string().uuid(),
 }).superRefine((value, context) => {
-  if (value.source === "disbursement" && value.method !== "cash" && !value.bankAccountId)
+  if (value.tenders && (value.source === "advance_balance" || value.bankAccountId))
+    context.addIssue({ code: "custom", path: ["tenders"], message: "Apply an existing advance separately; select each money account inside its payment part." });
+  if (!value.tenders && value.source === "disbursement" && value.method !== "cash" && !value.bankAccountId)
     context.addIssue({ code: "custom", path: ["bankAccountId"], message: "Select the company bank account funding this payment." });
-  if (value.source === "disbursement" && value.method !== "cash" && !value.reference)
+  if (!value.tenders && value.source === "disbursement" && value.method !== "cash" && !value.reference)
     context.addIssue({ code: "custom", path: ["reference"], message: "Record the external payment reference." });
   const invoiceIds = value.allocations.map((allocation) => allocation.supplierInvoiceId);
   if (new Set(invoiceIds).size !== invoiceIds.length)
@@ -195,6 +203,7 @@ export const recordSupplierPaymentInput = z.object({
   if (value.source === "advance_balance" && value.bankAccountId)
     context.addIssue({ code: "custom", path: ["bankAccountId"], message: "Applying an advance does not make another bank payment." });
   const total = value.purpose !== "payment" ? value.amountMinor ?? 0 : value.allocations.reduce((sum, allocation) => sum + allocation.amountMinor, 0);
+  refineAccountTenders(value.tenders, total, context);
   if (!Number.isSafeInteger(total) || total <= 0 || total > Number.MAX_SAFE_INTEGER)
     context.addIssue({ code: "custom", path: ["allocations"], message: "Payment allocation total is invalid." });
 });

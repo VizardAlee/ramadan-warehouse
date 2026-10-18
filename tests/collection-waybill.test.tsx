@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { SaleWaybills } from "@/features/pos/sale-waybills";
 import { SaleDocumentDialog } from "@/features/pos/sale-document";
 import type { SaleDocument } from "@/features/pos/types";
 const access = vi.hoisted(() => ({ mayRecordCosts: false }));
@@ -78,4 +79,40 @@ describe("collection waybill", () => {
     view.rerender(<SaleDocumentDialog document={{ ...document, collections: [] }} onClose={() => {}} />);
     expect(screen.queryByRole("button", { name: "View waybill" })).toBeNull();
   });
+});
+
+it("selects a partial handover from the direct waybill action and handles missing historic details", () => {
+  const print = vi.spyOn(window, "print").mockImplementation(() => {});
+  const second = { ...document.collections![0]!, id: "second", collector: "Second collector", totalQuantity: 1, lines: [{ productName: "Solar panel", quantity: 1 }] };
+  render(<SaleWaybills document={{ ...document, collections: [...document.collections!, second] }} onClose={() => {}} />);
+  fireEvent.click(screen.getAllByRole("button", { name: "View waybill" })[1]!);
+  expect(screen.getByRole("dialog", { name: "Collection waybill" }).textContent).toContain("Second collector");
+  expect(screen.getAllByText("Not recorded")).toHaveLength(3);
+  fireEvent.click(screen.getByRole("button", { name: "Print waybill / save PDF" }));
+  expect(print).toHaveBeenCalledOnce(); expect(api).not.toHaveBeenCalled();
+});
+it("edits only dispatch details, freezes retries and prints saved text safely", async () => {
+  access.mayRecordCosts = true;
+  api.mockRejectedValueOnce(new Error("Network interrupted")).mockResolvedValueOnce({ dispatcherPhone: "+234 (0) 803 1234", vehiclePlate: "ABC-123 XY", deliveryRecipientName: "<img src=x onerror=bad()>", dispatchDetailsVersion: 1 });
+  render(<SaleWaybills document={document} onClose={() => {}} />);
+  fireEvent.click(screen.getByRole("button", { name: "View waybill" }));
+  fireEvent.click(screen.getByRole("button", { name: "Edit dispatch details" }));
+  fireEvent.change(screen.getByLabelText("Dispatcher phone"), { target: { value: "+234 (0) 803 1234" } });
+  fireEvent.change(screen.getByLabelText("Vehicle plate"), { target: { value: "ABC-123 XY" } });
+  fireEvent.change(screen.getByLabelText("Delivery recipient name"), { target: { value: "<img src=x onerror=bad()>" } });
+  fireEvent.click(screen.getByRole("button", { name: "Save dispatch details" }));
+  await screen.findByText("Network interrupted");
+  expect(screen.getByLabelText("Vehicle plate").hasAttribute("disabled")).toBe(true);
+  expect(screen.getByRole("button", { name: "Print waybill / save PDF" }).hasAttribute("disabled")).toBe(true);
+  fireEvent.click(screen.getByRole("button", { name: "Retry same dispatch details" }));
+  await screen.findByText("ABC-123 XY");
+  expect(api.mock.calls[0]).toEqual(api.mock.calls[1]);
+  expect(api.mock.calls[0]).toMatchObject(["confirmPosSaleOrder", { action: "update_dispatch_details", saleId: "sale1", collectionId: "collection1", expectedVersion: 0 }]);
+  expect(screen.getByText("<img src=x onerror=bad()>").tagName).toBe("P");
+  expect(screen.getByRole("button", { name: "Print waybill / save PDF" }).hasAttribute("disabled")).toBe(false);
+});
+it("explains absent handovers instead of issuing a full-invoice waybill", () => {
+  render(<SaleWaybills document={{ ...document, collections: [] }} onClose={() => {}} />);
+  expect(screen.getByRole("status").textContent).toContain("authorized physical release");
+  expect(screen.queryByRole("button", { name: "View waybill" })).toBeNull(); expect(api).not.toHaveBeenCalled();
 });

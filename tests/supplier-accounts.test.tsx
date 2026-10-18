@@ -99,3 +99,19 @@ describe("supplier account workflow", () => {
     expect(screen.getByRole("dialog", { name: "Pay supplier invoice" })).toBeTruthy();
   });
 });
+
+it("splits a supplier partial payment across actual monetary sources", async () => {
+  api.call.mockResolvedValue({ recorded: true });
+  render(<SupplierAccounts {...props} />);
+  fireEvent.change(screen.getByLabelText("Supplier payment amount"), { target: { value: "50" } });
+  fireEvent.click(screen.getByLabelText("Split money across methods / accounts"));
+  fireEvent.change(screen.getByLabelText("Part 1 method"), { target: { value: "cash" } });
+  fireEvent.change(screen.getByLabelText("Part 1 amount"), { target: { value: "20" } });
+  fireEvent.click(screen.getByRole("button", { name: "Add payment part" }));
+  fireEvent.change(screen.getByLabelText("Part 2 method"), { target: { value: "bank_transfer" } });
+  fireEvent.change(screen.getByLabelText("Part 2 amount"), { target: { value: "30" } });
+  fireEvent.change(screen.getByLabelText("Part 2 account"), { target: { value: "bank1" } });
+  fireEvent.change(screen.getByLabelText("Part 2 reference"), { target: { value: "BANK-2" } });
+  fireEvent.click(screen.getByRole("button", { name: "Record payment" }));
+  await waitFor(() => expect(api.call).toHaveBeenCalledWith("recordSupplierPayment", expect.objectContaining({ allocations: [{ supplierInvoiceId: invoice.id, amountMinor: 5000 }], tenders: [{ method: "cash", amountMinor: 2000 }, { method: "bank_transfer", bankAccountId: "bank1", amountMinor: 3000, reference: "BANK-2" }], bankAccountId: undefined })));
+});

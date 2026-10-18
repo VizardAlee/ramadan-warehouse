@@ -7,6 +7,7 @@ import { enforceAppCheck } from "../config.js";
 import { parseInput } from "../utils/callable.js";
 import { visitQueryPages } from "../utils/query-pages.js";
 import { hasReviewedTaxCoverage } from "../tax/rules.js";
+import { addCashMovement, cashFlowRows, receiptsPayments, type CashJournal, type CashMovement } from "../reports/cash-movements.js";
 import {
   financialReportInput,
   taxWorkspaceInput,
@@ -73,11 +74,8 @@ export const generateFinancialStatement = onCall(
       query = query.where("effectiveAt", ">=", startTimestamp(input.fromDate));
     const ledgerTotals = new Map<string, LedgerTotal>();
     const bankCodes = new Set(["1010", "1020", "1030"]);
-    const cashByEntry = new Map<string, { type: string; amountMinor: number }>();
+    const cashGroups = new Map<string, CashMovement>();
     const cashReport = input.reportType === "cash_flow" || input.reportType === "receipts_payments";
-    const grouped = new Map<string, number>([["Operating activities", 0], ["Investing activities", 0], ["Financing activities", 0]]);
-    const investingTypes = new Set(["asset_purchase", "asset_disposal"]);
-    const financingTypes = new Set(["capital_contribution", "loan_receipt", "loan_repayment", "dividend"]);
     if (cashReport)
       await visitQueryPages(db.collection("bankAccounts").where("organizationId", "==", actor.organizationId), (accounts) => {
         for (const account of accounts) if (account.get("ledgerAccountCode")) bankCodes.add(String(account.get("ledgerAccountCode")));
@@ -87,30 +85,18 @@ export const generateFinancialStatement = onCall(
       if (!cashReport) return;
       const cashLines = lines.filter((line) => bankCodes.has(String(line.get("accountCode"))));
       const entryIds = [...new Set(cashLines.map((line) => String(line.get("journalEntryId"))))];
-      const typeByEntry = new Map<string, string>();
-      const activityByEntry = new Map<string, string>();
+      const journalByEntry = new Map<string, CashJournal>();
       for (let offset = 0; offset < entryIds.length; offset += 100) {
         const snapshots = await db.getAll(...entryIds.slice(offset, offset + 100).map((id) => db.doc(`journalEntries/${id}`)));
         for (const entry of snapshots) {
           if (!entry.exists || entry.get("organizationId") !== actor.organizationId || (branchId && entry.get("branchId") !== branchId))
             throw new HttpsError("failed-precondition", "A cash ledger entry has no matching journal in this reporting scope. Reconcile the journal before issuing this statement.");
-          typeByEntry.set(entry.id, String(entry.get("journalType") ?? "other"));
-          const activity = entry.get("cashFlowActivity");
-          if (activity !== undefined && !["operating", "investing", "financing"].includes(activity))
-            throw new HttpsError("failed-precondition", "A journal cash-flow classification requires review.");
-          if (activity) activityByEntry.set(entry.id, activity);
+          const details = entry.get("details");
+          journalByEntry.set(entry.id, { id: entry.id, type: String(entry.get("journalType") ?? "other"), referenceType: entry.get("referenceType"), referenceId: entry.get("referenceId"), activity: entry.get("cashFlowActivity"), pairedTransfer: Boolean(details?.sourceBranchId && details?.destinationBranchId && details.sourceBranchId !== details.destinationBranchId) });
         }
       }
       for (const line of cashLines) {
-        const journalType = typeByEntry.get(String(line.get("journalEntryId")))!;
-        const activity = activityByEntry.get(String(line.get("journalEntryId")));
-        const section = activity ? ({ operating: "Operating activities", investing: "Investing activities", financing: "Financing activities" } as Record<string, string>)[activity]!
-          : investingTypes.has(journalType) ? "Investing activities" : financingTypes.has(journalType) ? "Financing activities" : "Operating activities";
-        const movement = Number(line.get("debitMinor") ?? 0) - Number(line.get("creditMinor") ?? 0);
-        grouped.set(section, grouped.get(section)! + movement);
-        const entryId = String(line.get("journalEntryId"));
-        const previous = cashByEntry.get(entryId);
-        cashByEntry.set(entryId, { type: journalType, amountMinor: (previous?.amountMinor ?? 0) + movement });
+        addCashMovement(cashGroups, journalByEntry.get(String(line.get("journalEntryId")))!, Number(line.get("debitMinor") ?? 0) - Number(line.get("creditMinor") ?? 0));
       }
     }, { orderField: "effectiveAt" });
     const totals = [...ledgerTotals.values()].sort((left, right) => left.accountCode.localeCompare(right.accountCode));
@@ -193,25 +179,13 @@ export const generateFinancialStatement = onCall(
       };
     }
 
-    if (input.reportType === "receipts_payments") {
-      const movements = new Map<string, { section: string; accountName: string; amountMinor: number }>();
-      for (const movement of cashByEntry.values()) {
-        if (!Number.isSafeInteger(movement.amountMinor)) throw new HttpsError("failed-precondition", "Cash movement exceeds safe minor-unit arithmetic.");
-        if (!movement.amountMinor) continue; // Internal transfers cancel across cash/bank accounts in this scope.
-        const section = movement.amountMinor > 0 ? "Receipts" : "Payments";
-        const key = `${section}:${movement.type}`;
-        const previous = movements.get(key);
-        movements.set(key, { section, accountName: movement.type.replaceAll("_", " "), amountMinor: (previous?.amountMinor ?? 0) + Math.abs(movement.amountMinor) });
-      }
-      const rows = [...movements.values()].sort((a, b) => a.accountName.localeCompare(b.accountName));
-      const sum = (section: string) => rows.filter(row => row.section === section).reduce((total, row) => total + row.amountMinor, 0);
-      return { ...input, branchId: branchId ?? null, rows, receiptsMinor: sum("Receipts"), paymentsMinor: sum("Payments"), netCashMovementMinor: sum("Receipts") - sum("Payments") };
-    }
-    const rows = [...grouped].map(([section, amountMinor]) => ({ section, amountMinor }));
+    if (input.reportType === "receipts_payments")
+      return { ...input, branchId: branchId ?? null, ...receiptsPayments(cashGroups) };
+    const rows = cashFlowRows(cashGroups);
     return {
       ...input, branchId: branchId ?? null,
       rows,
-      netCashMovementMinor: rows.reduce((sum, row) => sum + row.amountMinor, 0),
+      netCashMovementMinor: receiptsPayments(cashGroups).netCashMovementMinor,
     };
   },
 );

@@ -1,3 +1,6 @@
+import { proformaRequest, validateProformaReference } from "../sales/proforma.js";
+import { updateDispatchDetails } from "../sales/dispatch-details.js";
+import { updateDispatchDetailsInput } from "../validation/dispatch-details.js";
 import { serviceReceiptVat } from "../services/billing.js";
 import { createBilling, serviceBalanceDelta, type BillingJournalLine, type BillingComponent } from "../billing/allocations.js";
 import { readMixedSaleContext } from "../billing/sale-context.js";
@@ -523,7 +526,7 @@ export const getPosWorkspace = onCall(
         returnId: credit.get("returnId"),
         customerId: credit.get("customerId") ?? null,
       })),
-      bankAccounts: bankAccounts.docs.map(bankAccountSummary),
+      bankAccounts: bankAccounts.docs.filter(bank => !bank.get("branchId") || bank.get("branchId") === input.branchId).map(bankAccountSummary),
       pendingOrders: pendingOrders.docs
         .filter((order) =>
           ["order_received", "payment_accepted"].includes(
@@ -557,6 +560,7 @@ export const getSaleDocument = onCall(
   { enforceAppCheck },
   async (request) => {
     const actor = await requireAccess(request);
+    if (["get_proforma", "list_proformas"].includes(request.data?.action)) return proformaRequest(actor, request.data);
     if (
       !hasServerPermission(actor, "reports.sales.read") &&
       !hasServerPermission(actor, "sales.read.own_branch") &&
@@ -641,7 +645,7 @@ export const getSaleDocument = onCall(
       collections: saleCollections.map((record) => ({
         id: record.id, referenceNumber: record.get("referenceNumber") ?? record.id,
         waybillNumber: `WB-${movementById.get(String(record.get("inventoryTransactionId"))) ?? record.id}`,
-        collector: record.get("collector"), collectedAt: iso(record.get("collectedAt")),
+        collector: record.get("collector"), dispatcherPhone: record.get("dispatcherPhone") ?? null, vehiclePlate: record.get("vehiclePlate") ?? null, deliveryRecipientName: record.get("deliveryRecipientName") ?? null, dispatchDetailsVersion: record.get("dispatchDetailsVersion") ?? 0, collectedAt: iso(record.get("collectedAt")),
         releasedBy: record.get("releasedBy"), releasedByName: staffNames.get(String(record.get("releasedBy"))) ?? "Authorized staff",
         notes: record.get("notes") ?? null, totalQuantity: record.get("totalQuantity"),
         evidenceIds: record.get("evidenceIds") ?? [],
@@ -1006,6 +1010,7 @@ export const createPosSaleOrder = onCall(
   { enforceAppCheck },
   async (request) => {
     const actor = await requireAccess(request);
+    if (request.data?.action === "create_proforma") return proformaRequest(actor, request.data);
     requirePermission(actor, "sales.order.create");
     const input = parseInput(commitSaleInput, request.data);
     if (
@@ -1062,6 +1067,7 @@ export const createPosSaleOrder = onCall(
         };
         return;
       }
+      await validateProformaReference(transaction, actor, input);
       input.lines.forEach((_, index) => {
         const product = snapshots[5 + pricedLines.length * 2 + index]!;
         if (!product.exists || product.get("organizationId") !== actor.organizationId || product.get("active") !== true)
@@ -1144,6 +1150,7 @@ export const createPosSaleOrder = onCall(
         updatedAt: now,
       });
       transaction.create(order, {
+        ...(input.proformaId ? { proformaId: input.proformaId } : {}),
         organizationId: actor.organizationId,
         branchId: input.branchId,
         branchName: branchSnapshot!.get("name"),
@@ -1513,6 +1520,7 @@ async function postPosSale(
         throw new HttpsError("failed-precondition", "This order is no longer awaiting payment confirmation. Refresh the workflow queue.");
       if (orderSnapshot && JSON.stringify(parseInput(commitSaleInput, orderSnapshot.get("payload"))) !== JSON.stringify(input))
         throw new HttpsError("aborted", "The accepted order changed. Refresh before confirming it.");
+      await validateProformaReference(transaction, actor, input, Boolean(workflowOrder));
       const mixedContext = await readMixedSaleContext(transaction, actor.organizationId, input, products);
       if (mixedContext.mapping && !workflowOrder) throw new HttpsError("failed-precondition", "Use Receive order, Accept payment and Confirm payment for mixed billing.");
       const stockScope = { organizationId: actor.organizationId, locationId: location.id, saleId: sale.id };
@@ -1619,6 +1627,7 @@ async function postPosSale(
           payment.method,
           payment.bankAccountId,
           bankAccountSnapshots[index],
+          { branchId: input.branchId },
         );
       });
       const resolvedLines = input.lines.map((line, index) => {
@@ -1783,6 +1792,7 @@ async function postPosSale(
         updatedAt: now,
       });
       transaction.create(sale, clean({
+        ...(input.proformaId ? { proformaId: input.proformaId } : {}),
         organizationId: actor.organizationId,
         calculationVersion: input.calculationVersion ?? 1,
         organizationLegalName: organizationSnapshot.get("legalName"),
@@ -2281,6 +2291,8 @@ export const confirmPosSaleOrder = onCall(
     const actor = await requireAccess(request);
     if (request.data?.action === "upload_collection_photo")
       return uploadCollectionPhoto(actor, parseInput(uploadCollectionPhotoInput, request.data));
+    if (request.data?.action === "update_dispatch_details")
+      return updateDispatchDetails(actor, parseInput(updateDispatchDetailsInput, request.data));
     if (request.data?.action === "collect")
       return collectReservedSale(actor, parseInput(collectSaleInput, request.data));
     requirePermission(actor, "sales.payment.confirm");

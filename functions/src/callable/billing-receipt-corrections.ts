@@ -1,3 +1,5 @@
+import { accountTenderInput } from "../validation/account-tenders.js";
+import { tenderTotalError } from "../accounting/money-tenders.js";
 import { createHash } from "node:crypto";
 import { FieldValue, Timestamp } from "firebase-admin/firestore";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
@@ -22,7 +24,10 @@ const schema = z.discriminatedUnion("action", [
 ]);
 const fail = (message: string): never => { throw new HttpsError("failed-precondition", message); };
 function sourceAmount(source: FirebaseFirestore.DocumentSnapshot, type: string, sale: FirebaseFirestore.DocumentSnapshot, billing: MixedBilling) {
-  if (source.get("organizationId") !== sale.get("organizationId") || (type !== "customerPayments" && source.get("branchId") !== sale.get("branchId")) || source.get("currency") !== "NGN" || !["cash", "card", "bank_transfer"].includes(source.get("method"))) return 0;
+  const split = type === "customerPayments" && source.get("method") === "split" && source.get("evidenceVersion") === 2
+    ? z.array(accountTenderInput).safeParse(source.get("tenders")) : null;
+  const moneyMethod = ["cash", "card", "bank_transfer"].includes(source.get("method")) || Boolean(split?.success && !tenderTotalError(split.data, source.get("amountMinor")));
+  if (source.get("organizationId") !== sale.get("organizationId") || (type !== "customerPayments" && source.get("branchId") !== sale.get("branchId")) || source.get("currency") !== "NGN" || !moneyMethod) return 0;
   // Commercial refunds do not identify which tender funded them. Earlier source
   // balances are therefore ambiguous even if a later repayment raises paidMinor.
   const cutoff = sale.get("billingRefundProvenanceCutoffAt"), recorded = source.get("createdAt") ?? source.get("recordedAt");
@@ -70,7 +75,7 @@ export const billingReceiptCorrections = onCall({ enforceAppCheck, timeoutSecond
     const expectedReference = input.sourceType === "salePayments" ? sale!.id : source!.id;
     if (!original.exists || original.get("organizationId") !== actor.organizationId || original.get("referenceId") !== expectedReference || original.get("referenceType") !== ({ salePayments: "sale", customerPayments: "customerPayment", aftersalesPayments: "aftersalesPayment" }[input.sourceType]) || original.get("journalType") !== ({ salePayments: "sale", customerPayments: "customer_payment", aftersalesPayments: "aftersales_payment" }[input.sourceType]) || original.get("branchId") !== source!.get("branchId") || original.get("currency") !== "NGN" || original.get("status") !== "posted" || original.get("reversedByJournalEntryId") || original.get("reversalJournalEntryId")) fail("Original receipt journal requires reconciliation before correction.");
     if (input.method === "cash" && (!shift!.exists || shift!.get("organizationId") !== actor.organizationId || shift!.get("branchId") !== sale!.get("branchId") || shift!.get("status") !== "open")) fail("Choose an open cash till at this invoice's store.");
-    const after = creditBilling(billing, [], input.amountMinor), transition = await prepareBillingTransition(tx, sale!, after), settlement = resolveSettlementAccount(actor.organizationId, input.method, input.bankAccountId, bank!);
+    const after = creditBilling(billing, [], input.amountMinor), transition = await prepareBillingTransition(tx, sale!, after), settlement = resolveSettlementAccount(actor.organizationId, input.method, input.bankAccountId, bank!, { branchId: String(sale!.get("branchId")) });
     if (!/^10\d{2}$/.test(settlement.accountCode)) fail("Select a company cash or bank ledger account.");
     const outstanding = Number(sale!.get("receivableOutstandingMinor")), customerOutstanding = Number(customer.get("outstandingBalanceMinor")), next = customerOutstanding + input.amountMinor, accountId = sale!.get("customerAccountId") ?? "general";
     if (![outstanding, customerOutstanding, next].every(value => Number.isSafeInteger(value) && value >= 0) || outstanding !== billing.components.reduce((sum, c) => sum + remainingCharge(c), 0) - billing.paidMinor || sale!.get("receivablePaidMinor") !== billing.paidMinor || !Number.isSafeInteger(outstanding + input.amountMinor)) fail("Invoice debt and receipt evidence requires reconciliation.");

@@ -670,6 +670,7 @@ export const recordExpensePayment = onCall(
         input.method,
         input.bankAccountId,
         bankAccountSnapshot,
+        { branchId: current!.get("branchId") || undefined },
       );
       const lines = [
         { accountCode: "2300", debitMinor: input.amountMinor, creditMinor: 0 },

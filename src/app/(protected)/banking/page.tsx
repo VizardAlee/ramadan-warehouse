@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { BankOwner } from "@/features/banking/bank-owner";
 import { CompanyFundsTransfer } from "@/features/banking/company-funds-transfer";
 import { callAdministration } from "@/features/administration/api";
 import { useAuth } from "@/features/auth/auth-context";
@@ -34,6 +35,7 @@ interface JournalLine {
   bankReconciliationId?: string;
 }
 interface Workspace {
+  branches?: Array<{ id: string; name: string }>;
   accounts: BankAccount[];
   statementTransactions: BankStatementTransaction[];
   journalLines: JournalLine[];
@@ -103,6 +105,7 @@ export default function BankingPage() {
   const [matches, setMatches] = useState<Record<string, string>>({});
   const [statementText, setStatementText] = useState("");
   const [accountForm, setAccountForm] = useState({
+    branchId: "",
     bankName: "",
     accountName: "ABR operating account",
     accountNumberLast4: "",
@@ -229,7 +232,7 @@ export default function BankingPage() {
         </div>
       )}
 
-      {can("banking.transfer") && <CompanyFundsTransfer key={`${profile.organizationId}:${profile.uid}`} accounts={workspace?.accounts ?? []} branchId={operatingContext?.type === "branch" ? operatingContext.id : profile.branchIds.length === 1 ? profile.branchIds[0] : undefined} ownerKey={`${profile.organizationId}:${profile.uid}`} onComplete={() => void load(selectedAccountId)} />}
+      {can("banking.transfer") && <CompanyFundsTransfer key={`${profile.organizationId}:${profile.uid}`} accounts={workspace?.accounts ?? []} branches={workspace?.branches ?? []} branchId={operatingContext?.type === "branch" ? operatingContext.id : profile.branchIds.length === 1 ? profile.branchIds[0] : undefined} ownerKey={`${profile.organizationId}:${profile.uid}`} onComplete={() => void load(selectedAccountId)} />}
       {can("banking.manage") && (
         <details
           open={!workspace?.accounts.length}
@@ -333,6 +336,7 @@ export default function BankingPage() {
               />
             </label>
           </div>
+          <label className="mt-3 block text-sm">Account owner store<select value={accountForm.branchId} onChange={event => setAccountForm({ ...accountForm, branchId: event.target.value })} className="input mt-1 block w-full"><option value="">Company-wide account</option>{workspace?.branches?.map(row => <option key={row.id} value={row.id}>{row.name}</option>)}</select></label>
           <Button
             className="mt-4"
             disabled={
@@ -345,13 +349,11 @@ export default function BankingPage() {
             onClick={() =>
               void run(async () => {
                 const result = await callAdministration<
-                  typeof accountForm & {
-                    openingBalanceMinor: number;
-                    active: boolean;
-                  },
+                  Record<string, unknown>,
                   { bankAccountId: string }
                 >("saveBankAccount", {
                   ...accountForm,
+                  branchId: accountForm.branchId || undefined,
                   openingBalanceMinor: signedNairaToKobo(
                     accountForm.openingBalanceNaira,
                   ),
@@ -366,6 +368,7 @@ export default function BankingPage() {
         </details>
       )}
 
+      {can("banking.manage") && workspace?.accounts.find(account => account.id === selectedAccountId) && <BankOwner key={selectedAccountId} account={workspace.accounts.find(account => account.id === selectedAccountId)!} branches={workspace.branches ?? []} onSaved={() => void load(selectedAccountId)} />}
       <section className="rounded-xl border bg-white p-5">
         <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
           <label className="text-sm md:min-w-80">
