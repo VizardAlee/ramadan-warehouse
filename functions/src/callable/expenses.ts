@@ -1,6 +1,6 @@
 import { assertIndependentProviderExpense } from "../billing/expense-guard.js";
 import { createHash } from "node:crypto";
-import { FieldValue, Timestamp } from "firebase-admin/firestore";
+import { FieldPath, FieldValue, Timestamp } from "firebase-admin/firestore";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
 import { db } from "../admin.js";
 import { scopedAccess, hasOrganizationPermission, hasPermissionScope, requirePermissionScope, type ScopedAccess } from "../auth/permission-scope.js";
@@ -29,6 +29,8 @@ import {
   expenseWorkspaceInput,
   recordExpensePaymentInput,
 } from "../validation/expenses.js";
+
+import { expenseCursor, expenseCursorBinding, expenseMatches, expenseScanLimit, readExpenseCursor } from "../expenses/workspace.js";
 
 const accountNames: Readonly<Record<string, string>> = {
   "1010": "Cash on hand",
@@ -155,6 +157,25 @@ function writeJournal(
     });
 }
 
+type ChoiceKind = "categories" | "branches" | "warehouses" | "bankAccounts";
+async function loadExpenseChoices(actor: ScopedAccess, kind: ChoiceKind, cursor?: string) {
+  const collection = { categories: "expenseCategories", branches: "branches", warehouses: "warehouses", bankAccounts: "bankAccounts" }[kind];
+  const limit = kind === "categories" ? 200 : 100;
+  let query = db.collection(collection).where("organizationId", "==", actor.organizationId)
+    .where(kind === "branches" || kind === "warehouses" ? "status" : "active", "==", kind === "branches" || kind === "warehouses" ? "active" : true)
+    .orderBy(FieldPath.documentId());
+  if (cursor) query = query.startAfter(cursor);
+  const snapshot = await query.limit(limit + 1).get();
+  const page = snapshot.docs.slice(0, limit);
+  const eligible = page.filter(document => kind !== "branches" && kind !== "warehouses" ||
+    hasOrganizationPermission(actor, "expenses.read") || hasOrganizationPermission(actor, "expenses.create") ||
+    (kind === "branches" ? actor.branchIds : actor.warehouseIds).includes(document.id));
+  const items = eligible.map(document => kind === "bankAccounts" ? bankAccountSummary(document) : kind === "categories"
+    ? { id: document.id, ...document.data() }
+    : { id: document.id, name: document.get("name"), code: document.get("code") });
+  return { items, nextCursorId: snapshot.size > limit ? page.at(-1)!.id : null };
+}
+
 export const getExpenseWorkspace = onCall(
   { enforceAppCheck },
   async (request) => {
@@ -166,67 +187,33 @@ export const getExpenseWorkspace = onCall(
       branchIds: actor.branchIds, warehouseIds: actor.warehouseIds,
     };
     requirePermissionScope(actor, { branchId: input.branchId, warehouseId: input.warehouseId }, "expenses.read");
-    let query: FirebaseFirestore.Query = db
-      .collection("expenses")
-      .where("organizationId", "==", actor.organizationId);
+    if (input.view === "choices") return { kind: input.choiceKind!, ...await loadExpenseChoices(actor, input.choiceKind!, input.choiceCursor) };
+    const binding = expenseCursorBinding(actor.organizationId, actor.userId, input);
+    const after = readExpenseCursor(input.cursor, binding);
+    let query: FirebaseFirestore.Query = db.collection("expenses").where("organizationId", "==", actor.organizationId);
     if (input.branchId) query = query.where("branchId", "==", input.branchId);
-    if (input.warehouseId)
-      query = query.where("warehouseId", "==", input.warehouseId);
-    const [categories, branches, warehouses, expenses, bankAccounts] = await Promise.all([
-      db
-        .collection("expenseCategories")
-        .where("organizationId", "==", actor.organizationId)
-        .where("active", "==", true)
-        .limit(200)
-        .get(),
-      db
-        .collection("branches")
-        .where("organizationId", "==", actor.organizationId)
-        .where("status", "==", "active")
-        .limit(100)
-        .get(),
-      db
-        .collection("warehouses")
-        .where("organizationId", "==", actor.organizationId)
-        .where("status", "==", "active")
-        .limit(100)
-        .get(),
-      query.limit(input.limit).get(),
-      db.collection("bankAccounts")
-        .where("organizationId", "==", actor.organizationId)
-        .where("active", "==", true)
-        .limit(100)
-        .get(),
+    if (input.warehouseId) query = query.where("warehouseId", "==", input.warehouseId);
+    query = query.orderBy(FieldPath.documentId());
+    if (after) query = query.startAfter(after);
+    const scanLimit = input.status === "all" && !input.search && !input.fromDate && !input.toDate ? input.limit : expenseScanLimit;
+    const [categories, branches, warehouses, bankAccounts, snapshot] = await Promise.all([
+      loadExpenseChoices(actor, "categories"), loadExpenseChoices(actor, "branches"),
+      loadExpenseChoices(actor, "warehouses"), loadExpenseChoices(actor, "bankAccounts"),
+      query.limit(scanLimit + 1).get(),
     ]);
+    const expenses: Array<FirebaseFirestore.DocumentData> = [];
+    let scanned = 0;
+    for (const document of snapshot.docs.slice(0, scanLimit)) {
+      scanned++;
+      const row = document.data();
+      if (hasPermissionScope(actor, row, "expenses.read") && expenseMatches(row, input)) expenses.push({ ...row, id: document.id });
+      if (expenses.length === input.limit) break;
+    }
+    const hasMore = scanned < snapshot.size;
     return {
-      categories: categories.docs.map((document) => ({
-        id: document.id,
-        ...document.data(),
-      })),
-      branches: branches.docs
-        .filter(
-          (document) =>
-            hasOrganizationPermission(actor, "expenses.read") || hasOrganizationPermission(actor, "expenses.create") || actor.branchIds.includes(document.id),
-        )
-        .map((document) => ({
-          id: document.id,
-          name: document.get("name"),
-          code: document.get("code"),
-        })),
-      warehouses: warehouses.docs
-        .filter(
-          (document) =>
-            hasOrganizationPermission(actor, "expenses.read") || hasOrganizationPermission(actor, "expenses.create") || actor.warehouseIds.includes(document.id),
-        )
-        .map((document) => ({
-          id: document.id,
-          name: document.get("name"),
-          code: document.get("code"),
-        })),
-      expenses: expenses.docs
-        .filter((document) => hasPermissionScope(actor, document.data(), "expenses.read"))
-        .map((document) => ({ id: document.id, ...document.data() })),
-      bankAccounts: bankAccounts.docs.map(bankAccountSummary),
+      categories: categories.items, branches: branches.items, warehouses: warehouses.items, bankAccounts: bankAccounts.items,
+      lookupNextCursors: { categories: categories.nextCursorId, branches: branches.nextCursorId, warehouses: warehouses.nextCursorId, bankAccounts: bankAccounts.nextCursorId },
+      expenses, scannedCount: scanned, nextCursor: hasMore ? expenseCursor(snapshot.docs[scanned - 1]!.id, binding) : null,
     };
   },
 );

@@ -1,0 +1,9 @@
+.workspace { min-width: 0; overflow-wrap: anywhere; }
+.workspace > header > div { min-width: 0; flex: 1; }
+.workspace > header > [data-action-prerequisite] { flex-shrink: 0; }
+.workspace > header button { white-space: nowrap; overflow-wrap: normal; }
+.workspace :is(input, select, textarea, fieldset, article, details, label) { min-width: 0; max-width: 100%; }
+.payment { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 12rem), 1fr)); gap: .75rem; }
+.payment > * { min-width: 0; }
+.filters { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 12rem), 1fr)); gap: .75rem; align-items: end; }
+.amounts { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 10rem), 1fr)); gap: .75rem; }

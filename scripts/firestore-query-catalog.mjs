@@ -111,6 +111,11 @@ export function queryCatalog() {
   for (const optional of subsets(["originWarehouseId", "destinationBranchId", "status", "sourceType"])) add("transfer register filters", "transfers", [org, ...eq(optional)], [["__name__", "ASCENDING"]]);
   for (const field of ["originWarehouseId", "destinationBranchId"]) for (const optional of subsets(["status", "sourceType"])) add("assigned transfer register", "transfers", [org, [field, "in"], ...eq(optional)], [["__name__", "ASCENDING"]]);
   for (const collection of ["purchaseOrders", "purchaseOrderItems", "supplierInvoices", "expenses"]) for (const scope of subsets(["branchId", "warehouseId"])) add("procurement/expense workspace", collection, [org, ...eq(scope)]);
+  // Expense filters run within bounded pages of the existing authorized scope.
+  // Status/date/text do not introduce index-dependent or legacy-excluding predicates.
+  for (const scope of [[], ["branchId"], ["warehouseId"]]) add("bounded expense register pages", "expenses", [org, ...eq(scope)], [["__name__", "ASCENDING"]]);
+  for (const [collection, field] of [["expenseCategories", "active"], ["bankAccounts", "active"], ["branches", "status"], ["warehouses", "status"]])
+    add("expense choices continuation", collection, [org, [field, "=="]], [["__name__", "ASCENDING"]]);
   add("purchase receipt history", "purchaseReceipts", [org, ["purchaseOrderId", "=="]], dateOrder("receivedAt"));
   add("supplier return original receipts", "purchaseReceipts", [org, ["purchaseOrderItemId", "=="]], dateOrder("receivedAt"));
   add("supplier return history", "supplierReturns", [org, ["supplierInvoiceId", "=="]], dateOrder("createdAt"));

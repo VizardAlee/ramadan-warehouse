@@ -5,13 +5,24 @@ const optionalText = (max: number) => z.string().trim().max(max).optional();
 const positiveMoney = z.number().int().positive().max(Number.MAX_SAFE_INTEGER);
 
 export const expenseWorkspaceInput = z.object({
-  view: z.enum(["workspace", "access"]).default("workspace"),
+  view: z.enum(["workspace", "access", "choices"]).default("workspace"),
   branchId: id.optional(),
   warehouseId: id.optional(),
   limit: z.number().int().min(1).max(200).default(100),
+  status: z.enum(["all", "draft", "submitted", "ready", "approved", "partially_paid", "paid"]).default("all"),
+  search: z.string().trim().max(120).default(""),
+  fromDate: z.string().date().optional(),
+  toDate: z.string().date().optional(),
+  cursor: z.string().min(1).max(1024).optional(),
+  choiceKind: z.enum(["categories", "branches", "warehouses", "bankAccounts"]).optional(),
+  choiceCursor: id.optional(),
 }).superRefine((value, context) => {
   if (value.branchId && value.warehouseId)
     context.addIssue({ code: "custom", message: "Select a branch or warehouse context, not both." });
+  if (value.fromDate && value.toDate && value.fromDate > value.toDate)
+    context.addIssue({ code: "custom", path: ["toDate"], message: "The last bill date must be on or after the first bill date." });
+  if (value.view === "choices" && !value.choiceKind)
+    context.addIssue({ code: "custom", path: ["choiceKind"], message: "Select the choices to load." });
 });
 
 export const createExpenseInput = z.object({

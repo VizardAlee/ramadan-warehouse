@@ -330,4 +330,58 @@ describe.sequential("expense callables", () => {
       "2300",
     );
   });
+  it("pages scoped bills beyond the old cap, retains empty scan continuation, binds cursors and never posts while reading", async () => {
+    const store = "expense-paged-store";
+    const rows = Array.from({ length: 505 }, (_, index) => ({ id: `page-${String(index).padStart(4, "0")}`, status: index === 504 ? "paid" : "draft", expenseDate: "2026-10-18", payeeName: index === 504 ? "Final needle provider" : "Ordinary provider" }));
+    const records = rows.map(row => [adminDb.doc(`expenses/${row.id}`), { ...row, organizationId, branchId: store, expenseNumber: `EXP-${row.id}`, categoryName: "Read test", description: "Synthetic paging bill", netAmountMinor: 1000, vatAmountMinor: 0, grossAmountMinor: 1000, outstandingAmountMinor: row.status === "paid" ? 0 : 1000, createdBy: "synthetic" }] as const);
+    for (let offset = 0; offset < records.length; offset += 400) {
+      const batch = adminDb.batch(); for (const [ref, data] of records.slice(offset, offset + 400)) batch.set(ref, data); await batch.commit();
+    }
+    await adminDb.doc("expenses/foreign-paged-expense").set({ organizationId: "foreign-org", branchId: store, status: "paid", payeeName: "Foreign needle" });
+    const journalBefore = (await adminDb.collection("journalEntries").where("organizationId", "==", organizationId).get()).size;
+    type Page = { expenses: Array<{ id: string; status: string }>; nextCursor: string | null; scannedCount: number };
+    const filter = { branchId: store, limit: 200 };
+    const first = await call<Page>(administrator, "getExpenseWorkspace", filter);
+    expect(first.expenses).toHaveLength(200); expect(first.scannedCount).toBe(200);
+    const second = await call<Page>(administrator, "getExpenseWorkspace", { ...filter, cursor: first.nextCursor });
+    const third = await call<Page>(administrator, "getExpenseWorkspace", { ...filter, cursor: second.nextCursor });
+    expect([...first.expenses, ...second.expenses, ...third.expenses].map(row => row.id)).toEqual(rows.map(row => row.id));
+    expect(third.nextCursor).toBeNull();
+    const empty = await call<Page>(administrator, "getExpenseWorkspace", { ...filter, status: "paid", search: "needle", fromDate: "2026-10-18", toDate: "2026-10-18" });
+    expect(empty.expenses).toEqual([]); expect(empty.scannedCount).toBe(500); expect(empty.nextCursor).toBeTruthy();
+    const match = await call<Page>(administrator, "getExpenseWorkspace", { ...filter, status: "paid", search: "needle", fromDate: "2026-10-18", toDate: "2026-10-18", cursor: empty.nextCursor });
+    expect(match.expenses.map(row => row.id)).toEqual(["page-0504"]); expect(match.nextCursor).toBeNull();
+    for (const change of [{ status: "draft" }, { branchId }, { warehouseId: "other", branchId: undefined }, { limit: 25 }, { search: "changed" }])
+      await expect(call(administrator, "getExpenseWorkspace", { ...filter, ...change, cursor: first.nextCursor })).rejects.toMatchObject({ code: "functions/invalid-argument" });
+    await expect(call(branchManager, "getExpenseWorkspace", { ...filter, cursor: first.nextCursor })).rejects.toMatchObject({ code: "functions/permission-denied" });
+    await expect(call(administrator, "getExpenseWorkspace", { ...filter, cursor: "malformed" })).rejects.toMatchObject({ code: "functions/invalid-argument" });
+    const cashier = await createActor("expense-denied@example.test", "cashier");
+    await expect(call(cashier, "getExpenseWorkspace", { branchId })).rejects.toMatchObject({ code: "functions/permission-denied" });
+    const foreignActor = await createActor("expense-foreign@example.test", "system_administrator");
+    await adminDb.doc("organizations/foreign-org").set({ name: "Other synthetic organization", status: "active" });
+    await adminDb.doc(`users/${foreignActor.auth.currentUser!.uid}`).update({ organizationId: "foreign-org" });
+    const foreignPage = await call<Page>(foreignActor, "getExpenseWorkspace", { branchId: store });
+    expect(foreignPage.expenses.map(row => row.id)).toEqual(["foreign-paged-expense"]);
+    await expect(call(foreignActor, "getExpenseWorkspace", { ...filter, cursor: first.nextCursor })).rejects.toMatchObject({ code: "functions/invalid-argument" });
+    const after = await adminDb.collection("expenses").where("organizationId", "==", organizationId).where("branchId", "==", store).orderBy("__name__").get();
+    expect(after.docs.map(doc => ({ id: doc.id, status: doc.get("status"), expenseDate: doc.get("expenseDate"), payeeName: doc.get("payeeName") }))).toEqual(rows);
+    expect((await adminDb.collection("journalEntries").where("organizationId", "==", organizationId).get()).size).toBe(journalBefore);
+  });
+  it("continues active lookup choices under the same expense authority", async () => {
+    const batch = adminDb.batch();
+    for (let index = 0; index < 105; index++) batch.set(adminDb.doc(`bankAccounts/paged-bank-${String(index).padStart(3, "0")}`), { organizationId, active: true, bankName: "Synthetic bank", accountName: "Company", accountNumberLast4: "1234", ledgerAccountCode: "1042", branchId: index % 2 ? branchId : "other-store" });
+    batch.set(adminDb.doc("bankAccounts/foreign-choice"), { organizationId: "foreign-org", active: true, bankName: "Foreign bank" });
+    batch.set(adminDb.doc("bankAccounts/inactive-choice"), { organizationId, active: false, bankName: "Inactive bank" });
+    await batch.commit();
+    type Choices = { kind: string; items: Array<{ id: string; branchId?: string }>; nextCursorId: string | null };
+    const first = await call<Choices>(branchManager, "getExpenseWorkspace", { view: "choices", choiceKind: "bankAccounts", branchId });
+    expect(first.items).toHaveLength(100); expect(first.nextCursorId).toBeTruthy();
+    const next = await call<Choices>(branchManager, "getExpenseWorkspace", { view: "choices", choiceKind: "bankAccounts", branchId, choiceCursor: first.nextCursorId });
+    const ids = [...first.items, ...next.items].map(row => row.id);
+    expect(new Set(ids).size).toBe(106); expect(next.nextCursorId).toBeNull();
+    expect(ids).not.toContain("foreign-choice"); expect(ids).not.toContain("inactive-choice");
+    await expect(call(branchManager, "getExpenseWorkspace", { view: "choices", choiceKind: "bankAccounts", branchId: "outside" })).rejects.toMatchObject({ code: "functions/permission-denied" });
+    await expect(call(branchManager, "getExpenseWorkspace", { view: "choices", choiceKind: "bankAccounts" })).rejects.toMatchObject({ code: "functions/permission-denied" });
+  });
+
 });

@@ -23,7 +23,7 @@ describe("expense authority and assigned-store initialization", () => {
     await screen.findByText("EXP-own");
     expect(state.call).toHaveBeenCalledWith("getExpenseWorkspace", { view: "access" });
     const requests = state.call.mock.calls.filter(([name, input]) => name === "getExpenseWorkspace" && input.view !== "access");
-    expect(requests[0]![1]).toEqual({ branchId: "own" });
+    expect(requests[0]![1]).toEqual({ branchId: "own", limit: 25 });
     const picker = screen.getByLabelText("Expense register scope");
     expect(within(picker).queryByRole("option", { name: "Entire organization" })).toBeNull();
     expect(within(picker).queryByRole("option", { name: "Remote store" })).toBeNull();
@@ -32,14 +32,14 @@ describe("expense authority and assigned-store initialization", () => {
     fireEvent.change(picker, { target: { value: "branch:second" } });
     await screen.findByText("EXP-second");
     expect(screen.queryByText("EXP-own")).toBeNull();
-    expect(state.call).toHaveBeenCalledWith("getExpenseWorkspace", { branchId: "second" });
+    expect(state.call).toHaveBeenCalledWith("getExpenseWorkspace", { branchId: "second", limit: 25 });
     expect(screen.getByTestId("provider-scope").textContent).toBe("second:true");
   });
   it("preserves explicit global reads while keeping local expense creation and approval in assigned stores", async () => {
     state.access.organizationPermissions = ["expenses.read"];
     render(<ExpensesPage />);
     await screen.findByText("EXP-remote");
-    expect(state.call).toHaveBeenCalledWith("getExpenseWorkspace", {});
+    expect(state.call).toHaveBeenCalledWith("getExpenseWorkspace", { limit: 25 });
     expect(within(screen.getByLabelText("Expense register scope")).getByRole("option", { name: "Entire organization" })).toBeTruthy();
     expect(within(screen.getByLabelText("Allocate to")).queryByRole("option", { name: "Whole organization" })).toBeNull();
     expect(within(screen.getByLabelText("Location")).queryByRole("option", { name: "Remote store" })).toBeNull();
@@ -50,7 +50,7 @@ describe("expense authority and assigned-store initialization", () => {
     state.access.organizationPermissions = ["expenses.create"];
     render(<ExpensesPage />);
     await screen.findByText("EXP-own");
-    expect(state.call).toHaveBeenCalledWith("getExpenseWorkspace", { branchId: "own" });
+    expect(state.call).toHaveBeenCalledWith("getExpenseWorkspace", { branchId: "own", limit: 25 });
     expect(within(screen.getByLabelText("Expense register scope")).queryByRole("option", { name: "Remote store" })).toBeNull();
     expect(within(screen.getByLabelText("Allocate to")).getByRole("option", { name: "Whole organization" })).toBeTruthy();
     expect(within(screen.getByLabelText("Location")).getByRole("option", { name: "Remote store" })).toBeTruthy();
@@ -60,12 +60,13 @@ describe("expense authority and assigned-store initialization", () => {
     state.context = { type: "warehouse", id: "warehouse" }; state.access.branchIds = []; state.access.warehouseIds = ["warehouse"];
     render(<ExpensesPage />);
     await waitFor(() => expect((screen.getByLabelText(/Location/).closest("fieldset") as HTMLFieldSetElement).disabled).toBe(false));
-    expect(state.call).toHaveBeenCalledWith("getExpenseWorkspace", { warehouseId: "warehouse" });
+    expect(state.call).toHaveBeenCalledWith("getExpenseWorkspace", { warehouseId: "warehouse", limit: 25 });
     expect(screen.queryByTestId("provider-scope")).toBeNull();
     fireEvent.change(screen.getByLabelText("Category"), { target: { value: "Power" } });
     fireEvent.change(screen.getByLabelText("Payee"), { target: { value: "Utility" } });
     fireEvent.change(screen.getByLabelText("Description"), { target: { value: "Warehouse power" } });
     fireEvent.change(screen.getByLabelText("Net amount (₦)"), { target: { value: "10" } });
+    fireEvent.click(screen.getByText("Record a new operating bill"));
     fireEvent.click(screen.getByRole("button", { name: "Create draft expense" }));
     await waitFor(() => expect(state.call).toHaveBeenCalledWith("createExpense", expect.objectContaining({ warehouseId: "warehouse", netAmountMinor: 1000 })));
     expect(state.call.mock.calls.find(([name]) => name === "createExpense")![1]).not.toHaveProperty("branchId");

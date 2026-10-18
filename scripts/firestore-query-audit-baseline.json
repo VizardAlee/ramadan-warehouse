@@ -1,16 +1,16 @@
 {
   "lastLiveAudit": {
     "project": "ramadan-warehouse-staging",
-    "verifiedAt": "2026-10-18T15:56:00.377Z",
-    "queryShapes": 555,
+    "verifiedAt": "2026-10-18T17:44:38.944Z",
+    "queryShapes": 561,
     "unsupportedQueries": 0,
     "readyIndexes": 256,
     "singleFieldOverrides": 0,
     "indexInventoryVerifiedAt": "2026-10-11T15:17:12.715Z",
     "probeMethod": "planner-only (analyze=false), with sentinel-scope missing-index diagnostics; no mutations",
-    "plannerEvidenceSha256": "1400e00ba413cf14350e81804c38ba7277d07c478237f04a0d59fb9f738a30ed"
+    "plannerEvidenceSha256": "d5f0340a706864a890e44b8148d212d52ea52e2194666f8900f38786c43099dc"
   },
-  "catalogSha256": "206974eb480f9b49c9a35ee2a632ca72745981ec06e7c8fc668eef9fae77d881",
+  "catalogSha256": "d7b9fa45f3b1be11543545bc5e9f04b2f986f0fefcea9594b70ecd151a4c23d1",
   "sourceFingerprints": {
     "functions/src/accounting/daily-close.ts": "904fa0dee8c4af98feaf99f17900caa97d86a16560cd3d0d85846ac33cd26e8e",
     "functions/src/accounting/stock-postings.ts": "005230ec2a728e426d435a3574e4ccd3e08928f30db4f8c710069da12137f24e",
@@ -32,7 +32,7 @@
     "functions/src/callable/customers.ts": "cf2b6daed6e161074a51b0bd873b97588bce436cd596a36ea56b73cbd75c0b04",
     "functions/src/callable/daily-close.ts": "80dbe835d25df2ae5d1bfda2adc67a9f6e9407470907d726d54d6f8efd7716a7",
     "functions/src/callable/dashboard.ts": "1d15ada87d20bbcba8eee0725e54daf8aea05d24e7460ab0e1c2cd62cebc4feb",
-    "functions/src/callable/expenses.ts": "b87755c3b90e76a850b50719bd46643e6df4abf000c799d830f56d447e1ae235",
+    "functions/src/callable/expenses.ts": "2f2d74f8a6bddf41360125e1a2b13186f74ff337174394559c380ce32fa28ff6",
     "functions/src/callable/financial-reports.ts": "73dc5fac0ef39a8f75b95436ccca158c89ff475f8a0bd06debd6a230b82378c0",
     "functions/src/callable/get-my-access-context.ts": "cfbd9429e39003769a3404b49e639052bb3e9a36e62687d2a18f35603dfd548d",
     "functions/src/callable/hr-history.ts": "c995088366d8316cb39b1d71e7c30c5cde5a43400caaa4a7de9ad1a6a6816766",
