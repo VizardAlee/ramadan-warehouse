@@ -40,7 +40,7 @@ beforeAll(async () => {
   await db.doc("users/connector:device-1").set({ organizationId: other, displayName: "Foreign connector name", email: "private" });
   const batch = db.batch();
   for (let n = 0; n < 31; n++) batch.set(db.doc(`auditLogs/activity-sdk-${String(n).padStart(3, "0")}`), { organizationId: org, actorUserId: auditor.uid, actorRoleId: "auditor", action: "sale.completed", entityType: "sale", entityId: `sale-${n}`, createdAt: Timestamp.fromMillis(Date.parse("2026-10-01T12:00:00Z")), after: { saleNumber: `INV-${n}`, token: "never-return-this" }, before: { password: "never-return-this" } });
-  for (const [suffix, at] of [["start", "2026-09-30T23:00:00Z"], ["before", "2026-09-30T22:59:59Z"], ["until", "2026-10-02T23:00:00Z"]]) batch.set(db.doc(`auditLogs/activity-sdk-${suffix}`), { organizationId: org, actorUserId: "connector:device-1", actorRoleId: "attendance_connector", action: "attendance.imported", entityType: "attendanceEvent", entityId: suffix, createdAt: Timestamp.fromDate(new Date(at)) });
+  for (const [suffix, at] of [["start", "2026-09-30T23:00:00Z"], ["before", "2026-09-30T22:59:59Z"], ["until", "2026-10-02T23:00:00Z"]] as const) batch.set(db.doc(`auditLogs/activity-sdk-${suffix}`), { organizationId: org, actorUserId: "connector:device-1", actorRoleId: "attendance_connector", action: "attendance.imported", entityType: "attendanceEvent", entityId: suffix, createdAt: Timestamp.fromDate(new Date(at)) });
   batch.set(db.doc("auditLogs/activity-sdk-foreign"), { organizationId: other, actorUserId: foreign.uid, action: "user.created", entityType: "user", entityId: "foreign", createdAt: Timestamp.fromDate(new Date("2026-10-01T12:00:00Z")) });
   await batch.commit(); beforeHash = await historyHash();
 });
