@@ -1,0 +1,14 @@
+.report { min-width: 0; border: 1px solid var(--border); border-radius: .9rem; padding: 1rem; background: var(--surface, white); display: grid; gap: .9rem; }
+.report p { overflow-wrap: anywhere; }
+.controls { display: flex; flex-wrap: wrap; align-items: end; gap: .75rem; }
+.controls label { flex: 1 1 13rem; min-width: 0; font-size: .875rem; }
+.controls select, .controls input { display: block; width: 100%; min-width: 0; margin-top: .35rem; border: 1px solid var(--border); border-radius: .5rem; padding: .65rem; background: var(--surface, white); color: var(--foreground); }
+.controls button { white-space: normal; max-width: 100%; }
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 19rem), 1fr)); gap: .75rem; }
+.card { min-width: 0; border: 1px solid var(--border); border-radius: .75rem; padding: .9rem; overflow-wrap: anywhere; }
+.card h3 { font-weight: 600; }
+.card dl { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: .5rem; font-size: .875rem; margin-top: .75rem; }
+.card dd { text-align: right; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.card small { display: block; color: var(--muted); }
+
+.report button[class~="underline"] { color: var(--foreground); min-height: 44px; text-underline-offset: .15em; }

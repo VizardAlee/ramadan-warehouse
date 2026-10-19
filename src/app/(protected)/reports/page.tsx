@@ -22,6 +22,7 @@ import {
   readableInventoryCsvRows,
 } from "@/features/reports/inventory-report-presentation";
 import { ReportPeriodPicker, reportDateRange, type ReportPeriod } from "@/features/reports/date-range";
+import { ProductPerformance } from "@/features/reports/product-performance";
 import { ProductMargins } from "@/features/reports/product-margins";
 import { FinancialStatements } from "@/features/reports/financial-statements";
 import { ProductHistoryPreview } from "@/features/reports/product-history-preview";
@@ -42,7 +43,7 @@ const inventoryReports = {
   count: ["Stock-count variance", "generateStockCountVarianceReport"],
 } as const;
 type InventoryReportKey = keyof typeof inventoryReports;
-type ReportFamily = "sales" | "inventory" | "financial";
+type ReportFamily = "sales" | "inventory" | "financial" | "performance";
 
 interface InventoryReportResult {
   rows: Record<string, unknown>[];
@@ -177,7 +178,7 @@ export default function ReportsPage() {
     const requestedFamily = params.get("family");
     const from = params.get("fromDate"), to = params.get("toDate"), branch = params.get("branchId");
     queueMicrotask(() => {
-      if (requestedFamily === "sales" || requestedFamily === "financial" || requestedFamily === "inventory") setFamily(requestedFamily);
+      if (requestedFamily === "sales" || requestedFamily === "financial" || requestedFamily === "inventory" || requestedFamily === "performance") setFamily(requestedFamily);
       if (from && to && /^\d{4}-\d{2}-\d{2}$/.test(from) && /^\d{4}-\d{2}-\d{2}$/.test(to) && from <= to) {
         setFromDate(from); setToDate(to); setPeriod("custom");
       }
@@ -197,7 +198,9 @@ export default function ReportsPage() {
   const inventoryRequestVersion = useRef(0);
   const salesRequestVersion = useRef(0);
   const activeFamily: ReportFamily =
-    family === "sales" && canReadSales
+    family === "performance" && (canReadInventory || canReadSales && includeCosts)
+      ? "performance"
+      : family === "sales" && canReadSales
       ? "sales"
       : family === "financial" && canReadFinancial
         ? "financial"
@@ -488,6 +491,7 @@ export default function ReportsPage() {
       </header>
       {canReadSales && <p className="text-sm"><Link className="font-semibold underline" href="/invoices">Invoice History</Link> — search and reopen existing customer invoices.</p>}
       <div className="flex flex-wrap gap-2 rounded-xl border bg-white p-2">
+        {(canReadInventory || canReadSales && includeCosts) && <Button variant={activeFamily === "performance" ? "primary" : "ghost"} onClick={() => setFamily("performance")}>Product performance</Button>}
         {canReadSales && (
           <Button
             variant={activeFamily === "sales" ? "primary" : "ghost"}
@@ -514,7 +518,9 @@ export default function ReportsPage() {
         )}
       </div>
 
-      {activeFamily === "financial" && canReadFinancial ? (
+      {activeFamily === "performance" ? (
+        <ProductPerformance key={JSON.stringify([profile?.uid, profile?.organizationId, profile?.authorizationVersion, profile?.branchIds])} branches={branches.data} products={profile && hasPermission(profile, "products.read") ? products.data : []} canReadMargins={canReadSales && includeCosts} canReadMovement={canReadInventory && Boolean(profile && hasPermission(profile, "inventory.read"))} canExportMovement={canExportInventory} />
+      ) : activeFamily === "financial" && canReadFinancial ? (
         <FinancialStatements />
       ) : activeFamily === "sales" && canReadSales ? (
         <>

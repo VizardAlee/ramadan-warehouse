@@ -197,6 +197,7 @@ export {
   recordAftersalesPayment,
 } from "./callable/aftersales.js";
 export { getHrHistory } from "./callable/hr-history.js";
+export { getProductMovement } from "./callable/product-movement.js";
 export { getProductMargins } from "./callable/product-margins.js";
 export { billingControls } from "./callable/billing-controls.js";
 export { providerFunds } from "./callable/provider-funds.js";

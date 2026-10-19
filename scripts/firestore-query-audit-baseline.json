@@ -1,16 +1,16 @@
 {
   "lastLiveAudit": {
     "project": "ramadan-warehouse-staging",
-    "verifiedAt": "2026-10-18T17:44:38.944Z",
-    "queryShapes": 561,
+    "verifiedAt": "2026-10-18T19:59:51.222Z",
+    "queryShapes": 565,
     "unsupportedQueries": 0,
     "readyIndexes": 256,
     "singleFieldOverrides": 0,
     "indexInventoryVerifiedAt": "2026-10-11T15:17:12.715Z",
     "probeMethod": "planner-only (analyze=false), with sentinel-scope missing-index diagnostics; no mutations",
-    "plannerEvidenceSha256": "d5f0340a706864a890e44b8148d212d52ea52e2194666f8900f38786c43099dc"
+    "plannerEvidenceSha256": "b469e19c9b4f31e493b0f68ac74c47d98c2d3fe72bb2a7e931f011204a3058c9"
   },
-  "catalogSha256": "d7b9fa45f3b1be11543545bc5e9f04b2f986f0fefcea9594b70ecd151a4c23d1",
+  "catalogSha256": "b0ab15130be0e4806899b989e28c5a1acc37c16e4a7e5cab44bd7d32a7c8336c",
   "sourceFingerprints": {
     "functions/src/accounting/daily-close.ts": "904fa0dee8c4af98feaf99f17900caa97d86a16560cd3d0d85846ac33cd26e8e",
     "functions/src/accounting/stock-postings.ts": "005230ec2a728e426d435a3574e4ccd3e08928f30db4f8c710069da12137f24e",
@@ -45,7 +45,8 @@
     "functions/src/callable/manage-users.ts": "4afaad46c8d64ffdc08fc49a419d608ee3a6cb0ff1b3ad20bb497ca166e27d7a",
     "functions/src/callable/operational-readiness.ts": "5710f7b794dc5560f44a60fa86e21dc96c9591066d6996ca0119ba7615e11279",
     "functions/src/callable/procurement.ts": "ee3d62f9d0415e6616a4c8c143e07298fdd6b8fe2ef5f35049e7932c1db4bd9b",
-    "functions/src/callable/product-margins.ts": "bd17eb777d0fdfafb0030910c55ccefb619f4f44757c1f262e469648deb625be",
+    "functions/src/callable/product-margins.ts": "510003fb8a8f7c0ac45c577c1a26c01bb402cc6da00c12b7904768bb9c670d31",
+    "functions/src/callable/product-movement.ts": "fc72153e57193abbf883cb585d5b62078844810156fb40416d3fc817aca1e1f0",
     "functions/src/callable/provider-funds.ts": "b0a7011a898309352b7ee49b61dcdcdd482799eb0d73f6441ee9563e2f4a5344",
     "functions/src/callable/reset-organization.ts": "ef008e650d39213d23c35d3d801015dccad8ad7ea78edf9d62b6b5c230d53a5c",
     "functions/src/callable/sales-corrections.ts": "6a81ad6d02442729f5a390a4184739fd4f3f3a450b8951e51c543a09bcdd95ff",
@@ -97,7 +98,7 @@
     "src/app/(protected)/products/categories/page.tsx": "825f82bca475cc5200fc2784bd8acf166ee06bbbe9eccee26aa7ef6bec1599f3",
     "src/app/(protected)/products/page.tsx": "178c7a6f1ef4d80e5575b572262b3c393386b06360a7c669ab476a2e14fdd66c",
     "src/app/(protected)/proformas/page.tsx": "8a2e7d2a0394ec3bc93af91caea8d1e05cad6e95a809c1e5ca0333e9d38f88ae",
-    "src/app/(protected)/reports/page.tsx": "42c39d874030e08fce9d68d93ea0c840ee59d58562082e648f518b7d1d8b0d9d",
+    "src/app/(protected)/reports/page.tsx": "e22e5ed2b639c06291097ea3cc4f827be872e1ef16a63e35b26036df19e541b5",
     "src/app/(protected)/returns/page.tsx": "8e7cf76c8e20b4c2d79582f240d6c337f8203240c7778df90f8eeffa8629e9ed",
     "src/features/accounting/financial-branches.ts": "b76e8598c9d777b28c0e1f8b37ca26629af68e0ee67df2be68c89588d88353dc",
     "src/features/administration/master-data-page.tsx": "c6bcbb00b58e4c59a4b6c0b9ceeb40d2ba66152ec0b177939a43107246098a7d",

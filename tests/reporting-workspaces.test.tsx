@@ -40,7 +40,7 @@ it("keeps missing-cost margin unknown in screen and CSV, with invoice-cohort met
   const download = vi.spyOn(format, "downloadCsv").mockImplementation(() => {});
   render(<ProductMargins branchId="b1" fromDate="2026-10-01" toDate="2026-10-10" />);
   fireEvent.click(screen.getByRole("button", { name: "Calculate product margins" }));
-  await waitFor(() => expect(screen.getByRole("cell", { name: "Unknown" })).toBeTruthy());
+  await waitFor(() => expect(screen.getByText("Unknown", { exact: true })).toBeTruthy());
   fireEvent.click(screen.getByRole("button", { name: "Export product CSV" }));
   expect(download.mock.calls[0]?.[1][0]).toMatchObject({ fromDate: "2026-10-01", toDate: "2026-10-10", storeScope: "b1", grossMarginNaira: "Unknown", unknownCostLines: 1 });
   expect(download.mock.calls[0]?.[1][0]?.reportBasis).toContain("not period P&L");

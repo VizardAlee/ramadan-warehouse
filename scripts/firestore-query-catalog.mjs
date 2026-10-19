@@ -159,6 +159,11 @@ export function queryCatalog() {
     for (const collection of ["transfers", "stockTransfers"]) for (const transferScope of scope.length ? ["sourceBranchId", "destinationBranchId"] : [null]) for (const status of [[], [["status", "in"]]]) add("dashboard transfer counts (OR arms)", collection, [org, ...(transferScope ? [[transferScope, "=="]] : []), ...status], [], []);
     for (const status of [[], [["status", "in"]]]) add("dashboard request counts", "branchRequests", [...filters, ...status], [], []);
   }
+  for (const scope of [[], [["branchId", "=="]]]) {
+    add("physical customer movement period", "inventoryEntries", [org, ...scope, ["effectiveAt", ">="], ["effectiveAt", "<"]], dateOrder("effectiveAt"));
+    add("physical movement local goods population", "inventoryBalances", [org, ...scope], [["__name__", "ASCENDING"]]);
+  }
+  add("legacy customer reversal provenance", "inventoryEntries", [["transactionId", "=="]]);
   add("service receipt/refund history pages", "aftersalesPayments", [org, ["caseId", "=="]], dateOrder("recordedAt"));
   for (const field of ["sourceWarehouseId", "originWarehouseId"]) for (const status of [[], [["status", "in"]]]) add("legacy location dashboard", field === "sourceWarehouseId" ? "stockTransfers" : "transfers", [org, [field, "=="], ...status], [], []);
   add("dashboard active products", "products", [org, ["active", "=="]], [], []);
