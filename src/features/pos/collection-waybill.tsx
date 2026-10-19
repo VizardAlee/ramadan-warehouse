@@ -1,4 +1,5 @@
 "use client";
+import { FinancialDocument, FinancialPrintAction } from "@/features/finance/financial-privacy";
 
 import Image from "next/image";
 import { useState } from "react";
@@ -26,7 +27,7 @@ export function CollectionWaybill({ document, collection, onBack, onClose, onUpd
   const [details, setDetails] = useState<DispatchDetails>(collection);
   function saved(value: DispatchDetails) { setDetails(value); setEditing(false); onUpdated?.(value); }
   return <AppDialog role="dialog" aria-modal="true" aria-label="Collection waybill" data-sale-document-overlay>
-    <section ref={dialogRef} className="app-dialog-panel max-w-3xl rounded-2xl bg-white shadow-2xl" data-print-document>
+    <section ref={dialogRef} className="app-dialog-panel max-w-3xl rounded-2xl bg-white shadow-2xl" data-print-document><FinancialDocument>
       <div className="space-y-6 p-5 sm:p-8">
         <header className="flex items-start gap-4 border-b-2 border-[var(--brand)] pb-5">
           <Image src="/abr-logo.jpg" alt="AB Ramadan logo" width={64} height={76} className="h-20 w-16 object-contain" />
@@ -62,8 +63,8 @@ export function CollectionWaybill({ document, collection, onBack, onClose, onUpd
         <div className="grid grid-cols-2 gap-8 pt-10 text-sm"><div className="border-t pt-2">Released by — signature</div><div className="border-t pt-2">Received by — signature</div></div>
       </div>
       <footer className="flex flex-wrap justify-end gap-3 border-t p-5" data-no-print>
-        <Button variant="outline" disabled={editing} onClick={onBack}>{backLabel}</Button><Button variant="secondary" disabled={editing} onClick={onClose}>Close</Button><Button disabled={editing} disabledReason="Save or cancel editing before printing the recorded dispatch details." onClick={() => window.print()}><Printer className="mr-2 size-4" />Print waybill / save PDF</Button>
+        <Button variant="outline" disabled={editing} onClick={onBack}>{backLabel}</Button><Button variant="secondary" disabled={editing} onClick={onClose}>Close</Button><FinancialPrintAction><Button disabled={editing} disabledReason="Save or cancel editing before printing the recorded dispatch details." onClick={() => window.print()}><Printer className="mr-2 size-4" />Print waybill / save PDF</Button></FinancialPrintAction>
       </footer>
-    </section>
+    </FinancialDocument></section>
   </AppDialog>;
 }

@@ -1,4 +1,6 @@
 "use client";
+import { FinancialInput, FinancialMessage, FinancialText, FinancialValue } from "@/features/finance/financial-privacy";
+
 import { zodResolver } from "@hookform/resolvers/zod";
 import { ChevronDown, Plus, Search } from "lucide-react";
 import Link from "next/link";
@@ -271,7 +273,7 @@ function ProductCatalogue() {
         <div>
           <h1 className="text-3xl font-semibold">Product catalogue</h1>
           <p className="text-[var(--muted)]">
-            {operatingContext && canReadInventory ? "Products with inventory history at the selected Store/Warehouse, including zero stock." : canReadInventory && !locationScoped ? "All locations · Organization product catalogue and tracking policies." : "Organization product catalogue and tracking policies."}
+            <FinancialText>{operatingContext && canReadInventory ? "Products with inventory history at the selected Store/Warehouse, including zero stock." : canReadInventory && !locationScoped ? "All locations · Organization product catalogue and tracking policies." : "Organization product catalogue and tracking policies."}</FinancialText>
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -317,14 +319,14 @@ function ProductCatalogue() {
         >
           <option value="">All tracking types</option>
           {productTrackingTypes.map((type) => (
-            <option key={type}>{type}</option>
+            <option key={type}><FinancialText>{type}</FinancialText></option>
           ))}
         </select>
       </div>
       {message && (
-        <p className="rounded-lg bg-amber-50 p-3 text-sm">{message}</p>
+        <p className="rounded-lg bg-amber-50 p-3 text-sm"><FinancialMessage>{message}</FinancialMessage></p>
       )}
-      {inventoryError && <p role="alert" className="rounded-lg bg-red-50 p-3 text-red-800">{inventoryError}</p>}
+      {inventoryError && <p role="alert" className="rounded-lg bg-red-50 p-3 text-red-800"><FinancialText>{inventoryError}</FinancialText></p>}
       <div className="responsive-table-wrap">
         <table className="responsive-table">
           <thead className="bg-slate-50">
@@ -341,7 +343,7 @@ function ProductCatalogue() {
                 "",
               ].map((label) => (
                 <th key={label} className="px-4 py-3">
-                  {label}
+                  <FinancialText>{label}</FinancialText>
                 </th>
               ))}
             </tr>
@@ -356,7 +358,7 @@ function ProductCatalogue() {
             ) : filtered.length === 0 ? (
               <tr>
                 <td colSpan={9} className="p-8 text-center text-[var(--muted)]">
-                  {inventoryError ? "Inventory could not be loaded." : operatingContext && canReadInventory && !search && !tracking ? "No products with inventory history at this location." : "No products found."}
+                  <FinancialText>{inventoryError ? "Inventory could not be loaded." : operatingContext && canReadInventory && !search && !tracking ? "No products with inventory history at this location." : "No products found."}</FinancialText>
                 </td>
               </tr>
             ) : (
@@ -368,57 +370,57 @@ function ProductCatalogue() {
                     data-primary="true"
                     className="px-4 py-3"
                   >
-                    {product.itemKind === "service" ? <Link href="/aftersales" className="font-semibold text-[var(--brand)] underline">{product.name}</Link> : canReadInventory ? <button
+                    {product.itemKind === "service" ? <Link href="/aftersales" className="font-semibold text-[var(--brand)] underline"><FinancialText>{product.name}</FinancialText></Link> : canReadInventory ? <button
                       type="button"
                       aria-expanded={expandedProductId === product.id}
                       aria-controls={`product-history-preview-${product.id}`}
                       onClick={() => setExpandedProductId((current) => current === product.id ? null : product.id)}
                       className="inline-flex items-center gap-1.5 text-left font-semibold text-[var(--brand)] underline underline-offset-2"
-                    >{product.name}<ChevronDown className={`size-4 shrink-0 transition-transform ${expandedProductId === product.id ? "rotate-180" : ""}`} aria-hidden="true" /></button> : <Link href={`/products/${product.id}`} className="font-semibold text-[var(--brand)]">{product.name}</Link>}
+                    ><FinancialText>{product.name}</FinancialText><ChevronDown className={`size-4 shrink-0 transition-transform ${expandedProductId === product.id ? "rotate-180" : ""}`} aria-hidden="true" /></button> : <Link href={`/products/${product.id}`} className="font-semibold text-[var(--brand)]"><FinancialText>{product.name}</FinancialText></Link>}
                     <span className="block text-xs text-[var(--muted)]">
-                      {product.brand} {product.model}
+                      <FinancialText>{product.brand}</FinancialText> <FinancialText>{product.model}</FinancialText>
                     </span>
                   </td>
                   <td data-label="SKU" className="px-4 font-mono">
-                    {product.sku}
+                    <FinancialText>{product.sku}</FinancialText>
                   </td>
                   <td data-label="Tracking" className="px-4 capitalize">
-                    {product.itemKind === "service" ? "Service (no stock)" : product.trackingType}
+                    <FinancialText>{product.itemKind === "service" ? "Service (no stock)" : product.trackingType}</FinancialText>
                   </td>
                   <td data-label="Unit" className="px-4">
-                    {product.unitOfMeasure}
+                    <FinancialText>{product.unitOfMeasure}</FinancialText>
                   </td>
                   <td data-label="Default cost" className="px-4">
-                    {formatNaira(
+                    <FinancialValue>{formatNaira(
                       productCosts.data.find(
                         (cost) =>
                           cost.productId === product.id ||
                           cost.id === product.id,
                       )?.defaultUnitCostMinor,
-                    )}
+                    )}</FinancialValue>
                   </td>
                   <td data-label="Base selling price" className="px-4">
-                    {formatNaira(
+                    <FinancialValue>{formatNaira(
                       productSalesPrices.data.find(
                         (price) =>
                           price.productId === product.id ||
                           price.id === product.id,
                       )?.basePriceMinor,
-                    )}
+                    )}</FinancialValue>
                   </td>
                   <td data-label="VAT" className="px-4">
-                    {(() => {
+                    <FinancialValue>{(() => {
                       const rate = productSalesPrices.data.find(
                         (price) =>
                           price.productId === product.id ||
                           price.id === product.id,
                       )?.vatRateBasisPoints;
                       return rate === undefined ? "Not set" : `${rate / 100}%`;
-                    })()}
+                    })()}</FinancialValue>
                   </td>
                   <td data-label="Status" className="px-4">
                     <StatusBadge tone={product.active ? "success" : "warning"}>
-                      {product.active ? "active" : "inactive"}
+                      <FinancialText>{product.active ? "active" : "inactive"}</FinancialText>
                     </StatusBadge>
                   </td>
                   <td data-label="Actions" data-actions="true" className="px-4">
@@ -455,7 +457,7 @@ function ProductCatalogue() {
             className="app-dialog-panel safe-bottom max-w-2xl space-y-4 rounded-2xl bg-white p-5 sm:p-6"
           >
             <h2 className="text-xl font-semibold">
-              {editing ? "Edit product" : "Create product"}
+              <FinancialText>{editing ? "Edit product" : "Create product"}</FinancialText>
             </h2>
             <div className="form-grid">
               <label className="text-sm">
@@ -504,10 +506,10 @@ function ProductCatalogue() {
                   className="mt-1 w-full rounded-lg border p-2.5"
                 >
                   {productTrackingTypes.map((type) => (
-                    <option key={type}>{type}</option>
+                    <option key={type}><FinancialText>{type}</FinancialText></option>
                   ))}
                 </select>
-                {(serviceItem || editing?.hasLedgerActivity) && <span className="mt-1 block text-xs text-[var(--muted)]">{serviceItem ? "Services have no physical stock tracking. Record the service fee and linked costs through their service workflows." : "Tracking is fixed because this product has recorded stock activity. Ask the inventory/catalogue manager to review the original evidence; do not change tracking to bypass history."}</span>}
+                {(serviceItem || editing?.hasLedgerActivity) && <span className="mt-1 block text-xs text-[var(--muted)]"><FinancialText>{serviceItem ? "Services have no physical stock tracking. Record the service fee and linked costs through their service workflows." : "Tracking is fixed because this product has recorded stock activity. Ask the inventory/catalogue manager to review the original evidence; do not change tracking to bypass history."}</FinancialText></span>}
               </label>
               <label className="text-sm">Catalogue item type<select {...form.register("itemKind")} disabled={Boolean(editing)} className="mt-1 w-full rounded-lg border p-2.5"><option value="stock">Stocked goods</option><option value="service">Service — no physical stock</option></select><span className="mt-1 block text-xs text-[var(--muted)]">Services use aftersales cases and linked costs. Item type cannot be changed after creation.</span></label>
               <label className="text-sm">
@@ -533,7 +535,7 @@ function ProductCatalogue() {
               </label>
               <label className="text-sm">
                 Default unit cost (₦)
-                <input
+                <FinancialInput><input
                   type="number"
                   min="0"
                   step="0.01"
@@ -546,14 +548,14 @@ function ProductCatalogue() {
                   })}
                   disabled={serviceItem}
                   className="mt-1 w-full rounded-lg border p-2.5"
-                />
+                /></FinancialInput>
               {serviceItem && <span className="mt-1 block text-xs text-[var(--muted)]">Services do not have a physical stock unit cost; use the approved service charge and linked cost workflows.</span>}
               </label>
               {canManageBasePrice && (
                 <>
                   <label className="text-sm">
                     Retail selling price (₦)
-                    <input
+                    <FinancialInput><input
                       type="number"
                       min="0.01"
                       step="0.01"
@@ -564,7 +566,7 @@ function ProductCatalogue() {
                           value === "" ? undefined : Number(value),
                       })}
                       className="mt-1 w-full rounded-lg border p-2.5"
-                    />
+                    /></FinancialInput>
                     <span className="mt-1 block text-xs text-[var(--muted)]">
                       Branches may sell above this. A lower price needs
                       administrator approval.
@@ -572,14 +574,14 @@ function ProductCatalogue() {
                   </label>
                   <label className="text-sm">
                     Wholesale selling price (₦, optional)
-                    <input type="number" min="0.01" step="0.01" inputMode="decimal"
+                    <FinancialInput><input type="number" min="0.01" step="0.01" inputMode="decimal"
                       {...form.register("wholesalePriceNaira", { setValueAs: (value) => value === "" ? undefined : Number(value) })}
-                      className="mt-1 w-full rounded-lg border p-2.5" />
+                      className="mt-1 w-full rounded-lg border p-2.5" /></FinancialInput>
                     <span className="mt-1 block text-xs text-[var(--muted)]">An approved catalogue price. Leave empty to disable wholesale pricing.</span>
                   </label>
                   <label className="text-sm">
                     VAT rate (%)
-                    <input
+                    <FinancialInput><input
                       type="number"
                       min="0"
                       max="100"
@@ -591,7 +593,7 @@ function ProductCatalogue() {
                           value === "" ? undefined : Number(value),
                       })}
                       className="mt-1 w-full rounded-lg border p-2.5"
-                    />
+                    /></FinancialInput>
                     <span className="mt-1 block text-xs text-[var(--muted)]">
                       VAT is added and displayed separately at checkout.
                     </span>

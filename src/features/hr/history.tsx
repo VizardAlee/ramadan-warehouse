@@ -1,4 +1,5 @@
 "use client";
+import { FinancialDetails } from "@/features/finance/financial-privacy";
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -54,7 +55,7 @@ export function HrHistory() {
       <Button disabled={!valid || busy || !page?.rows.length} onClick={() => void exportAll()}>{exporting ? "Exporting…" : "Export full range CSV"}</Button>
     </fieldset>
     {error && <p role="alert" className="text-red-800">{error}</p>}
-    <div className="overflow-x-auto"><table className="w-full min-w-[700px] text-left text-sm"><thead><tr>{["Employee", "Event", "Date / time (Nigeria)", "Source", "Details"].map(label => <th key={label} className="p-2">{label}</th>)}</tr></thead><tbody>{page?.rows.map(row => <tr key={row.id} className="border-t"><td className="p-2">{row.employeeName}<small className="block">{row.staffId}</small></td><td className="p-2">{row.kind.replaceAll("_", " ")}</td><td className="p-2">{time(row)}</td><td className="p-2">{row.source?.replaceAll("_", " ") ?? "—"}</td><td className="p-2">{row.summary ?? row.reason ?? "—"}</td></tr>)}{!page?.rows.length && <tr><td colSpan={5} className="p-4">{busy ? "Loading history…" : error ? "History unavailable." : "No events in this range."}</td></tr>}</tbody></table></div>
+    <div className="overflow-x-auto"><table className="w-full min-w-[700px] text-left text-sm"><thead><tr>{["Employee", "Event", "Date / time (Nigeria)", "Source", "Details"].map(label => <th key={label} className="p-2">{label}</th>)}</tr></thead><tbody>{page?.rows.map(row => <tr key={row.id} className="border-t"><td className="p-2">{row.employeeName}<small className="block">{row.staffId}</small></td><td className="p-2">{row.kind.replaceAll("_", " ")}</td><td className="p-2">{time(row)}</td><td className="p-2">{row.source?.replaceAll("_", " ") ?? "—"}</td><td className="p-2"><FinancialDetails>{row.summary ?? row.reason ?? "—"}</FinancialDetails></td></tr>)}{!page?.rows.length && <tr><td colSpan={5} className="p-4">{busy ? "Loading history…" : error ? "History unavailable." : "No events in this range."}</td></tr>}</tbody></table></div>
     <div className="flex items-center justify-between gap-3"><Button variant="outline" disabled={busy || exporting || cursors.length < 2} onClick={() => setCursors(cursors.slice(0, -1))}>Previous</Button><span>Page {cursors.length}</span><Button variant="outline" disabled={busy || exporting || !page?.nextCursorId} onClick={() => setCursors([...cursors, page!.nextCursorId!])}>Next</Button></div>
   </section>;
 }

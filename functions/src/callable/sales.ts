@@ -1,3 +1,4 @@
+import { withRecordActors } from "../audit/record-actors.js";
 import { proformaRequest, validateProformaReference } from "../sales/proforma.js";
 import { updateDispatchDetails } from "../sales/dispatch-details.js";
 import { updateDispatchDetailsInput } from "../validation/dispatch-details.js";
@@ -527,7 +528,7 @@ export const getPosWorkspace = onCall(
         customerId: credit.get("customerId") ?? null,
       })),
       bankAccounts: bankAccounts.docs.filter(bank => !bank.get("branchId") || bank.get("branchId") === input.branchId).map(bankAccountSummary),
-      pendingOrders: pendingOrders.docs
+      pendingOrders: await withRecordActors(actor.organizationId, pendingOrders.docs
         .filter((order) =>
           ["order_received", "payment_accepted"].includes(
             String(order.get("status")),
@@ -550,7 +551,9 @@ export const getPosWorkspace = onCall(
           recordedAt: order.get("recordedAt"),
           createdAt: iso(order.get("createdAt")),
           paymentAcceptedAt: iso(order.get("paymentAcceptedAt")),
-        })),
+          createdBy: order.get("createdBy") ?? null,
+          paymentAcceptedBy: order.get("paymentAcceptedBy") ?? null,
+        }))),
       refreshedAt: new Date().toISOString(),
     };
   },

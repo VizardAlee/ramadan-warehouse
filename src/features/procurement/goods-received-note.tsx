@@ -1,4 +1,5 @@
 "use client";
+import { FinancialDocument, FinancialPrintAction } from "@/features/finance/financial-privacy";
 
 import Image from "next/image";
 import { useEffect, useState } from "react";
@@ -50,7 +51,7 @@ export function GoodsReceivedNotes({ purchaseOrderId, onClose, canUpload = false
     finally { setOpening(false); }
   }
   return <AppDialog role="dialog" aria-modal="true" aria-label={document ? "Goods received note" : "Receiving history"} data-print-document-overlay>
-    <section className="app-dialog-panel max-w-3xl rounded-2xl bg-white shadow-2xl" {...(document ? { "data-print-document": true } : {})}>
+    <section className="app-dialog-panel max-w-3xl rounded-2xl bg-white shadow-2xl" {...(document ? { "data-print-document": true } : {})}><FinancialDocument>
       {document ? <>
         <div className="space-y-6 p-5 sm:p-8">
           <header className="flex gap-4 border-b-2 border-[var(--brand)] pb-5">
@@ -70,7 +71,7 @@ export function GoodsReceivedNotes({ purchaseOrderId, onClose, canUpload = false
           <OperationalPhotos key={document.id} kind="purchase_receipt" recordId={document.id} stage="receiving" serials={[]} serialRequired={document.serialNumbers.length > 0} canUpload={canUpload} />
           <div className="grid grid-cols-2 gap-8 pt-10 text-sm"><div className="border-t pt-2">Received by — signature</div><div className="border-t pt-2">Delivered by — signature</div></div>
         </div>
-        <footer className="flex flex-wrap justify-end gap-3 border-t p-5" data-no-print><Button variant="outline" onClick={() => setDocument(null)}>Back to history</Button><Button variant="outline" onClick={onClose}>Close</Button><Button onClick={() => window.print()}>Print / save PDF</Button></footer>
+        <footer className="flex flex-wrap justify-end gap-3 border-t p-5" data-no-print><Button variant="outline" onClick={() => setDocument(null)}>Back to history</Button><Button variant="outline" onClick={onClose}>Close</Button><FinancialPrintAction><Button onClick={() => window.print()}>Print / save PDF</Button></FinancialPrintAction></footer>
       </> : <div className="space-y-4 p-5 sm:p-7">
         <h2 className="text-xl font-semibold">Receiving history</h2><p className="text-sm text-[var(--muted)]">Open a recorded receipt to print its goods-received note. Each entry represents one actual handover.</p>
         {(error || openError) && <p role="alert" className="text-red-800">{error || openError}</p>}
@@ -79,6 +80,6 @@ export function GoodsReceivedNotes({ purchaseOrderId, onClose, canUpload = false
           <CursorTablePagination page={pages.length} pageSize={limit} rowCount={data.receipts.length} hasNextPage={Boolean(data.nextCursor)} loading={opening} onPrevious={() => setPages((value) => value.slice(0, -1))} onNext={() => { if (data.nextCursor) setPages((value) => [...value, data.nextCursor]); }} onPageSizeChange={(size) => { setLimit(size); setPages([null]); }} itemLabel="receipts" /></>}
         <div className="flex justify-end border-t pt-4"><Button variant="outline" disabled={opening} onClick={onClose}>Close</Button></div>
       </div>}
-    </section>
+    </FinancialDocument></section>
   </AppDialog>;
 }

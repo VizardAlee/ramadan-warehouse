@@ -1,0 +1,41 @@
+// @vitest-environment jsdom
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { CatalogImportDialog } from "@/features/products/catalog-import-dialog";
+import { FinancialPrivacyProvider } from "@/features/finance/financial-privacy";
+const api = vi.hoisted(() => ({ call: vi.fn() }));
+vi.mock("@/features/administration/api", () => ({ callAdministration: api.call }));
+vi.mock("@/features/auth/auth-context", () => ({ useAuth: () => ({ profile: { uid: "u", organizationId: "org", roleId: "system_administrator" } }) }));
+vi.mock("@/features/administration/use-organization-collection", () => ({ useOrganizationCollection: () => ({ data: [{ id: "stock-a", branchId: "a", name: "Store A", type: "branch", status: "active" }], loading: false }) }));
+beforeEach(() => { localStorage.clear(); api.call.mockReset(); });
+afterEach(cleanup);
+it("blocks hidden catalogue prices/opening-stock instructions, then reveals and preserves the exact import and retry payload", async () => {
+ let attempts = 0;
+ api.call.mockImplementation(async (name: string) => {
+  if (name === "previewCsvImport") return { valid: true, totalRows: 1, validRows: [], errors: [] };
+  if (name === "confirmCsvImport" && ++attempts === 1) throw Error("Unconfirmed result: retry the same import");
+  if (name === "confirmCsvImport") return { importId: "i", imported: true, summary: { totalRows: 1, imported: 1, failed: 0, stockedRows: 1 } };
+  throw Error("Unexpected synthetic call");
+ });
+ const completed = vi.fn();
+ const view = render(<FinancialPrivacyProvider organizationId="org" uid="u"><CatalogImportDialog onImported={completed} /></FinancialPrivacyProvider>);
+ fireEvent.click(screen.getByRole("button", { name: "Import catalogue" }));
+ const csv = "Product name,SKU,Default unit cost,Base selling price,VAT rate,Opening quantity\n\"Installation ₦25,000\",SKU-1,10000,25000,7.5,1";
+ const file = new File([csv], "synthetic.csv", { type: "text/csv" }); Object.defineProperty(file, "text", { value: async () => csv });
+ fireEvent.change(document.querySelector('input[type="file"]')!, { target: { files: [file] } });
+ await screen.findByText("1 data rows found");
+ fireEvent.change(screen.getByLabelText("Store holding this stock"), { target: { value: "stock-a" } });
+ fireEvent.click(screen.getByRole("button", { name: "Validate rows" }));
+ await screen.findByText("1 product row is ready to import.");
+ expect(view.container.textContent).not.toContain("25,000"); expect(document.body.textContent).not.toContain("25000");
+ const confirm = () => screen.getByRole("button", { name: "Import products and opening stock" });
+ fireEvent.click(confirm()); expect(api.call.mock.calls.filter(([name]) => name === "confirmCsvImport")).toHaveLength(0);
+ expect(screen.getByText("Nothing was submitted. Your entered amounts are retained.")).toBeTruthy();
+ fireEvent.click(screen.getByRole("button", { name: "Review all action amounts" }));
+ expect(screen.getByText("25000")).toBeTruthy(); expect(screen.getByText("Installation ₦25,000")).toBeTruthy();
+ fireEvent.click(confirm()); await screen.findByText("Unconfirmed result: retry the same import");
+ const first = api.call.mock.calls.find(([name]) => name === "confirmCsvImport")![1];
+ expect(first.csv).toBe(api.call.mock.calls.find(([name]) => name === "previewCsvImport")![1].csv); expect(first.idempotencyKey).toBeTruthy();
+ fireEvent.click(confirm()); await waitFor(() => expect(completed).toHaveBeenCalledWith(1, 1));
+ expect(api.call.mock.calls.filter(([name]) => name === "confirmCsvImport")[1]![1]).toEqual(first);
+});

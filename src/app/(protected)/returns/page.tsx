@@ -1,4 +1,5 @@
 "use client";
+import { FinancialAction, FinancialActionScope, FinancialDetails, FinancialInput, FinancialMessage, FinancialText, FinancialValue  } from "@/features/finance/financial-privacy";
 
 import { parseSaleSerials, validSaleSerials } from "@/features/pos/serial-selection";
 
@@ -320,7 +321,7 @@ export default function ReturnsPage() {
             >
               {activeBranches.map((branch) => (
                 <option key={branch.id} value={branch.id}>
-                  {branch.name}
+                  <FinancialText>{branch.name}</FinancialText>
                 </option>
               ))}
             </select>
@@ -332,7 +333,7 @@ export default function ReturnsPage() {
           role="alert"
           className="rounded-xl bg-red-50 p-4 text-sm text-red-800"
         >
-          {error}
+          <FinancialMessage>{error}</FinancialMessage>
         </div>
       )}
       {message && (
@@ -340,7 +341,7 @@ export default function ReturnsPage() {
           role="status"
           className="rounded-xl bg-emerald-50 p-4 text-sm text-emerald-900"
         >
-          {message}
+          <FinancialMessage>{message}</FinancialMessage>
         </div>
       )}
       {canCreate && (
@@ -368,15 +369,15 @@ export default function ReturnsPage() {
         </section>
       )}
       {workspace && (
-        <section className="rounded-xl border bg-white p-5">
+        <FinancialActionScope><section className="rounded-xl border bg-white p-5">
           <div className="flex flex-wrap justify-between gap-3">
             <div>
               <h2 className="text-xl font-semibold">
-                {workspace.sale.receiptNumber}
+                <FinancialText>{workspace.sale.receiptNumber}</FinancialText>
               </h2>
               <p className="text-sm text-[var(--muted)]">
-                {workspace.sale.customerName || "Walk-in customer"} · original
-                total {formatNaira(workspace.sale.grossAmountMinor)}
+                <FinancialText>{workspace.sale.customerName || "Walk-in customer"}</FinancialText> · original
+                total <FinancialValue>{formatNaira(workspace.sale.grossAmountMinor)}</FinancialValue>
               </p>
             </div>
             <RotateCcw className="size-7 text-[var(--brand)]" />
@@ -398,12 +399,12 @@ export default function ReturnsPage() {
                 className="grid gap-3 rounded-xl border p-4 md:grid-cols-[minmax(0,1fr)_8rem_12rem]"
               >
                 <div>
-                  <strong>{item.productName}</strong>
+                  <strong><FinancialText>{item.productName}</FinancialText></strong>
                   <p className="font-mono text-xs text-[var(--muted)]">
-                    {item.sku}
+                    <FinancialText>{item.sku}</FinancialText>
                   </p>
                   <p className="mt-1 text-sm">
-                    {kind === "service_credit" ? (item.serviceCreditableQuantity ?? 0) : kind === "reservation_cancellation" ? (item.cancellableQuantity ?? 0) : item.returnableQuantity} of {item.soldQuantity} {kind === "reservation_cancellation" ? "awaiting collection and cancellable" : "still returnable"}
+                    <FinancialText>{kind === "service_credit" ? (item.serviceCreditableQuantity ?? 0) : kind === "reservation_cancellation" ? (item.cancellableQuantity ?? 0) : item.returnableQuantity}</FinancialText> of <FinancialText>{item.soldQuantity}</FinancialText> <FinancialText>{kind === "reservation_cancellation" ? "awaiting collection and cancellable" : "still returnable"}</FinancialText>
                   </p>
                 </div>
                 <label className="text-sm">
@@ -445,10 +446,10 @@ export default function ReturnsPage() {
                     </option>
                   </select>
                 </label>}
-                {item.trackingType === "serial" && <label className="block text-sm md:col-span-3">Exact serial numbers<textarea rows={3} value={serialText[item.id] ?? ""} onChange={event => setSerialText(values => ({ ...values, [item.id]: event.target.value }))} className="mt-1 w-full rounded-lg border p-3" /><span className="block break-all text-xs text-[var(--muted)]">One per selected unit, one per line. Eligible: {(kind === "reservation_cancellation" ? item.cancellableSerialNumbers : item.returnableSerialNumbers)?.join(", ") || "None"}</span></label>}
+                {item.trackingType === "serial" && <label className="block text-sm md:col-span-3">Exact serial numbers<textarea rows={3} value={serialText[item.id] ?? ""} onChange={event => setSerialText(values => ({ ...values, [item.id]: event.target.value }))} className="mt-1 w-full rounded-lg border p-3" /><span className="block break-all text-xs text-[var(--muted)]">One per selected unit, one per line. Eligible: <FinancialText>{(kind === "reservation_cancellation" ? item.cancellableSerialNumbers : item.returnableSerialNumbers)?.join(", ") || "None"}</FinancialText></span></label>}
               </div>
             ))}
-            {kind === "service_credit" && workspace.items.filter(item => (item.providerCreditableMinor ?? 0) > 0).map(item => <label className="block rounded border p-3 text-sm" key={`provider:${item.id}`}>Provider credit for {item.productName} · {item.providerFunds?.supplierName} · up to {formatNaira(item.providerCreditableMinor!)}<input className="input ml-2" type="number" min="0" step="0.01" max={item.providerCreditableMinor! / 100} value={providerCredits[item.id] ?? ""} onChange={event => setProviderCredits(current => ({ ...current, [item.id]: event.target.value }))}/></label>)}
+            {kind === "service_credit" && workspace.items.filter(item => (item.providerCreditableMinor ?? 0) > 0).map(item => <label className="block rounded border p-3 text-sm" key={`provider:${item.id}`}>Provider credit for <FinancialText>{item.productName}</FinancialText> · <FinancialText>{item.providerFunds?.supplierName}</FinancialText> · up to <FinancialValue>{formatNaira(item.providerCreditableMinor!)}</FinancialValue><FinancialInput><input className="input ml-2" type="number" min="0" step="0.01" max={item.providerCreditableMinor! / 100} value={providerCredits[item.id] ?? ""} onChange={event => setProviderCredits(current => ({ ...current, [item.id]: event.target.value }))}/></FinancialInput></label>)}
           </div>
           <div className="mt-5 grid gap-4 md:grid-cols-2">
             <label className="text-sm font-medium">
@@ -473,7 +474,7 @@ export default function ReturnsPage() {
                   </option>
                 )}
               </select>
-              {resolution === "customer_account" && <span className="mt-1 block text-xs text-[var(--muted)]">Current customer receivable: {formatNaira(workspace.sale.customerOutstandingMinor)}. A larger return needs a refund or exchange credit instead.</span>}
+              {resolution === "customer_account" && <span className="mt-1 block text-xs text-[var(--muted)]">Current customer receivable: <FinancialValue>{formatNaira(workspace.sale.customerOutstandingMinor)}</FinancialValue>. A larger return needs a refund or exchange credit instead.</span>}
             </label>
             <label className="text-sm font-medium">
               Reason
@@ -484,11 +485,11 @@ export default function ReturnsPage() {
                 placeholder="Why is the customer returning these goods?"
               />
             </label>
-            {resolution === "split" && <><label className="text-sm">Refund / exchange portion (₦)<input className="input block w-full" type="number" min="0.01" step="0.01" value={splitAmount} onChange={event => setSplitAmount(event.target.value)}/><span>Remaining credit reduces invoice debt.</span></label><label className="text-sm">Refund / exchange method<select className="input block w-full" value={splitMethod} onChange={event => setSplitMethod(event.target.value as typeof splitMethod)}><option value="cash">Cash</option><option value="card">Card</option><option value="bank_transfer">Bank transfer</option><option value="exchange_credit">Exchange credit</option></select></label></>}
+            {resolution === "split" && <><label className="text-sm">Refund / exchange portion (₦)<FinancialInput><input className="input block w-full" type="number" min="0.01" step="0.01" value={splitAmount} onChange={event => setSplitAmount(event.target.value)}/></FinancialInput><span>Remaining credit reduces invoice debt.</span></label><label className="text-sm">Refund / exchange method<select className="input block w-full" value={splitMethod} onChange={event => setSplitMethod(event.target.value as typeof splitMethod)}><option value="cash">Cash</option><option value="card">Card</option><option value="bank_transfer">Bank transfer</option><option value="exchange_credit">Exchange credit</option></select></label></>}
             {["card", "bank_transfer"].includes(fundingMethod) && <label className="text-sm font-medium">Refund from company account
               <select value={refundBankAccountId} onChange={(event) => setRefundBankAccountId(event.target.value)} className="mt-1 w-full rounded-lg border p-3">
                 <option value="">Select funding account</option>
-                {workspace.bankAccounts?.map((account) => <option key={account.id} value={account.id}>{account.bankName} · {account.accountName} · ••••{account.accountNumberLast4}</option>)}
+                {workspace.bankAccounts?.map((account) => <option key={account.id} value={account.id}><FinancialText>{account.bankName}</FinancialText> · <FinancialText>{account.accountName}</FinancialText> · ••••<FinancialText>{account.accountNumberLast4}</FinancialText></option>)}
               </select>
               <span className="mt-1 block text-xs text-[var(--muted)]">The refund is posted against this account, not the generic bank-clearing balance.</span>
             </label>}
@@ -503,8 +504,8 @@ export default function ReturnsPage() {
                   <option value="">Select open till</option>
                   {workspace.openShifts.map((shift) => (
                     <option key={shift.id} value={shift.id}>
-                      {shift.deviceName}
-                      {shift.openedByName ? ` · ${shift.openedByName}` : ""}
+                      <FinancialText>{shift.deviceName}</FinancialText>
+                      <FinancialText>{shift.openedByName ? ` · ${shift.openedByName}` : ""}</FinancialText>
                     </option>
                   ))}
                 </select>
@@ -517,9 +518,9 @@ export default function ReturnsPage() {
           <div className="mt-5 flex flex-col items-end gap-3 border-t pt-4">
             <p className="text-sm">
               Expected refund / credit:{" "}
-              <strong>{formatNaira(estimatedGross)}</strong>
+              <strong><FinancialValue>{formatNaira(estimatedGross)}</FinancialValue></strong>
             </p>
-            <Button aria-busy={busy} disabledReason={firstBlocker([
+            <FinancialAction><Button aria-busy={busy} disabledReason={firstBlocker([
               [!selectedLines.length && !selectedProviders.length, "Select the original eligible quantities or provider amounts being corrected."],
               [invalidProviderAmount, "Enter valid eligible provider-credit amounts; ask finance to review settled/recovered funds before crediting them."],
               [reason.trim().length < 5, "Enter the actual return/cancellation/commercial-credit reason, at least 5 characters."],
@@ -539,16 +540,16 @@ export default function ReturnsPage() {
               }
               onClick={() => void submitReturn()}
             >
-              {kind === "service_credit" ? "Submit commercial credit for approval" : kind === "reservation_cancellation" ? "Submit cancellation for approval" : "Submit return for approval"}
-            </Button>
+              <FinancialText>{kind === "service_credit" ? "Submit commercial credit for approval" : kind === "reservation_cancellation" ? "Submit cancellation for approval" : "Submit return for approval"}</FinancialText>
+            </Button></FinancialAction>
           </div>
-        </section>
+        </section></FinancialActionScope>
       )}
       <section className="rounded-xl border bg-white p-5">
         <div className="flex items-center justify-between gap-3">
           <div>
             <h2 className="flex items-center gap-2 text-xl font-semibold">
-              <ShieldCheck className="size-5" /> {status === "submitted" ? "Inspection & approval" : "Posted returns & exchange balances"}
+              <ShieldCheck className="size-5" /> <FinancialText>{status === "submitted" ? "Inspection & approval" : "Posted returns & exchange balances"}</FinancialText>
             </h2>
             <p className="text-sm text-[var(--muted)]">
               Managers may approve their own branch return. Every decision is
@@ -562,55 +563,55 @@ export default function ReturnsPage() {
         <label className="mt-3 block text-sm">Show<select value={status} onChange={e => { setStatus(e.target.value as typeof status); setPages([null]); setPending([]); }} className="ml-2 rounded-lg border p-2"><option value="submitted">Awaiting inspection / approval</option><option value="approved">Posted returns and exchange credits</option></select></label>
         <div className="mt-4 space-y-3">
           {pending.map((record) => (
-            <article
+            <FinancialActionScope key={record.id}><article
               key={record.id}
               className="flex flex-wrap justify-between gap-3 rounded-xl border p-4"
             >
               <div>
-                <strong>{record.returnNumber}</strong>
+                <strong><FinancialText>{record.returnNumber}</FinancialText></strong>
                 {record.kind === "service_credit" && <p className="text-sm font-medium">Service / provider commercial credit · no physical restocking</p>}
                 {record.kind === "reservation_cancellation" && <p className="text-sm font-medium">Cancellation of uncollected goods</p>}
                 <p className="text-sm text-[var(--muted)]">
-                  {record.receiptNumber} · {record.reason}
+                  <FinancialText>{record.receiptNumber}</FinancialText> · <FinancialDetails>{record.reason}</FinancialDetails>
                 </p>
                 <p className="mt-1 text-sm">
-                  {formatNaira(record.grossAmountMinor)} ·{" "}
-                  {record.resolution.replaceAll("_", " ")}
+                  <FinancialValue>{formatNaira(record.grossAmountMinor)}</FinancialValue> ·{" "}
+                  <FinancialText>{record.resolution.replaceAll("_", " ")}</FinancialText>
                 </p>
-                {record.kind !== "reservation_cancellation" && record.kind !== "service_credit" && <p className="mt-1 text-sm">{record.inspectionStatus === "completed" ? "Inspection recorded" : record.status === "approved" ? "Historical posted return — unchanged" : "Inspection required before approval"}</p>}
+                {record.kind !== "reservation_cancellation" && record.kind !== "service_credit" && <p className="mt-1 text-sm"><FinancialText>{record.inspectionStatus === "completed" ? "Inspection recorded" : record.status === "approved" ? "Historical posted return — unchanged" : "Inspection required before approval"}</FinancialText></p>}
                 {["card", "bank_transfer"].includes(record.resolution) && <label className="mt-2 block text-sm">Refund from company account
                   {record.bankAccountId && <span className="block text-xs text-[var(--muted)]">The originally recorded funding account is retained as historical evidence and cannot change here. Ask finance to review an incorrect original payment through its correction workflow.</span>}<select disabled={Boolean(record.bankAccountId)} value={record.bankAccountId || legacyRefundAccounts[record.id] || ""} onChange={(event) => setLegacyRefundAccounts((current) => ({ ...current, [record.id]: event.target.value }))} className="mt-1 w-full rounded-lg border p-3">
                     <option value="">Select funding account for this earlier return</option>
-                    {bankAccounts.map((account) => <option key={account.id} value={account.id}>{account.bankName} · {account.accountName} · ••••{account.accountNumberLast4}</option>)}
+                    {bankAccounts.map((account) => <option key={account.id} value={account.id}><FinancialText>{account.bankName}</FinancialText> · <FinancialText>{account.accountName}</FinancialText> · ••••<FinancialText>{account.accountNumberLast4}</FinancialText></option>)}
                   </select>
                 </label>}
               </div>
               {record.status === "submitted" && canApprove &&
               (record.createdBy !== user?.uid || canApproveOwnWork) ? (
-                <Button disabled={busy || (record.kind !== "reservation_cancellation" && record.kind !== "service_credit" && record.inspectionStatus !== "completed") || (record.kind === "reservation_cancellation" && (!profile || !hasPermission(profile, "sales.stock.release"))) || (["card", "bank_transfer"].includes(record.resolution) && !record.bankAccountId && !legacyRefundAccounts[record.id])} onClick={() => void approve(record)}>
+                <FinancialAction><Button disabled={busy || (record.kind !== "reservation_cancellation" && record.kind !== "service_credit" && record.inspectionStatus !== "completed") || (record.kind === "reservation_cancellation" && (!profile || !hasPermission(profile, "sales.stock.release"))) || (["card", "bank_transfer"].includes(record.resolution) && !record.bankAccountId && !legacyRefundAccounts[record.id])} onClick={() => void approve(record)}>
                   <CheckCircle2 className="mr-2 size-4" /> Approve and post
-                </Button>
+                </Button></FinancialAction>
               ) : (
                 record.status === "submitted" && <span className="text-xs text-amber-800">
-                  {record.createdBy === user?.uid
+                  <FinancialText>{record.createdBy === user?.uid
                     ? "This role requires another approver"
-                    : "Approval permission required"}
+                    : "Approval permission required"}</FinancialText>
                 </span>
               )}
               {canApprove && <ReturnFollowUp record={record} accounts={bankAccounts} shifts={openShifts} onComplete={() => void refreshPending()} />}
               {record.kind !== "service_credit" && <ReturnAftersales record={record} canRoute={Boolean(canApprove && profile && hasPermission(profile, "sales.returns.create"))} onComplete={() => void refreshPending()} />}
               {record.kind !== "reservation_cancellation" && record.kind !== "service_credit" && <div className="w-full"><OperationalPhotos kind="customer_return" recordId={record.id} stage="inspection" serials={record.items?.flatMap(item => item.serialNumbers ?? []) ?? []} canUpload={canApprove && record.status === "submitted"} /></div>}
-            </article>
+            </article></FinancialActionScope>
           ))}
           {pending.length === 0 && (
             <p className="rounded-lg bg-slate-50 p-6 text-center text-sm text-[var(--muted)]">
-              No {status === "submitted" ? "pending" : "posted"} returns on this page.
+              No <FinancialText>{status === "submitted" ? "pending" : "posted"}</FinancialText> returns on this page.
             </p>
           )}
         </div>
         <CursorTablePagination page={scopedPages.length} pageSize={limit} rowCount={pending.length} hasNextPage={Boolean(nextCursor)} loading={busy} onPrevious={() => setPages(scopedPages.slice(0, -1))} onNext={() => { if (nextCursor) { setPageBranchId(branchId); setPages([...scopedPages, nextCursor]); } }} onPageSizeChange={size => { setLimit(size); setPages([null]); }} itemLabel="returns" />
       </section>
-      <Button variant="secondary" onClick={() => setShowCorrections(value => !value)}>{showCorrections ? "Hide order corrections" : "Posted-order corrections"}</Button>
+      <Button variant="secondary" onClick={() => setShowCorrections(value => !value)}><FinancialText>{showCorrections ? "Hide order corrections" : "Posted-order corrections"}</FinancialText></Button>
       {showCorrections && <SaleCorrections branchId={branchId} source={workspace?.sale.branchId === branchId ? workspace : null} canCreate={canCreate} canApprove={canApprove} />}
     </div>
   );

@@ -1,4 +1,5 @@
 "use client";
+import { FinancialMessage, FinancialText, FinancialValue } from "@/features/finance/financial-privacy";
 
 import {
   CheckCircle2,
@@ -187,7 +188,7 @@ export default function AccountingClosePage() {
           role="alert"
           className="rounded-xl bg-red-50 p-4 text-sm text-red-800"
         >
-          {error}
+          <FinancialMessage>{error}</FinancialMessage>
         </div>
       )}
       {message && (
@@ -195,7 +196,7 @@ export default function AccountingClosePage() {
           role="status"
           className="rounded-xl bg-emerald-50 p-4 text-sm text-emerald-900"
         >
-          {message}
+          <FinancialMessage>{message}</FinancialMessage>
         </div>
       )}
 
@@ -212,11 +213,11 @@ export default function AccountingClosePage() {
           </label>
           <div className="rounded-lg bg-slate-50 p-4 text-sm">
             <strong className="capitalize">
-              {selectedPeriod?.status ?? "Open / not prepared"}
+              <FinancialText>{selectedPeriod?.status ?? "Open / not prepared"}</FinancialText>
             </strong>
             <p className="mt-1 text-[var(--muted)]">
-              {workspace?.evidence.periodStart} to{" "}
-              {workspace?.evidence.periodEnd}
+              <FinancialText>{workspace?.evidence.periodStart}</FinancialText> to{" "}
+              <FinancialText>{workspace?.evidence.periodEnd}</FinancialText>
             </p>
           </div>
         </div>
@@ -230,25 +231,25 @@ export default function AccountingClosePage() {
                 Journal entries
               </span>
               <strong className="mt-2 block text-2xl">
-                {workspace.evidence.journalEntryCount}
+                <FinancialText>{workspace.evidence.journalEntryCount}</FinancialText>
               </strong>
             </div>
             <div className="rounded-xl border bg-white p-4">
               <span className="text-sm text-[var(--muted)]">Journal lines</span>
               <strong className="mt-2 block text-2xl">
-                {workspace.evidence.journalLineCount}
+                <FinancialText>{workspace.evidence.journalLineCount}</FinancialText>
               </strong>
             </div>
             <div className="rounded-xl border bg-white p-4">
               <span className="text-sm text-[var(--muted)]">Total debits</span>
               <strong className="mt-2 block text-2xl finance-balance">
-                {formatNaira(workspace.evidence.totalDebitMinor)}
+                <FinancialValue>{formatNaira(workspace.evidence.totalDebitMinor)}</FinancialValue>
               </strong>
             </div>
             <div className="rounded-xl border bg-white p-4">
               <span className="text-sm text-[var(--muted)]">Total credits</span>
               <strong className="mt-2 block text-2xl finance-balance">
-                {formatNaira(workspace.evidence.totalCreditMinor)}
+                <FinancialValue>{formatNaira(workspace.evidence.totalCreditMinor)}</FinancialValue>
               </strong>
             </div>
           </section>
@@ -266,9 +267,9 @@ export default function AccountingClosePage() {
                     className="rounded-lg bg-amber-50 p-4 text-sm text-amber-950"
                   >
                     <strong>
-                      {blocker.count} issue{blocker.count === 1 ? "" : "s"}
+                      <FinancialText>{blocker.count}</FinancialText> issue<FinancialText>{blocker.count === 1 ? "" : "s"}</FinancialText>
                     </strong>
-                    <p>{blocker.message}</p>
+                    <p><FinancialMessage>{blocker.message}</FinancialMessage></p>
                     <CloseBlockerGuidance code={blocker.code} profile={profile}/>
                   </div>
                 ))}
@@ -313,16 +314,16 @@ export default function AccountingClosePage() {
                   {trialBalancePagination.rows.map((line) => (
                     <tr key={line.accountCode} className="border-t">
                       <td className="p-3">
-                        <strong>{line.accountCode}</strong> · {line.accountName}
+                        <strong><FinancialText>{line.accountCode}</FinancialText></strong> · <FinancialText>{line.accountName}</FinancialText>
                       </td>
                       <td className="p-3 text-right">
-                        {formatNaira(line.debitMinor)}
+                        <FinancialValue>{formatNaira(line.debitMinor)}</FinancialValue>
                       </td>
                       <td className="p-3 text-right">
-                        {formatNaira(line.creditMinor)}
+                        <FinancialValue>{formatNaira(line.creditMinor)}</FinancialValue>
                       </td>
                       <td className="p-3 text-right">
-                        {formatNaira(line.netMinor)}
+                        <FinancialValue>{formatNaira(line.netMinor)}</FinancialValue>
                       </td>
                     </tr>
                   ))}
@@ -431,13 +432,13 @@ export default function AccountingClosePage() {
                   className="flex items-center justify-between rounded-lg border p-3"
                 >
                   <span>
-                    <strong>{period.periodKey}</strong>
+                    <strong><FinancialText>{period.periodKey}</FinancialText></strong>
                     <small className="ml-2 capitalize text-[var(--muted)]">
-                      {period.status}
+                      <FinancialText>{period.status}</FinancialText>
                     </small>
                   </span>
                   <span className="text-sm">
-                    {formatNaira(period.totalDebitMinor ?? 0)}
+                    <FinancialValue>{formatNaira(period.totalDebitMinor ?? 0)}</FinancialValue>
                   </span>
                 </div>
               ))}

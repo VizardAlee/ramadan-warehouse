@@ -1,4 +1,5 @@
 "use client";
+import { RecordAttribution } from "@/features/audit/record-attribution";
 
 import { Download, Loader2, Plus, Truck } from "lucide-react";
 import Link from "next/link";
@@ -261,6 +262,9 @@ export function TransferList({ view = "all" }: { view?: string }) {
                 "Dispatched",
                 "Received",
                 "Outstanding",
+                "Created by",
+                "Approved by",
+                "Received by",
               ].map((label) => (
                 <th key={label} className="px-4 py-3">
                   {label}
@@ -306,6 +310,9 @@ export function TransferList({ view = "all" }: { view?: string }) {
                 <td data-label="Dispatched" className="px-4 py-3">{row.totalDispatchedQuantity}</td>
                 <td data-label="Received" className="px-4 py-3">{row.totalReceivedQuantity}</td>
                 <td data-label="Outstanding" className="px-4 py-3 font-semibold">{row.totalOutstandingQuantity}</td>
+                <td data-label="Created by" className="px-4 py-3"><RecordAttribution actors={row.actorLabels} field="createdBy" userId={row.createdBy} /></td>
+                <td data-label="Approved by" className="px-4 py-3"><RecordAttribution actors={row.actorLabels} field="approvedBy" userId={row.approvedBy} /></td>
+                <td data-label="Received by" className="px-4 py-3"><RecordAttribution actors={row.actorLabels} field="receivedBy" userId={row.receivedBy} /></td>
               </tr>
             ))}
           </tbody>

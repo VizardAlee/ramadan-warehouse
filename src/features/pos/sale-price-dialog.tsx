@@ -1,4 +1,5 @@
 "use client";
+import { FinancialInput, FinancialText, FinancialValue } from "@/features/finance/financial-privacy";
 
 import type { Ref } from "react";
 import { AppDialog } from "@/components/ui/app-dialog";
@@ -40,16 +41,16 @@ export function SalePriceDialog({
         onSubmit={(event) => { event.preventDefault(); onApply(); }}
       >
         <h2 id="sale-price-title" className="text-xl font-semibold">Price for this sale</h2>
-        <p className="mt-1 text-sm text-[var(--muted)]">{productName}. This change affects only the current order, not the branch catalogue.</p>
+        <p className="mt-1 text-sm text-[var(--muted)]"><FinancialText>{productName}</FinancialText>. This change affects only the current order, not the branch catalogue.</p>
         <div className="mt-4 rounded-lg bg-slate-50 p-3 text-sm">
-          Current catalogue: {formatNaira(currentPriceMinor)}. You can set a higher or lower price for this order only.
+          Current catalogue: <FinancialValue>{formatNaira(currentPriceMinor)}</FinancialValue>. You can set a higher or lower price for this order only.
         </div>
         <label className="mt-4 block text-sm font-medium">
           Selling price before VAT (₦)
-          <input type="number" min="0.01" step="0.01" inputMode="decimal" required value={salePrice} onChange={(event) => onPriceChange(event.target.value)} className="mt-1 w-full rounded-lg border p-3 text-lg" />
+          <FinancialInput><input type="number" min="0.01" step="0.01" inputMode="decimal" required value={salePrice} onChange={(event) => onPriceChange(event.target.value)} className="mt-1 w-full rounded-lg border p-3 text-lg" /></FinancialInput>
         </label>
         {enteredMinor > 0 && changed && (
-          <p className="mt-2 text-sm font-semibold text-[var(--brand)]" role="status">New price for this sale: {formatNaira(enteredMinor)}</p>
+          <p className="mt-2 text-sm font-semibold text-[var(--brand)]" role="status">New price for this sale: <FinancialValue>{formatNaira(enteredMinor)}</FinancialValue></p>
         )}
         {changed && (
           <div className="mt-4">
@@ -58,7 +59,7 @@ export function SalePriceDialog({
             <div className="mt-2 flex flex-wrap gap-2">
               {quickReasons.map((choice) => (
                 <button key={choice} type="button" onClick={() => onReasonChange(choice)} className="min-h-9 rounded-full border border-slate-300 px-3 text-xs font-medium text-slate-700 hover:border-[var(--brand)] hover:text-[var(--brand)]">
-                  {choice}
+                  <FinancialText>{choice}</FinancialText>
                 </button>
               ))}
             </div>

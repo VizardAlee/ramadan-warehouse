@@ -1,3 +1,4 @@
+import { withRecordActors } from "../audit/record-actors.js";
 import { assertIndependentProviderExpense } from "../billing/expense-guard.js";
 import { createHash } from "node:crypto";
 import { FieldPath, FieldValue, Timestamp } from "firebase-admin/firestore";
@@ -213,7 +214,7 @@ export const getExpenseWorkspace = onCall(
     return {
       categories: categories.items, branches: branches.items, warehouses: warehouses.items, bankAccounts: bankAccounts.items,
       lookupNextCursors: { categories: categories.nextCursorId, branches: branches.nextCursorId, warehouses: warehouses.nextCursorId, bankAccounts: bankAccounts.nextCursorId },
-      expenses, scannedCount: scanned, nextCursor: hasMore ? expenseCursor(snapshot.docs[scanned - 1]!.id, binding) : null,
+      expenses: await withRecordActors(actor.organizationId, expenses), scannedCount: scanned, nextCursor: hasMore ? expenseCursor(snapshot.docs[scanned - 1]!.id, binding) : null,
     };
   },
 );

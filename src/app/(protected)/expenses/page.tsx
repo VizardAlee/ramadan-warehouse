@@ -1,4 +1,6 @@
 "use client";
+import { RecordAttribution } from "@/features/audit/record-attribution";
+import { FinancialAction, FinancialActionScope, FinancialInput, FinancialMessage, FinancialText, FinancialValue  } from "@/features/finance/financial-privacy";
 
 import { FinancialAmount } from "@/components/ui/financial-amount";
 import { eligibleExpenseAccounts, expenseDraftAmounts, expenseQueues, expenseStatusHelp, expenseStatusLabel, type ExpenseQueue } from "@/features/expenses/workspace-presentation";
@@ -298,20 +300,20 @@ function ExpensesWorkspace() {
         </Button>
       </header>
       {accessLoading && <p role="status">Checking expense access…</p>}
-      {accessError && <p role="alert" className="text-red-800">{accessError}</p>}
+      {accessError && <p role="alert" className="text-red-800"><FinancialText>{accessError}</FinancialText></p>}
       {access && !readScope && <p role="alert">Choose an assigned store or ask an administrator to review your expense access.</p>}
       {access && <label className="block text-sm">Expense register scope<select aria-label="Expense register scope" value={scopeValue} disabled={Boolean(forcedScope) || busy || Boolean(pending)} onChange={event => setSelectedScope(event.target.value)} className="mt-1 block w-full rounded-lg border p-2 sm:max-w-md">
         {!readScope && <option value="">Choose assigned store</option>}
         {hasExpenseScope(access, {}, "expenses.read") && <option value="organization">Entire organization</option>}
-        {readBranches.map(location => <option key={`branch:${location.id}`} value={`branch:${location.id}`}>{location.name}</option>)}
-        {readWarehouses.map(location => <option key={`warehouse:${location.id}`} value={`warehouse:${location.id}`}>{location.name} · warehouse</option>)}
+        {readBranches.map(location => <option key={`branch:${location.id}`} value={`branch:${location.id}`}><FinancialText>{location.name}</FinancialText></option>)}
+        {readWarehouses.map(location => <option key={`warehouse:${location.id}`} value={`warehouse:${location.id}`}><FinancialText>{location.name}</FinancialText> · warehouse</option>)}
       </select></label>}
       {error && (
         <div
           role="alert"
           className="rounded-xl bg-red-50 p-4 text-sm text-red-800"
         >
-          {error}
+          <FinancialMessage>{error}</FinancialMessage>
         </div>
       )}
       {message && (
@@ -319,13 +321,13 @@ function ExpensesWorkspace() {
           role="status"
           className="rounded-xl bg-emerald-50 p-4 text-sm text-emerald-900"
         >
-          {message}
+          <FinancialMessage>{message}</FinancialMessage>
         </div>
       )}
 
-      {pending && <div role="status" className="rounded-xl bg-amber-50 p-4"><p>An expense operation is unconfirmed. Retry the saved instructions before recording another bill or payment.</p><Button disabled={busy || !ready} onClick={() => void run(pending.name, pending.input, "Saved expense operation confirmed.")}>Retry saved expense instructions</Button></div>}
+      {pending && <div role="status" className="rounded-xl bg-amber-50 p-4"><p>An expense operation is unconfirmed. Retry the saved instructions before recording another bill or payment.</p><FinancialAction retry={Boolean(pending)}><Button disabled={busy || !ready} onClick={() => void run(pending.name, pending.input, "Saved expense operation confirmed.")}>Retry saved expense instructions</Button></FinancialAction></div>}
       {can("expenses.create") && (
-        <details open={Boolean(linkedId)} className="rounded-xl border bg-white p-5">
+        <FinancialActionScope><details open={Boolean(linkedId)} className="rounded-xl border bg-white p-5">
           <summary className="cursor-pointer text-lg font-semibold">
             Record a new operating bill
           </summary>
@@ -334,9 +336,9 @@ function ExpensesWorkspace() {
             created automatically. Amounts are naira; kobo remains two decimal
             places.
           </p>
-          <label className="my-3 block text-sm">Existing supplier / provider<select className="input ml-2" value={form.supplierId} disabled={busy || !!pending || !ready || !workspace} onChange={event => { const supplier = suppliers.find(item => item.id === event.target.value); setForm(current => ({ ...current, supplierId: supplier?.id ?? "", payeeName: supplier?.name ?? "" })); }}><option value="">Other payee (enter name)</option>{suppliers.map(supplier => <option key={supplier.id} value={supplier.id}>{supplier.name} · {supplier.supplierType}</option>)}</select></label>{supplierCursor && <Button variant="outline" onClick={() => void loadSuppliers(supplierCursor)}>Load more existing suppliers</Button>}
+          <label className="my-3 block text-sm">Existing supplier / provider<select className="input ml-2" value={form.supplierId} disabled={busy || !!pending || !ready || !workspace} onChange={event => { const supplier = suppliers.find(item => item.id === event.target.value); setForm(current => ({ ...current, supplierId: supplier?.id ?? "", payeeName: supplier?.name ?? "" })); }}><option value="">Other payee (enter name)</option>{suppliers.map(supplier => <option key={supplier.id} value={supplier.id}><FinancialText>{supplier.name}</FinancialText> · <FinancialText>{supplier.supplierType}</FinancialText></option>)}</select></label>{supplierCursor && <Button variant="outline" onClick={() => void loadSuppliers(supplierCursor)}>Load more existing suppliers</Button>}
           {linkedId && <label className="my-3 block text-sm">Separate company obligation reference (only if independent of invoice provider funds)<input className="input block w-full" value={form.independentObligationReference} disabled={busy || !!pending || !ready || !workspace} onChange={event => setForm({ ...form, independentObligationReference: event.target.value })}/><span>A separate supplier document and this reference are required to recognize an additional company expense for a provider already paid through the invoice.</span></label>}
-          {linkedId && <div className="my-3 rounded-xl border bg-blue-50 p-4"><strong>Linked {linkedCaseId ? "aftersales service" : "sale / delivery"} cost</strong><p>This records a provider bill, not a customer charge or bank transfer. The server verifies the related record and store. Do not enter delivery pass-through amounts already recorded as a liability.</p>{linkedScopeMismatch && <p role="alert">Switch to the original record&apos;s store before recording this cost.</p>}{linkedCaseId && <Link className="underline" href={`/aftersales?caseId=${encodeURIComponent(linkedCaseId)}`}>Return to service case</Link>}</div>}
+          {linkedId && <div className="my-3 rounded-xl border bg-blue-50 p-4"><strong>Linked <FinancialText>{linkedCaseId ? "aftersales service" : "sale / delivery"}</FinancialText> cost</strong><p>This records a provider bill, not a customer charge or bank transfer. The server verifies the related record and store. Do not enter delivery pass-through amounts already recorded as a liability.</p>{linkedScopeMismatch && <p role="alert">Switch to the original record&apos;s store before recording this cost.</p>}{linkedCaseId && <Link className="underline" href={`/aftersales?caseId=${encodeURIComponent(linkedCaseId)}`}>Return to service case</Link>}</div>}
           <fieldset disabled={busy || !!pending || !ready || !workspace} className="mt-4 grid gap-3 md:grid-cols-3">
             <label className="text-sm">Cost purpose<select value={form.costPurpose} onChange={event => setForm({ ...form, costPurpose: event.target.value })} className="mt-1 w-full rounded-lg border p-3"><option value="">General operating expense</option><option value="service">Service / outsourced technician</option><option value="logistics">Delivery / logistics provider</option></select></label>
             <label className="text-sm">
@@ -415,7 +417,7 @@ function ExpensesWorkspace() {
                   <option value="">Select location</option>
                   {scopeOptions.map((location) => (
                     <option key={location.id} value={location.id}>
-                      {location.name}
+                      <FinancialText>{location.name}</FinancialText>
                     </option>
                   ))}
                 </select>
@@ -436,7 +438,7 @@ function ExpensesWorkspace() {
             </label>
             <label className="text-sm">
               Net amount (₦)
-              <input
+              <FinancialInput><input
                 type="number"
                 min="0.01"
                 step="0.01"
@@ -445,11 +447,11 @@ function ExpensesWorkspace() {
                   setForm({ ...form, netAmountNaira: event.target.value })
                 }
                 className="mt-1 w-full rounded-lg border p-3"
-              />
+              /></FinancialInput>
             </label>
             <label className="text-sm">
               VAT (₦)
-              <input
+              <FinancialInput><input
                 type="number"
                 min="0"
                 step="0.01"
@@ -458,7 +460,7 @@ function ExpensesWorkspace() {
                   setForm({ ...form, vatAmountNaira: event.target.value })
                 }
                 className="mt-1 w-full rounded-lg border p-3"
-              />
+              /></FinancialInput>
             </label>
             <label className="text-sm md:col-span-3">
               Description
@@ -473,12 +475,12 @@ function ExpensesWorkspace() {
             </label>
           </fieldset>
           <div className={`${styles.amounts} mt-4 rounded-lg border p-3`} aria-live="polite">
-            <p>Net <FinancialAmount tone="neutral">{draftAmounts ? formatNaira(draftAmounts.netMinor) : "—"}</FinancialAmount></p>
-            <p>VAT <FinancialAmount tone="neutral">{draftAmounts ? formatNaira(draftAmounts.vatMinor) : "—"}</FinancialAmount></p>
-            <p>Draft bill total <FinancialAmount tone="outflow">{draftAmounts ? formatNaira(draftAmounts.grossMinor) : "—"}</FinancialAmount></p>
+            <p>Net <FinancialAmount tone="neutral"><FinancialValue>{draftAmounts ? formatNaira(draftAmounts.netMinor) : "—"}</FinancialValue></FinancialAmount></p>
+            <p>VAT <FinancialAmount tone="neutral"><FinancialValue>{draftAmounts ? formatNaira(draftAmounts.vatMinor) : "—"}</FinancialValue></FinancialAmount></p>
+            <p>Draft bill total <FinancialAmount tone="outflow"><FinancialValue>{draftAmounts ? formatNaira(draftAmounts.grossMinor) : "—"}</FinancialValue></FinancialAmount></p>
           </div>
           <p className="mt-2 text-sm text-[var(--muted)]">The total is a preview, not a payment. Invoice / receipt number records a reference; file attachments are not supported here.</p>
-          <Button
+          <FinancialAction><Button
             className="mt-4"
             disabled={
               busy ||
@@ -508,8 +510,8 @@ function ExpensesWorkspace() {
             onClick={() => void createExpense()}
           >
             <HandCoins className="mr-2 size-4" /> Create draft expense
-          </Button>
-        </details>
+          </Button></FinancialAction>
+        </details></FinancialActionScope>
       )}
 
       <section className="rounded-xl border bg-white p-5">
@@ -519,7 +521,7 @@ function ExpensesWorkspace() {
           payable; payment is recorded separately.
         </p>
         <div role="group" aria-label="Expense queues" className="mt-4 flex flex-wrap gap-2">
-          {expenseQueues.map(queue => <Button key={queue.value} variant={filters.status === queue.value ? "primary" : "outline"} aria-pressed={filters.status === queue.value} disabled={busy || !readReady} onClick={() => applyFilters({ ...filters, status: queue.value })}>{queue.label}</Button>)}
+          {expenseQueues.map(queue => <Button key={queue.value} variant={filters.status === queue.value ? "primary" : "outline"} aria-pressed={filters.status === queue.value} disabled={busy || !readReady} onClick={() => applyFilters({ ...filters, status: queue.value })}><FinancialText>{queue.label}</FinancialText></Button>)}
         </div>
         <form className={`${styles.filters} mt-4`} onSubmit={event => { event.preventDefault(); if (!filterDateError && !busy) applyFilters({ ...filterDraft, status: filters.status }); }}>
           <label className="text-sm">Find a bill<input type="search" maxLength={120} placeholder="Reference, payee, category or description" value={filterDraft.search} disabled={busy} onChange={event => setFilterDraft({ ...filterDraft, search: event.target.value })} className="mt-1 block w-full rounded-lg border p-3" /></label>
@@ -549,40 +551,40 @@ function ExpensesWorkspace() {
                 <div className="flex flex-col justify-between gap-3 lg:flex-row lg:items-start">
                   <div>
                     <div className="flex flex-wrap items-center gap-2">
-                      <strong>{expense.expenseNumber}</strong>
+                      <strong><FinancialText>{expense.expenseNumber}</FinancialText></strong>
                       <span className="rounded-full bg-slate-100 px-2 py-1 text-xs capitalize">
-                        {expenseStatusLabel(expense.status)}
+                        <FinancialText>{expenseStatusLabel(expense.status)}</FinancialText>
                       </span>
                     </div>
                     <p className="text-sm text-[var(--muted)]">
-                      {expense.categoryName} · {expense.payeeName} ·{" "}
-                      {expense.branchName ??
+                      <FinancialText>{expense.categoryName}</FinancialText> · <FinancialText>{expense.payeeName}</FinancialText> ·{" "}
+                      <FinancialText>{expense.branchName ??
                         expense.warehouseName ??
-                        "Whole organization"}
+                        "Whole organization"}</FinancialText>
                     </p>
-                    <p className="mt-1 text-sm">Bill total <FinancialAmount tone="outflow">{formatNaira(expense.grossAmountMinor)}</FinancialAmount> · {["approved", "partially_paid", "paid"].includes(expense.status) ? <>Outstanding <FinancialAmount tone={expense.outstandingAmountMinor > 0 ? "attention" : "neutral"}>{formatNaira(expense.outstandingAmountMinor)}</FinancialAmount></> : "Not posted or paid"}</p>
+                    <p className="mt-1 text-sm">Bill total <FinancialAmount tone="outflow"><FinancialValue>{formatNaira(expense.grossAmountMinor)}</FinancialValue></FinancialAmount> · {["approved", "partially_paid", "paid"].includes(expense.status) ? <>Outstanding <FinancialAmount tone={expense.outstandingAmountMinor > 0 ? "attention" : "neutral"}><FinancialValue>{formatNaira(expense.outstandingAmountMinor)}</FinancialValue></FinancialAmount></> : "Not posted or paid"}</p>
                   </div>
                 </div>
-                <details open={index === 0} className="mt-3 border-t pt-3">
-                  <summary className="min-h-11 cursor-pointer py-2 font-semibold">Bill details and actions · {expense.expenseNumber}</summary>
-                  <p className="mb-3 text-sm text-[var(--muted)]">{expenseStatusHelp(expense.status)}</p>
+                <FinancialActionScope><details open={index === 0} className="mt-3 border-t pt-3">
+                  <summary className="min-h-11 cursor-pointer py-2 font-semibold">Bill details and actions · <FinancialText>{expense.expenseNumber}</FinancialText></summary>
+                  <p className="mb-3 text-sm text-[var(--muted)]"><FinancialText>{expenseStatusHelp(expense.status)}</FinancialText></p>
                   <div className="flex flex-col justify-between gap-3 lg:flex-row lg:items-start">
                   <div className="min-w-0">
-                    <p className="text-sm">Bill date: {expense.expenseDate || "Not recorded"} · Invoice / receipt: {expense.supplierDocumentNumber || "Not recorded"}</p>
+                    <p className="text-sm">Bill date: <FinancialText>{expense.expenseDate || "Not recorded"}</FinancialText> · Invoice / receipt: <FinancialText>{expense.supplierDocumentNumber || "Not recorded"}</FinancialText></p>
                     <p className="mt-1 text-sm">
-                      Net {formatNaira(expense.netAmountMinor)} + VAT{" "}
-                      {formatNaira(expense.vatAmountMinor)} ={" "}
-                      <strong className="finance-outflow">{formatNaira(expense.grossAmountMinor)}</strong>
+                      Net <FinancialValue>{formatNaira(expense.netAmountMinor)}</FinancialValue> + VAT{" "}
+                      <FinancialValue>{formatNaira(expense.vatAmountMinor)}</FinancialValue> ={" "}
+                      <strong className="finance-outflow"><FinancialValue>{formatNaira(expense.grossAmountMinor)}</FinancialValue></strong>
                     </p>
-                    {["approved", "partially_paid", "paid"].includes(expense.status) && <p className="text-sm">Paid to date <FinancialAmount tone="outflow">{formatNaira(expense.grossAmountMinor - expense.outstandingAmountMinor)}</FinancialAmount></p>}
-                    <p className="mt-1 text-xs text-[var(--muted)]">Created by (recorded ID): {expense.createdBy || "Not recorded"}{expense.submittedBy && <> · Submitted by (recorded ID): {expense.submittedBy}</>}{expense.approvedBy && <> · Approved by (recorded ID): {expense.approvedBy}</>}</p>
-                    <p className="mt-1 text-sm">{expense.description}</p>
-                    {expense.dueDate && <p className="text-sm">Payment due: {expense.dueDate}</p>}
-                    {expense.costPurpose && <p className="mt-2 text-sm"><strong>{expense.costPurpose === "service" ? "Service provider cost" : "Logistics provider cost"}</strong>{expense.costReferenceLabel && ` · ${expense.costReferenceLabel}`}{expense.costReferenceType === "aftersales" && expense.costReferenceId && <> · <Link className="underline" href={`/aftersales?caseId=${encodeURIComponent(expense.costReferenceId)}`}>Open service case</Link></>}</p>}
+                    {["approved", "partially_paid", "paid"].includes(expense.status) && <p className="text-sm">Paid to date <FinancialAmount tone="outflow"><FinancialValue>{formatNaira(expense.grossAmountMinor - expense.outstandingAmountMinor)}</FinancialValue></FinancialAmount></p>}
+                    <dl className="mt-2 grid gap-2 text-xs sm:grid-cols-3"><div><dt className="font-semibold">Created by</dt><dd><RecordAttribution actors={expense.actorLabels} field="createdBy" userId={expense.createdBy} /></dd></div><div><dt className="font-semibold">Submitted by (recorded ID)</dt><dd className="break-all"><FinancialText>{expense.submittedBy ?? "Unknown (not recorded)"}</FinancialText></dd></div><div><dt className="font-semibold">Approved by</dt><dd><RecordAttribution actors={expense.actorLabels} field="approvedBy" userId={expense.approvedBy} /></dd></div></dl>
+                    <p className="mt-1 text-sm"><FinancialText>{expense.description}</FinancialText></p>
+                    {expense.dueDate && <p className="text-sm">Payment due: <FinancialText>{expense.dueDate}</FinancialText></p>}
+                    {expense.costPurpose && <p className="mt-2 text-sm"><strong><FinancialText>{expense.costPurpose === "service" ? "Service provider cost" : "Logistics provider cost"}</FinancialText></strong><FinancialText>{expense.costReferenceLabel && ` · ${expense.costReferenceLabel}`}</FinancialText>{expense.costReferenceType === "aftersales" && expense.costReferenceId && <> · <Link className="underline" href={`/aftersales?caseId=${encodeURIComponent(expense.costReferenceId)}`}>Open service case</Link></>}</p>}
                   </div>
                   <div className="flex flex-wrap gap-2">
                     {expense.status === "draft" && hasExpenseScope(access, expense, "expenses.create") && (
-                      <Button
+                      <FinancialAction><Button
                         disabled={busy || !!pending || !ready}
                         onClick={() =>
                           void run(
@@ -595,13 +597,13 @@ function ExpensesWorkspace() {
                         }
                       >
                         <Send className="mr-2 size-4" /> Submit
-                      </Button>
+                      </Button></FinancialAction>
                     )}
                     {expense.status === "submitted" &&
                       hasExpenseScope(access, expense, "expenses.approve") &&
                       (expense.createdBy !== user?.uid ||
                         canApproveOwnWork) && (
-                        <Button
+                        <FinancialAction><Button
                           disabled={busy || !!pending || !ready}
                           onClick={() =>
                             void run(
@@ -614,7 +616,7 @@ function ExpensesWorkspace() {
                           }
                         >
                           <CheckCircle2 className="mr-2 size-4" /> Approve
-                        </Button>
+                        </Button></FinancialAction>
                       )}
                     {expense.status === "submitted" &&
                       expense.createdBy === user?.uid &&
@@ -629,7 +631,7 @@ function ExpensesWorkspace() {
                 {["approved", "partially_paid"].includes(expense.status) &&
                   hasExpenseScope(access, expense, "expenses.pay") && (
                     <div className={`${styles.payment} mt-4 border-t pt-4`}>
-                      <input
+                      <FinancialInput><input
                         aria-label="Payment amount in naira"
                         type="number"
                         min="0.01"
@@ -646,7 +648,7 @@ function ExpensesWorkspace() {
                           })
                         }
                         className="rounded-lg border p-3"
-                      />
+                      /></FinancialInput>
                       <select
                         aria-label="Payment method"
                         value={draft.method}
@@ -685,14 +687,14 @@ function ExpensesWorkspace() {
                         className="rounded-lg border p-3 disabled:bg-slate-100"
                       >
                         <option value="">
-                          {draft.method === "cash"
+                          <FinancialText>{draft.method === "cash"
                             ? "Cash on hand"
-                            : "Select bank account"}
+                            : "Select bank account"}</FinancialText>
                         </option>
                         {eligibleAccounts.map((account) => (
                           <option key={account.id} value={account.id}>
-                            {account.bankName} · {account.accountName} · ••••
-                            {account.accountNumberLast4} · {account.branchId ? "Bill store" : "Company-wide"}
+                            <FinancialText>{account.bankName}</FinancialText> · <FinancialText>{account.accountName}</FinancialText> · ••••
+                            <FinancialText>{account.accountNumberLast4}</FinancialText> · <FinancialText>{account.branchId ? "Bill store" : "Company-wide"}</FinancialText>
                           </option>
                         ))}
                       </select>
@@ -715,7 +717,7 @@ function ExpensesWorkspace() {
                         }
                         className="rounded-lg border p-3"
                       />
-                      <Button aria-busy={busy} disabledReason={pending ? "Retry the saved expense payment instructions before recording another payment." : firstBlocker([
+                      <FinancialAction><Button aria-busy={busy} disabledReason={pending ? "Retry the saved expense payment instructions before recording another payment." : firstBlocker([
                         [!ready, "Wait for the saved expense-instruction check; review the displayed storage error if it cannot finish."],
                         [!validPayment, `Enter a positive actual payment with no more than two decimal places, within the displayed expense outstanding. Do not record the same payment twice.`],
                         [draft.method !== "cash" && !draft.reference.trim(), "Enter the actual noncash payment reference."],
@@ -747,28 +749,28 @@ function ExpensesWorkspace() {
                         }
                       >
                         Record payment
-                      </Button>
+                      </Button></FinancialAction>
                     </div>
                   )}
                   {["approved", "partially_paid"].includes(expense.status) && hasExpenseScope(access, expense, "expenses.pay") && <p className="mt-2 text-xs text-[var(--muted)]">Bank/card: use the bill&apos;s store account or a company-wide account. Organization and warehouse bills require a company-wide account. Closed periods and current server checks still apply.</p>}
-                </details>
+                </details></FinancialActionScope>
               </article>
             );
           })}
           {workspace && !workspace.expenses.length && (
             <p className="rounded-lg bg-slate-50 p-6 text-center text-sm text-[var(--muted)]">
-              {workspace.nextCursor ? "No matching bills on this page. Continue with Next to check more records." : "No matching bills on this page. Clear filters or return to the first page to review this scope."}
+              <FinancialText>{workspace.nextCursor ? "No matching bills on this page. Continue with Next to check more records." : "No matching bills on this page. Clear filters or return to the first page to review this scope."}</FinancialText>
             </p>
           )}
         </div>
         <nav aria-label="Expense pages" className="mt-4 flex flex-wrap items-center gap-3">
           <Button variant="outline" disabled={busy || pages.index === 0} onClick={() => setNavigation({ ...pages, index: 0 })}>First page</Button>
           <Button variant="outline" disabled={busy || pages.index === 0} onClick={() => setNavigation({ ...pages, index: pages.index - 1 })}>Previous</Button>
-          <p role="status" className="text-sm">Page {pages.index + 1} · {workspace?.expenses.length ?? 0} bills shown{workspace?.scannedCount !== undefined ? ` · ${workspace.scannedCount} records checked` : ""}</p>
+          <p role="status" className="text-sm">Page <FinancialText>{pages.index + 1}</FinancialText> · <FinancialText>{workspace?.expenses.length ?? 0}</FinancialText> bills shown<FinancialText>{workspace?.scannedCount !== undefined ? ` · ${workspace.scannedCount} records checked` : ""}</FinancialText></p>
           <Button variant="outline" disabled={busy || !workspace?.nextCursor} onClick={() => { if (workspace?.nextCursor) setNavigation({ key: filterIdentity, cursors: [...pages.cursors.slice(0, pages.index + 1), workspace.nextCursor], index: pages.index + 1 }); }}>Next</Button>
         </nav>
       </section>
-      {workspace?.lookupNextCursors && Object.values(workspace.lookupNextCursors).some(Boolean) && <section className="rounded-xl border bg-white p-4"><h2 className="font-semibold">More available choices</h2><p className="mt-1 text-sm text-[var(--muted)]">If a location, category or paying account is missing, continue loading choices. An empty choice page can still have more. Refresh reloads the bill register and choices.</p><div className="mt-3 flex flex-wrap gap-2">{(["categories", "branches", "warehouses", "bankAccounts"] as const).filter(kind => workspace.lookupNextCursors?.[kind]).map(kind => <Button key={kind} variant="outline" disabled={busy} onClick={() => void loadChoices(kind)}>Load more {kind === "bankAccounts" ? "bank accounts" : kind === "branches" ? "stores" : kind}</Button>)}</div></section>}
+      {workspace?.lookupNextCursors && Object.values(workspace.lookupNextCursors).some(Boolean) && <section className="rounded-xl border bg-white p-4"><h2 className="font-semibold">More available choices</h2><p className="mt-1 text-sm text-[var(--muted)]">If a location, category or paying account is missing, continue loading choices. An empty choice page can still have more. Refresh reloads the bill register and choices.</p><div className="mt-3 flex flex-wrap gap-2">{(["categories", "branches", "warehouses", "bankAccounts"] as const).filter(kind => workspace.lookupNextCursors?.[kind]).map(kind => <Button key={kind} variant="outline" disabled={busy} onClick={() => void loadChoices(kind)}>Load more <FinancialText>{kind === "bankAccounts" ? "bank accounts" : kind === "branches" ? "stores" : kind}</FinancialText></Button>)}</div></section>}
       {profile && user && workspace && hasPermission(profile, "expenses.read") && !scopeWarehouseId && <details className="rounded-xl border bg-white p-4"><summary className="min-h-11 cursor-pointer py-2 font-semibold">Invoice provider funds · separate from operating bills</summary><p className="my-3 text-sm text-[var(--muted)]">Use this section for invoice pass-through provider liabilities and their settlements. Do not record the same obligation again as an operating expense.</p><ProviderFunds ownerKey={`${profile.organizationId}:${user.uid}`} branchId={scopeBranchId} accounts={workspace.bankAccounts} canPay={Boolean(readScope && hasExpenseScope(access, readScope, "expenses.pay"))} canRecover={Boolean(readScope && hasExpenseScope(access, readScope, "expenses.pay") && hasExpenseScope(access, readScope, "finance.journal.reverse"))} /></details>}
     </div>
   );

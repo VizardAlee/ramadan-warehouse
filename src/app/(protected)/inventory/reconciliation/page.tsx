@@ -1,4 +1,6 @@
 "use client";
+import { FinancialDetails, FinancialText } from "@/features/finance/financial-privacy";
+
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { callAdministration } from "@/features/administration/api";
@@ -39,17 +41,17 @@ export default function ReconciliationPage() {
         </p>
       </div>
       <Button disabled={loading} onClick={run}>
-        {loading ? "Reconciling…" : "Run reconciliation"}
+        <FinancialText>{loading ? "Reconciling…" : "Run reconciliation"}</FinancialText>
       </Button>
       {result && (
         <section className="rounded-xl border bg-white p-5">
-          <h2 className="font-semibold">Run {result.reconciliationId}</h2>
+          <h2 className="font-semibold">Run <FinancialText>{result.reconciliationId}</FinancialText></h2>
           <p className="mt-1 text-sm">
-            Checked {result.checkedBalances} balances; found{" "}
-            {result.discrepancyCount} discrepancies.
+            Checked <FinancialText>{result.checkedBalances}</FinancialText> balances; found{" "}
+            <FinancialText>{result.discrepancyCount}</FinancialText> discrepancies.
           </p>
           <pre className="mt-4 max-h-96 overflow-auto rounded-lg bg-slate-950 p-4 text-xs text-emerald-100">
-            {JSON.stringify(result.discrepancies, null, 2)}
+            <FinancialDetails>{JSON.stringify(result.discrepancies, null, 2)}</FinancialDetails>
           </pre>
         </section>
       )}

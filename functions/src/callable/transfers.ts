@@ -1,3 +1,4 @@
+import { withRecordActors } from "../audit/record-actors.js";
 import {
   FieldPath,
   FieldValue,
@@ -3505,6 +3506,7 @@ export const listTransfers = onCall({ enforceAppCheck }, async (request) => {
           : actor.warehouseIds.slice(0, 10),
       );
     } else {
+      requirePermission(actor, "transfers.read.own_branch");
       if (input.branchId) requireBranchScope(actor, input.branchId);
       query = query.where(
         "destinationBranchId",
@@ -3525,7 +3527,7 @@ export const listTransfers = onCall({ enforceAppCheck }, async (request) => {
   if (input.cursor) query = query.startAfter(input.cursor);
   const rows = await query.get();
   return {
-    rows: rows.docs.map((doc) => {
+    rows: await withRecordActors(actor.organizationId, rows.docs.map((doc) => {
       const value = serialize(doc);
       if (!hasServerPermission(actor, "transfers.cost.read"))
         for (const field of [
@@ -3536,7 +3538,7 @@ export const listTransfers = onCall({ enforceAppCheck }, async (request) => {
         ])
           delete value[field];
       return value;
-    }),
+    })),
     nextCursor:
       rows.size === input.limit ? (rows.docs.at(-1)?.id ?? null) : null,
   };

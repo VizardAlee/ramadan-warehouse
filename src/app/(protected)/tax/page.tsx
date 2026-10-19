@@ -1,4 +1,5 @@
 "use client";
+import { FinancialMessage, FinancialText, FinancialValue } from "@/features/finance/financial-privacy";
 
 import { Loader2, ShieldAlert } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -75,7 +76,7 @@ export default function TaxPage() {
   }, [allowed, fromDate, queryKey, toDate, validDates, rulePageSize, ruleCursorId]);
 
   if (accessLoading) return <p role="status">Checking financial access…</p>;
-  if (accessError) return <p role="alert">{accessError}</p>;
+  if (accessError) return <p role="alert"><FinancialText>{accessError}</FinancialText></p>;
   if (!allowed)
     return <div className="rounded-xl border bg-white p-6">Your roles do not include Tax Centre access.</div>;
 
@@ -92,7 +93,7 @@ export default function TaxPage() {
       </section>
       {!validDates && <p role="alert" className="rounded-lg bg-amber-50 p-3 text-sm text-amber-900">Select a valid date range; the from date must be on or before the to date.</p>}
       {validDates && !currentWorkspace && !(error && errorKey === queryKey) && <p role="status" className="flex items-center gap-2 text-sm text-[var(--muted)]"><Loader2 className="size-4 animate-spin" /> Updating tax evidence…</p>}
-      {error && errorKey === queryKey && <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-800">{error}</p>}
+      {error && errorKey === queryKey && <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-800"><FinancialMessage>{error}</FinancialMessage></p>}
       {currentWorkspace?.statutoryRuleReviewRequired && (
         <div className="flex gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950">
           <ShieldAlert className="mt-0.5 size-5 shrink-0" />
@@ -110,13 +111,13 @@ export default function TaxPage() {
       )}
       <TaxRuleWorkspace key={`${profile!.organizationId}:${profile!.uid}`} ownerKey={`${profile!.organizationId}:${profile!.uid}`} rules={currentWorkspace?.rules ?? []} canManage={Boolean(access?.organizationPermissions.includes("finance.tax.manage"))} onSaved={reload} />
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-white p-3">
-        <label className="text-sm">Rules per page<select className="ml-2 rounded-lg border p-2" value={rulePageSize} onChange={event => { setRulePageSize(Number(event.target.value)); setCursors([undefined]); }}>{[25, 50, 100].map(value => <option key={value}>{value}</option>)}</select></label>
-        <div className="flex items-center gap-3"><Button variant="secondary" disabled={cursors.length === 1 || !currentWorkspace} onClick={() => setCursors(value => value.slice(0, -1))}>Previous</Button><span className="text-sm">Page {cursors.length}</span><Button variant="secondary" disabled={!currentWorkspace?.nextRuleCursorId} onClick={() => setCursors(value => [...value, currentWorkspace!.nextRuleCursorId!])}>Next</Button></div>
+        <label className="text-sm">Rules per page<select className="ml-2 rounded-lg border p-2" value={rulePageSize} onChange={event => { setRulePageSize(Number(event.target.value)); setCursors([undefined]); }}>{[25, 50, 100].map(value => <option key={value}><FinancialText>{value}</FinancialText></option>)}</select></label>
+        <div className="flex items-center gap-3"><Button variant="secondary" disabled={cursors.length === 1 || !currentWorkspace} onClick={() => setCursors(value => value.slice(0, -1))}>Previous</Button><span className="text-sm">Page <FinancialText>{cursors.length}</FinancialText></span><Button variant="secondary" disabled={!currentWorkspace?.nextRuleCursorId} onClick={() => setCursors(value => [...value, currentWorkspace!.nextRuleCursorId!])}>Next</Button></div>
       </div>
     </div>
   );
 }
 
 function TaxCard({ label, value, strong = false }: { label: string; value: number; strong?: boolean }) {
-  return <div className={`rounded-xl border bg-white p-5 ${strong ? "ring-2 ring-emerald-100" : ""}`}><span className="text-sm text-[var(--muted)]">{label}</span><strong className="mt-2 block text-2xl">{formatNaira(value)}</strong><span className="mt-1 block text-xs uppercase tracking-wide text-[var(--muted)]">Calculated</span></div>;
+  return <div className={`rounded-xl border bg-white p-5 ${strong ? "ring-2 ring-emerald-100" : ""}`}><span className="text-sm text-[var(--muted)]"><FinancialText>{label}</FinancialText></span><strong className="mt-2 block text-2xl"><FinancialValue>{formatNaira(value)}</FinancialValue></strong><span className="mt-1 block text-xs uppercase tracking-wide text-[var(--muted)]">Calculated</span></div>;
 }

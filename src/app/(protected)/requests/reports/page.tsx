@@ -1,4 +1,6 @@
 "use client";
+import { FinancialDetails, FinancialField, FinancialMessage, FinancialText } from "@/features/finance/financial-privacy";
+
 import { Download, Loader2 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -125,7 +127,7 @@ export default function RequestReportsPage() {
           }
         >
           {reportTypes.map((type) => (
-            <option key={type} value={type}>{type.replaceAll("_", " ")}</option>
+            <option key={type} value={type}><FinancialText>{type.replaceAll("_", " ")}</FinancialText></option>
           ))}
         </select>
         </label>
@@ -147,7 +149,7 @@ export default function RequestReportsPage() {
             "cancelled",
             "closed",
           ].map((value) => (
-            <option key={value}>{value}</option>
+            <option key={value}><FinancialText>{value}</FinancialText></option>
           ))}
         </select>
         </label>
@@ -159,14 +161,14 @@ export default function RequestReportsPage() {
         >
           <option value="">All priorities</option>
           {["low", "normal", "high", "urgent", "critical"].map((value) => (
-            <option key={value}>{value}</option>
+            <option key={value}><FinancialText>{value}</FinancialText></option>
           ))}
         </select>
         </label>
       </section>
       {!ready && !message && <p role="status" className="flex items-center gap-2 text-sm text-[var(--muted)]"><Loader2 className="size-4 animate-spin" /> Updating request report…</p>}
       {message && (
-        <p className="rounded-lg bg-amber-50 p-3 text-sm">{message}</p>
+        <p className="rounded-lg bg-amber-50 p-3 text-sm"><FinancialMessage>{message}</FinancialMessage></p>
       )}
       <div className="responsive-table-wrap">
         <table className="responsive-table text-xs">
@@ -174,7 +176,7 @@ export default function RequestReportsPage() {
             <tr>
               {columns.map((column) => (
                 <th key={column} className="px-3 py-2">
-                  {column}
+                  <FinancialText>{column}</FinancialText>
                 </th>
               ))}
             </tr>
@@ -184,9 +186,9 @@ export default function RequestReportsPage() {
               <tr key={String(row.id ?? index)} className="border-t">
                 {columns.map((column) => (
                   <td key={column} data-label={column.replaceAll("_", " ")} className="max-w-72 truncate px-3 py-2">
-                    {typeof row[column] === "object"
-                      ? JSON.stringify(row[column])
-                      : String(row[column] ?? "")}
+                    <FinancialField name={column}>{typeof row[column] === "object"
+                      ? <FinancialDetails>{JSON.stringify(row[column])}</FinancialDetails>
+                      : String(row[column] ?? "")}</FinancialField>
                   </td>
                 ))}
               </tr>

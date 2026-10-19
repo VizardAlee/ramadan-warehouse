@@ -1,4 +1,5 @@
 "use client";
+import { FinancialAttributes, FinancialMessage, FinancialText, FinancialValue } from "@/features/finance/financial-privacy";
 
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -55,23 +56,23 @@ function ProductMarginsReport({ branchId, productId, fromDate, toDate, onProduct
       </select></label>
       <Button variant="outline" disabled={busy || !ranked.length} onClick={exportRows}>Export product CSV</Button>
     </div>
-    {error && <p role="alert" className="text-red-800">{error}</p>}
+    {error && <p role="alert" className="text-red-800"><FinancialMessage>{error}</FinancialMessage></p>}
     {current && <>
       <p className="text-sm">{current.invoiceCount} invoices scanned · {current.selectedInvoiceCount ?? current.invoiceCount} matching invoices · {current.rows.length} products · Store: {scope} · {fromDate}–{toDate} (Lagos). Updated {new Date(current.completedAt).toLocaleString("en-NG", { timeZone: "Africa/Lagos" })}</p>
       <p className="text-sm">{unknownCount} products have unknown profit and are excluded from numeric rankings. <button className="underline" onClick={() => { setOrder("unknown"); setPage(1); }}>Show unknown evidence</button>. Numeric rankings retain negative gross profit. Export includes every row in the selected view, not just this page.</p>
       {current.providerFunds && <p className="text-sm">Provider pass-through: <FinancialAmount tone="neutral">{formatNaira(current.providerFunds.netMinor)}</FinancialAmount> net charges (excluded from company revenue and profit).</p>}
-      <div className={styles.cards}>{visible.map(row => <article key={row.productId} className={styles.card} aria-label={row.productName}>
-        <h3>{row.productName}</h3><small>{row.sku} · {row.itemKind ?? "goods"}</small>
+      <div className={styles.cards}>{visible.map(row => <FinancialAttributes key={row.productId}><article className={styles.card} aria-label={row.productName}>
+        <h3><FinancialText>{row.productName}</FinancialText></h3><small><FinancialText>{row.sku}</FinancialText> · {row.itemKind ?? "goods"}</small>
         <dl>
           <dt>Invoiced / reversed qty</dt><dd>{row.invoicedQuantity} / {row.reversedQuantity}</dd>
           <dt>Revenue (net sales)</dt><dd><FinancialAmount tone="income">{formatNaira(row.netSalesMinor)}</FinancialAmount></dd>
           <dt>{row.unknownCostLines ? "Known cost (incomplete)" : "Net recorded cost"}</dt><dd><FinancialAmount tone="outflow">{formatNaira(row.netRecordedCostMinor)}</FinancialAmount></dd>
           <dt>Restock cost credits</dt><dd><FinancialAmount tone="neutral">{formatNaira(row.restockCreditMinor)}</FinancialAmount></dd>
           <dt>Gross profit</dt><dd>{row.grossMarginMinor === null ? <span>Unknown</span> : <FinancialAmount tone={row.grossMarginMinor < 0 ? "attention" : "income"}>{formatNaira(row.grossMarginMinor)}</FinancialAmount>}</dd>
-          <dt>Gross margin %</dt><dd>{marginPercent(row) ?? "Not meaningful"}</dd>
+          <dt>Gross margin %</dt><dd><FinancialValue>{marginPercent(row) ?? "Not meaningful"}</FinancialValue></dd>
           <dt>Cost evidence</dt><dd>{row.unknownCostLines ? `${row.unknownCostLines} incomplete lines` : "Recorded"}</dd>
         </dl>
-      </article>)}</div>
+      </article></FinancialAttributes>)}</div>
       {!ranked.length && <p>No products in this view. A product without cohort invoices has no invoice-cohort row; use Movement → Zero handovers for known local goods.</p>}
       {ranked.length > 25 && <div className={styles.controls}><Button variant="outline" disabled={page === 1} onClick={() => setPage(page - 1)}>Previous profit page</Button><span>Page {page} of {Math.ceil(ranked.length / 25)}</span><Button variant="outline" disabled={page * 25 >= ranked.length} onClick={() => setPage(page + 1)}>Next profit page</Button></div>}
     </>}

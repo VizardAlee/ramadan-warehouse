@@ -1,4 +1,5 @@
 "use client";
+import { FinancialAttributes, FinancialText, FinancialValue } from "@/features/finance/financial-privacy";
 
 import {
   AlertTriangle,
@@ -34,11 +35,11 @@ import { useNotifications } from "@/features/notifications/use-notifications";
 
 function ChartPlaceholder({ label }: { label: string }) {
   return (
-    <div aria-label={`${label} loading`} className="surface min-h-80 p-5 sm:p-6">
+    <FinancialAttributes><div aria-label={`${label} loading`} className="surface min-h-80 p-5 sm:p-6">
       <Skeleton className="h-6 w-44" />
       <Skeleton className="mt-3 h-4 w-64 max-w-full" />
       <Skeleton className="mt-8 h-48 w-full rounded-xl" />
-    </div>
+    </div></FinancialAttributes>
   );
 }
 
@@ -91,7 +92,7 @@ export default function DashboardPage() {
 
   return (
     <div className="page-stack">
-      <PageHeader
+      <FinancialAttributes><PageHeader
         eyebrow="Operations control"
         title={
           operatingContext?.type === "branch"
@@ -101,7 +102,7 @@ export default function DashboardPage() {
               : "Organization overview"
         }
         description={`Welcome, ${profile?.displayName ?? "administrator"}. Priorities and operational queues appear here as real master data and stock are configured.`}
-      />
+      /></FinancialAttributes>
       <DashboardLocationSwitcher />
       <section aria-label="Needs your attention" className="space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-3">
@@ -111,7 +112,7 @@ export default function DashboardPage() {
           </div>
           <Link href="/notifications" className="inline-flex min-h-10 items-center gap-1 font-semibold text-[var(--brand)]">View notifications <ArrowRight className="size-4" /></Link>
         </div>
-        {notificationError && <p role="alert" className="text-sm text-amber-800">{notificationError}</p>}
+        {notificationError && <p role="alert" className="text-sm text-amber-800"><FinancialText>{notificationError}</FinancialText></p>}
         {notifications.filter((item) => item.actionRequired).length ? notifications.filter((item) => item.actionRequired).slice(0, 3).map((item) => <NotificationCard key={item.id} item={item} onRead={markRead} />) : <p className="rounded-xl border bg-white p-4 text-sm text-[var(--muted)]">No action is waiting for you.</p>}
       </section>
       <aside className="flex flex-wrap items-center gap-4 rounded-xl border border-indigo-100 bg-indigo-50 p-4">
@@ -143,7 +144,7 @@ export default function DashboardPage() {
             ].map(({ label, value, icon: Icon, href, tone }) => (
               <Link key={label} href={href} className="surface interactive-card p-5">
                 <div className="flex items-start justify-between gap-4">
-                  <div className="min-w-0"><p className="text-sm text-[var(--muted)]">{label}</p>{salesLoading ? <Skeleton className="mt-3 h-9 w-24" /> : <p className={`mt-2 truncate text-2xl font-semibold tabular-nums ${tone}`}>{salesError ? "—" : value}</p>}</div>
+                  <div className="min-w-0"><p className="text-sm text-[var(--muted)]"><FinancialText>{label}</FinancialText></p>{salesLoading ? <Skeleton className="mt-3 h-9 w-24" /> : <p className={`mt-2 truncate text-2xl font-semibold tabular-nums ${tone}`}><FinancialValue financial={label !== "Sales (30 days)"}>{salesError ? "—" : value}</FinancialValue></p>}</div>
                   <span className="grid size-10 shrink-0 place-items-center rounded-lg bg-indigo-50 text-[var(--brand)]"><Icon className="size-5" /></span>
                 </div>
                 <span className="mt-4 inline-flex items-center gap-1 text-xs font-semibold text-[var(--brand)]">Open details <ArrowRight className="size-3.5" /></span>
@@ -167,8 +168,8 @@ export default function DashboardPage() {
           <Link key={label} href={href} className={`surface interactive-card p-5 ${emphasis ? "border-amber-300 bg-amber-50" : ""}`}>
             <div className="flex items-start justify-between gap-4">
               <div className="min-w-0">
-                <p className="text-sm text-[var(--muted)]">{label}</p>
-                {loading ? <Skeleton className="mt-3 h-9 w-16" /> : <p className="mt-2 text-3xl font-semibold tabular-nums">{value ?? "—"}</p>}
+                <p className="text-sm text-[var(--muted)]"><FinancialText>{label}</FinancialText></p>
+                {loading ? <Skeleton className="mt-3 h-9 w-16" /> : <p className="mt-2 text-3xl font-semibold tabular-nums"><FinancialText>{value ?? "—"}</FinancialText></p>}
               </div>
               <span className="grid size-10 shrink-0 place-items-center rounded-lg bg-indigo-50 text-[var(--brand)]"><Icon className="size-5" /></span>
             </div>

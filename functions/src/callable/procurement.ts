@@ -1,3 +1,4 @@
+import { withRecordActors } from "../audit/record-actors.js";
 import { changeCreditSources, type SupplierCreditSourceMap } from "../procurement/credit-sources.js";
 import { supplierDirectory, supplierProfile, supplierActivity, supplierStatement, supplierSummary } from "../procurement/supplier-workspace.js";
 import { accountReceipt } from "../accounting/account-receipt.js";
@@ -420,7 +421,7 @@ export const getProcurementWorkspace = onCall(
         return {
           unusedCreditMinor: input.branchId || input.warehouseId ? (supplier.get("advanceBalancesByLocation")?.[input.branchId ? `branch:${input.branchId}` : `warehouse:${input.warehouseId}`] ?? (supplierMoney(supplier.get("advanceBalanceMinor")) === 0 ? 0 : null)) : supplierMoney(supplier.get("advanceBalanceMinor")),
           asOfDate, totalOutstandingMinor, aging: [...aging, { name: "Due date not set", amountMinor: undatedMinor }],
-          invoices: visible.map((invoice) => ({ id: invoice.id, ...invoice.data() })),
+          invoices: await withRecordActors(actor.organizationId, visible.map((invoice) => ({ ...invoice.data(), id: invoice.id }))),
           nextCursor: rows.size > visible.length ? visible.at(-1)!.id : null,
           note: "Current approved unpaid invoices, not a historical balance. Aging uses Nigerian business dates. Missing historical due dates are not guessed; advances are separate assets.",
         };
@@ -531,16 +532,16 @@ export const getProcurementWorkspace = onCall(
         trackingType: document.get("trackingType"),
         unitOfMeasure: document.get("unitOfMeasure"),
       })),
-      purchaseOrders: purchaseOrders.docs
+      purchaseOrders: await withRecordActors(actor.organizationId, purchaseOrders.docs
         .filter(visible)
-        .map((document) => ({ id: document.id, ...document.data() })),
+        .map((document) => ({ ...document.data(), id: document.id }))),
       purchaseOrderItems: purchaseOrderItems.docs
         .filter(visible)
         .map((document) => ({ id: document.id, ...document.data() })),
       supplierInvoices: hasServerPermission(actor, "payables.read")
-        ? invoices.docs
+        ? await withRecordActors(actor.organizationId, invoices.docs
             .filter(visiblePayable)
-            .map((document) => ({ id: document.id, ...document.data() }))
+            .map((document) => ({ ...document.data(), id: document.id })))
         : [],
     };
   },

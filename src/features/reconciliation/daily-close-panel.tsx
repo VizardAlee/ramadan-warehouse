@@ -1,4 +1,5 @@
 "use client";
+import { FinancialAction, FinancialActionScope, FinancialInput, FinancialMessage, FinancialText, FinancialValue  } from "@/features/finance/financial-privacy";
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -101,41 +102,41 @@ export function DailyClosePanel() {
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Daily close could not be saved."); }
     finally { setBusy(false); }
   }
-  return <section className="surface p-5 sm:p-6" aria-labelledby="daily-close-heading">
+  return <FinancialActionScope><section className="surface p-5 sm:p-6" aria-labelledby="daily-close-heading">
     <div className="flex flex-wrap items-start justify-between gap-3">
       <div><h2 id="daily-close-heading" className="text-xl font-semibold">Store daily close</h2><p className="mt-1 max-w-3xl text-sm text-[var(--muted)]">Compare all posted store cash with what you counted. Stock counts and shift checks are linked automatically. Dates use Nigerian time.</p></div>
       <Button variant="outline" disabled={busy || loading || !branchId} onClick={() => void load()}>Refresh evidence</Button>
     </div>
     <div className="mt-4 grid gap-4 sm:grid-cols-2">
-      <label className="grid gap-1 text-sm">Store<select className="form-input" value={branchId} disabled={busy} onChange={(event) => setSelectedBranch(event.target.value)}><option value="">Select store</option>{branches.map((branch) => <option key={branch.id} value={branch.id}>{branch.name}</option>)}</select></label>
+      <label className="grid gap-1 text-sm">Store<select className="form-input" value={branchId} disabled={busy} onChange={(event) => setSelectedBranch(event.target.value)}><option value="">Select store</option>{branches.map((branch) => <option key={branch.id} value={branch.id}><FinancialText>{branch.name}</FinancialText></option>)}</select></label>
       <label className="grid gap-1 text-sm">Business date<input className="form-input" type="date" max={businessDate()} value={date} disabled={busy} onChange={(event) => { if (event.target.value) setDate(event.target.value); }} /></label>
     </div>
-    {locationError && <p className="mt-3 text-sm text-red-800" role="alert">{locationError} <button className="underline" onClick={() => void loadLocations()}>Retry store list</button></p>}
+    {locationError && <p className="mt-3 text-sm text-red-800" role="alert"><FinancialText>{locationError}</FinancialText> <button className="underline" onClick={() => void loadLocations()}>Retry store list</button></p>}
     {locationCursor && <Button className="mt-3" variant="outline" disabled={locationsBusy} onClick={() => void loadLocations(locationCursor)}>Load more stores</Button>}
     {loading && <p className="mt-4" role="status">Reading ledger and check evidence…</p>}
-    {error && <p className="mt-4 rounded-lg bg-red-50 p-3 text-red-800" role="alert">{error}</p>}
+    {error && <p className="mt-4 rounded-lg bg-red-50 p-3 text-red-800" role="alert"><FinancialMessage>{error}</FinancialMessage></p>}
     {workspace && <>
       <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        {([ ["Opening posted cash", workspace.evidence.cash.openingMinor], ["All cash received", workspace.evidence.cash.receiptsMinor], ["All cash paid out", workspace.evidence.cash.paymentsMinor], ["Expected cash on hand", workspace.evidence.cash.closingMinor] ] as const).map(([label, value], index) => <div className="rounded-xl border p-3" key={label}><p className="text-xs text-[var(--muted)]">{label}</p><p className={`mt-1 text-lg font-semibold ${index === 1 ? "text-emerald-700" : index === 2 ? "text-red-700" : "text-[var(--brand)]"}`}>{formatNaira(value)}</p></div>)}
+        {([ ["Opening posted cash", workspace.evidence.cash.openingMinor], ["All cash received", workspace.evidence.cash.receiptsMinor], ["All cash paid out", workspace.evidence.cash.paymentsMinor], ["Expected cash on hand", workspace.evidence.cash.closingMinor] ] as const).map(([label, value], index) => <div className="rounded-xl border p-3" key={label}><p className="text-xs text-[var(--muted)]"><FinancialText>{label}</FinancialText></p><p className={`mt-1 text-lg font-semibold ${index === 1 ? "text-emerald-700" : index === 2 ? "text-red-700" : "text-[var(--brand)]"}`}><FinancialValue>{formatNaira(value)}</FinancialValue></p></div>)}
       </div>
       <p className="mt-3 text-xs text-[var(--muted)]">Includes posted customer receipts, supplier payments, expenses, refunds and other cash journals in this store (account 1010). POS opening floats are not additional income. Bank balances are checked separately below.</p>
       <div className="mt-4 rounded-xl border p-4 text-sm">
         <h3 className="font-semibold">Stock and till evidence</h3>
-        <p className="mt-1">{workspace.evidence.closedShiftCount} closed shift(s) · {workspace.evidence.openShiftCount} unclosed shift(s) · Till variance: {formatNaira(workspace.evidence.tillVarianceMinor)}</p>
-        {workspace.evidence.stockCounts.map((count) => <p key={count.id} className="mt-1">{count.reference} — {count.status === "posted" ? "Completed" : count.status.replaceAll("_", " ")}</p>)}
-        {workspace.evidence.exceptions.length > 0 && <ul className="mt-3 list-disc space-y-1 pl-5 text-amber-800">{workspace.evidence.exceptions.map((exception) => <li key={exception}>{exception}</li>)}</ul>}
+        <p className="mt-1"><FinancialText>{workspace.evidence.closedShiftCount}</FinancialText> closed shift(s) · <FinancialText>{workspace.evidence.openShiftCount}</FinancialText> unclosed shift(s) · Till variance: <FinancialValue>{formatNaira(workspace.evidence.tillVarianceMinor)}</FinancialValue></p>
+        {workspace.evidence.stockCounts.map((count) => <p key={count.id} className="mt-1"><FinancialText>{count.reference}</FinancialText> — <FinancialText>{count.status === "posted" ? "Completed" : count.status.replaceAll("_", " ")}</FinancialText></p>)}
+        {workspace.evidence.exceptions.length > 0 && <ul className="mt-3 list-disc space-y-1 pl-5 text-amber-800">{workspace.evidence.exceptions.map((exception) => <li key={exception}><FinancialText>{exception}</FinancialText></li>)}</ul>}
       </div>
       {changed && <p role="status" className="mt-4 rounded-lg bg-amber-50 p-3 text-amber-900">New or changed postings/checks were found after preparation or sign-off. Review the current evidence and prepare a new revision. Previous signed evidence is retained.</p>}
-      {workspace.close && <p className="mt-4 text-sm font-semibold">Revision {workspace.close.version} · {workspace.close.status === "signed" ? "Signed off" : "Prepared — ready for sign-off"}</p>}
-      <p className="mt-3 text-xs text-[var(--muted)]">{busy ? "Wait for the current daily-close request to finish." : locked ? "This signed revision retains its recorded cash count. New evidence requires authorized staff to prepare a new revision; sign-off does not lock the accounting month." : !canPrepare ? "Ask authorized daily-close preparation staff to record physically counted cash and explain differences." : "Enter physically counted cash; do not change the count to force a zero difference."}</p>
+      {workspace.close && <p className="mt-4 text-sm font-semibold">Revision <FinancialText>{workspace.close.version}</FinancialText> · <FinancialText>{workspace.close.status === "signed" ? "Signed off" : "Prepared — ready for sign-off"}</FinancialText></p>}
+      <p className="mt-3 text-xs text-[var(--muted)]"><FinancialText>{busy ? "Wait for the current daily-close request to finish." : locked ? "This signed revision retains its recorded cash count. New evidence requires authorized staff to prepare a new revision; sign-off does not lock the accounting month." : !canPrepare ? "Ask authorized daily-close preparation staff to record physically counted cash and explain differences." : "Enter physically counted cash; do not change the count to force a zero difference."}</FinancialText></p>
       <div className="mt-4 grid gap-4 sm:grid-cols-2">
-        <label className="grid gap-1 text-sm">Physical store cash counted (₦)<input className="form-input" inputMode="decimal" value={cash} disabled={busy || locked || !canPrepare} onChange={(event) => setCash(event.target.value)} placeholder="0.00" /></label>
-        <div><p className="text-sm">Difference from posted cash</p><p className={`mt-2 text-xl font-semibold ${variance ? "text-amber-700" : "text-emerald-700"}`}>{variance === null ? "Enter the cash counted" : formatNaira(variance)}</p></div>
+        <label className="grid gap-1 text-sm">Physical store cash counted (₦)<FinancialInput><input className="form-input" inputMode="decimal" value={cash} disabled={busy || locked || !canPrepare} onChange={(event) => setCash(event.target.value)} placeholder="0.00" /></FinancialInput></label>
+        <div><p className="text-sm">Difference from posted cash</p><p className={`mt-2 text-xl font-semibold ${variance ? "text-amber-700" : "text-emerald-700"}`}><FinancialValue>{variance === null ? "Enter the cash counted" : formatNaira(variance)}</FinancialValue></p></div>
       </div>
       <label className="mt-4 grid gap-1 text-sm">Variance / exception explanation<textarea className="form-input min-h-24" maxLength={1000} value={explanation} disabled={busy || locked || !canPrepare} onChange={(event) => setExplanation(event.target.value)} placeholder="Explain cash differences, incomplete checks or a revision after sign-off." /></label>
-      {!locked && hasPermission(profile!, "daily.close.prepare") && <Button className="mt-3" disabled={busy || !validCash || !canPrepare} disabledReason={!canPrepare ? "Choose an assigned store or ask authorized preparation staff for this store." : undefined} onClick={() => void mutate("prepareDailyClose")}>Prepare daily close</Button>}
-      {workspace.close?.status === "prepared" && !changed && hasPermission(profile!, "daily.close.approve") && <div className="mt-4 border-t pt-4"><label className="grid gap-1 text-sm">Sign-off notes<textarea className="form-input" maxLength={1000} value={notes} disabled={busy || !canSign} onChange={(event) => setNotes(event.target.value)} /></label>{unsaved && <p className="mt-2 text-sm text-amber-800">Prepare your changed cash count or explanation before sign-off.</p>}<Button className="mt-3" disabled={busy || unsaved || !canSign} disabledReason={!canSign ? "Choose an assigned store or ask an authorized signer for this store." : undefined} onClick={() => void mutate("signDailyClose")}>Sign off this revision</Button></div>}
+      {!locked && hasPermission(profile!, "daily.close.prepare") && <FinancialAction><Button className="mt-3" disabled={busy || !validCash || !canPrepare} disabledReason={!canPrepare ? "Choose an assigned store or ask authorized preparation staff for this store." : undefined} onClick={() => void mutate("prepareDailyClose")}>Prepare daily close</Button></FinancialAction>}
+      {workspace.close?.status === "prepared" && !changed && hasPermission(profile!, "daily.close.approve") && <div className="mt-4 border-t pt-4"><label className="grid gap-1 text-sm">Sign-off notes<textarea className="form-input" maxLength={1000} value={notes} disabled={busy || !canSign} onChange={(event) => setNotes(event.target.value)} /></label>{unsaved && <p className="mt-2 text-sm text-amber-800">Prepare your changed cash count or explanation before sign-off.</p>}<FinancialAction><Button className="mt-3" disabled={busy || unsaved || !canSign} disabledReason={!canSign ? "Choose an assigned store or ask an authorized signer for this store." : undefined} onClick={() => void mutate("signDailyClose")}>Sign off this revision</Button></FinancialAction></div>}
       <p className="mt-4 text-xs text-[var(--muted)]">Sign-off records an evidence snapshot, not an accounting lock or stock adjustment. Later/backdated postings are flagged for a new revision. The same authorized manager may prepare and sign; both actions remain audited.</p>
     </>}
-  </section>;
+  </section></FinancialActionScope>;
 }

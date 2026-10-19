@@ -136,7 +136,7 @@ export function auditActionTitle(action: string) {
 }
 
 export function auditRoleLabel(roleId: string) {
-  if (roleId === "attendance_connector") return "Attendance device";
+  if (roleId === "attendance_connector") return "Attendance connector";
   return sentence(roleId || "staff account");
 }
 

@@ -1,3 +1,6 @@
+"use client";
+import { FinancialAttributes, FinancialText, FinancialValue, useFinancialPrivacy } from "@/features/finance/financial-privacy";
+
 import { formatNaira } from "@/features/inventory/format";
 
 interface ChartDatum {
@@ -33,21 +36,21 @@ export function OperationalMixChart({ data }: { data: readonly ChartDatum[] }) {
         <p className="mt-1 text-sm text-[var(--muted)]">Requests, active transfers, and discrepancies in your current view.</p>
       </figcaption>
       <div className="mt-5 grid items-center gap-6 sm:grid-cols-[minmax(9rem,12rem)_1fr]">
-        <div
+        <FinancialAttributes><div
           className="relative mx-auto aspect-square w-full max-w-44 rounded-full"
           style={{ background: donutGradient(data) }}
           role="img"
           aria-label={data.map((item) => `${item.label}: ${item.value}`).join(", ")}
         >
           <div className="absolute inset-[22%] grid place-items-center rounded-full bg-white text-center shadow-inner">
-            <div><strong className="block text-3xl tabular-nums">{total}</strong><span className="text-xs text-[var(--muted)]">total signals</span></div>
+            <div><strong className="block text-3xl tabular-nums"><FinancialText>{total}</FinancialText></strong><span className="text-xs text-[var(--muted)]">total signals</span></div>
           </div>
-        </div>
+        </div></FinancialAttributes>
         <ul className="grid gap-3" aria-label="Operational mix legend">
           {data.map((item) => (
             <li key={item.label} className="flex items-center justify-between gap-4 rounded-lg bg-[var(--surface-soft)] px-3 py-2.5">
-              <span className="flex min-w-0 items-center gap-2.5 text-sm"><span className="size-2.5 shrink-0 rounded-full" style={{ backgroundColor: themedChartColor(item.color) }} /><span className="truncate">{item.label}</span></span>
-              <strong className="tabular-nums">{item.value}</strong>
+              <span className="flex min-w-0 items-center gap-2.5 text-sm"><span className="size-2.5 shrink-0 rounded-full" style={{ backgroundColor: themedChartColor(item.color) }} /><span className="truncate"><FinancialText>{item.label}</FinancialText></span></span>
+              <strong className="tabular-nums"><FinancialText>{item.value}</FinancialText></strong>
             </li>
           ))}
         </ul>
@@ -63,19 +66,19 @@ export function TransferPipelineChart({ data }: { data: readonly ChartDatum[] })
     <figure className="rounded-xl border bg-white p-5 sm:p-6">
       <figcaption className="flex items-start justify-between gap-4">
         <div><h2 className="section-title">Transfer pipeline</h2><p className="mt-1 text-sm text-[var(--muted)]">Where active store-to-store movements need attention.</p></div>
-        <span className="rounded-full bg-indigo-50 px-3 py-1 text-sm font-semibold text-[var(--brand)]">{total} active</span>
+        <span className="rounded-full bg-indigo-50 px-3 py-1 text-sm font-semibold text-[var(--brand)]"><FinancialText>{total}</FinancialText> active</span>
       </figcaption>
-      <div className="mt-6 grid gap-4" role="img" aria-label={data.map((item) => `${item.label}: ${item.value}`).join(", ")}>
+      <FinancialAttributes><div className="mt-6 grid gap-4" role="img" aria-label={data.map((item) => `${item.label}: ${item.value}`).join(", ")}>
         {data.map((item) => (
           <div key={item.label} className="grid grid-cols-[7.5rem_minmax(0,1fr)_2rem] items-center gap-3 text-sm sm:grid-cols-[9rem_minmax(0,1fr)_2.5rem]">
-            <span className="truncate text-[var(--muted)]">{item.label}</span>
+            <span className="truncate text-[var(--muted)]"><FinancialText>{item.label}</FinancialText></span>
             <div className="h-3 overflow-hidden rounded-full bg-[var(--chart-track)]">
               <div className="h-full min-w-0 rounded-full transition-[width] duration-500" style={{ backgroundColor: themedChartColor(item.color), width: item.value ? `${Math.max(8, (item.value / maximum) * 100)}%` : "0%" }} />
             </div>
-            <strong className="text-right tabular-nums">{item.value}</strong>
+            <strong className="text-right tabular-nums"><FinancialText>{item.value}</FinancialText></strong>
           </div>
         ))}
-      </div>
+      </div></FinancialAttributes>
     </figure>
   );
 }
@@ -88,6 +91,8 @@ interface SalesTrendDatum {
 }
 
 export function SalesTrendChart({ data }: { data: readonly SalesTrendDatum[] }) {
+  const { hidden } = useFinancialPrivacy();
+  if (hidden) return <figure className="rounded-xl border bg-white p-5" aria-label="Sales trend with financial values hidden"><figcaption className="font-semibold">Sales trend · financial values hidden</figcaption><p className="text-sm text-[var(--muted)]">Money bars, axes and tooltips are hidden. Sale counts remain visible.</p><ul>{data.map(item => <li key={item.date}><FinancialText>{item.label}</FinancialText>: <FinancialText>{item.count}</FinancialText> sales</li>)}</ul></figure>;
   const maximum = Math.max(1, ...data.map((item) => item.value));
   const total = data.reduce((sum, item) => sum + item.value, 0);
   return (
@@ -97,13 +102,13 @@ export function SalesTrendChart({ data }: { data: readonly SalesTrendDatum[] }) 
         <p className="mt-1 text-sm text-[var(--muted)]">
           Daily invoice value for the last seven days.
         </p>
-        <p className="mt-3 text-2xl font-semibold">{formatNaira(total)}</p>
+        <p className="mt-3 text-2xl font-semibold"><FinancialValue>{formatNaira(total)}</FinancialValue></p>
       </figcaption>
-      <div className="mt-6 grid h-52 grid-cols-7 items-end gap-2" role="img" aria-label={data.map((item) => `${item.date}: ${formatNaira(item.value)}`).join(", ")}>
+      <FinancialAttributes financial><div className="mt-6 grid h-52 grid-cols-7 items-end gap-2" role="img" aria-label={data.map((item) => `${item.date}: ${formatNaira(item.value)}`).join(", ")}>
         {data.map((item) => (
           <div key={item.date} className="flex h-full min-w-0 flex-col justify-end text-center">
             <span className="mb-1 truncate text-[10px] font-semibold text-[var(--muted)] sm:text-xs">
-              {item.value > 0 ? formatNaira(item.value) : "—"}
+              <FinancialValue>{item.value > 0 ? formatNaira(item.value) : "—"}</FinancialValue>
             </span>
             <div className="flex h-36 items-end justify-center rounded-lg bg-indigo-50 px-1">
               <div
@@ -111,11 +116,11 @@ export function SalesTrendChart({ data }: { data: readonly SalesTrendDatum[] }) 
                 style={{ height: item.value ? `${Math.max(8, (item.value / maximum) * 100)}%` : "0%" }}
               />
             </div>
-            <span className="mt-2 text-xs font-semibold">{item.label}</span>
-            <span className="text-[10px] text-[var(--muted)]">{item.count} sale{item.count === 1 ? "" : "s"}</span>
+            <span className="mt-2 text-xs font-semibold"><FinancialText>{item.label}</FinancialText></span>
+            <span className="text-[10px] text-[var(--muted)]"><FinancialText>{item.count}</FinancialText> sale<FinancialText>{item.count === 1 ? "" : "s"}</FinancialText></span>
           </div>
         ))}
-      </div>
+      </div></FinancialAttributes>
     </figure>
   );
 }
@@ -129,16 +134,16 @@ export function SalesPaymentMixChart({ data }: { data: readonly ChartDatum[] }) 
         <p className="mt-1 text-sm text-[var(--muted)]">Original full-payment, part-payment and credit invoices in the last 30 Nigerian business days. Later repayments and returns are shown in customer accounts and reports.</p>
       </figcaption>
       <div className="mt-5 grid items-center gap-6 sm:grid-cols-[minmax(9rem,12rem)_1fr]">
-        <div className="relative mx-auto aspect-square w-full max-w-44 rounded-full" style={{ background: donutGradient(data) }} role="img" aria-label={data.map((item) => `${item.label}: ${item.value}`).join(", ")}>
+        <FinancialAttributes><div className="relative mx-auto aspect-square w-full max-w-44 rounded-full" style={{ background: donutGradient(data) }} role="img" aria-label={data.map((item) => `${item.label}: ${item.value}`).join(", ")}>
           <div className="absolute inset-[22%] grid place-items-center rounded-full bg-white text-center shadow-inner">
-            <div><strong className="block text-3xl tabular-nums">{total}</strong><span className="text-xs text-[var(--muted)]">sales</span></div>
+            <div><strong className="block text-3xl tabular-nums"><FinancialText>{total}</FinancialText></strong><span className="text-xs text-[var(--muted)]">sales</span></div>
           </div>
-        </div>
+        </div></FinancialAttributes>
         <ul className="grid gap-3">
           {data.map((item) => (
             <li key={item.label} className="flex items-center justify-between gap-4 rounded-lg bg-[var(--surface-soft)] px-3 py-2.5 text-sm">
-              <span className="flex items-center gap-2.5"><span className="size-2.5 rounded-full" style={{ backgroundColor: themedChartColor(item.color) }} />{item.label}</span>
-              <strong>{item.value}</strong>
+              <span className="flex items-center gap-2.5"><span className="size-2.5 rounded-full" style={{ backgroundColor: themedChartColor(item.color) }} /><FinancialText>{item.label}</FinancialText></span>
+              <strong><FinancialText>{item.value}</FinancialText></strong>
             </li>
           ))}
         </ul>

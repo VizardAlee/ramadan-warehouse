@@ -1,3 +1,4 @@
+import { withRecordActors } from "../audit/record-actors.js";
 import { createHash } from "node:crypto";
 import { FieldPath, FieldValue, Timestamp } from "firebase-admin/firestore";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
@@ -36,7 +37,7 @@ export const accountingJournals = onCall({ enforceAppCheck }, async request => {
     if (!entry.exists || entry.get("organizationId") !== actor.organizationId) throw new HttpsError("not-found", "Journal not found.");
     assertScope(entry.get("branchId"));
     const lines = await db.collection("journalLines").where("organizationId", "==", actor.organizationId).where("journalEntryId", "==", entry.id).limit(201).get();
-    return { entry: row(entry), lines: lines.docs.slice(0, 200).map(row), truncated: lines.size > 200 };
+    return { entry: (await withRecordActors(actor.organizationId, [row(entry)]))[0], lines: lines.docs.slice(0, 200).map(row), truncated: lines.size > 200 };
   }
   if (input.action === "workspace") {
     const branchId = input.branchId ?? (!organizationWide && actor.branchIds.length === 1 ? actor.branchIds[0] : undefined);
@@ -59,7 +60,7 @@ export const accountingJournals = onCall({ enforceAppCheck }, async request => {
       db.collection("bankAccounts").where("organizationId", "==", actor.organizationId).limit(201).get(),
     ]);
     if (accounts.size > 200 || banks.size > 200) fail("This organization needs a paged account selector before manual journal entry. No accounts were silently omitted.");
-    return { entries: entries.docs.slice(0, input.pageSize).map(row), nextCursorId: entries.size > input.pageSize ? entries.docs[input.pageSize - 1]!.id : null,
+    return { entries: await withRecordActors(actor.organizationId, entries.docs.slice(0, input.pageSize).map(row)), nextCursorId: entries.size > input.pageSize ? entries.docs[input.pageSize - 1]!.id : null,
       accounts: accounts.docs.map(row), bankAccounts: banks.docs.map(doc => ({ ...bankAccountSummary(doc), active: doc.get("active") === true })), branchId: branchId ?? null };
   }
   if (input.action === "save_account" && !organizationWide)

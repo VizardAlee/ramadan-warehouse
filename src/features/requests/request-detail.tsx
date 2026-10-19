@@ -1,4 +1,5 @@
 "use client";
+import { FinancialAttributes, FinancialDetails, FinancialMessage, FinancialText, FinancialValue } from "@/features/finance/financial-privacy";
 
 import { AlertTriangle, Loader2 } from "lucide-react";
 import Link from "next/link";
@@ -153,7 +154,7 @@ export function RequestDetail({ requestId }: { requestId: string }) {
   if (!data)
     return (
       <div className="rounded-xl border bg-white p-8">
-        {message ?? "Loading request…"}
+        <FinancialMessage>{message ?? "Loading request…"}</FinancialMessage>
       </div>
     );
   const record = data.request;
@@ -173,10 +174,10 @@ export function RequestDetail({ requestId }: { requestId: string }) {
       <header className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <p className="text-sm text-[var(--muted)]">Branch material request</p>
-          <h1 className="text-3xl font-semibold">{record.requestNumber}</h1>
+          <h1 className="text-3xl font-semibold"><FinancialText>{record.requestNumber}</FinancialText></h1>
           <p>
-            {record.status.replaceAll("_", " ")} · {record.priority} · version{" "}
-            {record.version}
+            <FinancialText>{record.status.replaceAll("_", " ")}</FinancialText> · <FinancialText>{record.priority}</FinancialText> · version{" "}
+            <FinancialText>{record.version}</FinancialText>
           </p>
         </div>
         <div className="flex gap-2">
@@ -209,30 +210,30 @@ export function RequestDetail({ requestId }: { requestId: string }) {
         </div>
       </header>
       {message && (
-        <p className="rounded-lg bg-amber-50 p-3 text-sm">{message}</p>
+        <p className="rounded-lg bg-amber-50 p-3 text-sm"><FinancialMessage>{message}</FinancialMessage></p>
       )}
       <section className="card-grid rounded-xl border bg-white p-[clamp(1rem,3vw,1.5rem)]">
         <div>
           <span className="text-xs text-[var(--muted)]">Branch</span>
-          <p className="font-medium">{record.branchId}</p>
+          <p className="font-medium"><FinancialText>{record.branchId}</FinancialText></p>
         </div>
         <div>
           <span className="text-xs text-[var(--muted)]">Type</span>
           <p className="font-medium">
-            {record.requestType.replaceAll("_", " ")}
+            <FinancialText>{record.requestType.replaceAll("_", " ")}</FinancialText>
           </p>
         </div>
         <div>
           <span className="text-xs text-[var(--muted)]">Required date</span>
           <p className="font-medium">
-            {typeof record.requiredDate === "string"
+            <FinancialText>{typeof record.requiredDate === "string"
               ? record.requiredDate.slice(0, 10)
-              : "Not specified"}
+              : "Not specified"}</FinancialText>
           </p>
         </div>
         <div className="md:col-span-3">
           <span className="text-xs text-[var(--muted)]">Purpose</span>
-          <p>{record.purpose}</p>
+          <p><FinancialText>{record.purpose}</FinancialText></p>
         </div>
       </section>
       <ItemTable items={data.items} />
@@ -259,12 +260,12 @@ export function RequestDetail({ requestId }: { requestId: string }) {
               className="grid gap-3 rounded-lg border p-3 [grid-template-columns:repeat(auto-fit,minmax(min(100%,10rem),1fr))]"
             >
               <div>
-                <strong>{item.sku}</strong>
+                <strong><FinancialText>{item.sku}</FinancialText></strong>
                 <span className="block text-xs">
-                  Requested: {item.requestedQuantity}
+                  Requested: <FinancialText>{item.requestedQuantity}</FinancialText>
                 </span>
               </div>
-              <input
+              <FinancialAttributes><input
                 aria-label={`Approved ${item.sku}`}
                 className="rounded-lg border p-2.5"
                 type="number"
@@ -276,8 +277,8 @@ export function RequestDetail({ requestId }: { requestId: string }) {
                     approved: Number(event.target.value),
                   })
                 }
-              />
-              <input
+              /></FinancialAttributes>
+              <FinancialAttributes><input
                 aria-label={`Rejected ${item.sku}`}
                 className="rounded-lg border p-2.5"
                 type="number"
@@ -289,8 +290,8 @@ export function RequestDetail({ requestId }: { requestId: string }) {
                     rejected: Number(event.target.value),
                   })
                 }
-              />
-              <input
+              /></FinancialAttributes>
+              <FinancialAttributes><input
                 aria-label={`Note ${item.sku}`}
                 className="rounded-lg border p-2.5"
                 placeholder="Reviewer note"
@@ -298,7 +299,7 @@ export function RequestDetail({ requestId }: { requestId: string }) {
                 onChange={(event) =>
                   updateDecision(item.id, { note: event.target.value })
                 }
-              />
+              /></FinancialAttributes>
             </div>
           ))}
           <textarea
@@ -337,12 +338,12 @@ export function RequestDetail({ requestId }: { requestId: string }) {
                 key={String(event.id)}
                 className="border-l-2 border-emerald-700 pl-3 text-sm"
               >
-                <strong>{String(event.eventType).replaceAll("_", " ")}</strong>
+                <strong><FinancialText>{String(event.eventType).replaceAll("_", " ")}</FinancialText></strong>
                 <p className="text-[var(--muted)]">
-                  {String(event.previousStatus ?? "created")} →{" "}
-                  {String(event.newStatus)}
+                  <FinancialText>{String(event.previousStatus ?? "created")}</FinancialText> →{" "}
+                  <FinancialText>{String(event.newStatus)}</FinancialText>
                 </p>
-                {event.reason ? <p>{String(event.reason)}</p> : null}
+                {event.reason ? <p><FinancialDetails>{String(event.reason)}</FinancialDetails></p> : null}
               </div>
             ))}
           </div>
@@ -355,14 +356,14 @@ export function RequestDetail({ requestId }: { requestId: string }) {
                 key={String(version.id)}
                 className="rounded-lg bg-slate-50 p-3 text-sm"
               >
-                Version {String(version.version)} · submitted by{" "}
-                {String(version.submittedBy)}
+                Version <FinancialText>{String(version.version)}</FinancialText> · submitted by{" "}
+                <FinancialText>{String(version.submittedBy)}</FinancialText>
               </p>
             ))}
           </div>
           <h3 className="mt-5 font-semibold">Future fulfilment</h3>
           <p className="mt-2 rounded-lg bg-slate-50 p-3 text-sm">
-            {data.futureFulfilment.message}
+            <FinancialMessage>{data.futureFulfilment.message}</FinancialMessage>
           </p>
         </div>
       </section>
@@ -374,7 +375,7 @@ export function RequestDetail({ requestId }: { requestId: string }) {
               key={String(entry.id)}
               className="rounded-lg bg-slate-50 p-3 text-sm"
             >
-              {String(entry.comment)}
+              <FinancialText>{String(entry.comment)}</FinancialText>
             </p>
           ))}
         </div>
@@ -444,7 +445,7 @@ function ItemTable({ items }: { items: BranchRequestItem[] }) {
               "Status",
             ].map((heading) => (
               <th key={heading} className="px-4 py-3">
-                {heading}
+                <FinancialText>{heading}</FinancialText>
               </th>
             ))}
           </tr>
@@ -453,19 +454,19 @@ function ItemTable({ items }: { items: BranchRequestItem[] }) {
           {items.map((item) => (
             <tr key={item.id} className="border-t">
               <td data-label="Product" data-primary="true" className="px-4 py-3">
-                <strong>{item.sku}</strong>
+                <strong><FinancialText>{item.sku}</FinancialText></strong>
                 <span className="block text-xs text-[var(--muted)]">
-                  {item.productName} · {item.trackingType}
+                  <FinancialText>{item.productName}</FinancialText> · <FinancialText>{item.trackingType}</FinancialText>
                 </span>
               </td>
               <td data-label="Requested" className="px-4 py-3">
-                {item.requestedQuantity} {item.unitOfMeasure}
+                <FinancialText>{item.requestedQuantity}</FinancialText> <FinancialText>{item.unitOfMeasure}</FinancialText>
               </td>
-              <td data-label="Approved" className="px-4 py-3">{item.approvedQuantity}</td>
-              <td data-label="Rejected" className="px-4 py-3">{item.rejectedQuantity}</td>
-              <td data-label="Fulfilled" className="px-4 py-3">{item.fulfilledQuantity}</td>
-              <td data-label="Outstanding" className="px-4 py-3 font-semibold">{item.outstandingQuantity}</td>
-              <td data-label="Status" className="px-4 py-3">{item.itemStatus.replaceAll("_", " ")}</td>
+              <td data-label="Approved" className="px-4 py-3"><FinancialText>{item.approvedQuantity}</FinancialText></td>
+              <td data-label="Rejected" className="px-4 py-3"><FinancialText>{item.rejectedQuantity}</FinancialText></td>
+              <td data-label="Fulfilled" className="px-4 py-3"><FinancialText>{item.fulfilledQuantity}</FinancialText></td>
+              <td data-label="Outstanding" className="px-4 py-3 font-semibold"><FinancialText>{item.outstandingQuantity}</FinancialText></td>
+              <td data-label="Status" className="px-4 py-3"><FinancialText>{item.itemStatus.replaceAll("_", " ")}</FinancialText></td>
             </tr>
           ))}
         </tbody>
@@ -479,7 +480,7 @@ function Availability({ result }: { result: AvailabilityResult }) {
       <h2 className="font-semibold">Warehouse availability</h2>
       <p className="mt-1 flex items-center gap-2 text-sm text-amber-800">
         <AlertTriangle className="size-4" />
-        {result.warning}
+        <FinancialText>{result.warning}</FinancialText>
       </p>
       <div className="form-grid mt-3">
         {result.rows.map((row) => (
@@ -488,20 +489,20 @@ function Availability({ result }: { result: AvailabilityResult }) {
             className="rounded-lg border p-3 text-sm"
           >
             <strong>
-              {String(row.sku)} — {String(row.productName)}
+              <FinancialText>{String(row.sku)}</FinancialText> — <FinancialText>{String(row.productName)}</FinancialText>
             </strong>
             <p>
-              Available: {String(row.availableQuantity)} · On hand:{" "}
-              {String(row.warehouseOnHandQuantity)}
+              Available: <FinancialText>{String(row.availableQuantity)}</FinancialText> · On hand:{" "}
+              <FinancialText>{String(row.warehouseOnHandQuantity)}</FinancialText>
             </p>
             <p>
-              Damaged: {String(row.damagedQuantity)} · Quarantine:{" "}
-              {String(row.quarantinedQuantity)}
+              Damaged: <FinancialText>{String(row.damagedQuantity)}</FinancialText> · Quarantine:{" "}
+              <FinancialText>{String(row.quarantinedQuantity)}</FinancialText>
             </p>
             {result.includeCosts && (
               <p>
                 Estimated requested value: ₦
-                {(Number(row.estimatedValueMinor ?? 0) / 100).toLocaleString()}
+                <FinancialValue>{(Number(row.estimatedValueMinor ?? 0) / 100).toLocaleString()}</FinancialValue>
               </p>
             )}
           </div>

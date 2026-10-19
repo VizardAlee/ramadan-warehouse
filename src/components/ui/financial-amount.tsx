@@ -1,3 +1,6 @@
+"use client";
+import { FinancialValue, useFinancialPrivacy } from "@/features/finance/financial-privacy";
+
 import type { ReactNode } from "react";
 
 export type FinancialTone = "income" | "outflow" | "attention" | "balance" | "neutral";
@@ -15,5 +18,6 @@ export function FinancialAmount({ children, tone, className = "" }: {
   tone: FinancialTone;
   className?: string;
 }) {
-  return <span className={`${toneClass[tone]} tabular-nums ${className}`}>{children}</span>;
+  const { hidden } = useFinancialPrivacy();
+  return <span className={`${toneClass[hidden ? "neutral" : tone]} tabular-nums ${className}`}><FinancialValue>{children}</FinancialValue></span>;
 }
