@@ -1,4 +1,5 @@
 "use client";
+import { FinancialAction, FinancialActionScope, FinancialField, FinancialMessage, FinancialText } from "@/features/finance/financial-privacy";
 
 import {
   ArrowRight,
@@ -205,7 +206,7 @@ export function CatalogImportDialog({
           aria-modal="true"
           aria-labelledby="catalogue-import-title"
         >
-          <div
+          <FinancialActionScope><div
             ref={dialogRef}
             className="app-dialog-panel safe-bottom max-w-5xl rounded-2xl bg-white p-5 sm:p-6"
           >
@@ -244,7 +245,7 @@ export function CatalogImportDialog({
                   <FileSpreadsheet className="mb-2 size-7 text-[var(--brand)]" />
                 )}
                 <span className="font-semibold">
-                  {fileName || "Choose CSV or Excel file"}
+                  <FinancialText>{fileName || "Choose CSV or Excel file"}</FinancialText>
                 </span>
                 <span className="mt-1 text-xs text-[var(--muted)]">
                   Header row required · up to 500 products · 5 MB file limit
@@ -320,7 +321,7 @@ export function CatalogImportDialog({
                           <option value="">Do not import</option>
                           {table.headers.map((header, index) => (
                             <option key={`${header}-${index}`} value={index}>
-                              {header}
+                              <FinancialText>{header}</FinancialText>
                             </option>
                           ))}
                         </select>
@@ -351,7 +352,7 @@ export function CatalogImportDialog({
                         <select className="mt-1 w-full rounded-lg border p-2.5" value={options.openingLocationId ?? ""}
                           onChange={(event) => { setOptions((current) => ({ ...current, openingLocationId: event.target.value })); setPreview(null); setImportKey(crypto.randomUUID()); }}>
                           <option value="">Select a store</option>
-                          {storeLocations.map((location) => <option key={location.id} value={location.id}>{location.name}</option>)}
+                          {storeLocations.map((location) => <option key={location.id} value={location.id}><FinancialText>{location.name}</FinancialText></option>)}
                         </select>
                       </label>
                     )}
@@ -393,7 +394,7 @@ export function CatalogImportDialog({
                                   key={field.key}
                                   className="max-w-64 truncate px-3 py-2"
                                 >
-                                  {row[mapping[field.key]!] || "—"}
+                                  <FinancialField name={field.key}><FinancialText>{row[mapping[field.key]!] || "—"}</FinancialText></FinancialField>
                                 </td>
                               ))}
                           </tr>
@@ -415,7 +416,7 @@ export function CatalogImportDialog({
                 role="status"
                 className={`mt-5 rounded-lg p-3 text-sm ${preview?.valid ? "bg-emerald-50 text-emerald-950" : "bg-amber-50 text-amber-950"}`}
               >
-                {message}
+                <FinancialMessage>{message}</FinancialMessage>
               </p>
             )}
             {preview && preview.errors.length > 0 && (
@@ -427,7 +428,7 @@ export function CatalogImportDialog({
                 <ul className="mt-2 max-h-44 space-y-1 overflow-y-auto text-sm text-red-900">
                   {preview.errors.slice(0, 100).map((error, index) => (
                     <li key={`${error.row}-${error.field}-${index}`}>
-                      Row {error.row}: {error.field} — {error.message}
+                      Row {error.row}: {error.field} — <FinancialMessage>{error.message}</FinancialMessage>
                     </li>
                   ))}
                 </ul>
@@ -449,7 +450,7 @@ export function CatalogImportDialog({
                 {loading && <Loader2 className="mr-2 size-4 animate-spin" />}
                 Validate rows
               </Button>
-              <Button
+              <FinancialAction><Button
                 type="button"
                 aria-busy={loading}
                 disabledReason={!preview?.valid ? "Validate the mapped rows and correct every displayed row error before importing. Preview does not create products or stock; authorized catalogue/opening-stock staff verify the real evidence." : undefined}
@@ -464,9 +465,9 @@ export function CatalogImportDialog({
                   <ArrowRight className="mr-2 size-4" />
                 )}
                 {mapping && mapping.openingQuantity !== null ? "Import products and opening stock" : "Import validated products"}
-              </Button>
+              </Button></FinancialAction>
             </div>
-          </div>
+          </div></FinancialActionScope>
         </AppDialog>
       )}
     </>

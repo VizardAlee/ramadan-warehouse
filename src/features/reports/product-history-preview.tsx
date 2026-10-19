@@ -1,4 +1,5 @@
 "use client";
+import { FinancialText } from "@/features/finance/financial-privacy";
 
 import Link from "next/link";
 import { ArrowRight, Loader2 } from "lucide-react";
@@ -74,7 +75,7 @@ function HistoryPreview({ productId, productName, locations, reportRow, location
     <div className="space-y-4 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4 sm:p-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h3 className="font-semibold">{productName}</h3>
+          <h3 className="font-semibold"><FinancialText>{productName}</FinancialText></h3>
           <p className="text-sm text-[var(--muted)]">Recent stock activity, with each transaction shown once.</p>
         </div>
         <Link href={`/products/${encodeURIComponent(productId)}#movement-history`} prefetch={false} className="inline-flex min-h-10 items-center gap-2 text-sm font-semibold text-[var(--brand)] underline underline-offset-2">
@@ -92,7 +93,7 @@ function HistoryPreview({ productId, productName, locations, reportRow, location
         : error ? <p role="alert" className="text-sm text-red-700">Recent activity could not be loaded. You can still open the full product history.</p>
         : events.length ? <ol className="space-y-2">
           {events.map((event) => <li key={event.id} className="flex flex-wrap justify-between gap-x-4 gap-y-1 rounded-lg border bg-white p-3 text-sm">
-            <div><strong>{event.title}</strong><p className="text-[var(--muted)]">{event.description}</p></div>
+            <div><strong>{event.title}</strong><p className="text-[var(--muted)]"><FinancialText>{event.description}</FinancialText></p></div>
             <span className="text-xs text-[var(--muted)]">{formatDateTime(event.date)}</span>
           </li>)}
         </ol> : <p className="text-sm text-[var(--muted)]">No stock movements recorded yet.</p>}

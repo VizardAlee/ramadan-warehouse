@@ -503,7 +503,7 @@ Bank reconciliation caps require a shorter supported period, not repeated waitin
 
 Confirmed final controls: Save supplier needs a name of at least 2 characters and a real phone or email. Physical collection needs eligible actual quantities/exact reserved serials and a collector name of at least 2 characters. Photo evidence needs JPEG/PNG up to 2 MB, a description of at least 3 characters and the exact serial where required; the existing 20-photo limit remains. A service line supports at most 10 included parts. Resolve saved uncertain instructions before changing any of these records.
 
-## Product performance (candidate)
+## Product performance
 
 Reports → Product performance shares product, Store and inclusive Africa/Lagos date filters (1–366 days). Calculate each report explicitly; changed filters invalidate results and export. Product choices include the authorized current catalogue and product labels discovered in calculated historical reports.
 
@@ -514,3 +514,26 @@ Movement counts canonical physical Store legs only: customer handovers less cust
 Active zero-handover population requires existing products.read and current Store inventory authority. It includes active goods with a recorded balance (including zero), not all catalogue goods. Current stock is not period-end stock. Profitability retains reports.sales.read plus inventory.cost.read and sales Store scope. Quantity reporting retains inventory.read plus reports.inventory.read and existing Store inventory scope; CSV requires reports.inventory.export. No posted records, permission grants or financial engines change.
 
 Each export contains every product in the selected view and basis/date/scope/time metadata, not just 25 visible cards. A product selection still scans the relevant cohort/period. Limits fail explicitly without partial rankings: 20,000 invoices, 100,000 movement entries/current balances and 2,000 matching products. Live reads span a calculation interval, not a transaction snapshot; recalculate after concurrent changes.
+
+## Hide financial values on this device
+
+Use the eye control in the top bar to hide or show money, financial percentages and money charts. Counts, physical quantities, dates, payment methods, references and workflow statuses remain available. A new organization/user combination starts hidden on this browser. Only a versioned hide/show choice is saved under that organization and user; no amount is stored by this preference. If browser storage fails, the current visit can still show or hide values.
+
+Choose **Review / enter actual amount** to edit a hidden monetary field. The exact amount already entered stays in the form state when hidden. New financial actions, including direct payment, transfer, shift and journal buttons, require reviewed amounts before their handlers can save or submit instructions. Choose **Review all action amounts** for the action region, or review every amount input when no other financial figures remain hidden. This local review leaves the global hide/show preference unchanged. A form with closed amount fields asks you to review them before submission. Locked retries use only the original saved instructions, including the original amount, store and idempotency key; hiding figures does not create a replacement instruction. Hiding financial values again closes local reviews. Raw audit/technical details and financial notes have a separate explicit review control.
+
+Use a document's **Print / save PDF**, complete-statement print or **Export** action for actual financial output. These actions preserve the real saved figures without changing the global hide/show choice. A document can also be reviewed locally with **Review actual document values**. Browser Ctrl+P on a masked screen, without using the document output action, follows the masked screen state; use the document's print button for the actual document.
+
+This is a screen display preference, not encryption or access control: data authorized for your account still reaches the browser. Existing permissions, approval steps, credit limits and accounting rules continue to determine permitted work. Lock the device normally when leaving it.
+
+
+## User activity and responsible people
+
+Open Audit history with existing auditor or system-administrator audit access. Custom auditor bases must still include audit.read when effective permissions are stored. Operations, CEO and ordinary staff do not gain audit or user-directory access from this feature.
+
+Select inclusive From / Through dates (Africa/Lagos, at most 366 days), optionally an actor user ID, exact action/module/record-type codes, or a business-reference fragment. Apply filters to start again. Copy an actor ID from an event's Technical details to focus on that person. Page sizes are 25, 50 or 100 matches. Each request scans at most 1,000 events; an empty scan with Continue scanning is not proof of no history. Narrow the actor/date period for faster searches. Refresh restarts the search and includes newly recorded events; continued pages are not a database snapshot.
+
+The reader returns selected metadata, not raw before/after payloads or user account fields such as passwords and tokens. It does not expose a user directory. Name recorded with event means a server-captured name snapshot from that event. Current name is a present-day same-organization profile label and is not evidence of the person's historical name. Deleted or unavailable people retain their recorded UID. Old immutable events are never rewritten. Recorded location evidence identifies locations on that business event, not a guessed employee assignment; legacy or missing evidence is shown as unknown.
+
+Purchase orders/invoices and operating bills separate Created by and Approved by; journals show Posted by; transfer queues separate Created by, Approved by and Received by; pending POS orders separate creator from payment acceptor. Names are minimal projections of people already referenced by the authorized record and retain the register's store restrictions. They show Current name, fall back to UID, or say Unknown (not recorded). Unknown is never inferred from a creator, manager or current role. Aftersales Responsible assignee is the explicit HR staff assignment saved on the case, which can exist without an app account; its absence means unassigned, not the creator or approver. Receiving documents retain their recorded receiver evidence.
+
+Audit history covers server-recorded events only. It does not promise every click or read, reconstruct missing legacy approvals/assignments, or establish integration with an external biometric attendance device. Attendance connector events identify the connector, not a verified physical device or human operator.

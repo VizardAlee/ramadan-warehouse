@@ -1,4 +1,5 @@
 "use client";
+import { FinancialText } from "@/features/finance/financial-privacy";
 
 import { Bell, CheckCheck, ChevronRight } from "lucide-react";
 import Link from "next/link";
@@ -94,9 +95,9 @@ export function NotificationMenu() {
                     className="group block rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand)]"
                   >
                     <span className="flex items-start justify-between gap-2 text-sm font-semibold text-slate-900 group-hover:text-[var(--brand)]">
-                      {item.title}<ChevronRight className="mt-0.5 size-4 shrink-0" />
+                      <FinancialText>{item.title}</FinancialText><ChevronRight className="mt-0.5 size-4 shrink-0" />
                     </span>
-                    <span className="mt-1 block text-xs leading-5 text-[var(--muted)]">{item.body}</span>
+                    <span className="mt-1 block text-xs leading-5 text-[var(--muted)]"><FinancialText>{item.body}</FinancialText></span>
                   </Link>
                   <div className="mt-2 flex items-center justify-between gap-2 text-xs text-[var(--muted)]">
                     <span>{occurred ? occurred.toLocaleString("en-NG") : "New"}{item.actionRequired ? " · Action needed" : ""}</span>

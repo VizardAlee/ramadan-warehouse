@@ -29,7 +29,7 @@ describe("plain-language audit presentation", () => {
     expect(auditEntityLabel(log.entityType)).toBe("Purchase order");
     expect(auditRecordReference(log)).toBe("PO-2026-000001");
     expect(auditRecordReference({ ...log, after: {} })).toBeNull();
-    expect(auditRoleLabel("attendance_connector")).toBe("Attendance device");
+    expect(auditRoleLabel("attendance_connector")).toBe("Attendance connector");
   });
 
   it("sorts Firestore timestamps and ISO dates by actual time", () => {

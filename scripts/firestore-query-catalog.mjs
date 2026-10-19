@@ -211,5 +211,7 @@ export function queryCatalog() {
     add("multi-month budget ledger actuals", "journalLines", [org, ...scope, ["effectiveAt", ">="], ["effectiveAt", "<"]], dateOrder("effectiveAt", "ASCENDING"));
     add("product invoice-cohort margin scan", "sales", [org, ...scope, ["recordedAt", ">="], ["recordedAt", "<"]], dateOrder("recordedAt", "ASCENDING"));
   }
+  for (const actor of [[], [["actorUserId", "=="]]])
+    add("bounded user activity audit pages", "auditLogs", [org, ...actor, ["createdAt", ">="], ["createdAt", "<"]], dateOrder("createdAt"));
   return [...shapes.values()];
 }

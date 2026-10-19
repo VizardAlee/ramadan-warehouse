@@ -1,5 +1,6 @@
 import { HttpsError, type CallableRequest } from "firebase-functions/v2/https";
 import { db } from "../admin.js";
+import { safeActorName, storedAuditReadAllowed } from "../audit/authority.js";
 
 export const roles = [
   "system_administrator",
@@ -566,6 +567,8 @@ const assignableRoles: Readonly<Partial<Record<RoleId, readonly RoleId[]>>> = {
 };
 
 export interface AccessProfile {
+  readonly displayName?: string;
+  readonly storedAuditReadAllowed?: boolean;
   readonly userId: string;
   readonly organizationId: string;
   readonly roleId: RoleId;
@@ -844,6 +847,8 @@ export function accessProfileFromRecord(userId: string, record: Record<string, u
   const roleIds = normalizeRoleIds(record.roleIds, record.roleId);
   return {
     userId,
+    displayName: safeActorName(record.displayName),
+    storedAuditReadAllowed: storedAuditReadAllowed(record),
     organizationId: record.organizationId,
     roleId: roleIds[0]!,
     roleIds,

@@ -1,4 +1,5 @@
 "use client";
+import { FinancialField, FinancialMessage, FinancialText, FinancialValue } from "@/features/finance/financial-privacy";
 
 import Link from "next/link";
 import { ChevronDown, Download, FileText, Loader2 } from "lucide-react";
@@ -537,7 +538,7 @@ export default function ReportsPage() {
                 <option value="">All permitted branches</option>
                 {branches.data.map((branch) => (
                   <option key={branch.id} value={branch.id}>
-                    {branch.name}
+                    <FinancialText>{branch.name}</FinancialText>
                   </option>
                 ))}
               </select>
@@ -579,10 +580,10 @@ export default function ReportsPage() {
               ["Invoice total", formatNaira(salesSummary.grossAmountMinor)],
               ["Paid", formatNaira(salesSummary.amountPaidMinor)],
               ["Credit issued at sale", formatNaira(salesSummary.creditAmountMinor)],
-            ].map(([label, value]) => <div key={label} className="rounded-xl border bg-white p-3 text-sm"><span className="text-[var(--muted)]">{label}</span><strong className={`mt-1 block text-lg tabular-nums ${label === "Paid" || label === "Net sales" || label === "Invoice total" ? "finance-income" : label === "Credit issued at sale" ? "finance-attention" : label === "Discounts" ? "finance-outflow" : "finance-balance"}`}>{value}</strong></div>)}
+            ].map(([label, value]) => <div key={label} className="rounded-xl border bg-white p-3 text-sm"><span className="text-[var(--muted)]"><FinancialText>{label}</FinancialText></span><strong className={`mt-1 block text-lg tabular-nums ${label === "Paid" || label === "Net sales" || label === "Invoice total" ? "finance-income" : label === "Credit issued at sale" ? "finance-attention" : label === "Discounts" ? "finance-outflow" : "finance-balance"}`}><FinancialValue financial={["Net sales", "Discounts", "VAT", "Invoice total", "Paid", "Credit issued at sale", "Stock value"].includes(label ?? "")}>{value}</FinancialValue></strong></div>)}
           </section>}
           {includeCosts && <ProductMargins key={JSON.stringify([branchId, fromDate, toDate])} branchId={branchId || undefined} fromDate={fromDate} toDate={toDate} />}
-          <p className="text-xs text-[var(--muted)]">{creditOnly ? "Credit sales include fully and partly unpaid invoices at the time of sale. " : ""}Totals cover the full selected range. Credit issued is the original amount at sale; customer statements show later repayments and returns.</p>
+          <p className="text-xs text-[var(--muted)]"><FinancialText>{creditOnly ? "Credit sales include fully and partly unpaid invoices at the time of sale. " : ""}</FinancialText>Totals cover the full selected range. Credit issued is the original amount at sale; customer statements show later repayments and returns.</p>
           <div className="responsive-table-wrap">
             <table className="responsive-table text-xs">
               <thead className="bg-slate-50">
@@ -603,40 +604,40 @@ export default function ReportsPage() {
                 {salesPagination.rows.map((row) => (
                   <tr key={row.id} className="border-t">
                     <td data-label="Sale / receipt" className="px-3 py-2">
-                      <strong>{row.saleNumber}</strong>
+                      <strong><FinancialText>{row.saleNumber}</FinancialText></strong>
                       <span className="block font-mono text-[var(--muted)]">
-                        {row.receiptNumber}
+                        <FinancialText>{row.receiptNumber}</FinancialText>
                       </span>
                     </td>
                     <td data-label="Date" className="px-3 py-2">
-                      {new Date(row.recordedAt).toLocaleString("en-NG")}
+                      <FinancialText>{new Date(row.recordedAt).toLocaleString("en-NG")}</FinancialText>
                     </td>
                     <td data-label="Branch" className="px-3 py-2">
-                      {row.branchName}
+                      <FinancialText>{row.branchName}</FinancialText>
                     </td>
                     <td data-label="Customer" className="px-3 py-2">
-                      {row.customerName}
+                      <FinancialText>{row.customerName}</FinancialText>
                     </td>
                     <td data-label="Net" className="px-3 py-2 text-right">
-                      {formatNaira(row.netAmountMinor)}
+                      <FinancialValue>{formatNaira(row.netAmountMinor)}</FinancialValue>
                     </td>
                     <td data-label="Discount" className="px-3 py-2 text-right">
-                      {formatNaira(row.discountAmountMinor)}
+                      <FinancialValue>{formatNaira(row.discountAmountMinor)}</FinancialValue>
                     </td>
                     <td data-label="VAT" className="px-3 py-2 text-right">
-                      {formatNaira(row.vatAmountMinor)}
+                      <FinancialValue>{formatNaira(row.vatAmountMinor)}</FinancialValue>
                     </td>
                     <td
                       data-label="Total"
                       className="px-3 py-2 text-right font-semibold"
                     >
-                      {formatNaira(row.grossAmountMinor)}
+                      <FinancialValue>{formatNaira(row.grossAmountMinor)}</FinancialValue>
                     </td>
                     <td
                       data-label="Credit at sale"
                       className="px-3 py-2 text-right"
                     >
-                      <span className={row.creditAmountMinor > 0 ? "finance-attention font-semibold" : "finance-neutral"}>{formatNaira(row.creditAmountMinor)}</span>
+                      <span className={row.creditAmountMinor > 0 ? "finance-attention font-semibold" : "finance-neutral"}><FinancialValue>{formatNaira(row.creditAmountMinor)}</FinancialValue></span>
                     </td>
                     <td data-label="Document" className="px-3 py-2">
                       <Button
@@ -676,19 +677,19 @@ export default function ReportsPage() {
           <section className="grid gap-3 rounded-xl border bg-white p-4 md:grid-cols-3">
             <label className="text-sm font-medium">Report
               <select value={kind} onChange={(event) => setKind(event.target.value as InventoryReportKey)} className="mt-1 w-full rounded-lg border p-2.5">
-                {Object.entries(inventoryReports).map(([key, [label]]) => <option key={key} value={key}>{label}</option>)}
+                {Object.entries(inventoryReports).map(([key, [label]]) => <option key={key} value={key}><FinancialText>{label}</FinancialText></option>)}
               </select>
             </label>
             <label className="text-sm font-medium">Product
               <select value={productId} onChange={(event) => setProductId(event.target.value)} className="mt-1 w-full rounded-lg border p-2.5">
                 <option value="">All products</option>
-                {products.data.map((product) => <option key={product.id} value={product.id}>{product.sku} — {product.name}</option>)}
+                {products.data.map((product) => <option key={product.id} value={product.id}><FinancialText>{product.sku}</FinancialText> — <FinancialText>{product.name}</FinancialText></option>)}
               </select>
             </label>
             <label className="text-sm font-medium">Stock location
               <select value={locationId} onChange={(event) => setLocationId(event.target.value)} className="mt-1 w-full rounded-lg border p-2.5">
                 <option value="">All locations</option>
-                {locations.data.map((location) => <option key={location.id} value={location.id}>{location.name}</option>)}
+                {locations.data.map((location) => <option key={location.id} value={location.id}><FinancialText>{location.name}</FinancialText></option>)}
               </select>
             </label>
           </section>
@@ -700,7 +701,7 @@ export default function ReportsPage() {
               ["Reserved", inventorySummary.reservedQuantity.toLocaleString("en-NG")],
               ["Available", inventorySummary.availableQuantity.toLocaleString("en-NG")],
               ...(inventorySummary.valueMinor !== undefined ? [["Stock value", formatNaira(inventorySummary.valueMinor)]] : []),
-            ].map(([label, value]) => <div key={label} className="rounded-xl border bg-white p-3 text-sm"><span className="text-[var(--muted)]">{label}</span><strong className="mt-1 block text-lg">{value}</strong></div>)}
+            ].map(([label, value]) => <div key={label} className="rounded-xl border bg-white p-3 text-sm"><span className="text-[var(--muted)]"><FinancialText>{label}</FinancialText></span><strong className="mt-1 block text-lg"><FinancialValue financial={["Net sales", "Discounts", "VAT", "Invoice total", "Paid", "Credit issued at sale", "Stock value"].includes(label ?? "")}>{value}</FinancialValue></strong></div>)}
           </section>}
           <p className="text-sm text-[var(--muted)]">
             Product, branch, warehouse and stock-area references are shown as
@@ -728,7 +729,7 @@ export default function ReportsPage() {
                 <tr>
                   {inventoryColumns.map((column) => (
                     <th key={column} className="px-3 py-2 font-semibold">
-                      {inventoryReportColumnLabel(column)}
+                      <FinancialText>{inventoryReportColumnLabel(column)}</FinancialText>
                     </th>
                   ))}
                 </tr>
@@ -754,10 +755,10 @@ export default function ReportsPage() {
                             onClick={() => setExpandedInventoryRow(expanded ? null : rowKey)}
                             className="inline-flex items-center gap-1.5 text-left font-medium text-[var(--brand)] underline underline-offset-2 hover:text-[var(--brand-dark)]"
                           >
-                            {formatInventoryReportValue(column, display[column])}
+                            <FinancialField name={column}>{formatInventoryReportValue(column, display[column])}</FinancialField>
                             <ChevronDown className={`size-4 shrink-0 transition-transform ${expanded ? "rotate-180" : ""}`} aria-hidden="true" />
                           </button>
-                        ) : formatInventoryReportValue(column, display[column])}
+                        ) : <FinancialField name={column}>{formatInventoryReportValue(column, display[column])}</FinancialField>}
                       </td>
                     ))}
                   </tr>
@@ -789,7 +790,7 @@ export default function ReportsPage() {
       ) : null}
       {message && (
         <p role="status" className="rounded-lg bg-amber-50 p-3 text-sm">
-          {message}
+          <FinancialMessage>{message}</FinancialMessage>
         </p>
       )}
       {saleDocument && (showWaybills ? <SaleWaybills document={saleDocument} onClose={() => setSaleDocument(null)} /> :

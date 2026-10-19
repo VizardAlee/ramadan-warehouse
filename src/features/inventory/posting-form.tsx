@@ -1,4 +1,6 @@
 "use client";
+import { FinancialInput, FinancialMessage, FinancialText, FinancialValue } from "@/features/finance/financial-privacy";
+
 import { zodResolver } from "@hookform/resolvers/zod";
 import Link from "next/link";
 import { useEffect, useState } from "react";
@@ -347,7 +349,7 @@ export function PostingForm({
   if (!profile || !hasPermission(profile, config[mode].permission))
     return (
       <div className="rounded-xl border bg-white p-8">
-        <h1 className="text-2xl font-semibold">{config[mode].title}</h1>
+        <h1 className="text-2xl font-semibold"><FinancialText>{config[mode].title}</FinancialText></h1>
         <p className="mt-2 text-sm text-[var(--muted)]">
           You do not have permission to use this posting workflow.
         </p>
@@ -357,16 +359,16 @@ export function PostingForm({
     <form onSubmit={submit} className="max-w-3xl space-y-5">
       <div>
         <h1 className="text-3xl font-semibold">
-          {mode === "opening" ? "Add initial stock" : config[mode].title}
+          <FinancialText>{mode === "opening" ? "Add initial stock" : config[mode].title}</FinancialText>
         </h1>
         <p className="text-[var(--muted)]">
-          {mode === "opening"
+          <FinancialText>{mode === "opening"
             ? "Record stock already held by the business at Head Office or another store."
-            : "Record the inventory movement securely."}
+            : "Record the inventory movement securely."}</FinancialText>
         </p>
       </div>
       {message && (
-        <p className="rounded-lg bg-amber-50 p-3 text-sm">{message}</p>
+        <p className="rounded-lg bg-amber-50 p-3 text-sm"><FinancialMessage>{message}</FinancialMessage></p>
       )}
       {mode === "opening" && (
         <aside className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-950">
@@ -377,7 +379,7 @@ export function PostingForm({
       )}
       <div className="form-grid rounded-xl border bg-white p-[clamp(1rem,3vw,1.5rem)]">
         <label className="text-sm">
-          {mode === "opening" ? "1. Product" : "Product"}
+          <FinancialText>{mode === "opening" ? "1. Product" : "Product"}</FinancialText>
           <select
             {...form.register("productId")}
             className="mt-1 w-full rounded-lg border p-2.5"
@@ -387,13 +389,13 @@ export function PostingForm({
               .filter((item) => item.active && item.itemKind !== "service")
               .map((item) => (
                 <option key={item.id} value={item.id}>
-                  {item.sku} — {item.name}
+                  <FinancialText>{item.sku}</FinancialText> — <FinancialText>{item.name}</FinancialText>
                 </option>
               ))}
           </select>
           {form.formState.errors.productId?.message && (
             <span className="mt-1 block text-xs text-red-700">
-              {form.formState.errors.productId.message}
+              <FinancialMessage>{form.formState.errors.productId.message}</FinancialMessage>
             </span>
           )}
         </label>
@@ -408,7 +410,7 @@ export function PostingForm({
                 <option value="">Select…</option>
                 {locationOptions.map((item) => (
                   <option key={item.id} value={item.id}>
-                    {item.name}
+                    <FinancialText>{item.name}</FinancialText>
                   </option>
                 ))}
               </select>
@@ -422,7 +424,7 @@ export function PostingForm({
                 <option value="">Select…</option>
                 {locationOptions.map((item) => (
                   <option key={item.id} value={item.id}>
-                    {item.name}
+                    <FinancialText>{item.name}</FinancialText>
                   </option>
                 ))}
               </select>
@@ -438,28 +440,28 @@ export function PostingForm({
               <option value="">Select…</option>
               {locationOptions.map((item) => (
                 <option key={item.id} value={item.id}>
-                  {item.name}
+                  <FinancialText>{item.name}</FinancialText>
                 </option>
               ))}
             </select>
           </label>
         ) : (
           <label className="text-sm">
-            {mode === "opening"
+            <FinancialText>{mode === "opening"
               ? "2. Store / Head Office"
-              : "Destination location"}
+              : "Destination location"}</FinancialText>
             <select
               {...form.register("destinationLocationId")}
               className="mt-1 w-full rounded-lg border p-2.5"
             >
               <option value="">
-                {mode === "opening"
+                <FinancialText>{mode === "opening"
                   ? "Select store or Head Office…"
-                  : "Select…"}
+                  : "Select…"}</FinancialText>
               </option>
               {(mode === "opening" ? openingDestinationOptions : locationOptions).map((item) => (
                 <option key={item.id} value={item.id}>
-                  {mode === "opening" ? locationLabel(item) : item.name}
+                  <FinancialText>{mode === "opening" ? locationLabel(item) : item.name}</FinancialText>
                 </option>
               ))}
               {mode === "opening" && openingOwnersWithoutLocations.length > 0 && (
@@ -469,7 +471,7 @@ export function PostingForm({
                       key={owner.id}
                       value={`setup-branch:${owner.id}`}
                     >
-                      {owner.name} (set up automatically)
+                      <FinancialText>{owner.name}</FinancialText> (set up automatically)
                     </option>
                   ))}
                 </optgroup>
@@ -477,7 +479,7 @@ export function PostingForm({
             </select>
             {form.formState.errors.destinationLocationId?.message && (
               <span className="mt-1 block text-xs text-red-700">
-                {form.formState.errors.destinationLocationId.message}
+                <FinancialMessage>{form.formState.errors.destinationLocationId.message}</FinancialMessage>
               </span>
             )}
             {mode === "opening" &&
@@ -505,7 +507,7 @@ export function PostingForm({
           </label>
         )}
         <label className="text-sm">
-          {mode === "opening" ? `3. Quantity${product ? ` (${product.unitOfMeasure})` : ""}` : "Quantity"}
+          <FinancialText>{mode === "opening" ? `3. Quantity${product ? ` (${product.unitOfMeasure})` : ""}` : "Quantity"}</FinancialText>
           <input
             type="number"
             {...form.register("quantity")}
@@ -513,7 +515,7 @@ export function PostingForm({
           />
           {form.formState.errors.quantity?.message && (
             <span className="mt-1 block text-xs text-red-700">
-              {form.formState.errors.quantity.message}
+              <FinancialMessage>{form.formState.errors.quantity.message}</FinancialMessage>
             </span>
           )}
         </label>
@@ -523,7 +525,7 @@ export function PostingForm({
               Unit cost from product
             </span>
             <strong className="mt-1 block text-base">
-              {formatNaira(configuredUnitCostMinor)} per {product?.unitOfMeasure}
+              <FinancialValue>{formatNaira(configuredUnitCostMinor)}</FinancialValue> per <FinancialText>{product?.unitOfMeasure}</FinancialText>
             </strong>
             <span className="mt-1 block text-xs text-[var(--muted)]">
               Reused automatically; no re-entry required.
@@ -531,10 +533,10 @@ export function PostingForm({
           </div>
         ) : mode !== "movement" ? (
           <label className="text-sm">
-            {mode === "opening"
+            <FinancialText>{mode === "opening"
               ? "Unit cost (₦ — no product default configured)"
-              : "Unit cost (₦)"}
-            <input
+              : "Unit cost (₦)"}</FinancialText>
+            <FinancialInput><input
               type="number"
               min="0"
               step="0.01"
@@ -549,11 +551,11 @@ export function PostingForm({
                 form.getValues("direction") === "decrease"
               }
               className="mt-1 w-full rounded-lg border p-2.5"
-            />
+            /></FinancialInput>
             {mode === "adjustment" && form.getValues("direction") === "decrease" && <span className="mt-1 block text-xs text-[var(--muted)]">Decrease cost comes from recorded stock issue evidence and cannot be typed here. Ask the inventory manager or accountant to review the original receipt/cost records if it is incorrect.</span>}
             {form.formState.errors.unitCostNaira?.message && (
               <span className="mt-1 block text-xs text-red-700">
-                {form.formState.errors.unitCostNaira.message}
+                <FinancialMessage>{form.formState.errors.unitCostNaira.message}</FinancialMessage>
               </span>
             )}
           </label>
@@ -584,7 +586,7 @@ export function PostingForm({
                   "found_stock",
                   "data_correction",
                 ].map((item) => (
-                  <option key={item}>{item}</option>
+                  <option key={item}><FinancialText>{item}</FinancialText></option>
                 ))}
               </select>
             </label>
@@ -621,7 +623,7 @@ export function PostingForm({
             </span>
             {form.formState.errors.lotNumber?.message && (
               <span className="mt-1 block text-xs text-red-700">
-                {form.formState.errors.lotNumber.message}
+                <FinancialMessage>{form.formState.errors.lotNumber.message}</FinancialMessage>
               </span>
             )}
           </label>
@@ -667,11 +669,11 @@ export function PostingForm({
         )}
         <div className="md:col-span-2">
           <Button disabled={form.formState.isSubmitting}>
-            {form.formState.isSubmitting
+            <FinancialText>{form.formState.isSubmitting
               ? "Adding stock…"
               : mode === "opening"
                 ? "Add stock to inventory"
-                : "Save inventory record"}
+                : "Save inventory record"}</FinancialText>
           </Button>
         </div>
       </div>

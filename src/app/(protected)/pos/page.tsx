@@ -1,4 +1,6 @@
 "use client";
+import { RecordAttribution } from "@/features/audit/record-attribution";
+import { FinancialAction, FinancialActionScope, FinancialAttributes, FinancialDocument, FinancialPrintAction, FinancialInput, FinancialMessage, FinancialText, FinancialValue  } from "@/features/finance/financial-privacy";
 
 import { ServiceLineOptions } from "@/features/pos/service-line-options";
 import { PosProductCard } from "@/features/pos/product-card";
@@ -1209,7 +1211,7 @@ export default function PosPage() {
             ) : (
               <WifiOff className="size-3.5" />
             )}
-            {online ? "Connected and ready" : "Offline sales available"}
+            <FinancialText>{online ? "Connected and ready" : "Offline sales available"}</FinancialText>
           </span>
         </div>
         {!branchContextId && !assignedBranchId && (
@@ -1229,7 +1231,7 @@ export default function PosPage() {
                 .filter((branch) => branch.status === "active")
                 .map((branch) => (
                   <option key={branch.id} value={branch.id}>
-                    {branch.name}
+                    <FinancialText>{branch.name}</FinancialText>
                   </option>
                 ))}
             </select>
@@ -1240,14 +1242,14 @@ export default function PosPage() {
       <nav aria-label="Point of sale workspace" className="sticky top-16 z-20 flex flex-wrap gap-2 rounded-xl border bg-white/95 p-2 shadow-sm backdrop-blur">
         <a href={workspace?.openShift ? "#pos-catalogue" : "#pos-shift"} className="inline-flex min-h-10 items-center rounded-lg bg-[var(--brand)] px-4 text-sm font-semibold text-white">New sale</a>
         <a href="#pos-orders" className="inline-flex min-h-10 items-center rounded-lg border px-4 text-sm font-semibold text-slate-700">
-          Awaiting action{workspace?.pendingOrders.length ? ` (${workspace.pendingOrders.length})` : ""}
+          Awaiting action<FinancialText>{workspace?.pendingOrders.length ? ` (${workspace.pendingOrders.length})` : ""}</FinancialText>
         </a>
         {workspace?.openShift && <a href="#pos-cart" className="hidden min-h-10 items-center rounded-lg border px-4 text-sm font-semibold text-slate-700 lg:inline-flex">Current sale / checkout</a>}
         <button type="button" disabled={!workspace?.openShift} onClick={() => {
           if (window.matchMedia("(max-width: 1023px)").matches) setCartOpen(true);
           document.getElementById("pos-cart")?.scrollIntoView({ behavior: "smooth", block: "start" });
         }} className="inline-flex min-h-10 items-center rounded-lg border px-4 text-sm font-semibold text-slate-700 disabled:opacity-50">
-          Held sales{heldSales.length ? ` (${heldSales.length})` : ""}
+          Held sales<FinancialText>{heldSales.length ? ` (${heldSales.length})` : ""}</FinancialText>
         </button>
       </nav>
       {!workspace?.openShift && <p className="text-xs text-[var(--muted)]">Open your assigned device shift online before opening held sales here. Holding a basket does not post or reserve goods.</p>}
@@ -1267,7 +1269,7 @@ export default function PosPage() {
           role="alert"
           className="rounded-xl bg-red-50 p-4 text-sm text-red-800"
         >
-          {error}
+          <FinancialMessage>{error}</FinancialMessage>
         </div>
       )}
       {message && (
@@ -1275,7 +1277,7 @@ export default function PosPage() {
           role="status"
           className="rounded-xl bg-emerald-50 p-4 text-sm text-emerald-900"
         >
-          {message}
+          <FinancialMessage>{message}</FinancialMessage>
         </div>
       )}
 
@@ -1283,9 +1285,9 @@ export default function PosPage() {
         <section className="rounded-xl border border-amber-300 bg-amber-50 p-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <h2 className="font-semibold">Offline queue: {queued.length}</h2>
+              <h2 className="font-semibold">Offline queue: <FinancialText>{queued.length}</FinancialText></h2>
               <p className="text-sm text-amber-900">
-                {queued.filter((sale) => sale.status === "needs_review").length}{" "}
+                <FinancialText>{queued.filter((sale) => sale.status === "needs_review").length}</FinancialText>{" "}
                 need manager review; the rest will retry safely.
               </p>
             </div>
@@ -1303,8 +1305,8 @@ export default function PosPage() {
                 .filter((sale) => sale.status === "needs_review")
                 .map((sale) => (
                   <li key={sale.id} className="rounded-lg bg-white p-3">
-                    <strong>{sale.provisionalReceiptReference}</strong>:{" "}
-                    {sale.lastError}
+                    <strong><FinancialText>{sale.provisionalReceiptReference}</FinancialText></strong>:{" "}
+                    <FinancialText>{sale.lastError}</FinancialText>
                   </li>
                 ))}
             </ul>
@@ -1313,7 +1315,7 @@ export default function PosPage() {
       )}
 
       {workspace && (
-        <section id="pos-orders" className="scroll-mt-40 rounded-2xl border bg-white p-4 shadow-sm sm:p-5">
+        <FinancialActionScope><section id="pos-orders" className="scroll-mt-40 rounded-2xl border bg-white p-4 shadow-sm sm:p-5">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <p className="text-xs font-semibold uppercase tracking-[.14em] text-[var(--brand)]">
@@ -1360,46 +1362,47 @@ export default function PosPage() {
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div>
                         <p className="font-mono text-sm font-semibold">
-                          {order.orderNumber}
+                          <FinancialText>{order.orderNumber}</FinancialText>
                         </p>
+                        <dl className="mt-2 grid gap-2 text-xs sm:grid-cols-2"><div><dt className="font-semibold">Created by</dt><dd><RecordAttribution actors={order.actorLabels} field="createdBy" userId={order.createdBy} /></dd></div><div><dt className="font-semibold">Payment accepted by</dt><dd><RecordAttribution actors={order.actorLabels} field="paymentAcceptedBy" userId={order.paymentAcceptedBy} /></dd></div></dl>
                         <p className="mt-1 text-sm text-[var(--muted)]">
-                          {customer?.name ?? "Walk-in customer"} ·{" "}
-                          {order.totalQuantity} item
-                          {order.totalQuantity === 1 ? "" : "s"} ·{" "}
-                          {formatNaira(order.grossAmountMinor)}
+                          <FinancialText>{customer?.name ?? "Walk-in customer"}</FinancialText> ·{" "}
+                          <FinancialText>{order.totalQuantity}</FinancialText> item
+                          <FinancialText>{order.totalQuantity === 1 ? "" : "s"}</FinancialText> ·{" "}
+                          <FinancialValue>{formatNaira(order.grossAmountMinor)}</FinancialValue>
                         </p>
                         <p className="mt-1 text-xs text-[var(--muted)]">
-                          {order.paymentMethods.join(", ").replaceAll("_", " ") ||
-                            "Customer credit"}
+                          <FinancialText>{order.paymentMethods.join(", ").replaceAll("_", " ") ||
+                            "Customer credit"}</FinancialText>
                         </p>
                       </div>
                       <span
                         className={`rounded-full px-2.5 py-1 text-xs font-semibold ${awaitingPayment ? "bg-amber-100 text-amber-900" : "bg-emerald-100 text-emerald-900"}`}
                       >
-                        {awaitingPayment
+                        <FinancialText>{awaitingPayment
                           ? order.paymentMethods.length === 0
                             ? "Awaiting credit acknowledgement"
                             : "Awaiting payment acceptance"
-                          : "Awaiting confirmation"}
+                          : "Awaiting confirmation"}</FinancialText>
                       </span>
                     </div>
                     {awaitingPayment ? (
                       canAcceptPayment ? (
-                        <Button
+                        <FinancialAction><Button
                           type="button"
                           className="mt-3 w-full"
                           disabled={!online || busy || !workspace.openShift}
                           onClick={() => void acceptOrderPayment(order.id)}
                         >
-                          {order.paymentMethods.length === 0 ? "Acknowledge credit sale" : "Accept payment"}
-                        </Button>
+                          <FinancialText>{order.paymentMethods.length === 0 ? "Acknowledge credit sale" : "Accept payment"}</FinancialText>
+                        </Button></FinancialAction>
                       ) : (
                         <p className="mt-3 text-xs text-[var(--muted)]">
                           Waiting for a cashier or manager with payment access.
                         </p>
                       )
                     ) : canConfirmPayment ? (
-                      <div className="mt-3 space-y-2"><Button type="button" className="w-full" disabled={!online || busy} onClick={() => void confirmOrderPayment(order.id, true)}>Confirm payment &amp; reserve for later</Button><Button
+                      <div className="mt-3 space-y-2"><FinancialAction><Button type="button" className="w-full" disabled={!online || busy} onClick={() => void confirmOrderPayment(order.id, true)}>Confirm payment &amp; reserve for later</Button></FinancialAction><FinancialAction><Button
                         type="button"
                         className="mt-3 w-full"
                         variant="outline"
@@ -1407,7 +1410,7 @@ export default function PosPage() {
                         onClick={() => void confirmOrderPayment(order.id)}
                       >
                         Confirm payment &amp; collect now
-                      </Button></div>
+                      </Button></FinancialAction></div>
                     ) : (
                       <p className="mt-3 text-xs text-[var(--muted)]">
                         Waiting for a branch manager or administrator.
@@ -1430,7 +1433,7 @@ export default function PosPage() {
               No orders are waiting for payment or release.
             </p>
           )}
-        </section>
+        </section></FinancialActionScope>
       )}
 
       {selectedBranchId && <CollectionQueue key={selectedBranchId} branchId={selectedBranchId} canRelease={canReleaseStock} online={online} />}
@@ -1442,14 +1445,14 @@ export default function PosPage() {
               className={`mx-auto mb-3 size-7 ${busy ? "animate-spin" : ""}`}
             />
             <p>
-              {busy
+              <FinancialText>{busy
                 ? "Loading branch POS…"
-                : "Choose an active selling branch."}
+                : "Choose an active selling branch."}</FinancialText>
             </p>
           </div>
         </div>
       ) : !workspace.openShift ? (
-        <section id="pos-shift" className="mx-auto max-w-xl scroll-mt-40 rounded-2xl border bg-white p-6 shadow-sm">
+        <FinancialActionScope><section id="pos-shift" className="mx-auto max-w-xl scroll-mt-40 rounded-2xl border bg-white p-6 shadow-sm">
           <Banknote className="mb-4 size-9 text-[var(--brand)]" />
           <h2 className="text-2xl font-semibold">Open the sales shift</h2>
           <p className="mt-2 text-sm text-[var(--muted)]">
@@ -1458,7 +1461,7 @@ export default function PosPage() {
           </p>
           <label className="mt-5 block text-sm font-medium">
             Opening cash (₦)
-            <input
+            <FinancialInput><input
               type="number"
               min="0"
               step="0.01"
@@ -1466,22 +1469,22 @@ export default function PosPage() {
               value={openingCash}
               onChange={(event) => setOpeningCash(event.target.value)}
               className="mt-1 w-full rounded-lg border p-3 text-lg"
-            />
+            /></FinancialInput>
           </label>
-          <Button
+          <FinancialAction><Button
             className="mt-5 w-full"
             disabled={!online || busy}
             onClick={() => void openShift()}
           >
             Open shift and start selling
-          </Button>
+          </Button></FinancialAction>
           {!online && (
             <p className="mt-2 text-center text-xs text-amber-800">
               A new shift must be opened online. An already-open cached shift
               continues offline.
             </p>
           )}
-        </section>
+        </section></FinancialActionScope>
       ) : (
         <div className={styles.saleLayout}>
           <section id="pos-catalogue" className={`${styles.catalogue} scroll-mt-40 space-y-4`}>
@@ -1495,9 +1498,9 @@ export default function PosPage() {
             <div className="glass-panel rounded-2xl p-4">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
-                  <h2 className="font-semibold">{workspace.branch.name}</h2>
+                  <h2 className="font-semibold"><FinancialText>{workspace.branch.name}</FinancialText></h2>
                   <p className="text-sm text-[var(--muted)]">
-                    Stock source: {workspace.location.name}
+                    Stock source: <FinancialText>{workspace.location.name}</FinancialText>
                   </p>
                 </div>
                 <Button
@@ -1554,7 +1557,7 @@ export default function PosPage() {
           </section>
 
           <PosCartSurface open={cartOpen} focusActive={!customerDialogOpen && !salePriceProductId && !priceProductId} onClose={() => setCartOpen(false)}>
-          <aside
+          <FinancialAttributes><aside
             id="pos-cart"
             role={cartOpen ? "dialog" : undefined}
             aria-modal={cartOpen ? true : undefined}
@@ -1567,17 +1570,17 @@ export default function PosPage() {
               </h2>
               <a href="#pos-payment-controls">Payment &amp; checkout</a>
               <div className="flex items-center gap-2">
-                <span className="text-sm text-[var(--muted)]">{totals.totalQuantity} items</span>
+                <span className="text-sm text-[var(--muted)]"><FinancialText>{totals.totalQuantity}</FinancialText> items</span>
                 {cartOpen && <button type="button" onClick={() => setCartOpen(false)} aria-label="Close cart" className="grid size-9 place-items-center rounded-lg border"><X className="size-4" /></button>}
               </div>
             </div>
-            {receivedOrder.error && <p role="alert" className="mb-3 rounded-lg bg-red-50 p-3 text-sm text-red-800">{receivedOrder.error}</p>}
+            {receivedOrder.error && <p role="alert" className="mb-3 rounded-lg bg-red-50 p-3 text-sm text-red-800"><FinancialMessage>{receivedOrder.error}</FinancialMessage></p>}
             {receivedOrder.pending && <div role="status" className="mb-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm">
               <p>The previous order has an unconfirmed result. Retry the exact saved order before starting another. Do not collect the money again.</p>
-              <Button className="mt-2" disabled={busy || !online || !receivedOrder.ready} onClick={() => void retryReceivedOrder()}>Retry same order</Button>
+              <FinancialAction retry={Boolean(receivedOrder.pending)}><Button className="mt-2" disabled={busy || !online || !receivedOrder.ready} onClick={() => void retryReceivedOrder()}>Retry same order</Button></FinancialAction>
             </div>}
-            {error && cartOpen && <p role="alert" className="mb-3 rounded-lg bg-red-50 p-3 text-sm text-red-800">{error}</p>}
-            <fieldset disabled={Boolean(receivedOrder.pending) || !receivedOrder.ready} className="min-w-0 border-0 p-0">
+            {error && cartOpen && <p role="alert" className="mb-3 rounded-lg bg-red-50 p-3 text-sm text-red-800"><FinancialMessage>{error}</FinancialMessage></p>}
+            <FinancialActionScope><fieldset disabled={Boolean(receivedOrder.pending) || !receivedOrder.ready} className="min-w-0 border-0 p-0">
 
             <Button
               type="button"
@@ -1591,7 +1594,7 @@ export default function PosPage() {
             {heldSales.length > 0 && (
               <details className="mt-3 rounded-xl border bg-amber-50 p-3" open>
                 <summary className="cursor-pointer text-sm font-semibold text-amber-950">
-                  Held sales ({heldSales.length})
+                  Held sales (<FinancialText>{heldSales.length}</FinancialText>)
                 </summary>
                 <p className="mt-1 text-xs text-amber-900">
                   Held baskets stay on this device and do not reserve stock.
@@ -1605,13 +1608,13 @@ export default function PosPage() {
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
                           <p className="font-semibold">
-                            {heldSale.totalQuantity} item
-                            {heldSale.totalQuantity === 1 ? "" : "s"} ·{" "}
-                            {formatNaira(heldSale.grossAmountMinor)}
+                            <FinancialText>{heldSale.totalQuantity}</FinancialText> item
+                            <FinancialText>{heldSale.totalQuantity === 1 ? "" : "s"}</FinancialText> ·{" "}
+                            <FinancialValue>{formatNaira(heldSale.grossAmountMinor)}</FinancialValue>
                           </p>
                           <p className="mt-0.5 text-xs text-[var(--muted)]">
                             Held{" "}
-                            {new Date(heldSale.updatedAt).toLocaleString("en-NG")}
+                            <FinancialText>{new Date(heldSale.updatedAt).toLocaleString("en-NG")}</FinancialText>
                           </p>
                         </div>
                         <Button
@@ -1652,12 +1655,12 @@ export default function PosPage() {
                 cart.map((line) => (
                   <div key={line.product.id} className={`${styles.cartLine} rounded-lg border p-3`}>
                     <div className={styles.cartLineHeading}>
-                      <strong className="text-sm">{line.product.name}</strong>
+                      <strong className="text-sm"><FinancialText>{line.product.name}</FinancialText></strong>
                       <span className="text-sm">
-                        {formatNaira(line.quantity * posLineUnitPriceMinor(line))}
+                        <FinancialValue>{formatNaira(line.quantity * posLineUnitPriceMinor(line))}</FinancialValue>
                       </span>
                     </div>
-                    {line.product.trackingType === "serial" && <label className="mt-3 block text-sm">Serial numbers — one per unit<textarea aria-label={`Serial numbers for ${line.product.name}`} rows={3} value={(line.serialNumbers ?? []).join("\n")} onChange={event => setCart(lines => lines.map(item => item.product.id === line.product.id ? { ...item, serialNumbers: event.target.value.split(/\r?\n/) } : item))} className="mt-1 w-full rounded-lg border p-2" /><span className="text-xs text-[var(--muted)]">Enter {line.quantity} exact serials, one per line. Online only; units are reserved at final payment confirmation, not while holding a basket.</span></label>}
+                    {line.product.trackingType === "serial" && <label className="mt-3 block text-sm">Serial numbers — one per unit<FinancialAttributes><textarea aria-label={`Serial numbers for ${line.product.name}`} rows={3} value={(line.serialNumbers ?? []).join("\n")} onChange={event => setCart(lines => lines.map(item => item.product.id === line.product.id ? { ...item, serialNumbers: event.target.value.split(/\r?\n/) } : item))} className="mt-1 w-full rounded-lg border p-2" /></FinancialAttributes><span className="text-xs text-[var(--muted)]">Enter <FinancialText>{line.quantity}</FinancialText> exact serials, one per line. Online only; units are reserved at final payment confirmation, not while holding a basket.</span></label>}
                     <PriceLevelControl line={line} onChange={tier => {
                       const original = workspace.products.find(product => product.id === line.product.id);
                       if (!original) { setError("Refresh POS before changing this product price."); return; }
@@ -1666,24 +1669,24 @@ export default function PosPage() {
                     }} />
                     <div className={styles.quantityRow}>
                       <span className="text-xs text-[var(--muted)]">
-                        {formatNaira(posLineUnitPriceMinor(line))} each
+                        <FinancialValue>{formatNaira(posLineUnitPriceMinor(line))}</FinancialValue> each
                         {line.sellingPriceMinor !== undefined && (
                           <span className="ml-1 text-amber-700">· this sale only</span>
                         )}
                       </span>
                       <div className="flex items-center gap-2">
-                        <Button
+                        <FinancialAttributes><Button
                           size="icon"
                           variant="outline"
                           onClick={() => changeQuantity(line.product.id, -1)}
                           aria-label={`Remove one ${line.product.name}`}
                         >
                           <Minus className="size-4" />
-                        </Button>
+                        </Button></FinancialAttributes>
                         <label className="sr-only" htmlFor={`quantity-${line.product.id}`}>
-                          Quantity for {line.product.name}
+                          Quantity for <FinancialText>{line.product.name}</FinancialText>
                         </label>
-                        <input
+                        <FinancialAttributes><input
                           id={`quantity-${line.product.id}`}
                           type="number"
                           min="1"
@@ -1706,15 +1709,15 @@ export default function PosPage() {
                           }}
                           className="h-10 w-16 rounded-lg border px-2 text-center font-semibold tabular-nums"
                           aria-label={`Quantity for ${line.product.name}`}
-                        />
-                        <Button
+                        /></FinancialAttributes>
+                        <FinancialAttributes><Button
                           size="icon"
                           variant="outline"
                           onClick={() => changeQuantity(line.product.id, 1)}
                           aria-label={`Add one ${line.product.name}`}
                         >
                           <Plus className="size-4" />
-                        </Button>
+                        </Button></FinancialAttributes>
                       </div>
                     </div>
                     {line.serviceCase && <p className="text-xs text-[var(--muted)]">Quantity and price are fixed by the confirmed linked service case. Review that case with authorized service staff; unlink only for an intentional separate catalogue charge.</p>}
@@ -1742,33 +1745,33 @@ export default function PosPage() {
             <dl className="space-y-2 rounded-xl bg-gradient-to-br from-emerald-950 to-emerald-700 p-4 text-sm text-white shadow-lg">
               <div className="flex justify-between">
                 <dt>Product subtotal</dt>
-                <dd>{formatNaira(totals.subtotalAmountMinor)}</dd>
+                <dd><FinancialValue>{formatNaira(totals.subtotalAmountMinor)}</FinancialValue></dd>
               </div>
               {totals.discountAmountMinor > 0 && (
                 <div className="flex justify-between text-emerald-100">
                   <dt>Discount</dt>
-                  <dd>−{formatNaira(totals.discountAmountMinor)}</dd>
+                  <dd>−<FinancialValue>{formatNaira(totals.discountAmountMinor)}</FinancialValue></dd>
                 </div>
               )}
               <div className="flex justify-between">
                 <dt>Net sales</dt>
-                <dd>{formatNaira(totals.netAmountMinor)}</dd>
+                <dd><FinancialValue>{formatNaira(totals.netAmountMinor)}</FinancialValue></dd>
               </div>
               <div className="flex justify-between">
                 <dt>VAT</dt>
-                <dd>{formatNaira(totals.vatAmountMinor)}</dd>
+                <dd><FinancialValue>{formatNaira(totals.vatAmountMinor)}</FinancialValue></dd>
               </div>
               <div className="flex justify-between border-t border-white/20 pt-3 text-xl font-semibold">
                 <dt>Total</dt>
-                <dd>{formatNaira(totals.grossAmountMinor)}</dd>
+                <dd><FinancialValue>{formatNaira(totals.grossAmountMinor)}</FinancialValue></dd>
               </div>
             </dl>
             <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
-              {!!totals.providerFundsMinor && <p className="text-sm">Includes provider funds {formatNaira(totals.providerFundsMinor)}, separate from company sales.</p>}
-              {!!totals.priorServicePaidMinor && <p className="text-sm">Previously received on linked cases: {formatNaira(totals.priorServicePaidMinor)}. Allocate now: {formatNaira(amountToAllocateMinor)}.</p>}
+              {!!totals.providerFundsMinor && <p className="text-sm">Includes provider funds <FinancialValue>{formatNaira(totals.providerFundsMinor)}</FinancialValue>, separate from company sales.</p>}
+              {!!totals.priorServicePaidMinor && <p className="text-sm">Previously received on linked cases: <FinancialValue>{formatNaira(totals.priorServicePaidMinor)}</FinancialValue>. Allocate now: <FinancialValue>{formatNaira(amountToAllocateMinor)}</FinancialValue>.</p>}
               <label className="block text-sm font-medium">
                 Discount (₦)
-                <input
+                <FinancialInput><input
                   type="number"
                   min="0"
                   max={(baseTotals.discountableSubtotalMinor ?? baseTotals.subtotalAmountMinor) / 100}
@@ -1778,10 +1781,10 @@ export default function PosPage() {
                   onChange={(event) => setDiscountAmount(event.target.value)}
                   className={`mt-1 w-full rounded-lg border p-3 ${discountIsValid ? "" : "border-red-400"}`}
                   placeholder="0.00"
-                />
+                /></FinancialInput>
               </label>
               <label className="block text-sm font-medium">
-                Discount reason {discountAmountMinor > 0 && "(required)"}
+                Discount reason <FinancialText>{discountAmountMinor > 0 && "(required)"}</FinancialText>
                 <input
                   aria-label="Discount reason"
                   aria-describedby={discountAmountMinor > 0 && discountReason.trim().length < 3 ? "pos-discount-reason-help" : undefined}
@@ -1818,7 +1821,7 @@ export default function PosPage() {
                     <option value="">Walk-in customer</option>
                     {(workspace.customers ?? []).map((customer) => (
                       <option key={customer.id} value={customer.id}>
-                        {customer.name} · {customer.customerNumber}
+                        <FinancialText>{customer.name}</FinancialText> · <FinancialText>{customer.customerNumber}</FinancialText>
                       </option>
                     ))}
                   </select>
@@ -1838,11 +1841,11 @@ export default function PosPage() {
               <p className="mt-2 text-xs text-[var(--muted)]">
                 Attach named customers to cash, card, transfer, or credit sales.
                 Leave as walk-in only when no customer record is needed.
-                {selectedCustomer?.pricingTier === "wholesale" && " Wholesale is selected where configured; products without a wholesale price use retail. Sale-specific price overrides stay unchanged."}
+                <FinancialText>{selectedCustomer?.pricingTier === "wholesale" && " Wholesale is selected where configured; products without a wholesale price use retail. Sale-specific price overrides stay unchanged."}</FinancialText>
               </p>
               {selectedCustomer && <label className="mt-3 block text-sm font-medium">Customer account arrangement
                 <select className="mt-1 w-full rounded-lg border p-3" value={customerAccountId} onChange={(event) => setCustomerAccountId(event.target.value)}>
-                  {(selectedCustomer.arrangements ?? [{ id: "general", name: "General account", active: true, outstandingBalanceMinor: selectedCustomer.outstandingBalanceMinor }]).filter((account) => account.active).map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}
+                  {(selectedCustomer.arrangements ?? [{ id: "general", name: "General account", active: true, outstandingBalanceMinor: selectedCustomer.outstandingBalanceMinor }]).filter((account) => account.active).map((account) => <option key={account.id} value={account.id}><FinancialText>{account.name}</FinancialText></option>)}
                 </select><span className="mt-1 block text-xs text-[var(--muted)]">Keeps this sale and any credit in the selected arrangement. The customer’s overall credit limit still applies.</span>
               </label>}
             </div>
@@ -1872,7 +1875,7 @@ export default function PosPage() {
                       }}
                       className={`min-h-12 rounded-lg border px-2 py-2 text-xs font-semibold transition-colors sm:text-sm ${selected ? "border-[var(--brand)] bg-indigo-50 text-[var(--brand-dark)]" : "bg-white text-slate-700"} disabled:cursor-not-allowed disabled:opacity-45`}
                     >
-                      {label}
+                      <FinancialText>{label}</FinancialText>
                     </button>
                   );
                 })}
@@ -1909,7 +1912,7 @@ export default function PosPage() {
               </label>
             )}
             {selectedCustomer && <div className="mt-3 rounded-xl border bg-blue-50 p-3 text-sm">
-              <div className="flex justify-between gap-2"><span>Unused advance on this customer account</span><strong className="finance-balance">{formatNaira(availableAdvanceMinor)}</strong></div>
+              <div className="flex justify-between gap-2"><span>Unused advance on this customer account</span><strong className="finance-balance"><FinancialValue>{formatNaira(availableAdvanceMinor)}</FinancialValue></strong></div>
               <p className="mt-1 text-xs">Money already received. It is deducted only at final confirmation, not when the order is held or received. Connect online to use it; split payment allows a cash, card or transfer top-up.</p>
               {!advanceValid && <p className="mt-2 font-medium text-red-800">Use one advance component within this account balance, online. Refresh balances if they have changed.</p>}
             </div>}
@@ -1918,19 +1921,19 @@ export default function PosPage() {
                 <p className="text-sm font-semibold">Split payment</p>
                 {splitPayments.map((payment, index) => (
                   <div key={payment.id} className="grid gap-2 rounded-lg border bg-white p-3 sm:grid-cols-2">
-                    <label className="text-sm font-medium">Method {index + 1}
+                    <label className="text-sm font-medium">Method <FinancialText>{index + 1}</FinancialText>
                       <select value={payment.method} onChange={(event) => setSplitPayments((items) => items.map((item) => item.id === payment.id ? { ...item, method: event.target.value as SplitPaymentDraft["method"], bankAccountId: "" } : item))} className="mt-1 w-full rounded-lg border p-2.5">
                         <option value="cash">Cash</option><option value="bank_transfer">Bank transfer</option><option value="card">Card / POS terminal</option><option value="customer_advance" disabled={!online || !selectedCustomer}>Customer advance</option>
                       </select>
                     </label>
                     <label className="text-sm font-medium">Amount (₦)
-                      <input type="number" inputMode="decimal" min="0.01" step="0.01" value={payment.amount} onChange={(event) => setSplitPayments((items) => items.map((item) => item.id === payment.id ? { ...item, amount: event.target.value } : item))} className="mt-1 w-full rounded-lg border p-2.5" placeholder="0.00" />
+                      <FinancialInput><input type="number" inputMode="decimal" min="0.01" step="0.01" value={payment.amount} onChange={(event) => setSplitPayments((items) => items.map((item) => item.id === payment.id ? { ...item, amount: event.target.value } : item))} className="mt-1 w-full rounded-lg border p-2.5" placeholder="0.00" /></FinancialInput>
                     </label>
                     {["card", "bank_transfer"].includes(payment.method) && <>
                       <label className="text-sm font-medium">Company bank account
                         <select value={payment.bankAccountId} onChange={(event) => setSplitPayments((items) => items.map((item) => item.id === payment.id ? { ...item, bankAccountId: event.target.value } : item))} className="mt-1 w-full rounded-lg border p-2.5">
                           <option value="">Select account</option>
-                          {workspace.bankAccounts.map((account) => <option key={account.id} value={account.id}>{account.bankName} · {account.accountName} · ••••{account.accountNumberLast4}</option>)}
+                          {workspace.bankAccounts.map((account) => <option key={account.id} value={account.id}><FinancialText>{account.bankName}</FinancialText> · <FinancialText>{account.accountName}</FinancialText> · ••••<FinancialText>{account.accountNumberLast4}</FinancialText></option>)}
                         </select>
                       </label>
                       <label className="text-sm font-medium">Payment reference (optional)
@@ -1942,23 +1945,23 @@ export default function PosPage() {
                 ))}
                 <Button type="button" variant="outline" disabled={splitPayments.length >= 5} onClick={() => setSplitPayments((items) => [...items, emptySplitPayment("cash")])}>Add payment method</Button>
                 {canCreateCredit && online && <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={splitAllowCredit} onChange={(event) => setSplitAllowCredit(event.target.checked)} /> Leave unpaid balance on named customer credit</label>}
-                <div className="flex justify-between border-t pt-2 text-sm"><span>Entered payments</span><strong className="finance-income">{formatNaira(splitPaidMinor)}</strong></div>
-                <div className="flex justify-between text-sm"><span>{splitAllowCredit ? "Customer balance due" : "Still to allocate"}</span><strong className="finance-attention">{formatNaira(Math.max(0, amountToAllocateMinor - splitPaidMinor))}</strong></div>
+                <div className="flex justify-between border-t pt-2 text-sm"><span>Entered payments</span><strong className="finance-income"><FinancialValue>{formatNaira(splitPaidMinor)}</FinancialValue></strong></div>
+                <div className="flex justify-between text-sm"><span><FinancialText>{splitAllowCredit ? "Customer balance due" : "Still to allocate"}</FinancialText></span><strong className="finance-attention"><FinancialValue>{formatNaira(Math.max(0, amountToAllocateMinor - splitPaidMinor))}</FinancialValue></strong></div>
                 {!splitValid && <p className="text-xs font-medium text-red-800">Enter at least two positive payments. Their total must equal the sale, unless the remainder is approved customer credit.</p>}
               </div>
             ) : paymentMethod === "customer_credit" ? (
               <div className="mt-3 space-y-3 rounded-xl border border-amber-200 bg-amber-50 p-3">
                 <p className="text-sm font-semibold text-amber-950">
-                  {creditIntent === "part" ? "Part payment and customer balance" : "Customer pays later"}
+                  <FinancialText>{creditIntent === "part" ? "Part payment and customer balance" : "Customer pays later"}</FinancialText>
                 </p>
                 <p className="text-xs text-amber-900">
-                  {selectedCustomer && canGrantCreditDirectly
+                  <FinancialMessage>{selectedCustomer && canGrantCreditDirectly
                     ? `As a system administrator, you can grant ${selectedCustomer.name} credit directly. The decision and outstanding amount will be audited.`
                     : selectedCustomer?.creditStatus === "approved"
                     ? `${selectedCustomer.name} has ${formatNaira(selectedCustomer.availableCreditMinor)} available credit.`
                     : selectedCustomer
                       ? `${selectedCustomer.name} needs administrator-approved credit before this order can be received.`
-                      : "Select a named customer with administrator-approved credit above."}
+                      : "Select a named customer with administrator-approved credit above."}</FinancialMessage>
                 </p>
                 {selectedCustomer && !canGrantCreditDirectly && selectedCustomer.creditStatus !== "approved" && canApproveCustomerCredit && (
                   <Link href="/customers" target="_blank" rel="noopener noreferrer" className="inline-flex min-h-10 items-center text-sm font-semibold text-[var(--brand)] underline underline-offset-2">
@@ -1968,7 +1971,7 @@ export default function PosPage() {
                 {creditIntent === "part" && (
                   <label className="block text-sm font-medium">
                     Amount paid now (₦)
-                    <input
+                    <FinancialInput><input
                       type="number"
                       min="0.01"
                       max={Math.max(0, amountToAllocateMinor - 1) / 100}
@@ -1979,11 +1982,11 @@ export default function PosPage() {
                       onChange={(event) => setCreditPaidAmount(event.target.value)}
                       className="mt-1 w-full rounded-lg border p-3"
                       placeholder="0.00"
-                    />
+                    /></FinancialInput>
                   </label>
                 )}
                 {creditIntent === "part" && (creditPaidAmountMinor <= 0 || creditPaidAmountMinor >= amountToAllocateMinor) && (
-                  <p className="text-xs font-medium text-red-800">Enter an amount greater than ₦0.00 and less than the sale total.</p>
+                  <p className="text-xs font-medium text-red-800">Enter an amount greater than <FinancialValue>{"₦0.00"}</FinancialValue> and less than the sale total.</p>
                 )}
                 {!canGrantCreditDirectly && selectedCustomer?.creditStatus === "approved" && creditAmountMinor > selectedCustomer.availableCreditMinor && (
                   <p className="text-xs font-medium text-red-800">The balance exceeds this customer’s available credit. Collect more now or ask an administrator to review the credit limit.</p>
@@ -2018,7 +2021,7 @@ export default function PosPage() {
                             <option value="">Select account</option>
                             {workspace.bankAccounts.map((account) => (
                               <option key={account.id} value={account.id}>
-                                {account.bankName} · {account.accountName} · ••••{account.accountNumberLast4}
+                                <FinancialText>{account.bankName}</FinancialText> · <FinancialText>{account.accountName}</FinancialText> · ••••<FinancialText>{account.accountNumberLast4}</FinancialText>
                               </option>
                             ))}
                           </select>
@@ -2037,7 +2040,7 @@ export default function PosPage() {
                 )}
                 <div className="flex justify-between border-t border-amber-200 pt-2 text-sm font-semibold">
                   <span>Balance due later</span>
-                  <span className="finance-attention">{formatNaira(Math.max(0, creditAmountMinor))}</span>
+                  <span className="finance-attention"><FinancialValue>{formatNaira(Math.max(0, creditAmountMinor))}</FinancialValue></span>
                 </div>
                 <p className="text-xs text-amber-900">The balance is recorded on the customer account. Further payments can be recorded in Customers; payment acceptance and confirmation remain separate audited steps.</p>
                 {selectedCustomer && (
@@ -2057,8 +2060,8 @@ export default function PosPage() {
                   <option value="">Select credit</option>
                   {(workspace.salesCredits ?? []).filter(credit => !credit.customerId || credit.customerId === customerId).map((credit) => (
                     <option key={credit.id} value={credit.id}>
-                      {credit.creditNumber} ·{" "}
-                      {formatNaira(credit.remainingAmountMinor)} remaining
+                      <FinancialText>{credit.creditNumber}</FinancialText> ·{" "}
+                      <FinancialValue textOnly>{formatNaira(credit.remainingAmountMinor)}</FinancialValue> remaining
                     </option>
                   ))}
                 </select>
@@ -2080,7 +2083,7 @@ export default function PosPage() {
                     <option value="">Select account</option>
                     {workspace.bankAccounts.map((account) => (
                       <option key={account.id} value={account.id}>
-                        {account.bankName} · {account.accountName} · ••••{account.accountNumberLast4}
+                        <FinancialText>{account.bankName}</FinancialText> · <FinancialText>{account.accountName}</FinancialText> · ••••<FinancialText>{account.accountNumberLast4}</FinancialText>
                       </option>
                     ))}
                   </select>
@@ -2097,9 +2100,9 @@ export default function PosPage() {
               </div>
             ) : null}
             {creditAmountMinor > 0 && <label className="mt-3 block text-sm font-medium">Payment due date<input type="date" value={creditDueDate} onChange={(event) => setCreditDueDate(event.target.value)} className="mt-1 w-full rounded-lg border p-3" /><span className="mt-1 block text-xs text-[var(--muted)]">Leave blank only when terms have not been agreed; undated debt is not marked overdue.</span></label>}
-            {checkoutHints.length > 0 && <div id="pos-checkout-prerequisites" role="status" className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950"><strong>Before receiving this order</strong><ul className="mt-2 list-disc space-y-2 pl-5">{checkoutHints.map(hint => <li key={hint}>{hint}</li>)}</ul></div>}
+            {checkoutHints.length > 0 && <div id="pos-checkout-prerequisites" role="status" className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950"><strong>Before receiving this order</strong><ul className="mt-2 list-disc space-y-2 pl-5">{checkoutHints.map(hint => <li key={hint}><FinancialText>{hint}</FinancialText></li>)}</ul></div>}
             <div className={styles.checkoutAction}>
-            <Button
+            <FinancialAction><Button
               className="mt-5 w-full"
               aria-describedby={checkoutHints.length ? "pos-checkout-prerequisites" : undefined}
               disabled={
@@ -2130,49 +2133,49 @@ export default function PosPage() {
               }
               onClick={() => void checkout()}
             >
-              {online ? "Receive order" : "Save order offline"} ·{" "}
-              {formatNaira(amountToAllocateMinor)}
-            </Button>
+              <FinancialText>{online ? "Receive order" : "Save order offline"}</FinancialText> ·{" "}
+              <FinancialValue>{formatNaira(amountToAllocateMinor)}</FinancialValue>
+            </Button></FinancialAction>
             </div>
             <p className="mt-2 text-center text-xs text-[var(--muted)]">
-              {online
+              <FinancialText>{online
                 ? "This records the order only. Payment acceptance and final confirmation happen in the workflow queue above."
-                : "The order is kept on this device and joins the payment queue after synchronization."}
+                : "The order is kept on this device and joins the payment queue after synchronization."}</FinancialText>
             </p>
-            <details className="mt-5 border-t pt-4">
+            <FinancialActionScope><details className="mt-5 border-t pt-4">
               <summary className="cursor-pointer text-sm font-semibold">
                 Close shift
               </summary>
               <label className="mt-3 block text-sm">
                 Counted closing cash (₦)
-                <input
+                <FinancialInput><input
                   type="number"
                   min="0"
                   step="0.01"
                   value={closingCash}
                   onChange={(event) => setClosingCash(event.target.value)}
                   className="mt-1 w-full rounded-lg border p-2.5"
-                />
+                /></FinancialInput>
               </label>
-              <Button
+              <FinancialAction><Button
                 className="mt-3 w-full"
                 variant="outline"
                 disabled={!online || !closingCash || busy}
                 onClick={() => void closeShift()}
               >
                 Close and reconcile shift
-              </Button>
-            </details>
-            </fieldset>
-          </aside>
+              </Button></FinancialAction>
+            </details></FinancialActionScope>
+            </fieldset></FinancialActionScope>
+          </aside></FinancialAttributes>
           </PosCartSurface>
         </div>
       )}
 
       {workspace?.openShift && (
         <button type="button" onClick={() => setCartOpen(true)} className={`${styles.mobileCartButton} fixed inset-x-4 bottom-[calc(4.6rem+env(safe-area-inset-bottom))] z-30 flex min-h-12 items-center justify-between rounded-xl bg-[var(--brand)] px-4 font-semibold text-white shadow-xl lg:hidden`}>
-          <span className="flex items-center gap-2"><ShoppingCart className="size-5" /> Current sale · {totals.totalQuantity} items</span>
-          <span>{formatNaira(amountToAllocateMinor)}</span>
+          <span className="flex items-center gap-2"><ShoppingCart className="size-5" /> Current sale · <FinancialText>{totals.totalQuantity}</FinancialText> items</span>
+          <span><FinancialValue>{formatNaira(amountToAllocateMinor)}</FinancialValue></span>
         </button>
       )}
 
@@ -2275,7 +2278,7 @@ export default function PosPage() {
                   (!newCustomer.phone.trim() && !newCustomer.email.trim())
                 }
               >
-                {busy ? "Saving…" : "Save and select"}
+                <FinancialText>{busy ? "Saving…" : "Save and select"}</FinancialText>
               </Button>
             </div>
           </form>
@@ -2310,37 +2313,37 @@ export default function PosPage() {
           <section
             className="app-dialog-panel max-w-sm rounded-2xl bg-white p-6 text-center shadow-2xl"
             data-print-document
-          >
+          ><FinancialDocument>
             {receipt.queued ? (
               <CircleAlert className="mx-auto size-12 text-amber-600" />
             ) : (
               <CheckCircle2 className="mx-auto size-12 text-emerald-600" />
             )}
             <h2 className="mt-3 text-2xl font-semibold">
-              {receipt.queued ? "Order saved offline" : "Sale completed"}
+              <FinancialText>{receipt.queued ? "Order saved offline" : "Sale completed"}</FinancialText>
             </h2>
-            <p className="mt-2 font-mono text-sm">{receipt.reference}</p>
+            <p className="mt-2 font-mono text-sm"><FinancialText>{receipt.reference}</FinancialText></p>
             <p className="mt-4 text-3xl font-semibold">
-              {formatNaira(receipt.totalMinor)}
+              <FinancialValue>{formatNaira(receipt.totalMinor)}</FinancialValue>
             </p>
             <p className="mt-3 text-sm text-[var(--muted)]">
-              {receipt.queued
+              <FinancialText>{receipt.queued
                 ? "This provisional order reference will enter the payment-acceptance queue after synchronization."
-                : "Inventory, VAT, settlement or receivable, and accounting records were posted."}
+                : "Inventory, VAT, settlement or receivable, and accounting records were posted."}</FinancialText>
             </p>
             <div className="mt-5 flex gap-3" data-no-print>
-              <Button
+              <FinancialPrintAction><Button
                 variant="outline"
                 className="flex-1"
                 onClick={() => window.print()}
               >
                 <Printer className="mr-2 size-4" /> Print provisional
-              </Button>
+              </Button></FinancialPrintAction>
               <Button className="flex-1" onClick={() => setReceipt(null)}>
                 New sale
               </Button>
             </div>
-          </section>
+          </FinancialDocument></section>
         </AppDialog>
       ) : null}
 
@@ -2379,11 +2382,11 @@ export default function PosPage() {
               aria-modal="true"
               aria-label="Store-wide selling price"
             >
-              <section ref={branchPriceDialogRef} className={`${styles.dialog} app-dialog-panel max-w-md rounded-2xl bg-white p-6 shadow-2xl`}>
+              <FinancialActionScope><section ref={branchPriceDialogRef} className={`${styles.dialog} app-dialog-panel max-w-md rounded-2xl bg-white p-6 shadow-2xl`}>
                 <h2 className="text-xl font-semibold">Set store-wide price</h2>
                 <p className="mt-1 text-sm text-[var(--muted)]">
-                  {product.name} · Central base{" "}
-                  {formatNaira(product.basePriceMinor)}
+                  <FinancialText>{product.name}</FinancialText> · Central base{" "}
+                  <FinancialValue>{formatNaira(product.basePriceMinor)}</FinancialValue>
                 </p>
                 <p className="mt-2 text-sm text-[var(--muted)]">
                   This changes future sales at this store. To change just one
@@ -2391,7 +2394,7 @@ export default function PosPage() {
                 </p>
                 <label className="mt-5 block text-sm font-medium">
                   Store-wide price before VAT (₦)
-                  <input
+                  <FinancialInput><input
                     type="number"
                     min="0.01"
                     step="0.01"
@@ -2399,7 +2402,7 @@ export default function PosPage() {
                     value={branchPrice}
                     onChange={(event) => setBranchPrice(event.target.value)}
                     className="mt-1 w-full rounded-lg border p-3 text-lg"
-                  />
+                  /></FinancialInput>
                 </label>
                 {belowBase && (
                   <div className="mt-3 rounded-lg bg-amber-50 p-3 text-sm text-amber-950">
@@ -2408,7 +2411,7 @@ export default function PosPage() {
                   </div>
                 )}
                 <label className="mt-3 block text-sm font-medium">
-                  Approval reason {belowBase ? "(required)" : "(optional)"}
+                  Approval reason <FinancialText>{belowBase ? "(required)" : "(optional)"}</FinancialText>
                   <textarea
                     value={priceReason}
                     onChange={(event) => setPriceReason(event.target.value)}
@@ -2422,7 +2425,7 @@ export default function PosPage() {
                   >
                     Cancel
                   </Button>
-                  <Button
+                  <FinancialAction><Button
                     disabled={
                       busy ||
                       !branchPrice ||
@@ -2431,9 +2434,9 @@ export default function PosPage() {
                     onClick={() => void saveBranchPrice()}
                   >
                     Save branch price
-                  </Button>
+                  </Button></FinancialAction>
                 </div>
-              </section>
+              </section></FinancialActionScope>
             </AppDialog>
           );
         })()}

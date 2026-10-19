@@ -1,4 +1,5 @@
 "use client";
+import { FinancialMessage, FinancialText, FinancialValue } from "@/features/finance/financial-privacy";
 
 import { useId } from "react";
 import { PackagePlus } from "lucide-react";
@@ -34,22 +35,22 @@ export function PosProductCard({ product, available, pending, ready, online, onA
     <div className={styles.productHeading}>
       <span className={styles.productIcon} aria-hidden="true"><PackagePlus size={20} /></span>
       <div className={styles.productIdentity}>
-        <h3>{product.name}</h3>
-        <p className={styles.sku}>{product.sku}</p>
+        <h3><FinancialText>{product.name}</FinancialText></h3>
+        <p className={styles.sku}><FinancialText>{product.sku}</FinancialText></p>
       </div>
     </div>
-    <div className={styles.productPrice}>{formatNaira(product.unitPriceMinor)}</div>
-    <p className={styles.priceCaption}>before VAT · {product.priceSource} price</p>
+    <div className={styles.productPrice}><FinancialValue>{formatNaira(product.unitPriceMinor)}</FinancialValue></div>
+    <p className={styles.priceCaption}>before VAT · <FinancialText>{product.priceSource}</FinancialText> price</p>
     <p className={available <= 0 ? styles.outOfStock : styles.availability}>
-      {available <= 0 ? "Out of stock" : service ? online ? "Service · online confirmation" : "Internet required" : `${available} ${product.unitOfMeasure} available`}
+      <FinancialText>{available <= 0 ? "Out of stock" : service ? online ? "Service · online confirmation" : "Internet required" : `${available} ${product.unitOfMeasure} available`}</FinancialText>
     </p>
     <div className={styles.productActions}>
       <button type="button" className={styles.addProduct} disabled={disabled} aria-describedby={disabled ? helpId : undefined} onClick={onAdd}>Add</button>
       {onManagePrice && <button type="button" className={styles.managePrice} onClick={onManagePrice}>Store-wide price</button>}
     </div>
     {disabled && <details className={styles.availabilityHelp}>
-      <summary>Why unavailable?<span className="sr-only"> {product.name}</span></summary>
-      <ul id={helpId}>{reasons.map(reason => <li key={reason}>{reason}</li>)}</ul>
+      <summary>Why unavailable?<span className="sr-only"> <FinancialText>{product.name}</FinancialText></span></summary>
+      <ul id={helpId}>{reasons.map(reason => <li key={reason}><FinancialMessage>{reason}</FinancialMessage></li>)}</ul>
     </details>}
   </article>;
 }

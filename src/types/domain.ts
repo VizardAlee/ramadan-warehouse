@@ -1,3 +1,5 @@
+export interface RecordActorLabels { [field: string]: { userId: string; currentName: string | null } | undefined }
+
 export const roleIds = [
   "system_administrator",
   "operations_administrator",
@@ -296,6 +298,9 @@ export interface Supplier {
 }
 
 export interface PurchaseOrder {
+  actorLabels?: RecordActorLabels;
+  approvedBy?: string;
+  receivedBy?: string;
   id: string;
   organizationId: string;
   purchaseOrderNumber: string;
@@ -332,6 +337,9 @@ export interface PurchaseOrderItem {
 }
 
 export interface SupplierInvoice {
+  actorLabels?: RecordActorLabels;
+  approvedBy?: string;
+  receivedBy?: string;
   id: string;
   supplierId: string;
   supplierName: string;
@@ -354,6 +362,9 @@ export interface SupplierInvoice {
 }
 
 export interface OperatingExpense {
+  actorLabels?: RecordActorLabels;
+  approvedBy?: string;
+  receivedBy?: string;
   id: string;
   organizationId: string;
   expenseNumber: string;
@@ -615,6 +626,9 @@ export const transferStatuses = [
 export type TransferStatus = (typeof transferStatuses)[number];
 export type TransferSourceType = "branch_request" | "admin_allocation";
 export interface WarehouseTransfer {
+  actorLabels?: RecordActorLabels;
+  approvedBy?: string;
+  receivedBy?: string;
   id: string;
   organizationId: string;
   transferNumber: string;

@@ -1,4 +1,5 @@
 "use client";
+import { FinancialDocument, FinancialMessage, FinancialPrintAction, FinancialText, FinancialValue } from "@/features/finance/financial-privacy";
 
 import { fitInvoiceToPage } from "./invoice-print";
 import { Printer, X } from "lucide-react";
@@ -91,7 +92,7 @@ function SaleDocumentContent({ document, onClose }: { document: SaleDocument; on
         ref={printRef}
         data-invoice-document
         data-print-document
-      >
+      ><FinancialDocument>
         <header className="flex items-start justify-between gap-4 border-b p-5 sm:p-7">
           <div className="flex min-w-0 items-start gap-3 sm:gap-5">
             <span className="grid size-16 shrink-0 place-items-center overflow-hidden rounded-lg border bg-white p-1 sm:size-20">
@@ -99,31 +100,31 @@ function SaleDocumentContent({ document, onClose }: { document: SaleDocument; on
             </span>
             <div className="min-w-0">
             <p className="text-xs font-semibold uppercase tracking-[.16em] text-[var(--brand)]">
-              {document.official
+              <FinancialText>{document.official
                 ? "Official sales document"
-                : "Provisional offline document"}
+                : "Provisional offline document"}</FinancialText>
             </p>
             <h2 className="mt-1 text-2xl font-semibold">
-              {document.organization.tradingName ||
-                document.organization.legalName}
+              <FinancialText>{document.organization.tradingName ||
+                document.organization.legalName}</FinancialText>
             </h2>
             {document.organization.tradingName && (
               <p className="text-sm text-[var(--muted)]">
-                {document.organization.legalName}
+                <FinancialText>{document.organization.legalName}</FinancialText>
               </p>
             )}
             <p className="mt-2 max-w-xl text-sm text-[var(--muted)]">
-              {[
+              <FinancialText>{[
                 document.organization.address,
                 document.organization.contactEmail,
                 ...document.organization.phoneNumbers,
               ]
                 .filter(Boolean)
-                .join(" · ")}
+                .join(" · ")}</FinancialText>
             </p>
             {document.organization.registrationNumber && (
               <p className="mt-1 text-xs text-[var(--muted)]">
-                Registration: {document.organization.registrationNumber}
+                Registration: <FinancialText>{document.organization.registrationNumber}</FinancialText>
               </p>
             )}
             </div>
@@ -148,15 +149,15 @@ function SaleDocumentContent({ document, onClose }: { document: SaleDocument; on
 
         <div className="space-y-6 p-5 sm:p-7">
           <section className="rounded-xl border p-4 text-sm" data-no-print>
-            <p className="font-semibold">Collection: {label(document.sale.collectionStatus ?? "collected")}</p>
-            {document.items.filter(item => item.itemKind !== "service").map((item) => <p key={item.id}>{item.productName}: sold {item.quantity}, collected {item.collectedQuantity ?? item.quantity}, cancelled {item.cancelledQuantity ?? 0}, awaiting collection {item.quantity - (item.collectedQuantity ?? item.quantity) - (item.cancelledQuantity ?? 0)}</p>)}
-            {page.collections?.map((collection) => <div key={collection.id} className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t pt-3"><p>{collection.collectedAt ? new Date(collection.collectedAt).toLocaleString("en-NG") : "—"} · {collection.totalQuantity} collected by {collection.collector} · {collection.releasedByName || "Authorized staff"}</p>{document.official && <Button type="button" variant="outline" size="sm" data-no-print onClick={() => setWaybillId(collection.id)}>View waybill</Button>}{document.official && <CollectionPhotoViewer saleId={document.sale.id} evidenceIds={collection.evidenceIds ?? []} />}</div>)}
+            <p className="font-semibold">Collection: <FinancialText>{label(document.sale.collectionStatus ?? "collected")}</FinancialText></p>
+            {document.items.filter(item => item.itemKind !== "service").map((item) => <p key={item.id}><FinancialText>{item.productName}</FinancialText>: sold <FinancialText>{item.quantity}</FinancialText>, collected <FinancialText>{item.collectedQuantity ?? item.quantity}</FinancialText>, cancelled <FinancialText>{item.cancelledQuantity ?? 0}</FinancialText>, awaiting collection <FinancialText>{item.quantity - (item.collectedQuantity ?? item.quantity) - (item.cancelledQuantity ?? 0)}</FinancialText></p>)}
+            {page.collections?.map((collection) => <div key={collection.id} className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t pt-3"><p><FinancialText>{collection.collectedAt ? new Date(collection.collectedAt).toLocaleString("en-NG") : "—"}</FinancialText> · <FinancialText>{collection.totalQuantity}</FinancialText> collected by <FinancialText>{collection.collector}</FinancialText> · <FinancialText>{collection.releasedByName || "Authorized staff"}</FinancialText></p>{document.official && <Button type="button" variant="outline" size="sm" data-no-print onClick={() => setWaybillId(collection.id)}>View waybill</Button>}{document.official && <CollectionPhotoViewer saleId={document.sale.id} evidenceIds={collection.evidenceIds ?? []} />}</div>)}
             {document.official && <div className="mt-3 flex flex-wrap items-center gap-3 border-t pt-3" data-no-print>
-              <label>Collections per page <select aria-label="Collections per page" className="rounded border p-2" value={limit} disabled={busy} onChange={event => void loadCollectionPage(undefined, 0, Number(event.target.value))}>{[25, 50, 100].map(size => <option key={size} value={size}>{size}</option>)}</select></label>
-              <span aria-live="polite">{busy ? "Loading collection history…" : `Page ${pageNumber + 1} · ${page.collections?.length ?? 0} handovers`}</span>
+              <label>Collections per page <select aria-label="Collections per page" className="rounded border p-2" value={limit} disabled={busy} onChange={event => void loadCollectionPage(undefined, 0, Number(event.target.value))}>{[25, 50, 100].map(size => <option key={size} value={size}><FinancialText>{size}</FinancialText></option>)}</select></label>
+              <span aria-live="polite"><FinancialText>{busy ? "Loading collection history…" : `Page ${pageNumber + 1} · ${page.collections?.length ?? 0} handovers`}</FinancialText></span>
               <Button type="button" variant="outline" size="sm" disabled={busy || pageNumber === 0} onClick={() => void loadCollectionPage(cursors[pageNumber - 1], pageNumber - 1)}>Newer collections</Button>
               <Button type="button" variant="outline" size="sm" disabled={busy || !page.collectionsNextCursorId} onClick={() => void loadCollectionPage(page.collectionsNextCursorId ?? undefined, pageNumber + 1)}>Older collections</Button>
-              {error && <p role="alert" className="w-full text-red-700">{error}</p>}
+              {error && <p role="alert" className="w-full text-red-700"><FinancialMessage>{error}</FinancialMessage></p>}
             </div>}
           </section>
           <section className="grid gap-4 sm:grid-cols-2">
@@ -165,13 +166,13 @@ function SaleDocumentContent({ document, onClose }: { document: SaleDocument; on
                 Sales invoice
               </p>
               <p className="mt-1 font-mono font-semibold">
-                {document.sale.invoiceNumber}
+                <FinancialText>{document.sale.invoiceNumber}</FinancialText>
               </p>
-              <p className="mt-2 text-sm">Issued {issuedAt}</p>
+              <p className="mt-2 text-sm">Issued <FinancialText>{issuedAt}</FinancialText></p>
               <p className="text-sm">
                 Status:{" "}
                 <span className="capitalize">
-                  {label(document.sale.paymentStatus)}
+                  <FinancialText>{label(document.sale.paymentStatus)}</FinancialText>
                 </span>
               </p>
             </div>
@@ -180,15 +181,15 @@ function SaleDocumentContent({ document, onClose }: { document: SaleDocument; on
                 Payment receipt
               </p>
               <p className="mt-1 font-mono font-semibold">
-                {document.sale.receiptNumber}
+                <FinancialText>{document.sale.receiptNumber}</FinancialText>
               </p>
               <p className="mt-2 text-sm">
                 Amount received:{" "}
-                <strong>{formatNaira(document.sale.amountPaidMinor)}</strong>
+                <strong><FinancialValue>{formatNaira(document.sale.amountPaidMinor)}</FinancialValue></strong>
               </p>
               {document.sale.creditAmountMinor > 0 && (
                 <p className="text-sm text-amber-800">
-                  Credit issued at checkout: {formatNaira(document.sale.creditAmountMinor)}
+                  Credit issued at checkout: <FinancialValue>{formatNaira(document.sale.creditAmountMinor)}</FinancialValue>
                 </p>
               )}
             </div>
@@ -197,33 +198,33 @@ function SaleDocumentContent({ document, onClose }: { document: SaleDocument; on
           <section className="grid gap-4 text-sm sm:grid-cols-2">
             <div>
               <p className="font-semibold">Seller</p>
-              <p>{document.branch.name}</p>
+              <p><FinancialText>{document.branch.name}</FinancialText></p>
               <p className="text-[var(--muted)]">
-                {[
+                <FinancialText>{[
                   document.branch.address,
                   document.branch.state,
                   document.branch.contactPhone,
                 ]
                   .filter(Boolean)
-                  .join(" · ")}
+                  .join(" · ")}</FinancialText>
               </p>
             </div>
             <div>
               <p className="font-semibold">Customer</p>
-              <p>{document.sale.customerName || "Walk-in customer"}</p>
+              <p><FinancialText>{document.sale.customerName || "Walk-in customer"}</FinancialText></p>
               <p className="text-[var(--muted)]">
-                {[
+                <FinancialText>{[
                   document.sale.customerNumber,
                   document.sale.customerPhone,
                   document.sale.customerEmail,
                   document.sale.customerTaxId,
                 ]
                   .filter(Boolean)
-                  .join(" · ")}
+                  .join(" · ")}</FinancialText>
               </p>
               {document.sale.customerAddress && (
                 <p className="text-[var(--muted)]">
-                  {document.sale.customerAddress}
+                  <FinancialText>{document.sale.customerAddress}</FinancialText>
                 </p>
               )}
             </div>
@@ -245,25 +246,25 @@ function SaleDocumentContent({ document, onClose }: { document: SaleDocument; on
                 {document.items.map((item) => (
                   <tr key={item.id} className="border-t">
                     <td className="p-3">
-                      <strong>{item.productName}</strong>{item.itemKind === "service" && <span className="block text-xs">Service fee{item.aftersalesCaseId ? ` · Case ${item.aftersalesCaseId}` : ""}</span>}{item.includedParts?.length ? <p className="text-xs">Included parts: {item.includedParts.map(part => `${part.productName} × ${part.quantity}${part.serialNumbers?.length ? ` (${part.serialNumbers.join(", ")})` : ""}`).join("; ")}</p> : null}{item.providerFunds && <p className="text-xs">Provider funds: {item.providerFunds.supplierName} · {formatNaira(item.providerFunds.amountMinor)} (separate payable)</p>}{Boolean(item.serialNumbers?.length) && <p className="mt-1 break-all text-xs">Allocated serials: {item.serialNumbers!.join(", ")}<br />Collected: {item.collectedSerialNumbers?.join(", ") || "None"}<br />Cancelled: {item.cancelledSerialNumbers?.join(", ") || "None"}</p>}
+                      <strong><FinancialText>{item.productName}</FinancialText></strong>{item.itemKind === "service" && <span className="block text-xs">Service fee<FinancialText>{item.aftersalesCaseId ? ` · Case ${item.aftersalesCaseId}` : ""}</FinancialText></span>}{item.includedParts?.length ? <p className="text-xs">Included parts: <FinancialText>{item.includedParts.map(part => `${part.productName} × ${part.quantity}${part.serialNumbers?.length ? ` (${part.serialNumbers.join(", ")})` : ""}`).join("; ")}</FinancialText></p> : null}{item.providerFunds && <p className="text-xs">Provider funds: <FinancialText>{item.providerFunds.supplierName}</FinancialText> · <FinancialValue>{formatNaira(item.providerFunds.amountMinor)}</FinancialValue> (separate payable)</p>}{Boolean(item.serialNumbers?.length) && <p className="mt-1 break-all text-xs">Allocated serials: <FinancialText>{item.serialNumbers!.join(", ")}</FinancialText><br />Collected: <FinancialText>{item.collectedSerialNumbers?.join(", ") || "None"}</FinancialText><br />Cancelled: <FinancialText>{item.cancelledSerialNumbers?.join(", ") || "None"}</FinancialText></p>}
                       <span className="block font-mono text-xs text-[var(--muted)]">
-                        {item.sku}
+                        <FinancialText>{item.sku}</FinancialText>
                       </span>
                     </td>
                     <td className="p-3 text-right">
-                      {item.quantity} {item.unitOfMeasure}
+                      <FinancialText>{item.quantity}</FinancialText> <FinancialText>{item.unitOfMeasure}</FinancialText>
                     </td>
                     <td className="p-3 text-right">
-                      {formatNaira(item.unitPriceMinor)}
+                      <FinancialValue>{formatNaira(item.unitPriceMinor)}</FinancialValue>
                     </td>
                     <td className="p-3 text-right">
-                      {formatNaira(item.discountAmountMinor)}
+                      <FinancialValue>{formatNaira(item.discountAmountMinor)}</FinancialValue>
                     </td>
                     <td className="p-3 text-right">
-                      {formatNaira(item.vatAmountMinor)}
+                      <FinancialValue>{formatNaira(item.vatAmountMinor)}</FinancialValue>
                     </td>
                     <td className="p-3 text-right font-medium">
-                      {formatNaira(item.grossAmountMinor)}
+                      <FinancialValue>{formatNaira(item.grossAmountMinor)}</FinancialValue>
                     </td>
                   </tr>
                 ))}
@@ -274,37 +275,37 @@ function SaleDocumentContent({ document, onClose }: { document: SaleDocument; on
           <section className="ml-auto max-w-sm space-y-2 text-sm">
             <div className="flex justify-between">
               <span>Product subtotal</span>
-              <span>{formatNaira(document.sale.subtotalAmountMinor)}</span>
+              <span><FinancialValue>{formatNaira(document.sale.subtotalAmountMinor)}</FinancialValue></span>
             </div>
             {document.sale.discountAmountMinor > 0 && (
               <div className="flex justify-between text-emerald-800">
                 <span>
                   Discount
-                  {document.sale.discountReason
+                  <FinancialText>{document.sale.discountReason
                     ? ` · ${document.sale.discountReason}`
-                    : ""}
+                    : ""}</FinancialText>
                 </span>
-                <span>−{formatNaira(document.sale.discountAmountMinor)}</span>
+                <span>−<FinancialValue>{formatNaira(document.sale.discountAmountMinor)}</FinancialValue></span>
               </div>
             )}
             <div className="flex justify-between">
               <span>Net sales</span>
-              <span>{formatNaira(document.sale.netAmountMinor)}</span>
+              <span><FinancialValue>{formatNaira(document.sale.netAmountMinor)}</FinancialValue></span>
             </div>
             <div className="flex justify-between">
               <span>VAT</span>
-              <span>{formatNaira(document.sale.vatAmountMinor)}</span>
+              <span><FinancialValue>{formatNaira(document.sale.vatAmountMinor)}</FinancialValue></span>
             </div>
-            {!!document.sale.providerFundsMinor && <div className="flex justify-between"><span>Provider funds (pass-through)</span><span>{formatNaira(document.sale.providerFundsMinor)}</span></div>}
+            {!!document.sale.providerFundsMinor && <div className="flex justify-between"><span>Provider funds (pass-through)</span><span><FinancialValue>{formatNaira(document.sale.providerFundsMinor)}</FinancialValue></span></div>}
             <div className="flex justify-between border-t pt-2 text-lg font-semibold">
               <span>Invoice total</span>
-              <span>{formatNaira(document.sale.grossAmountMinor)}</span>
+              <span><FinancialValue>{formatNaira(document.sale.grossAmountMinor)}</FinancialValue></span>
             </div>
           </section>
 
           <section>
             <h3 className="font-semibold">Payment evidence</h3>
-            {!!document.sale.priorServicePaidMinor && <p className="text-sm">Previously received on linked service cases: {formatNaira(document.sale.priorServicePaidMinor)}. Carried forward without a new cash receipt.</p>}
+            {!!document.sale.priorServicePaidMinor && <p className="text-sm">Previously received on linked service cases: <FinancialValue>{formatNaira(document.sale.priorServicePaidMinor)}</FinancialValue>. Carried forward without a new cash receipt.</p>}
             <div className="mt-2 space-y-2 text-sm">
               {document.payments.map((payment) => (
                 <div
@@ -312,15 +313,15 @@ function SaleDocumentContent({ document, onClose }: { document: SaleDocument; on
                   className="flex flex-wrap justify-between gap-2 rounded-lg bg-slate-50 p-3"
                 >
                   <span className="capitalize">
-                    {label(payment.method)}
-                    {payment.reference ? ` · ${payment.reference}` : ""}
+                    <FinancialText>{label(payment.method)}</FinancialText>
+                    <FinancialText>{payment.reference ? ` · ${payment.reference}` : ""}</FinancialText>
                   </span>
-                  <strong>{formatNaira(payment.amountMinor)}</strong>
+                  <strong><FinancialValue>{formatNaira(payment.amountMinor)}</FinancialValue></strong>
                 </div>
               ))}
               {!document.payments.length && (
                 <p className="rounded-lg bg-amber-50 p-3 text-amber-950">
-                  {(document.sale.priorServicePaidMinor ?? 0) >= document.sale.grossAmountMinor ? "This invoice is covered by previous service receipts. No additional payment is due." : "No new payment was received. The remaining invoice amount is on customer credit."}
+                  <FinancialText>{(document.sale.priorServicePaidMinor ?? 0) >= document.sale.grossAmountMinor ? "This invoice is covered by previous service receipts. No additional payment is due." : "No new payment was received. The remaining invoice amount is on customer credit."}</FinancialText>
                 </p>
               )}
             </div>
@@ -343,11 +344,11 @@ function SaleDocumentContent({ document, onClose }: { document: SaleDocument; on
           <Button variant="secondary" onClick={onClose}>
             Close
           </Button>
-          <Button onClick={() => window.print()}>
+          <FinancialPrintAction><Button onClick={() => window.print()}>
             <Printer className="mr-2 size-4" /> Print or save PDF
-          </Button>
+          </Button></FinancialPrintAction>
         </footer>
-      </section>
+      </FinancialDocument></section>
     </AppDialog>
   );
 }

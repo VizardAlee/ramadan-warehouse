@@ -1,4 +1,5 @@
 "use client";
+import { FinancialMessage, FinancialText, FinancialValue } from "@/features/finance/financial-privacy";
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -79,28 +80,28 @@ export function InvoiceHistory() {
       <ReportPeriodPicker value={period} onChange={value => { setPeriod(value); if (value !== "custom") { const range = reportDateRange(value); setFrom(range.fromDate); setTo(range.toDate); } }} />
       <label className="text-sm font-medium">Store<select className="input mt-1 block w-full" value={branchId} onChange={event => { setSelection(event.target.value); if (!access.global && event.target.value) setOperatingContext({ type: "branch", id: event.target.value }); pagination.setPage(1); }}>
         {access.global && <option value="">All permitted stores</option>}
-        {!access.global && !branchId && <option value="">{profile?.branchIds.length ? "Choose an assigned store" : "No assigned store"}</option>}
-        {[...branches].map(([id, name]) => <option key={id} value={id}>{name}</option>)}
+        {!access.global && !branchId && <option value=""><FinancialText>{profile?.branchIds.length ? "Choose an assigned store" : "No assigned store"}</FinancialText></option>}
+        {[...branches].map(([id, name]) => <option key={id} value={id}><FinancialText>{name}</FinancialText></option>)}
       </select></label>
       <label className="text-sm font-medium">From date<input className="input mt-1 block w-full" type="date" value={fromDate} onChange={event => { setPeriod("custom"); setFrom(event.target.value); pagination.setPage(1); }} /></label>
       <label className="text-sm font-medium">To date<input className="input mt-1 block w-full" type="date" value={toDate} onChange={event => { setPeriod("custom"); setTo(event.target.value); pagination.setPage(1); }} /></label>
       <label className="text-sm font-medium">Search invoices<input className="input mt-1 block w-full" type="search" placeholder="Invoice, receipt or customer" value={search} onChange={event => { setSearch(event.target.value); pagination.setPage(1); }} /></label>
-      <label className="text-sm font-medium">Recorded payment status<select className="input mt-1 block w-full" value={status} onChange={event => { setStatus(event.target.value); pagination.setPage(1); }}><option value="">All recorded statuses</option>{status && !statuses.includes(status) && <option value={status}>{readable(status)}</option>}{statuses.map(value => <option key={value} value={value}>{readable(value)}</option>)}</select></label>
+      <label className="text-sm font-medium">Recorded payment status<select className="input mt-1 block w-full" value={status} onChange={event => { setStatus(event.target.value); pagination.setPage(1); }}><option value="">All recorded statuses</option>{status && !statuses.includes(status) && <option value={status}><FinancialText>{readable(status)}</FinancialText></option>}{statuses.map(value => <option key={value} value={value}><FinancialText>{readable(value)}</FinancialText></option>)}</select></label>
     </section>
     <p className="text-sm text-[var(--muted)]">Dates use Africa/Lagos. Search covers every invoice in the selected range, up to 10,000 records. Status and invoice totals use saved sale records; use customer statements for current debt after repayments or credits.</p>
     {!validDates && <p role="alert">Choose a valid start and end date, with the start on or before the end.</p>}
     {!access.global && !branchId && <p role="alert">Choose an assigned store to load invoice history. If none is listed, ask an administrator to review your existing assignment.</p>}
     {ready && !current && <p role="status">Loading invoice history across the selected dates…</p>}
-    {current?.error && <p role="alert">{current.error}</p>}
-    {documentError?.key === key && <p role="alert">{documentError.message}</p>}
-    <div className="action-row"><Button variant="outline" onClick={() => setRefresh(value => value + 1)}>Refresh history</Button><Button variant="secondary" disabled={!current?.rows || !filtered.length} onClick={() => downloadInvoiceHistory(filtered)}>Download history CSV</Button>{current?.rows && <p role="status" className="text-sm">{filtered.length.toLocaleString()} matching invoices · {rows.length.toLocaleString()} in this date range</p>}</div>
+    {current?.error && <p role="alert"><FinancialMessage>{current.error}</FinancialMessage></p>}
+    {documentError?.key === key && <p role="alert"><FinancialMessage>{documentError.message}</FinancialMessage></p>}
+    <div className="action-row"><Button variant="outline" onClick={() => setRefresh(value => value + 1)}>Refresh history</Button><Button variant="secondary" disabled={!current?.rows || !filtered.length} onClick={() => downloadInvoiceHistory(filtered)}>Download history CSV</Button>{current?.rows && <p role="status" className="text-sm"><FinancialText>{filtered.length.toLocaleString()}</FinancialText> matching invoices · <FinancialText>{rows.length.toLocaleString()}</FinancialText> in this date range</p>}</div>
     {current?.rows && !filtered.length && <p className="surface p-5">No invoices match these filters. Try another date range, store, invoice number or customer.</p>}
-    {filtered.length > 0 && <><div className="responsive-table-wrap"><table className="responsive-table" aria-label="Invoice history"><thead><tr>{["Invoice / receipt", "Issued", "Store", "Customer", "Recorded payment status", "Invoice total", "Actions"].map(text => <th key={text}>{text}</th>)}</tr></thead><tbody>{pagination.rows.map(row => <tr key={row.id}>
-      <td data-label="Invoice / receipt" data-primary="true"><strong>{row.saleNumber || `Invoice ${row.id}`}</strong><span className="block text-sm text-[var(--muted)]">{row.receiptNumber}</span></td>
-      <td data-label="Issued">{row.recordedAt ? new Date(row.recordedAt).toLocaleString("en-NG", { timeZone: "Africa/Lagos" }) : "Date unavailable"}</td>
-      <td data-label="Store">{row.branchName || `Store ${row.branchId}`}</td><td data-label="Customer">{row.customerName}<span className="block text-sm text-[var(--muted)]">{row.customerNumber}</span></td>
-      <td data-label="Recorded payment status">{readable(row.paymentStatus)}</td><td data-label="Invoice total" className="tabular-nums">{formatNaira(row.grossAmountMinor)}</td>
-      <td data-label="Actions" data-actions="true"><Button variant="outline" aria-busy={opening?.key === key && opening.id === row.id} disabled={opening?.key === key} onClick={() => void openInvoice(row)}>{opening?.key === key && opening.id === row.id ? "Opening…" : "View invoice"}</Button><Button variant="outline" disabled={opening?.key === key} onClick={() => void openInvoice(row, true)}>Print waybill</Button></td>
+    {filtered.length > 0 && <><div className="responsive-table-wrap"><table className="responsive-table" aria-label="Invoice history"><thead><tr>{["Invoice / receipt", "Issued", "Store", "Customer", "Recorded payment status", "Invoice total", "Actions"].map(text => <th key={text}><FinancialText>{text}</FinancialText></th>)}</tr></thead><tbody>{pagination.rows.map(row => <tr key={row.id}>
+      <td data-label="Invoice / receipt" data-primary="true"><strong><FinancialText>{row.saleNumber || `Invoice ${row.id}`}</FinancialText></strong><span className="block text-sm text-[var(--muted)]"><FinancialText>{row.receiptNumber}</FinancialText></span></td>
+      <td data-label="Issued"><FinancialText>{row.recordedAt ? new Date(row.recordedAt).toLocaleString("en-NG", { timeZone: "Africa/Lagos" }) : "Date unavailable"}</FinancialText></td>
+      <td data-label="Store"><FinancialText>{row.branchName || `Store ${row.branchId}`}</FinancialText></td><td data-label="Customer"><FinancialText>{row.customerName}</FinancialText><span className="block text-sm text-[var(--muted)]"><FinancialText>{row.customerNumber}</FinancialText></span></td>
+      <td data-label="Recorded payment status"><FinancialText>{readable(row.paymentStatus)}</FinancialText></td><td data-label="Invoice total" className="tabular-nums"><FinancialValue>{formatNaira(row.grossAmountMinor)}</FinancialValue></td>
+      <td data-label="Actions" data-actions="true"><Button variant="outline" aria-busy={opening?.key === key && opening.id === row.id} disabled={opening?.key === key} onClick={() => void openInvoice(row)}><FinancialText>{opening?.key === key && opening.id === row.id ? "Opening…" : "View invoice"}</FinancialText></Button><Button variant="outline" disabled={opening?.key === key} onClick={() => void openInvoice(row, true)}>Print waybill</Button></td>
     </tr>)}</tbody></table></div><PaginatedTableControls pagination={pagination} total={filtered.length} itemLabel="invoices" /></>}
     <p className="text-sm"><Link className="underline" href="/reports?family=sales">Open Sales register</Link> for sales summaries. Supplier invoices remain in Purchasing.</p>
     {ready && document?.key === key && (document.waybills ? <SaleWaybills document={document.value} onClose={() => setDocument(undefined)} /> : <SaleDocumentDialog document={document.value} onClose={() => setDocument(undefined)} />)}

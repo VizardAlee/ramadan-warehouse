@@ -1,4 +1,5 @@
 "use client";
+import { FinancialAction, FinancialActionScope, FinancialAttributes, FinancialInput, FinancialMessage, FinancialText, FinancialValue  } from "@/features/finance/financial-privacy";
 
 import {
   BadgeCheck,
@@ -318,7 +319,7 @@ export default function CustomersPage() {
 
   function customerActions(customer: Customer, view: "desktop" | "compact") {
     return <div className="flex flex-wrap gap-2">
-      <Button size="sm" variant="outline" aria-expanded={expandedCustomerId === customer.id} aria-controls={`customer-history-${view}-${customer.id}`} onClick={() => toggleHistory(customer)}>{expandedCustomerId === customer.id ? "Hide history" : "View history"}</Button>
+      <Button size="sm" variant="outline" aria-expanded={expandedCustomerId === customer.id} aria-controls={`customer-history-${view}-${customer.id}`} onClick={() => toggleHistory(customer)}><FinancialText>{expandedCustomerId === customer.id ? "Hide history" : "View history"}</FinancialText></Button>
       {canManage && <Button size="sm" variant="outline" onClick={() => edit(customer)}>Edit</Button>}
       {canApprove && <Button size="sm" variant="outline" onClick={() => {
         setSelected(customer);
@@ -352,33 +353,33 @@ export default function CustomersPage() {
 
   function customerPreview(customer: Customer, view: "desktop" | "compact") {
     if (expandedCustomerId !== customer.id) return null;
-    return <section id={`customer-history-${view}-${customer.id}`} aria-label={`${customer.name} account history`} className="space-y-4 p-4">
+    return <FinancialAttributes><section id={`customer-history-${view}-${customer.id}`} aria-label={`${customer.name} account history`} className="space-y-4 p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div><h3 className="font-semibold">Recent account activity</h3><p className="text-xs text-[var(--muted)]">A quick preview of recorded sales, returns and account entries.</p></div>
         <Link href={`/customers/${customer.id}`} className="inline-flex min-h-9 items-center rounded-lg border px-3 text-sm font-semibold text-[var(--brand)]">View full history →</Link>
       </div>
       <dl className="grid gap-2 rounded-lg bg-slate-50 p-3 text-xs sm:grid-cols-2">
-        <div><dt className="text-[var(--muted)]">Phone</dt><dd className="font-medium">{customer.phone || "Not provided"}</dd></div>
-        <div><dt className="text-[var(--muted)]">Email</dt><dd className="break-all font-medium">{customer.email || "Not provided"}</dd></div>
-        <div><dt className="text-[var(--muted)]">Address</dt><dd className="font-medium">{customer.address || "Not provided"}</dd></div>
-        <div><dt className="text-[var(--muted)]">Tax ID</dt><dd className="font-medium">{customer.taxId || "Not provided"}</dd></div>
+        <div><dt className="text-[var(--muted)]">Phone</dt><dd className="font-medium"><FinancialText>{customer.phone || "Not provided"}</FinancialText></dd></div>
+        <div><dt className="text-[var(--muted)]">Email</dt><dd className="break-all font-medium"><FinancialText>{customer.email || "Not provided"}</FinancialText></dd></div>
+        <div><dt className="text-[var(--muted)]">Address</dt><dd className="font-medium"><FinancialText>{customer.address || "Not provided"}</FinancialText></dd></div>
+        <div><dt className="text-[var(--muted)]">Tax ID</dt><dd className="font-medium"><FinancialText>{customer.taxId || "Not provided"}</FinancialText></dd></div>
       </dl>
       <div className="grid gap-2 sm:grid-cols-3">
-        <div className="rounded-lg bg-blue-50 p-3 text-xs">Credit limit<strong className="mt-1 block text-base finance-balance">{formatNaira(history?.customer.creditLimitMinor ?? customer.creditLimitMinor)}</strong></div>
-        <div className="rounded-lg bg-amber-50 p-3 text-xs">Outstanding<strong className="mt-1 block text-base finance-attention">{formatNaira(history?.customer.outstandingBalanceMinor ?? customer.outstandingBalanceMinor)}</strong></div>
-        <div className="rounded-lg bg-blue-50 p-3 text-xs">Available credit<strong className="mt-1 block text-base finance-balance">{formatNaira(history?.customer.availableCreditMinor ?? customer.availableCreditMinor)}</strong></div>
+        <div className="rounded-lg bg-blue-50 p-3 text-xs">Credit limit<strong className="mt-1 block text-base finance-balance"><FinancialValue>{formatNaira(history?.customer.creditLimitMinor ?? customer.creditLimitMinor)}</FinancialValue></strong></div>
+        <div className="rounded-lg bg-amber-50 p-3 text-xs">Outstanding<strong className="mt-1 block text-base finance-attention"><FinancialValue>{formatNaira(history?.customer.outstandingBalanceMinor ?? customer.outstandingBalanceMinor)}</FinancialValue></strong></div>
+        <div className="rounded-lg bg-blue-50 p-3 text-xs">Available credit<strong className="mt-1 block text-base finance-balance"><FinancialValue>{formatNaira(history?.customer.availableCreditMinor ?? customer.availableCreditMinor)}</FinancialValue></strong></div>
       </div>
       {history && <AccountPosition party="customer" scope="Current balances across all stores" debt={history.customer.outstandingBalanceMinor} credit={Object.values(history.customer.advanceBalances ?? {}).reduce((sum, amount) => sum + amount, 0)} />}
       {historyLoading && <p role="status" className="text-sm text-[var(--muted)]">Loading customer activity…</p>}
-      {error && !history && <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-800">{error}</p>}
+      {error && !history && <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-800"><FinancialMessage>{error}</FinancialMessage></p>}
       <div className="space-y-2">
         {history?.rows.map((row) => <div key={row.id} className="flex flex-wrap items-start justify-between gap-2 rounded-lg border p-3 text-sm">
-          <div><strong className="capitalize">{`${customerHistoryLabel(row.kind, row.detail, row.invoiceAllocations)} · ${row.accountName ?? "General account"}${row.allocations?.length ? " — " + row.allocations.map((allocation) => `${allocation.accountName}: ${formatNaira(allocation.amountMinor)}`).join("; ") : ""}`}</strong><p className="text-xs text-[var(--muted)]">{row.reference} · {row.at ? new Date(row.at).toLocaleString("en-NG") : "Date pending"}</p></div>
-          <div className="space-y-2"><FinancialAmount tone={customerHistoryTone(row.kind, row.detail)} className="font-semibold">{formatNaira(Math.abs(row.amountMinor))}</FinancialAmount>{row.paymentId && <AccountReceiptButton party="customer" partyId={customer.id} paymentId={row.paymentId} branchId={row.branchId} />}</div>
+          <div><strong className="capitalize"><FinancialValue>{`${customerHistoryLabel(row.kind, row.detail, row.invoiceAllocations)} · ${row.accountName ?? "General account"}${row.allocations?.length ? " — " + row.allocations.map((allocation) => `${allocation.accountName}: ${formatNaira(allocation.amountMinor)}`).join("; ") : ""}`}</FinancialValue></strong><p className="text-xs text-[var(--muted)]"><FinancialText>{row.reference}</FinancialText> · <FinancialText>{row.at ? new Date(row.at).toLocaleString("en-NG") : "Date pending"}</FinancialText></p></div>
+          <div className="space-y-2"><FinancialAmount tone={customerHistoryTone(row.kind, row.detail)} className="font-semibold"><FinancialValue>{formatNaira(Math.abs(row.amountMinor))}</FinancialValue></FinancialAmount>{row.paymentId && <AccountReceiptButton party="customer" partyId={customer.id} paymentId={row.paymentId} branchId={row.branchId} />}</div>
         </div>)}
         {history && history.rows.length === 0 && <p className="rounded-lg bg-slate-50 p-3 text-sm text-[var(--muted)]">No recorded activity in this store.</p>}
       </div>
-    </section>;
+    </section></FinancialAttributes>;
   }
 
   if (!profile || !hasPermission(profile, "customers.read"))
@@ -417,7 +418,7 @@ export default function CustomersPage() {
           role="alert"
           className="rounded-xl bg-red-50 p-4 text-sm text-red-800"
         >
-          {error}
+          <FinancialMessage>{error}</FinancialMessage>
         </div>
       )}
       {message && (
@@ -425,7 +426,7 @@ export default function CustomersPage() {
           role="status"
           className="rounded-xl bg-emerald-50 p-4 text-sm text-emerald-900"
         >
-          {message}
+          <FinancialMessage>{message}</FinancialMessage>
         </div>
       )}
       <section className="grid gap-3 rounded-xl border bg-white p-4 sm:grid-cols-[12rem_minmax(0,1fr)]">
@@ -439,42 +440,42 @@ export default function CustomersPage() {
         </label>
         <p className="text-xs text-[var(--muted)] sm:col-span-2">Search matches the beginning of the selected field; results load one page at a time.</p>
       </section>
-      {customers.error && <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-800">{customers.error}</p>}
+      {customers.error && <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-800"><FinancialMessage>{customers.error}</FinancialMessage></p>}
       <section className="grid gap-4 md:grid-cols-2 lg:hidden">
         {visible.map((customer) => (
           <article key={customer.id} className="rounded-xl border bg-white p-5">
             <div className="flex items-start justify-between gap-3">
               <div>
-                <h2 className="font-semibold">{customer.name}</h2>
+                <h2 className="font-semibold"><FinancialText>{customer.name}</FinancialText></h2>
                 <p className="font-mono text-xs text-[var(--muted)]">
-                  {customer.customerNumber}
+                  <FinancialText>{customer.customerNumber}</FinancialText>
                 </p>
               </div>
               <span
                 className={`rounded-full px-2.5 py-1 text-xs font-semibold ${customer.creditStatus === "approved" ? "bg-emerald-100 text-emerald-800" : customer.creditStatus === "suspended" ? "bg-amber-100 text-amber-900" : "bg-slate-100 text-slate-700"}`}
               >
-                {customer.creditStatus}
+                <FinancialText>{customer.creditStatus}</FinancialText>
               </span>
             </div>
             <p className="mt-3 text-sm text-[var(--muted)]">
-              {customer.phone || customer.email || "No contact"}
+              <FinancialText>{customer.phone || customer.email || "No contact"}</FinancialText>
             </p>
             <dl className="mt-4 grid grid-cols-3 gap-2 rounded-lg bg-slate-50 p-3 text-sm">
               <div>
                 <dt className="text-xs text-[var(--muted)]">Limit</dt>
-                <dd className="font-semibold"><FinancialAmount tone="balance">{formatNaira(customer.creditLimitMinor)}</FinancialAmount></dd>
+                <dd className="font-semibold"><FinancialAmount tone="balance"><FinancialValue>{formatNaira(customer.creditLimitMinor)}</FinancialValue></FinancialAmount></dd>
               </div>
               <div>
                 <dt className="text-xs text-[var(--muted)]">Outstanding</dt>
-                <dd className="font-semibold"><FinancialAmount tone={customer.outstandingBalanceMinor > 0 ? "attention" : "neutral"}>{formatNaira(customer.outstandingBalanceMinor)}</FinancialAmount></dd>
+                <dd className="font-semibold"><FinancialAmount tone={customer.outstandingBalanceMinor > 0 ? "attention" : "neutral"}><FinancialValue>{formatNaira(customer.outstandingBalanceMinor)}</FinancialValue></FinancialAmount></dd>
               </div>
               <div>
                 <dt className="text-xs text-[var(--muted)]">Available</dt>
-                <dd className="font-semibold"><FinancialAmount tone="balance">{formatNaira(customer.availableCreditMinor)}</FinancialAmount></dd>
+                <dd className="font-semibold"><FinancialAmount tone="balance"><FinancialValue>{formatNaira(customer.availableCreditMinor)}</FinancialValue></FinancialAmount></dd>
               </div>
             </dl>
-            <div className="mt-4">{customerActions(customer, "compact")}</div>
-            {customerPreview(customer, "compact")}
+            <div className="mt-4"><FinancialText>{customerActions(customer, "compact")}</FinancialText></div>
+            <FinancialText>{customerPreview(customer, "compact")}</FinancialText>
           </article>
         ))}
         {!customers.loading && visible.length === 0 && (
@@ -494,15 +495,15 @@ export default function CustomersPage() {
             <tbody>
               {visible.map((customer) => <Fragment key={customer.id}>
                 <tr className="border-t align-top">
-                  <td className="px-4 py-3"><strong>{customer.name}</strong><span className="block font-mono text-xs text-[var(--muted)]">{customer.customerNumber}</span></td>
-                  <td className="max-w-48 break-words px-4 py-3">{customer.phone || customer.email || "No contact"}</td>
-                  <td className="px-4 py-3"><span className={`rounded-full px-2.5 py-1 text-xs font-semibold capitalize ${customer.creditStatus === "approved" ? "bg-emerald-100 text-emerald-800" : customer.creditStatus === "suspended" ? "bg-amber-100 text-amber-900" : "bg-slate-100 text-slate-700"}`}>{customer.creditStatus}</span></td>
-                  <td className="px-4 py-3 text-right font-semibold"><FinancialAmount tone="balance">{formatNaira(customer.creditLimitMinor)}</FinancialAmount></td>
-                  <td className="px-4 py-3 text-right font-semibold"><FinancialAmount tone={customer.outstandingBalanceMinor > 0 ? "attention" : "neutral"}>{formatNaira(customer.outstandingBalanceMinor)}</FinancialAmount></td>
-                  <td className="px-4 py-3 text-right font-semibold"><FinancialAmount tone="balance">{formatNaira(customer.availableCreditMinor)}</FinancialAmount></td>
-                  <td className="px-4 py-3">{customerActions(customer, "desktop")}</td>
+                  <td className="px-4 py-3"><strong><FinancialText>{customer.name}</FinancialText></strong><span className="block font-mono text-xs text-[var(--muted)]"><FinancialText>{customer.customerNumber}</FinancialText></span></td>
+                  <td className="max-w-48 break-words px-4 py-3"><FinancialText>{customer.phone || customer.email || "No contact"}</FinancialText></td>
+                  <td className="px-4 py-3"><span className={`rounded-full px-2.5 py-1 text-xs font-semibold capitalize ${customer.creditStatus === "approved" ? "bg-emerald-100 text-emerald-800" : customer.creditStatus === "suspended" ? "bg-amber-100 text-amber-900" : "bg-slate-100 text-slate-700"}`}><FinancialText>{customer.creditStatus}</FinancialText></span></td>
+                  <td className="px-4 py-3 text-right font-semibold"><FinancialAmount tone="balance"><FinancialValue>{formatNaira(customer.creditLimitMinor)}</FinancialValue></FinancialAmount></td>
+                  <td className="px-4 py-3 text-right font-semibold"><FinancialAmount tone={customer.outstandingBalanceMinor > 0 ? "attention" : "neutral"}><FinancialValue>{formatNaira(customer.outstandingBalanceMinor)}</FinancialValue></FinancialAmount></td>
+                  <td className="px-4 py-3 text-right font-semibold"><FinancialAmount tone="balance"><FinancialValue>{formatNaira(customer.availableCreditMinor)}</FinancialValue></FinancialAmount></td>
+                  <td className="px-4 py-3"><FinancialText>{customerActions(customer, "desktop")}</FinancialText></td>
                 </tr>
-                {expandedCustomerId === customer.id && <tr className="border-t bg-slate-50/40"><td colSpan={7}>{customerPreview(customer, "desktop")}</td></tr>}
+                {expandedCustomerId === customer.id && <tr className="border-t bg-slate-50/40"><td colSpan={7}><FinancialText>{customerPreview(customer, "desktop")}</FinancialText></td></tr>}
               </Fragment>)}
               {!customers.loading && visible.length === 0 && <tr><td colSpan={7} className="p-8 text-center text-[var(--muted)]">No customers match this search.</td></tr>}
             </tbody>
@@ -518,17 +519,17 @@ export default function CustomersPage() {
           aria-modal="true"
           aria-label="Customer action"
         >
-          <section className="app-dialog-panel safe-bottom max-w-xl rounded-2xl bg-white p-5 shadow-2xl sm:p-6">
+          <FinancialActionScope><section className="app-dialog-panel safe-bottom max-w-xl rounded-2xl bg-white p-5 shadow-2xl sm:p-6">
             <div className="flex items-center gap-3">
               <UserRound className="size-6 text-[var(--brand)]" />
               <h2 className="text-xl font-semibold">
-                {action === "create"
+                <FinancialText>{action === "create"
                   ? "Add customer"
                   : action === "edit"
                     ? "Edit customer"
                     : action === "credit"
                       ? "Administrator credit decision"
-                    : refundAdvance ? "Refund unused customer advance" : paymentPurpose === "advance" ? "Record customer deposit" : "Record customer payment"}
+                    : refundAdvance ? "Refund unused customer advance" : paymentPurpose === "advance" ? "Record customer deposit" : "Record customer payment"}</FinancialText>
               </h2>
             </div>
             {(action === "create" || action === "edit") && (
@@ -607,7 +608,7 @@ export default function CustomersPage() {
                 {action === "edit" && selected && <fieldset className="space-y-3 rounded-lg border p-3 sm:col-span-2">
                   <legend className="px-1 font-semibold">Account arrangements</legend>
                   <p className="text-xs text-[var(--muted)]">One customer, separate arrangements such as personal purchases or an installation project. Historical debt stays in General; all accounts share the customer’s credit limit.</p>
-                  {(selected.arrangements ?? []).map((account) => <div key={account.id} className="flex flex-wrap items-center justify-between gap-2 text-sm"><span>{account.name} · {account.active ? "Active" : "Inactive"} · {formatNaira(account.outstandingBalanceMinor)}</span><Button size="sm" variant="outline" onClick={() => setArrangementDraft({ ...account, reason: "" })}>Edit arrangement</Button></div>)}
+                  {(selected.arrangements ?? []).map((account) => <div key={account.id} className="flex flex-wrap items-center justify-between gap-2 text-sm"><span><FinancialText>{account.name}</FinancialText> · <FinancialText>{account.active ? "Active" : "Inactive"}</FinancialText> · <FinancialValue>{formatNaira(account.outstandingBalanceMinor)}</FinancialValue></span><Button size="sm" variant="outline" onClick={() => setArrangementDraft({ ...account, reason: "" })}>Edit arrangement</Button></div>)}
                   <Button size="sm" variant="outline" onClick={() => setArrangementDraft({ id: crypto.randomUUID(), name: "", active: true, reason: "" })}>Add arrangement</Button>
                   {arrangementDraft && <div className="space-y-3">
                     <label className="block text-sm">Arrangement name<input className="mt-1 w-full rounded-lg border p-3" value={arrangementDraft.name} onChange={(event) => setArrangementDraft({ ...arrangementDraft, name: event.target.value })} /></label>
@@ -621,9 +622,9 @@ export default function CustomersPage() {
             {action === "credit" && selected && (
               <div className="mt-5 space-y-4">
                 <p className="rounded-lg bg-slate-50 p-3 text-sm">
-                  <strong>{selected.name}</strong>
+                  <strong><FinancialText>{selected.name}</FinancialText></strong>
                   <br />
-                  Outstanding: {formatNaira(selected.outstandingBalanceMinor)}
+                  Outstanding: <FinancialValue>{formatNaira(selected.outstandingBalanceMinor)}</FinancialValue>
                 </p>
                 <label className="block text-sm font-medium">
                   Decision
@@ -644,14 +645,14 @@ export default function CustomersPage() {
                 {creditDecision === "approve" && (
                   <label className="block text-sm font-medium">
                     Credit limit (₦)
-                    <input
+                    <FinancialInput><input
                       type="number"
                       min="0.01"
                       step="0.01"
                       value={creditLimit}
                       onChange={(event) => setCreditLimit(event.target.value)}
                       className="mt-1 w-full rounded-lg border p-3"
-                    />
+                    /></FinancialInput>
                   </label>
                 )}
                 <label className="block text-sm font-medium">
@@ -668,21 +669,21 @@ export default function CustomersPage() {
               <fieldset disabled={busy || paymentUncertain} className="mt-5 space-y-4">
                 {paymentUncertain && <p className="rounded-lg bg-amber-50 p-3 text-sm">Payment details are locked while the outcome is uncertain. Retry Record payment to confirm the same receipt. Do not start another payment for the same money.</p>}
                 <p className="rounded-lg bg-slate-50 p-3 text-sm">
-                  <strong>{selected.name}</strong>
+                  <strong><FinancialText>{selected.name}</FinancialText></strong>
                   <br />
                   Outstanding before payment:{" "}
-                  {formatNaira(selected.outstandingBalanceMinor)}
+                  <FinancialValue>{formatNaira(selected.outstandingBalanceMinor)}</FinancialValue>
                 </p>
-                <p className="rounded-lg bg-blue-50 p-3 text-sm">{refundAdvance ? "Record money actually paid back to this customer from unused advances. This reduces the advance liability, not invoice debt, stock or sales revenue. Choose the store recording the outgoing payment. Advance balances belong to the customer across all stores." : paymentPurpose === "advance" ? "This is money received before a sale. It stays as a customer advance liability until applied—not sales income." : "Without an invoice selection, repayments clear historical unallocated debt first, then the oldest tracked invoices in this store and arrangement (up to 50 per receipt)."}</p>
-                {refundAdvance && <p className="rounded-lg border p-3 text-sm">{historyLoading ? "Checking unused advance balances…" : <>Unused advances (all stores): <strong className="finance-balance">{formatNaira(Object.values(history?.customer.advanceBalances ?? {}).reduce((sum, amount) => sum + amount, 0))}</strong>. Each selected arrangement must have enough unused advance.</>}</p>}
+                <p className="rounded-lg bg-blue-50 p-3 text-sm"><FinancialText>{refundAdvance ? "Record money actually paid back to this customer from unused advances. This reduces the advance liability, not invoice debt, stock or sales revenue. Choose the store recording the outgoing payment. Advance balances belong to the customer across all stores." : paymentPurpose === "advance" ? "This is money received before a sale. It stays as a customer advance liability until applied—not sales income." : "Without an invoice selection, repayments clear historical unallocated debt first, then the oldest tracked invoices in this store and arrangement (up to 50 per receipt)."}</FinancialText></p>
+                {refundAdvance && <p className="rounded-lg border p-3 text-sm">{historyLoading ? "Checking unused advance balances…" : <>Unused advances (all stores): <strong className="finance-balance"><FinancialValue>{formatNaira(Object.values(history?.customer.advanceBalances ?? {}).reduce((sum, amount) => sum + amount, 0))}</FinancialValue></strong>. Each selected arrangement must have enough unused advance.</>}</p>}
                 {paymentPurpose === "repayment" && <>
                   <label className="block text-sm font-medium">Payment source<select className="mt-1 w-full rounded-lg border p-3" value={paymentSource} onChange={(event) => setPaymentSource(event.target.value as "receipt" | "advance_balance")}><option value="receipt">New cash / bank / card receipt</option><option value="advance_balance">Apply previously received advance</option></select></label>
-                  {paymentSource === "advance_balance" && <p className="text-sm">Unused advances across all arrangements: {formatNaira(Object.values(history?.customer.advanceBalances ?? {}).reduce((sum, amount) => sum + amount, 0))}. Application uses the balance of each selected arrangement.</p>}
-                  {paymentInvoice ? <div className="rounded-lg border p-3 text-sm">Paying {paymentInvoice.reference} · {paymentInvoice.accountName}<Button size="sm" variant="outline" onClick={() => setPaymentInvoice(null)}>Use automatic allocation</Button></div> : <CustomerReceivablesPanel key={branchId} customerId={selected.id} branchId={branchId || undefined} onSelect={(invoice) => { setPaymentInvoice(invoice); setPaymentAllocations([{ accountId: invoice.accountId, amount: "" }]); setPaymentAmount(String(invoice.outstandingMinor / 100)); }} />}
+                  {paymentSource === "advance_balance" && <p className="text-sm">Unused advances across all arrangements: <FinancialValue>{formatNaira(Object.values(history?.customer.advanceBalances ?? {}).reduce((sum, amount) => sum + amount, 0))}</FinancialValue>. Application uses the balance of each selected arrangement.</p>}
+                  {paymentInvoice ? <div className="rounded-lg border p-3 text-sm">Paying <FinancialText>{paymentInvoice.reference}</FinancialText> · <FinancialText>{paymentInvoice.accountName}</FinancialText><Button size="sm" variant="outline" onClick={() => setPaymentInvoice(null)}>Use automatic allocation</Button></div> : <CustomerReceivablesPanel key={branchId} customerId={selected.id} branchId={branchId || undefined} onSelect={(invoice) => { setPaymentInvoice(invoice); setPaymentAllocations([{ accountId: invoice.accountId, amount: "" }]); setPaymentAmount(String(invoice.outstandingMinor / 100)); }} />}
                 </>}
                 {!contextBranchId && !assignedBranchId && (
                   <label className="block text-sm font-medium">
-                    {refundAdvance ? "Store recording the refund" : "Receiving branch"}
+                    <FinancialText>{refundAdvance ? "Store recording the refund" : "Receiving branch"}</FinancialText>
                     <select
                       value={branchId}
                       onChange={(event) =>
@@ -692,22 +693,22 @@ export default function CustomersPage() {
                     >
                       {activeBranches.map((branch) => (
                         <option key={branch.id} value={branch.id}>
-                          {branch.name}
+                          <FinancialText>{branch.name}</FinancialText>
                         </option>
                       ))}
                     </select>
                   </label>
                 )}
                 <label className="block text-sm font-medium">
-                  {refundAdvance ? "Amount refunded (₦)" : paymentSource === "advance_balance" ? "Amount to apply (₦)" : "Amount received (₦)"}
-                  <input
+                  <FinancialText>{refundAdvance ? "Amount refunded (₦)" : paymentSource === "advance_balance" ? "Amount to apply (₦)" : "Amount received (₦)"}</FinancialText>
+                  <FinancialInput><input
                     type="number"
                     min="0.01"
                     step="0.01"
                     value={paymentAmount}
                     onChange={(event) => setPaymentAmount(event.target.value)}
                     className="mt-1 w-full rounded-lg border p-3"
-                  />
+                  /></FinancialInput>
                 </label>
                 {paymentSource === "receipt" && <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={paymentSplit} onChange={event => { setPaymentSplit(event.target.checked); if (!paymentParts.length) setPaymentParts([{ id: "first", method: paymentMethod, amount: paymentAmount, bankAccountId: paymentBankAccountId, reference: paymentReference }]); }} />Split money across payment methods / accounts</label>}
                 {splitMoney && <MoneyTenderEditor value={paymentParts} onChange={setPaymentParts} total={paymentMinor} branchId={branchId} banks={history?.bankAccounts ?? []} />}
@@ -727,28 +728,28 @@ export default function CustomersPage() {
                     <option value="bank_transfer">Bank transfer</option>
                   </select>
                 </label>}
-                <fieldset disabled={Boolean(paymentInvoice)} className="space-y-3 rounded-lg border p-3"><legend className="px-1 font-semibold">{refundAdvance ? "Refund from customer advances" : "Apply payment to customer accounts"}</legend>
-                  <p className="text-xs text-[var(--muted)]">{refundAdvance ? "Choose the arrangements whose unused advances are being returned." : paymentPurpose === "advance" ? "Choose the arrangement holding this advance." : "This allocates debt repayment between arrangements, not between cash/card/bank methods."} Allocations must equal the total entered.</p>
+                <fieldset disabled={Boolean(paymentInvoice)} className="space-y-3 rounded-lg border p-3"><legend className="px-1 font-semibold"><FinancialText>{refundAdvance ? "Refund from customer advances" : "Apply payment to customer accounts"}</FinancialText></legend>
+                  <p className="text-xs text-[var(--muted)]"><FinancialText>{refundAdvance ? "Choose the arrangements whose unused advances are being returned." : paymentPurpose === "advance" ? "Choose the arrangement holding this advance." : "This allocates debt repayment between arrangements, not between cash/card/bank methods."}</FinancialText> Allocations must equal the total entered.</p>
                   {paymentAllocations.map((allocation, index) => <div key={index} className="space-y-2 rounded-lg bg-slate-50 p-2">
-                    <label className="block text-sm">Customer account {index + 1}<select className="mt-1 w-full rounded-lg border p-3" value={allocation.accountId} onChange={(event) => setPaymentAllocations((items) => items.map((item, position) => position === index ? { ...item, accountId: event.target.value } : item))}>
-                      {(history?.customer.arrangements ?? [{ id: "general", name: "General account", outstandingBalanceMinor: selected.outstandingBalanceMinor }]).map((account) => <option key={account.id} value={account.id}>{account.name} · {formatNaira(refundAdvance ? history?.customer.advanceBalances?.[account.id] ?? 0 : account.outstandingBalanceMinor)} {refundAdvance ? "unused advance" : "due"}</option>)}
+                    <label className="block text-sm">Customer account <FinancialText>{index + 1}</FinancialText><select className="mt-1 w-full rounded-lg border p-3" value={allocation.accountId} onChange={(event) => setPaymentAllocations((items) => items.map((item, position) => position === index ? { ...item, accountId: event.target.value } : item))}>
+                      {(history?.customer.arrangements ?? [{ id: "general", name: "General account", outstandingBalanceMinor: selected.outstandingBalanceMinor }]).map((account) => <option key={account.id} value={account.id}><FinancialText>{account.name}</FinancialText> · <FinancialValue textOnly>{formatNaira(refundAdvance ? history?.customer.advanceBalances?.[account.id] ?? 0 : account.outstandingBalanceMinor)}</FinancialValue> <FinancialText>{refundAdvance ? "unused advance" : "due"}</FinancialText></option>)}
                     </select></label>
-                    {paymentAllocations.length > 1 && <><label className="block text-sm">Allocated amount (₦)<input className="mt-1 w-full rounded-lg border p-3" type="number" min="0.01" step="0.01" value={allocation.amount} onChange={(event) => setPaymentAllocations((items) => items.map((item, position) => position === index ? { ...item, amount: event.target.value } : item))} /></label><Button size="sm" variant="outline" onClick={() => setPaymentAllocations((items) => items.filter((_, position) => position !== index))}>Remove allocation</Button></>}
+                    {paymentAllocations.length > 1 && <><label className="block text-sm">Allocated amount (₦)<FinancialInput><input className="mt-1 w-full rounded-lg border p-3" type="number" min="0.01" step="0.01" value={allocation.amount} onChange={(event) => setPaymentAllocations((items) => items.map((item, position) => position === index ? { ...item, amount: event.target.value } : item))} /></FinancialInput></label><Button size="sm" variant="outline" onClick={() => setPaymentAllocations((items) => items.filter((_, position) => position !== index))}>Remove allocation</Button></>}
                   </div>)}
                   <Button size="sm" variant="outline" disabled={paymentAllocations.length >= (history?.customer.arrangements?.length ?? 1)} onClick={() => setPaymentAllocations((items) => [...items.map((item) => ({ ...item, amount: items.length === 1 ? paymentAmount : item.amount })), { accountId: history?.customer.arrangements?.find((account) => !items.some((item) => item.accountId === account.id))?.id ?? "general", amount: "" }])}>Split across arrangements</Button>
                 </fieldset>
                 {paymentSource === "receipt" && !splitMoney && paymentMethod !== "cash" && (
-                  <label className="block text-sm font-medium">{refundAdvance ? "Paying company account" : "Receiving company account"}
+                  <label className="block text-sm font-medium"><FinancialText>{refundAdvance ? "Paying company account" : "Receiving company account"}</FinancialText>
                     <select value={paymentBankAccountId} onChange={(event) => setPaymentBankAccountId(event.target.value)} className="mt-1 w-full rounded-lg border p-3">
                       <option value="">Select account</option>
-                      {history?.bankAccounts?.filter(account => !account.branchId || account.branchId === branchId).map((account) => <option key={account.id} value={account.id}>{account.bankName} · {account.accountName} · ••••{account.accountNumberLast4}</option>)}
+                      {history?.bankAccounts?.filter(account => !account.branchId || account.branchId === branchId).map((account) => <option key={account.id} value={account.id}><FinancialText>{account.bankName}</FinancialText> · <FinancialText>{account.accountName}</FinancialText> · ••••<FinancialText>{account.accountNumberLast4}</FinancialText></option>)}
                     </select>
-                    <span className="mt-1 block text-xs text-[var(--muted)]">{historyLoading ? "Loading accounts…" : refundAdvance ? "This account pays the refund and is credited in the accounting journal." : "This account receives the money and is used in the accounting journal."}</span>
+                    <span className="mt-1 block text-xs text-[var(--muted)]"><FinancialText>{historyLoading ? "Loading accounts…" : refundAdvance ? "This account pays the refund and is credited in the accounting journal." : "This account receives the money and is used in the accounting journal."}</FinancialText></span>
                   </label>
                 )}
                 {paymentSource === "receipt" && !splitMoney && paymentMethod !== "cash" && (
                   <label className="block text-sm font-medium">
-                    {refundAdvance ? "Actual refund reference" : "Reference (optional)"}
+                    <FinancialText>{refundAdvance ? "Actual refund reference" : "Reference (optional)"}</FinancialText>
                     <input
                       value={paymentReference}
                       onChange={(event) =>
@@ -765,7 +766,7 @@ export default function CustomersPage() {
               <Button variant="secondary" onClick={closeAction}>
                 Cancel
               </Button>
-              <Button aria-busy={busy} disabledReason={firstBlocker([
+              <FinancialAction financial={action === "credit" || action === "payment"} retry={() => action === "payment" && paymentUncertain && Boolean(paymentRetryPayload.current)}><Button aria-busy={busy} disabledReason={firstBlocker([
                 [arrangementDraft && arrangementDraft.name.trim().length < 2, "Enter an account arrangement name of at least 2 characters."],
                 [arrangementDraft && arrangementDraft.reason.trim().length < 5, "Enter the account-change reason, at least 5 characters."],
                 [action === "credit" && reason.trim().length < 3, "Enter the administrator's credit-decision reason, at least 3 characters."],
@@ -795,14 +796,14 @@ export default function CustomersPage() {
                 {busy ? (
                   <RefreshCw className="mr-2 size-4 animate-spin" />
                 ) : null}
-                {action === "credit"
+                <FinancialText>{action === "credit"
                   ? "Save decision"
                   : action === "payment"
                     ? refundAdvance ? "Record advance refund" : paymentPurpose === "advance" ? "Record deposit" : paymentSource === "advance_balance" ? "Apply advance" : "Record payment"
-                    : "Save customer"}
-              </Button>
+                    : "Save customer"}</FinancialText>
+              </Button></FinancialAction>
             </div>
-          </section>
+          </section></FinancialActionScope>
         </AppDialog>
       )}
     </div>

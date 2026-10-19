@@ -1,4 +1,6 @@
 "use client";
+import { RecordAttribution } from "@/features/audit/record-attribution";
+import { FinancialAction, FinancialActionScope, FinancialInput, FinancialMessage, FinancialText, FinancialValue  } from "@/features/finance/financial-privacy";
 
 import {
   CheckCircle2,
@@ -312,7 +314,7 @@ export default function ProcurementPage() {
           role="alert"
           className="rounded-xl bg-red-50 p-4 text-sm text-red-800"
         >
-          {error}
+          <FinancialMessage>{error}</FinancialMessage>
         </div>
       )}
       {message && (
@@ -320,18 +322,18 @@ export default function ProcurementPage() {
           role="status"
           className="rounded-xl bg-emerald-50 p-4 text-sm text-emerald-900"
         >
-          {message}
+          <FinancialMessage>{message}</FinancialMessage>
         </div>
       )}
 
-      {receiptRecovery.error && <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-800">{receiptRecovery.error}</p>}
+      {receiptRecovery.error && <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-800"><FinancialMessage>{receiptRecovery.error}</FinancialMessage></p>}
       {receiptRecovery.pending && <section aria-label="Unconfirmed purchase receipt" className="space-y-3 rounded-lg bg-amber-50 p-4 text-sm">
-        <p>Receiving confirmation was interrupted. The original {receiptRecovery.pending.quantity} units and delivery details are saved. Return to the original recording store and retry this receipt before receiving more goods. Do not enter the delivery again.</p>
-        <Button disabled={busy || !receiptRecovery.ready} onClick={() => void run(() => receiveGoods(), "The original saved receipt is confirmed. Receiving history contains its goods-received note.")}>Retry same receipt</Button>
+        <p>Receiving confirmation was interrupted. The original <FinancialText>{receiptRecovery.pending.quantity}</FinancialText> units and delivery details are saved. Return to the original recording store and retry this receipt before receiving more goods. Do not enter the delivery again.</p>
+        <FinancialAction retry={Boolean(receiptRecovery.pending)}><Button disabled={busy || !receiptRecovery.ready} onClick={() => void run(() => receiveGoods(), "The original saved receipt is confirmed. Receiving history contains its goods-received note.")}>Retry same receipt</Button></FinancialAction>
       </section>}
 
       <nav aria-label="Purchasing workspace" className="sticky top-16 z-20 flex flex-wrap gap-2 rounded-xl border bg-white/95 p-2 shadow-sm backdrop-blur">
-        <a href="#purchase-orders" className="inline-flex min-h-10 items-center rounded-lg bg-[var(--brand)] px-4 text-sm font-semibold text-white">Orders{workspace?.purchaseOrders.length ? ` (${workspace.purchaseOrders.length})` : ""}</a>
+        <a href="#purchase-orders" className="inline-flex min-h-10 items-center rounded-lg bg-[var(--brand)] px-4 text-sm font-semibold text-white">Orders<FinancialText>{workspace?.purchaseOrders.length ? ` (${workspace.purchaseOrders.length})` : ""}</FinancialText></a>
         {can("procurement.create") && <button type="button" onClick={() => { if (newOrderRef.current) { newOrderRef.current.open = true; newOrderRef.current.scrollIntoView({ behavior: "smooth" }); } }} className="inline-flex min-h-10 items-center rounded-lg border px-4 text-sm font-semibold">New order</button>}
         {can("suppliers.manage") && <button type="button" onClick={() => { if (newSupplierRef.current) { newSupplierRef.current.open = true; newSupplierRef.current.scrollIntoView({ behavior: "smooth" }); } }} className="inline-flex min-h-10 items-center rounded-lg border px-4 text-sm font-semibold">Add supplier</button>}
       </nav>
@@ -345,7 +347,7 @@ export default function ProcurementPage() {
             Supplier details are reused on orders, invoices, payments, and
             statements.
           </p>
-          <label className="mt-3 block text-sm">Supplier classification<select className="input ml-2" value={supplier.supplierType} onChange={event => setSupplier({ ...supplier, supplierType: event.target.value })}>{["goods", "service", "logistics", "mixed"].map(type => <option key={type} value={type}>{type}</option>)}</select></label>
+          <label className="mt-3 block text-sm">Supplier classification<select className="input ml-2" value={supplier.supplierType} onChange={event => setSupplier({ ...supplier, supplierType: event.target.value })}>{["goods", "service", "logistics", "mixed"].map(type => <option key={type} value={type}><FinancialText>{type}</FinancialText></option>)}</select></label>
           <div className="mt-4 grid gap-3 md:grid-cols-4">
             <label className="text-sm">
               Name
@@ -411,7 +413,7 @@ export default function ProcurementPage() {
       )}
 
       {can("procurement.create") && workspace && (
-        <details ref={newOrderRef} id="new-purchase-order" className="scroll-mt-40 rounded-xl border bg-white p-5">
+        <FinancialActionScope><details ref={newOrderRef} id="new-purchase-order" className="scroll-mt-40 rounded-xl border bg-white p-5">
           <summary className="cursor-pointer text-lg font-semibold">
             Create purchase order
           </summary>
@@ -430,7 +432,7 @@ export default function ProcurementPage() {
                 <option value="">Select supplier</option>
                 {workspace.suppliers.filter((record) => record.active).map((record) => (
                   <option key={record.id} value={record.id}>
-                    {record.supplierNumber} · {record.name}
+                    <FinancialText>{record.supplierNumber}</FinancialText> · <FinancialText>{record.name}</FinancialText>
                   </option>
                 ))}
               </select>
@@ -458,10 +460,10 @@ export default function ProcurementPage() {
                 <option value="">Select receiving location</option>
                 {workspace.branches.map((record) => (
                   <option key={`branch:${record.id}`} value={`branch:${record.id}`}>
-                    {record.branchType === "head_office"
+                    <FinancialText>{record.branchType === "head_office"
                       ? "Head Office"
-                      : "Store"}{" "}
-                    · {record.name}
+                      : "Store"}</FinancialText>{" "}
+                    · <FinancialText>{record.name}</FinancialText>
                   </option>
                 ))}
               </select>
@@ -476,7 +478,7 @@ export default function ProcurementPage() {
                 <option value="">Select receiving location</option>
                 {selectedLocations.map((record) => (
                   <option key={record.id} value={record.id}>
-                    {record.name}
+                    <FinancialText>{record.name}</FinancialText>
                   </option>
                 ))}
               </select>
@@ -489,7 +491,7 @@ export default function ProcurementPage() {
                 className="grid gap-3 rounded-xl border p-3 md:grid-cols-[minmax(0,1fr)_7rem_10rem_7rem_auto]"
               >
                 <legend className="px-1 text-xs font-semibold text-[var(--muted)]">
-                  Product line {index + 1}
+                  Product line <FinancialText>{index + 1}</FinancialText>
                 </legend>
                 <label className="text-sm font-medium">
                   Product
@@ -509,7 +511,7 @@ export default function ProcurementPage() {
                     <option value="">Select product</option>
                     {workspace.products.map((product) => (
                       <option key={product.id} value={product.id}>
-                        {product.sku} · {product.name}
+                        <FinancialText>{product.sku}</FinancialText> · <FinancialText>{product.name}</FinancialText>
                       </option>
                     ))}
                   </select>
@@ -534,7 +536,7 @@ export default function ProcurementPage() {
                 </label>
                 <label className="text-sm font-medium">
                   Unit cost (₦)
-                  <input
+                  <FinancialInput><input
                     type="number"
                     min="0.01"
                     step="0.01"
@@ -551,11 +553,11 @@ export default function ProcurementPage() {
                       )
                     }
                     className="mt-1 w-full rounded-lg border p-3"
-                  />
+                  /></FinancialInput>
                 </label>
                 <label className="text-sm font-medium">
                   VAT (%)
-                  <input
+                  <FinancialInput><input
                     type="number"
                     min="0"
                     step="0.01"
@@ -572,7 +574,7 @@ export default function ProcurementPage() {
                       )
                     }
                     className="mt-1 w-full rounded-lg border p-3"
-                  />
+                  /></FinancialInput>
                 </label>
                 <Button
                   variant="outline"
@@ -596,7 +598,7 @@ export default function ProcurementPage() {
             >
               Add product
             </Button>
-            <Button aria-busy={busy} disabledReason={firstBlocker([
+            <FinancialAction><Button aria-busy={busy} disabledReason={firstBlocker([
               [!supplierId, workspace.suppliers.some(item => item.active) ? "Select the actual active supplier." : "No active supplier is available. Ask authorized purchasing/supplier staff to create or activate the supplier, then refresh."],
               [!destinationKey, "Choose the receiving Store/Head Office; its working location must be authorized."],
               [!locationId, selectedLocations.length ? "Select the actual receiving stock location." : "No stock location is configured for this receiving store. Ask an authorized location administrator to configure it, then refresh."],
@@ -619,9 +621,9 @@ export default function ProcurementPage() {
               onClick={() => void createOrder()}
             >
               <ShoppingBasket className="mr-2 size-4" /> Create draft order
-            </Button>
+            </Button></FinancialAction>
           </div>
-        </details>
+        </details></FinancialActionScope>
       )}
 
       <section id="purchase-orders" className="scroll-mt-40 rounded-xl border bg-white p-5">
@@ -636,24 +638,25 @@ export default function ProcurementPage() {
         </p>
         <div className="mt-4 space-y-4">
           {workspace?.purchaseOrders.map((order) => (
-            <article key={order.id} className="rounded-xl border p-4">
+            <FinancialActionScope key={order.id}><article key={order.id} className="rounded-xl border p-4">
               <div className="flex flex-col justify-between gap-3 sm:flex-row">
                 <div>
-                  <strong>{order.purchaseOrderNumber}</strong>
+                  <strong><FinancialText>{order.purchaseOrderNumber}</FinancialText></strong>
+                  <dl className="mt-2 grid gap-2 text-xs sm:grid-cols-2"><div><dt className="font-semibold">Created by</dt><dd><RecordAttribution actors={order.actorLabels} field="createdBy" userId={order.createdBy} /></dd></div><div><dt className="font-semibold">Approved by</dt><dd><RecordAttribution actors={order.actorLabels} field="approvedBy" userId={order.approvedBy} /></dd></div></dl>
                   <p className="text-sm text-[var(--muted)]">
-                    {order.supplierName} → {order.operationalLocationName ?? order.branchName ?? order.warehouseName}
+                    <FinancialText>{order.supplierName}</FinancialText> → <FinancialText>{order.operationalLocationName ?? order.branchName ?? order.warehouseName}</FinancialText>
                   </p>
                   <p className="mt-1 text-sm">
-                    <strong className="finance-attention">{formatNaira(order.grossAmountMinor)}</strong> ·{" "}
+                    <strong className="finance-attention"><FinancialValue>{formatNaira(order.grossAmountMinor)}</FinancialValue></strong> ·{" "}
                     <span className="capitalize">
-                      {order.status.replaceAll("_", " ")}
+                      <FinancialText>{order.status.replaceAll("_", " ")}</FinancialText>
                     </span>
                   </p>
                 </div>
                 <div className="flex flex-wrap gap-2">
                   <Button variant="outline" onClick={() => setReceiptOrderId(order.id)}>Receiving history / GRN</Button>
                   {order.status === "draft" && can("procurement.create") && (
-                    <Button
+                    <FinancialAction><Button
                       disabled={busy}
                       onClick={() =>
                         void run(
@@ -667,12 +670,12 @@ export default function ProcurementPage() {
                       }
                     >
                       Submit
-                    </Button>
+                    </Button></FinancialAction>
                   )}
                   {order.status === "submitted" &&
                     can("procurement.approve") &&
                     (order.createdBy !== user?.uid || canApproveOwnWork) && (
-                      <Button
+                      <FinancialAction><Button
                         disabled={busy}
                         onClick={() =>
                           void run(
@@ -686,7 +689,7 @@ export default function ProcurementPage() {
                         }
                       >
                         <CheckCircle2 className="mr-2 size-4" /> Approve
-                      </Button>
+                      </Button></FinancialAction>
                     )}
                   {order.status === "submitted" &&
                     order.createdBy === user?.uid &&
@@ -708,10 +711,10 @@ export default function ProcurementPage() {
                   };
                   return (
                     <div key={item.id} className="rounded-lg bg-slate-50 p-3">
-                      <strong className="text-sm">{item.productName}</strong>
+                      <strong className="text-sm"><FinancialText>{item.productName}</FinancialText></strong>
                       <p className="text-xs text-[var(--muted)]">
-                        {item.sku} · ordered {item.orderedQuantity} · received{" "}
-                        {item.receivedQuantity}
+                        <FinancialText>{item.sku}</FinancialText> · ordered <FinancialText>{item.orderedQuantity}</FinancialText> · received{" "}
+                        <FinancialText>{item.receivedQuantity}</FinancialText>
                       </p>
                       {outstanding > 0 &&
                         ["approved", "partially_received"].includes(
@@ -772,7 +775,7 @@ export default function ProcurementPage() {
                             )}
                             <label className="block text-xs font-medium">Supplier delivery reference (optional)<input value={draft.supplierReference ?? ""} maxLength={160} onChange={(event) => setReceiveValues({ ...receiveValues, [item.id]: { ...draft, supplierReference: event.target.value } })} className="mt-1 w-full rounded-lg border bg-white p-2" /></label>
                             <label className="block text-xs font-medium">Receiving notes (optional)<textarea value={draft.notes ?? ""} maxLength={500} onChange={(event) => setReceiveValues({ ...receiveValues, [item.id]: { ...draft, notes: event.target.value } })} className="mt-1 w-full rounded-lg border bg-white p-2" /></label>
-                            <Button aria-busy={busy} disabledReason={firstBlocker([
+                            <FinancialAction><Button aria-busy={busy} disabledReason={firstBlocker([
                               [Number(draft.quantity) <= 0, "Enter the quantity physically delivered; do not record undelivered goods."],
                               [Number(draft.quantity) > outstanding, `Only ${outstanding} ordered units remain to receive. Review receiving history if already received.`],
                               [item.trackingType === "batch" && !draft.lotNumber, "Enter the actual supplier lot number for these batch goods."]
@@ -810,7 +813,7 @@ export default function ProcurementPage() {
                               }
                             >
                               <Truck className="mr-2 size-4" /> Receive goods
-                            </Button>
+                            </Button></FinancialAction>
                           </fieldset>
                         )}
                     </div>
@@ -835,7 +838,7 @@ export default function ProcurementPage() {
                     </label>
                     <label className="text-sm">Invoice date<input type="date" value={invoiceIssueDates[order.id] ?? today} onChange={(event) => setInvoiceIssueDates({ ...invoiceIssueDates, [order.id]: event.target.value })} className="block min-h-10 w-full rounded-lg border px-3" /></label>
                     <label className="text-sm">Payment due date (optional)<input type="date" min={invoiceIssueDates[order.id] ?? today} value={invoiceDueDates[order.id] ?? ""} onChange={(event) => setInvoiceDueDates({ ...invoiceDueDates, [order.id]: event.target.value })} className="block min-h-10 w-full rounded-lg border px-3" /></label>
-                    <Button aria-busy={busy} disabledReason={firstBlocker([
+                    <FinancialAction><Button aria-busy={busy} disabledReason={firstBlocker([
                       [!(invoiceNumbers[order.id] ?? "").trim(), "Enter the supplier's actual invoice number."],
                       [!(invoiceIssueDates[order.id] ?? today), "Enter the supplier invoice date."],
                       [invoiceDueDates[order.id] && (invoiceDueDates[order.id] ?? "") < (invoiceIssueDates[order.id] ?? today), "Payment due date cannot be before the supplier invoice date."],
@@ -880,10 +883,10 @@ export default function ProcurementPage() {
                     >
                       <PackagePlus className="mr-2 size-4" /> Match received
                       goods to invoice
-                    </Button>
+                    </Button></FinancialAction>
                   </div>
                 )}
-            </article>
+            </article></FinancialActionScope>
           ))}
           {!workspace?.purchaseOrders.length && (
             <p className="rounded-lg bg-slate-50 p-6 text-center text-sm text-[var(--muted)]">
@@ -909,20 +912,21 @@ export default function ProcurementPage() {
           <div className="mt-4 space-y-3">
             {workspace?.supplierInvoices.map((invoice) => {
               return (
-              <article
+              <FinancialActionScope key={invoice.id}><article
                 key={invoice.id}
                 className="flex flex-col justify-between gap-3 rounded-xl border p-4 lg:flex-row lg:items-center"
               >
                 <div>
-                  <strong>{invoice.supplierInvoiceNumber}</strong>
-                  <p className="text-xs text-[var(--muted)]">Invoice date: {invoice.invoiceDate ?? "Not recorded"} · Payment due: {invoice.dueDate ?? "Not recorded"}</p>
+                  <strong><FinancialText>{invoice.supplierInvoiceNumber}</FinancialText></strong>
+                  <dl className="mt-2 grid gap-2 text-xs sm:grid-cols-2"><div><dt className="font-semibold">Created by</dt><dd><RecordAttribution actors={invoice.actorLabels} field="createdBy" userId={invoice.createdBy} /></dd></div><div><dt className="font-semibold">Approved by</dt><dd><RecordAttribution actors={invoice.actorLabels} field="approvedBy" userId={invoice.approvedBy} /></dd></div></dl>
+                  <p className="text-xs text-[var(--muted)]">Invoice date: <FinancialText>{invoice.invoiceDate ?? "Not recorded"}</FinancialText> · Payment due: <FinancialText>{invoice.dueDate ?? "Not recorded"}</FinancialText></p>
                   <p className="text-sm text-[var(--muted)]">
-                    {invoice.supplierName} · {invoice.purchaseOrderNumber}
+                    <FinancialText>{invoice.supplierName}</FinancialText> · <FinancialText>{invoice.purchaseOrderNumber}</FinancialText>
                   </p>
                   <p className="mt-1 text-sm">
-                    Outstanding <strong className={invoice.outstandingAmountMinor > 0 ? "finance-attention" : "finance-neutral"}>{formatNaira(invoice.outstandingAmountMinor)}</strong> ·{" "}
+                    Outstanding <strong className={invoice.outstandingAmountMinor > 0 ? "finance-attention" : "finance-neutral"}><FinancialValue>{formatNaira(invoice.outstandingAmountMinor)}</FinancialValue></strong> ·{" "}
                     <span className="capitalize">
-                      {invoice.status === "paid" && invoice.creditedAmountMinor ? "settled (includes credit note)" : invoice.status.replaceAll("_", " ")}
+                      <FinancialText>{invoice.status === "paid" && invoice.creditedAmountMinor ? "settled (includes credit note)" : invoice.status.replaceAll("_", " ")}</FinancialText>
                     </span>
                   </p>
                 </div>
@@ -931,7 +935,7 @@ export default function ProcurementPage() {
                   {invoice.status === "submitted" &&
                     can("payables.approve") &&
                     (invoice.createdBy !== user?.uid || canApproveOwnWork) && (
-                      <Button
+                      <FinancialAction><Button
                         disabled={busy}
                         onClick={() =>
                           void run(
@@ -945,7 +949,7 @@ export default function ProcurementPage() {
                         }
                       >
                         Approve invoice
-                      </Button>
+                      </Button></FinancialAction>
                     )}
                   {invoice.status === "submitted" &&
                     invoice.createdBy === user?.uid &&
@@ -958,7 +962,7 @@ export default function ProcurementPage() {
                     can("payables.pay") && (
                       <Button disabled={busy} onClick={() => setPaymentInvoice(invoice)}>Record payment / apply advance</Button>                   )}
                 </div>
-              </article>
+              </article></FinancialActionScope>
               );
             })}
             {!workspace?.supplierInvoices.length && (

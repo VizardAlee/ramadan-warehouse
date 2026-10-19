@@ -1,4 +1,5 @@
 "use client";
+import { FinancialMessage, FinancialText, FinancialValue } from "@/features/finance/financial-privacy";
 
 import {
   ArrowRight,
@@ -167,7 +168,7 @@ export function TransferDetail({ transferId }: { transferId: string }) {
   if (!result || !profile)
     return (
       <p className="rounded-xl border bg-white p-8">
-        {message ?? "Transfer not found."}
+        <FinancialMessage>{message ?? "Transfer not found."}</FinancialMessage>
       </p>
     );
   const transfer = result.transfer;
@@ -212,7 +213,7 @@ export function TransferDetail({ transferId }: { transferId: string }) {
           </Link>
           <div className="mt-2 flex flex-wrap items-center gap-3">
             <h1 className="text-3xl font-semibold">
-              {transfer.transferNumber}
+              <FinancialText>{transfer.transferNumber}</FinancialText>
             </h1>
             <StatusBadge
               tone={
@@ -223,13 +224,13 @@ export function TransferDetail({ transferId }: { transferId: string }) {
                     : "neutral"
               }
             >
-              {transfer.status.replaceAll("_", " ")}
+              <FinancialText>{transfer.status.replaceAll("_", " ")}</FinancialText>
             </StatusBadge>
           </div>
           <p className="mt-1 text-sm text-[var(--muted)]">
-            {transfer.sourceType === "admin_allocation"
+            <FinancialText>{transfer.sourceType === "admin_allocation"
               ? "Direct allocation"
-              : "From an approved branch request"}
+              : "From an approved branch request"}</FinancialText>
           </p>
         </div>
         <Button variant="secondary" onClick={() => void load()}>
@@ -238,7 +239,7 @@ export function TransferDetail({ transferId }: { transferId: string }) {
         </Button>
       </header>
       {message && (
-        <p className="rounded-lg bg-amber-50 p-3 text-sm">{message}</p>
+        <p className="rounded-lg bg-amber-50 p-3 text-sm"><FinancialMessage>{message}</FinancialMessage></p>
       )}
       <section className="brand-hero rounded-2xl p-5 sm:p-6">
         <p className="text-xs font-semibold uppercase tracking-wide text-emerald-100">
@@ -255,15 +256,15 @@ export function TransferDetail({ transferId }: { transferId: string }) {
                   From warehouse
                 </span>
                 <strong className="mt-1 block text-lg">
-                  {originWarehouse?.name ??
+                  <FinancialText>{originWarehouse?.name ??
                     originLocation?.name ??
-                    "Loading warehouse…"}
+                    "Loading warehouse…"}</FinancialText>
                 </strong>
                 {originLocation &&
                   originLocation.name !== originWarehouse?.name && (
                     <span className="mt-1 flex items-center gap-1 text-xs text-emerald-100">
                       <MapPin className="size-3" />
-                      {originLocation.name}
+                      <FinancialText>{originLocation.name}</FinancialText>
                     </span>
                   )}
               </div>
@@ -285,15 +286,15 @@ export function TransferDetail({ transferId }: { transferId: string }) {
                   To store / branch
                 </span>
                 <strong className="mt-1 block text-lg">
-                  {destinationBranch?.name ??
+                  <FinancialText>{destinationBranch?.name ??
                     destinationLocation?.name ??
-                    "Loading destination…"}
+                    "Loading destination…"}</FinancialText>
                 </strong>
                 {destinationLocation &&
                   destinationLocation.name !== destinationBranch?.name && (
                     <span className="mt-1 flex items-center gap-1 text-xs text-[var(--muted)]">
                       <MapPin className="size-3" />
-                      {destinationLocation.name}
+                      <FinancialText>{destinationLocation.name}</FinancialText>
                     </span>
                   )}
               </div>
@@ -303,7 +304,7 @@ export function TransferDetail({ transferId }: { transferId: string }) {
         {transfer.purpose && (
           <p className="mt-4 text-sm text-emerald-50">
             <span className="text-emerald-200">Purpose:</span>{" "}
-            {transfer.purpose}
+            <FinancialText>{transfer.purpose}</FinancialText>
           </p>
         )}
       </section>
@@ -315,7 +316,7 @@ export function TransferDetail({ transferId }: { transferId: string }) {
               Next step
             </p>
             <p className="mt-1 max-w-2xl font-medium text-emerald-950">
-              {transferNextStepCopy(transfer.status, selfApprovalBlocked)}
+              <FinancialText>{transferNextStepCopy(transfer.status, selfApprovalBlocked)}</FinancialText>
             </p>
             {selfApprovalBlocked && (
               <p className="mt-2 max-w-2xl text-sm text-emerald-900">
@@ -427,10 +428,10 @@ export function TransferDetail({ transferId }: { transferId: string }) {
               <span
                 className={`mx-auto grid size-8 place-items-center rounded-full text-sm font-semibold ${index <= currentProgress ? "bg-[var(--brand)] text-white" : "bg-slate-100 text-slate-500"}`}
               >
-                {index < currentProgress ? "✓" : index + 1}
+                <FinancialText>{index < currentProgress ? "✓" : index + 1}</FinancialText>
               </span>
               <span className="mt-1 block text-xs text-[var(--muted)]">
-                {step}
+                <FinancialText>{step}</FinancialText>
               </span>
             </li>
           ))}
@@ -447,8 +448,8 @@ export function TransferDetail({ transferId }: { transferId: string }) {
             >
               <Boxes className="size-4" />
             </span>
-            <p className="text-2xl font-semibold">{formatQuantity(value)}</p>
-            <p className="text-xs text-[var(--muted)]">{label}</p>
+            <p className="text-2xl font-semibold"><FinancialText>{formatQuantity(value)}</FinancialText></p>
+            <p className="text-xs text-[var(--muted)]"><FinancialText>{label}</FinancialText></p>
           </div>
         ))}
       </section>
@@ -459,9 +460,9 @@ export function TransferDetail({ transferId }: { transferId: string }) {
             <article key={item.id} className="rounded-xl border p-4">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
-                  <h3 className="font-semibold">{item.productName}</h3>
+                  <h3 className="font-semibold"><FinancialText>{item.productName}</FinancialText></h3>
                   <p className="text-xs text-[var(--muted)]">
-                    {item.sku} · {item.unitOfMeasure} · {item.trackingType}{" "}
+                    <FinancialText>{item.sku}</FinancialText> · <FinancialText>{item.unitOfMeasure}</FinancialText> · <FinancialText>{item.trackingType}</FinancialText>{" "}
                     tracking
                   </p>
                 </div>
@@ -479,9 +480,9 @@ export function TransferDetail({ transferId }: { transferId: string }) {
                     key={String(label)}
                     className="rounded-lg bg-slate-50 p-3"
                   >
-                    <dt className="text-xs text-[var(--muted)]">{label}</dt>
+                    <dt className="text-xs text-[var(--muted)]"><FinancialText>{label}</FinancialText></dt>
                     <dd className="mt-1 text-lg font-semibold">
-                      {formatQuantity(Number(value))}
+                      <FinancialText>{formatQuantity(Number(value))}</FinancialText>
                     </dd>
                   </div>
                 ))}
@@ -501,12 +502,12 @@ export function TransferDetail({ transferId }: { transferId: string }) {
                   className="border-l-2 border-emerald-200 pl-4"
                 >
                   <p className="font-medium">
-                    {String(event.eventType ?? "event").replaceAll("_", " ")}
+                    <FinancialText>{String(event.eventType ?? "event").replaceAll("_", " ")}</FinancialText>
                   </p>
                   <p className="text-xs text-[var(--muted)]">
-                    {formatDateTime(
+                    <FinancialText>{formatDateTime(
                       event.createdAt as DateTimeValue | undefined,
-                    )}
+                    )}</FinancialText>
                   </p>
                 </li>
               ))}
@@ -528,8 +529,8 @@ export function TransferDetail({ transferId }: { transferId: string }) {
                 ["Issues", result.discrepancies.length],
               ].map(([label, value]) => (
                 <div key={String(label)} className="rounded-lg bg-slate-50 p-3">
-                  <dt className="text-xs text-[var(--muted)]">{label}</dt>
-                  <dd className="mt-1 text-lg font-semibold">{value}</dd>
+                  <dt className="text-xs text-[var(--muted)]"><FinancialText>{label}</FinancialText></dt>
+                  <dd className="mt-1 text-lg font-semibold"><FinancialText>{value}</FinancialText></dd>
                 </div>
               ))}
             </dl>
@@ -538,12 +539,12 @@ export function TransferDetail({ transferId }: { transferId: string }) {
             <div className="rounded-xl border bg-white p-5">
               <h2 className="text-lg font-semibold">Transfer costs</h2>
               <p className="mt-2 text-sm">
-                Estimated {formatNaira(transfer.estimatedCostMinor)} · Approved{" "}
-                {formatNaira(transfer.approvedCostMinor)} · Actual{" "}
-                {formatNaira(transfer.actualCostMinor)}
+                Estimated <FinancialValue>{formatNaira(transfer.estimatedCostMinor)}</FinancialValue> · Approved{" "}
+                <FinancialValue>{formatNaira(transfer.approvedCostMinor)}</FinancialValue> · Actual{" "}
+                <FinancialValue>{formatNaira(transfer.actualCostMinor)}</FinancialValue>
               </p>
               <p className="text-xs text-[var(--muted)]">
-                {result.costs.length} auditable cost records
+                <FinancialText>{result.costs.length}</FinancialText> auditable cost records
               </p>
             </div>
           )}
@@ -557,24 +558,24 @@ export function TransferDetail({ transferId }: { transferId: string }) {
           <div>
             <dt className="text-[var(--muted)]">Source</dt>
             <dd>
-              {sourceRequest
+              <FinancialText>{sourceRequest
                 ? sourceRequest.requestNumber
                 : transfer.sourceRequestId
                   ? "Approved branch request"
-                  : "Direct allocation"}
+                  : "Direct allocation"}</FinancialText>
             </dd>
           </div>
           <div>
             <dt className="text-[var(--muted)]">Priority</dt>
-            <dd className="capitalize">{transfer.priority}</dd>
+            <dd className="capitalize"><FinancialText>{transfer.priority}</FinancialText></dd>
           </div>
           <div>
             <dt className="text-[var(--muted)]">Created</dt>
-            <dd>{formatDateTime(transfer.createdAt)}</dd>
+            <dd><FinancialText>{formatDateTime(transfer.createdAt)}</FinancialText></dd>
           </div>
           <div>
             <dt className="text-[var(--muted)]">Last updated</dt>
-            <dd>{formatDateTime(transfer.updatedAt)}</dd>
+            <dd><FinancialText>{formatDateTime(transfer.updatedAt)}</FinancialText></dd>
           </div>
         </dl>
         <details className="mt-4 border-t pt-4 text-xs text-[var(--muted)]">
@@ -582,19 +583,19 @@ export function TransferDetail({ transferId }: { transferId: string }) {
           <dl className="mt-3 grid gap-2 break-all sm:grid-cols-2">
             <div>
               <dt>Transfer ID</dt>
-              <dd>{transfer.id}</dd>
+              <dd><FinancialText>{transfer.id}</FinancialText></dd>
             </div>
             <div>
               <dt>Origin location ID</dt>
-              <dd>{transfer.originLocationId}</dd>
+              <dd><FinancialText>{transfer.originLocationId}</FinancialText></dd>
             </div>
             <div>
               <dt>Destination location ID</dt>
-              <dd>{transfer.destinationLocationId}</dd>
+              <dd><FinancialText>{transfer.destinationLocationId}</FinancialText></dd>
             </div>
             <div>
               <dt>Transit location ID</dt>
-              <dd>{transfer.transitLocationId}</dd>
+              <dd><FinancialText>{transfer.transitLocationId}</FinancialText></dd>
             </div>
           </dl>
         </details>

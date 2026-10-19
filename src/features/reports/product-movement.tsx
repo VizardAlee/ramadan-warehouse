@@ -1,4 +1,5 @@
 "use client";
+import { FinancialAttributes, FinancialMessage, FinancialText } from "@/features/finance/financial-privacy";
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { callAdministration } from "@/features/administration/api";
@@ -43,13 +44,13 @@ function MovementReport({ branchId, productId, fromDate, toDate, canExport, onPr
         currentOnHandQuantity: row.currentOnHandQuantity ?? "Not in active local goods population", unknownEntryCount: row.unknownEntryCount,
       })))}>Export movement CSV</Button>
     </div>
-    {error && <p role="alert" className="text-red-800">{error}</p>}
+    {error && <p role="alert" className="text-red-800"><FinancialMessage>{error}</FinancialMessage></p>}
     {data && <>
       <p className="text-sm">{data.fromDate}–{data.toDate} · {data.calendarDays} calendar days (Lagos) · Store: {data.branchId ?? "All permitted Stores"} · {data.scannedEntries} entries scanned · {data.rows.length} products. Updated {new Date(data.completedAt).toLocaleString("en-NG", { timeZone: "Africa/Lagos" })}</p>
       <p className="text-sm">{data.population} No snapshot is held while this report runs; refresh after concurrent activity. Export covers every row in the selected view, not just this page.</p>
       <p className="text-sm">{unknown} products have incomplete evidence and are excluded from numeric rankings; {data.unresolvedEntries} additional entries lack a product identity. <button className="underline" onClick={() => { setOrder("unknown"); setPage(1); }}>Review incomplete movement</button></p>
-      <div className={styles.cards}>{visible.map(row => <article key={row.productId} className={styles.card} aria-label={row.productName}>
-        <h3>{row.productName}</h3><small>{row.sku} · {row.unitOfMeasure}</small>
+      <div className={styles.cards}>{visible.map(row => <FinancialAttributes key={row.productId}><article className={styles.card} aria-label={row.productName}>
+        <h3><FinancialText>{row.productName}</FinancialText></h3><small><FinancialText>{row.sku}</FinancialText> · <FinancialText>{row.unitOfMeasure}</FinancialText></small>
         <dl>
           <dt>Customer handovers</dt><dd>{row.handedOverQuantity}</dd><dt>Actual restocks</dt><dd>{row.restockedQuantity}</dd>
           <dt>Net customer quantity</dt><dd>{row.unknownEntryCount ? "Incomplete" : row.netCustomerQuantity}</dd>
@@ -57,7 +58,7 @@ function MovementReport({ branchId, productId, fromDate, toDate, canExport, onPr
           <dt>Included service parts</dt><dd>{row.includedPartsQuantity}</dd><dt>Current stock</dt><dd>{row.currentOnHandQuantity ?? "Outside active local population"}</dd>
           <dt>Evidence</dt><dd>{row.unknownEntryCount ? `${row.unknownEntryCount} incomplete entries` : "Recorded"}</dd>
         </dl>
-      </article>)}</div>
+      </article></FinancialAttributes>)}</div>
       {!ranked.length && <p>No products in this movement view. Try zero handovers, return-dominated or all known products.</p>}
       {ranked.length > 25 && <div className={styles.controls}><Button variant="outline" disabled={page === 1} onClick={() => setPage(page - 1)}>Previous movement page</Button><span>Page {page} of {Math.ceil(ranked.length / 25)}</span><Button variant="outline" disabled={page * 25 >= ranked.length} onClick={() => setPage(page + 1)}>Next movement page</Button></div>}
     </>}

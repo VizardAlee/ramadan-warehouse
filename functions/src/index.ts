@@ -204,3 +204,5 @@ export { providerFunds } from "./callable/provider-funds.js";
 export { getServiceBillingCase } from "./callable/service-billing-case.js";
 
 export { billingReceiptCorrections } from "./callable/billing-receipt-corrections.js";
+
+export { getUserActivity } from "./callable/user-activity.js";

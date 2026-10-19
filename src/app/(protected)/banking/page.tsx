@@ -1,4 +1,5 @@
 "use client";
+import { FinancialAction, FinancialActionScope, FinancialAttributes, FinancialInput, FinancialMessage, FinancialText, FinancialValue   } from "@/features/finance/financial-privacy";
 
 import {
   CheckCircle2,
@@ -220,7 +221,7 @@ export default function BankingPage() {
           role="alert"
           className="rounded-xl bg-red-50 p-4 text-sm text-red-800"
         >
-          {error}
+          <FinancialMessage>{error}</FinancialMessage>
         </div>
       )}
       {message && (
@@ -228,13 +229,13 @@ export default function BankingPage() {
           role="status"
           className="rounded-xl bg-emerald-50 p-4 text-sm text-emerald-900"
         >
-          {message}
+          <FinancialMessage>{message}</FinancialMessage>
         </div>
       )}
 
       {can("banking.transfer") && <CompanyFundsTransfer key={`${profile.organizationId}:${profile.uid}`} accounts={workspace?.accounts ?? []} branches={workspace?.branches ?? []} branchId={operatingContext?.type === "branch" ? operatingContext.id : profile.branchIds.length === 1 ? profile.branchIds[0] : undefined} ownerKey={`${profile.organizationId}:${profile.uid}`} onComplete={() => void load(selectedAccountId)} />}
       {can("banking.manage") && (
-        <details
+        <FinancialActionScope><details
           open={!workspace?.accounts.length}
           className="rounded-xl border bg-white p-5"
         >
@@ -308,7 +309,7 @@ export default function BankingPage() {
             </label>
             <label className="text-sm">
               Opening balance (₦)
-              <input
+              <FinancialInput><input
                 type="number"
                 step="0.01"
                 className="mt-1 w-full rounded-lg border p-3"
@@ -319,7 +320,7 @@ export default function BankingPage() {
                     openingBalanceNaira: event.target.value,
                   })
                 }
-              />
+              /></FinancialInput>
             </label>
             <label className="text-sm">
               Opening balance date
@@ -336,8 +337,8 @@ export default function BankingPage() {
               />
             </label>
           </div>
-          <label className="mt-3 block text-sm">Account owner store<select value={accountForm.branchId} onChange={event => setAccountForm({ ...accountForm, branchId: event.target.value })} className="input mt-1 block w-full"><option value="">Company-wide account</option>{workspace?.branches?.map(row => <option key={row.id} value={row.id}>{row.name}</option>)}</select></label>
-          <Button
+          <label className="mt-3 block text-sm">Account owner store<select value={accountForm.branchId} onChange={event => setAccountForm({ ...accountForm, branchId: event.target.value })} className="input mt-1 block w-full"><option value="">Company-wide account</option>{workspace?.branches?.map(row => <option key={row.id} value={row.id}><FinancialText>{row.name}</FinancialText></option>)}</select></label>
+          <FinancialAction><Button
             className="mt-4"
             disabled={
               busy ||
@@ -364,8 +365,8 @@ export default function BankingPage() {
             }
           >
             <Landmark className="mr-2 size-4" /> Add bank account
-          </Button>
-        </details>
+          </Button></FinancialAction>
+        </details></FinancialActionScope>
       )}
 
       {can("banking.manage") && workspace?.accounts.find(account => account.id === selectedAccountId) && <BankOwner key={selectedAccountId} account={workspace.accounts.find(account => account.id === selectedAccountId)!} branches={workspace.branches ?? []} onSaved={() => void load(selectedAccountId)} />}
@@ -381,8 +382,8 @@ export default function BankingPage() {
               <option value="">Select bank account</option>
               {workspace?.accounts.map((account) => (
                 <option key={account.id} value={account.id}>
-                  {account.bankName} · {account.accountName} ·••••{" "}
-                  {account.accountNumberLast4}
+                  <FinancialText>{account.bankName}</FinancialText> · <FinancialText>{account.accountName}</FinancialText> ·••••{" "}
+                  <FinancialText>{account.accountNumberLast4}</FinancialText>
                 </option>
               ))}
             </select>
@@ -392,12 +393,12 @@ export default function BankingPage() {
               <span className="rounded-lg bg-slate-50 p-3">
                 Statement rows{" "}
                 <strong className="block text-lg">
-                  {workspace?.statementTransactions.length ?? 0}
+                  <FinancialText>{workspace?.statementTransactions.length ?? 0}</FinancialText>
                 </strong>
               </span>
               <span className="rounded-lg bg-emerald-50 p-3">
                 Matched{" "}
-                <strong className="block text-lg">{matchedCount}</strong>
+                <strong className="block text-lg"><FinancialText>{matchedCount}</FinancialText></strong>
               </span>
             </div>
           )}
@@ -405,7 +406,7 @@ export default function BankingPage() {
       </section>
 
       {selectedAccount && can("banking.reconcile") && (
-        <details
+        <FinancialActionScope><details
           open={!workspace?.statementTransactions.length}
           className="rounded-xl border bg-white p-5"
         >
@@ -418,15 +419,15 @@ export default function BankingPage() {
             Deposits are positive; withdrawals are negative. Reference and bank
             ID are optional. Re-imported rows are safely skipped.
           </p>
-          <textarea
+          <FinancialInput><textarea
             className="mt-4 min-h-32 w-full rounded-lg border p-3 font-mono text-sm"
             value={statementText}
             onChange={(event) => setStatementText(event.target.value)}
             placeholder={
               "2026-08-01,Customer transfer,250000.00,TRF-001\n2026-08-02,Supplier payment,-87500.00,PAY-002"
             }
-          />
-          <Button
+          /></FinancialInput>
+          <FinancialAction><Button
             className="mt-3"
             disabled={busy || !statementText.trim()}
             onClick={() =>
@@ -442,8 +443,8 @@ export default function BankingPage() {
             }
           >
             <Upload className="mr-2 size-4" /> Import statement
-          </Button>
-        </details>
+          </Button></FinancialAction>
+        </details></FinancialActionScope>
       )}
 
       {selectedAccount && (
@@ -466,15 +467,15 @@ export default function BankingPage() {
                     line.debitMinor === 0,
               );
               return (
-                <article
+                <FinancialActionScope key={transaction.id}><article
                   key={transaction.id}
                   className="grid gap-3 rounded-xl border p-4 lg:grid-cols-[8rem_minmax(0,1fr)_9rem_minmax(14rem,1fr)_auto] lg:items-center"
                 >
-                  <div className="text-sm">{transaction.transactionDate}</div>
+                  <div className="text-sm"><FinancialText>{transaction.transactionDate}</FinancialText></div>
                   <div>
-                    <strong>{transaction.description}</strong>
+                    <strong><FinancialText>{transaction.description}</FinancialText></strong>
                     <p className="text-xs text-[var(--muted)]">
-                      {transaction.reference || "No bank reference"}
+                      <FinancialText>{transaction.reference || "No bank reference"}</FinancialText>
                     </p>
                   </div>
                   <div
@@ -484,11 +485,11 @@ export default function BankingPage() {
                         : "font-semibold text-emerald-700"
                     }
                   >
-                    {formatNaira(transaction.amountMinor)}
+                    <FinancialValue>{formatNaira(transaction.amountMinor)}</FinancialValue>
                   </div>
                   <div>
                     {transaction.status === "unmatched" ? (
-                      <select
+                      <FinancialAttributes><select
                         aria-label={`Ledger match for ${transaction.description}`}
                         className="w-full rounded-lg border p-3"
                         value={matches[transaction.id] ?? ""}
@@ -502,22 +503,22 @@ export default function BankingPage() {
                         <option value="">Select equal ledger line</option>
                         {candidates.map((line) => (
                           <option key={line.id} value={line.id}>
-                            {line.journalNumber} ·{" "}
-                            {formatNaira(line.debitMinor || line.creditMinor)} ·{" "}
-                            {line.debitMinor ? "deposit" : "withdrawal"}
+                            <FinancialText>{line.journalNumber}</FinancialText> ·{" "}
+                            <FinancialValue textOnly>{formatNaira(line.debitMinor || line.creditMinor)}</FinancialValue> ·{" "}
+                            <FinancialText>{line.debitMinor ? "deposit" : "withdrawal"}</FinancialText>
                           </option>
                         ))}
-                      </select>
+                      </select></FinancialAttributes>
                     ) : (
                       <span className="rounded-full bg-emerald-50 px-3 py-2 text-sm capitalize text-emerald-800">
-                        {transaction.status} · {transaction.journalNumber}
+                        <FinancialText>{transaction.status}</FinancialText> · <FinancialText>{transaction.journalNumber}</FinancialText>
                       </span>
                     )}
                   </div>
                   <div>
                     {transaction.status === "unmatched" &&
                     can("banking.reconcile") ? (
-                      <Button
+                      <FinancialAction><Button
                         disabled={busy || !matches[transaction.id]}
                         onClick={() =>
                           void run(
@@ -532,10 +533,10 @@ export default function BankingPage() {
                         }
                       >
                         <Link2 className="mr-2 size-4" /> Match
-                      </Button>
+                      </Button></FinancialAction>
                     ) : transaction.status === "matched" &&
                       can("banking.reconcile") ? (
-                      <Button
+                      <FinancialAction><Button
                         variant="outline"
                         disabled={busy}
                         onClick={() =>
@@ -550,10 +551,10 @@ export default function BankingPage() {
                         }
                       >
                         <Unlink className="mr-2 size-4" /> Unmatch
-                      </Button>
+                      </Button></FinancialAction>
                     ) : null}
                   </div>
-                </article>
+                </article></FinancialActionScope>
               );
             })}
             {!workspace?.statementTransactions.length && (
@@ -566,14 +567,14 @@ export default function BankingPage() {
       )}
 
       {selectedAccount && can("banking.reconcile") && (
-        <details open className="rounded-xl border bg-white p-5">
+        <FinancialActionScope><details open className="rounded-xl border bg-white p-5">
           <summary className="cursor-pointer text-lg font-semibold">
             4. Prepare period reconciliation
           </summary>
           <p className="mt-1 text-sm text-[var(--muted)]">
             Enter the exact statement opening and closing balances. Preparation
             succeeds only when every statement row and every bank-ledger line in
-            the period is matched and the difference is ₦0.00.
+            the period is matched and the difference is <FinancialValue>{"₦0.00."}</FinancialValue>
           </p>
           <div className="mt-4 grid gap-3 md:grid-cols-4">
             <label className="text-sm">
@@ -606,7 +607,7 @@ export default function BankingPage() {
             </label>
             <label className="text-sm">
               Opening balance (₦)
-              <input
+              <FinancialInput><input
                 type="number"
                 step="0.01"
                 className="mt-1 w-full rounded-lg border p-3"
@@ -617,11 +618,11 @@ export default function BankingPage() {
                     openingBalanceNaira: event.target.value,
                   })
                 }
-              />
+              /></FinancialInput>
             </label>
             <label className="text-sm">
               Closing balance (₦)
-              <input
+              <FinancialInput><input
                 type="number"
                 step="0.01"
                 className="mt-1 w-full rounded-lg border p-3"
@@ -632,10 +633,10 @@ export default function BankingPage() {
                     closingBalanceNaira: event.target.value,
                   })
                 }
-              />
+              /></FinancialInput>
             </label>
           </div>
-          <Button
+          <FinancialAction><Button
             className="mt-4"
             disabled={
               busy ||
@@ -663,8 +664,8 @@ export default function BankingPage() {
             }
           >
             <CheckCircle2 className="mr-2 size-4" /> Prepare reconciliation
-          </Button>
-        </details>
+          </Button></FinancialAction>
+        </details></FinancialActionScope>
       )}
 
       {selectedAccount && (
@@ -672,19 +673,19 @@ export default function BankingPage() {
           <h2 className="text-xl font-semibold">Reconciliation history</h2>
           <div className="mt-4 space-y-3">
             {workspace?.reconciliations.map((reconciliation) => (
-              <article
+              <FinancialActionScope key={reconciliation.id}><article
                 key={reconciliation.id}
                 className="flex flex-col justify-between gap-3 rounded-xl border p-4 md:flex-row md:items-center"
               >
                 <div>
-                  <strong>{reconciliation.reconciliationNumber}</strong>
+                  <strong><FinancialText>{reconciliation.reconciliationNumber}</FinancialText></strong>
                   <p className="text-sm text-[var(--muted)]">
-                    {reconciliation.periodStart} to {reconciliation.periodEnd} ·{" "}
-                    {reconciliation.statementTransactionCount} statement rows ·
-                    difference <strong className={reconciliation.differenceMinor === 0 ? "finance-income" : "finance-outflow"}>{formatNaira(reconciliation.differenceMinor)}</strong>
+                    <FinancialText>{reconciliation.periodStart}</FinancialText> to <FinancialText>{reconciliation.periodEnd}</FinancialText> ·{" "}
+                    <FinancialText>{reconciliation.statementTransactionCount}</FinancialText> statement rows ·
+                    difference <strong className={reconciliation.differenceMinor === 0 ? "finance-income" : "finance-outflow"}><FinancialValue>{formatNaira(reconciliation.differenceMinor)}</FinancialValue></strong>
                   </p>
                   <span className="text-sm capitalize">
-                    {reconciliation.status}
+                    <FinancialText>{reconciliation.status}</FinancialText>
                   </span>
                 </div>
                 {reconciliation.status === "prepared" &&
@@ -697,7 +698,7 @@ export default function BankingPage() {
                   can("banking.approve") &&
                   (reconciliation.preparedBy !== user?.uid ||
                     canApproveOwnWork) ? (
-                  <Button
+                  <FinancialAction><Button
                     disabled={busy}
                     onClick={() =>
                       void run(
@@ -711,9 +712,9 @@ export default function BankingPage() {
                     }
                   >
                     <CheckCircle2 className="mr-2 size-4" /> Complete
-                  </Button>
+                  </Button></FinancialAction>
                 ) : null}
-              </article>
+              </article></FinancialActionScope>
             ))}
             {!workspace?.reconciliations.length && (
               <p className="text-sm text-[var(--muted)]">

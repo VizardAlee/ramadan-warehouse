@@ -1,4 +1,6 @@
 "use client";
+import { FinancialMessage, FinancialText, FinancialValue } from "@/features/finance/financial-privacy";
+
 import Link from "next/link";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -35,7 +37,7 @@ function InventoryPosition() {
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div><h1 className="text-3xl font-semibold">Inventory overview</h1>
         <p className="text-[var(--muted)]">
-          Inventory for {operatingContext ? "the selected Store/Warehouse" : canSelectAll ? "All locations" : "a selected Store/Warehouse"}. Includes products with local inventory history, even at zero stock.
+          Inventory for <FinancialText>{operatingContext ? "the selected Store/Warehouse" : canSelectAll ? "All locations" : "a selected Store/Warehouse"}</FinancialText>. Includes products with local inventory history, even at zero stock.
         </p></div>
         <Button variant="secondary" onClick={() => { setPageStarts([null]); refresh(); }}>Refresh inventory</Button>
       </div>
@@ -46,13 +48,13 @@ function InventoryPosition() {
           ["Value", loading || error || !canReadCosts ? "—" : formatNaira(summary?.valueMinor)],
         ].map(([label, value]) => (
           <article key={label} className="rounded-xl border bg-white p-5">
-            <p className="text-xs uppercase text-[var(--muted)]">{label}</p>
-            <p className="mt-2 text-2xl font-semibold">{value}</p>
+            <p className="text-xs uppercase text-[var(--muted)]"><FinancialText>{label}</FinancialText></p>
+            <p className="mt-2 text-2xl font-semibold"><FinancialValue financial={label === "Value"}>{value}</FinancialValue></p>
           </article>
         ))}
       </section>
       {error && (
-        <p role="alert" className="rounded-lg bg-red-50 p-3 text-red-800">{error}</p>
+        <p role="alert" className="rounded-lg bg-red-50 p-3 text-red-800"><FinancialMessage>{error}</FinancialMessage></p>
       )}
       <div className="responsive-table-wrap">
         <table className="responsive-table">
@@ -69,7 +71,7 @@ function InventoryPosition() {
                 "Last movement",
               ].map((item) => (
                 <th key={item} className="px-4 py-3">
-                  {item}
+                  <FinancialText>{item}</FinancialText>
                 </th>
               ))}
             </tr>
@@ -78,25 +80,25 @@ function InventoryPosition() {
             {rows.length === 0 ? (
               <tr>
                 <td colSpan={8} className="p-8 text-center text-[var(--muted)]">
-                  {loading ? "Loading inventory…" : error ? "Inventory could not be loaded." : "No inventory history at this location."}
+                  <FinancialText>{loading ? "Loading inventory…" : error ? "Inventory could not be loaded." : "No inventory history at this location."}</FinancialText>
                 </td>
               </tr>
             ) : (
               rows.map((row) => (
                 <tr key={row.id} className="border-t">
                   <td data-label="SKU" data-primary="true" className="px-4 py-3 font-mono">
-                    <Link href={`/products/${row.productId}#movement-history`} className="font-semibold text-[var(--brand)] underline underline-offset-2" title="Open product stock history">{row.sku}</Link>
+                    <Link href={`/products/${row.productId}#movement-history`} className="font-semibold text-[var(--brand)] underline underline-offset-2" title="Open product stock history"><FinancialText>{row.sku}</FinancialText></Link>
                   </td>
-                  <td data-label="Location" className="px-4 text-sm">{locations.data.find((location) => location.id === row.locationId)?.name ?? row.locationId}</td>
-                  <td data-label="On hand" className="px-4">{row.onHandQuantity}</td>
-                  <td data-label="Reserved" className="px-4">{row.reservedQuantity}</td>
-                  <td data-label="Available" className="px-4 font-semibold">{row.availableQuantity}</td>
+                  <td data-label="Location" className="px-4 text-sm"><FinancialText>{locations.data.find((location) => location.id === row.locationId)?.name ?? row.locationId}</FinancialText></td>
+                  <td data-label="On hand" className="px-4"><FinancialText>{row.onHandQuantity}</FinancialText></td>
+                  <td data-label="Reserved" className="px-4"><FinancialText>{row.reservedQuantity}</FinancialText></td>
+                  <td data-label="Available" className="px-4 font-semibold"><FinancialText>{row.availableQuantity}</FinancialText></td>
                   <td data-label="Average cost" className="px-4">
-                    {formatNaira(row.averageUnitCostMinor)}
+                    <FinancialValue>{formatNaira(row.averageUnitCostMinor)}</FinancialValue>
                   </td>
-                  <td data-label="Value" className="px-4">{formatNaira(row.totalValueMinor)}</td>
+                  <td data-label="Value" className="px-4"><FinancialValue>{formatNaira(row.totalValueMinor)}</FinancialValue></td>
                   <td data-label="Last movement" className="px-4 text-xs">
-                    {formatDateTime(row.lastMovementAt)}
+                    <FinancialText>{formatDateTime(row.lastMovementAt)}</FinancialText>
                   </td>
                 </tr>
               ))

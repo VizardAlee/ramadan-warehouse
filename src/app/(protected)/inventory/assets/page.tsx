@@ -1,4 +1,6 @@
 "use client";
+import { FinancialMessage, FinancialText, FinancialValue } from "@/features/finance/financial-privacy";
+
 import { useEffect, useState } from "react";
 import { CursorTablePagination } from "@/components/ui/table-pagination";
 import { StatusBadge } from "@/components/ui/status-badge";
@@ -80,7 +82,7 @@ export default function AssetsPage() {
         </p>
       </div>
       {error && (
-        <p className="rounded-lg bg-red-50 p-3 text-red-800">{error}</p>
+        <p className="rounded-lg bg-red-50 p-3 text-red-800"><FinancialMessage>{error}</FinancialMessage></p>
       )}
       <div className="responsive-table-wrap">
         <table className="responsive-table">
@@ -95,7 +97,7 @@ export default function AssetsPage() {
                 "Last movement",
               ].map((item) => (
                 <th key={item} className="px-4 py-3">
-                  {item}
+                  <FinancialText>{item}</FinancialText>
                 </th>
               ))}
             </tr>
@@ -110,14 +112,14 @@ export default function AssetsPage() {
             ) : (
               rows.map((row) => (
                 <tr key={row.id} className="border-t">
-                  <td data-label="SKU" data-primary="true" className="px-4 py-3 font-mono">{row.sku}</td>
-                  <td data-label="Serial / lot" className="px-4 font-mono">{row.serialNumber}</td>
+                  <td data-label="SKU" data-primary="true" className="px-4 py-3 font-mono"><FinancialText>{row.sku}</FinancialText></td>
+                  <td data-label="Serial / lot" className="px-4 font-mono"><FinancialText>{row.serialNumber}</FinancialText></td>
                   <td data-label="Status" className="px-4"><StatusBadge status={row.status}/></td>
-                  <td data-label="Location" className="px-4 record-id">{row.currentLocationId}</td>
+                  <td data-label="Location" className="px-4 record-id"><FinancialText>{row.currentLocationId}</FinancialText></td>
                   <td data-label="Cost" className="px-4">
-                    {formatNaira(row.currentUnitCostMinor)}
+                    <FinancialValue>{formatNaira(row.currentUnitCostMinor)}</FinancialValue>
                   </td>
-                  <td data-label="Last movement" className="px-4">{formatDateTime(row.lastMovementAt)}</td>
+                  <td data-label="Last movement" className="px-4"><FinancialText>{formatDateTime(row.lastMovementAt)}</FinancialText></td>
                 </tr>
               ))
             )}

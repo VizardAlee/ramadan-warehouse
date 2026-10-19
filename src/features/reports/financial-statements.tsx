@@ -1,4 +1,5 @@
 "use client";
+import { FinancialAttributes, FinancialDisplayScope, FinancialMessage, FinancialText, FinancialValue, useFinancialPrint } from "@/features/finance/financial-privacy";
 
 import { Download, Loader2, Printer } from "lucide-react";
 import Image from "next/image";
@@ -71,20 +72,20 @@ function statementDate(value: string) {
 function StatementLine({ label, value, kind = "item", tone = "balance" }: { label: string; value?: number; kind?: "item" | "subtotal" | "total"; tone?: "income" | "outflow" | "attention" | "balance" }) {
   return (
     <div className={`financial-statement-line financial-statement-line--${kind}`}>
-      <span>{label}</span><span className={`financial-statement-amount finance-${tone}`}>{statementMoney(value)}</span>
+      <span><FinancialText>{label}</FinancialText></span><span className={`financial-statement-amount finance-${tone}`}><FinancialValue>{statementMoney(value)}</FinancialValue></span>
     </div>
   );
 }
 
 function StatementSection({ title, rows, totalLabel, total, tone = "balance" }: { title: string; rows: StatementRow[]; totalLabel?: string; total?: number; tone?: "income" | "outflow" | "attention" | "balance" }) {
   return (
-    <section className="financial-statement-section" aria-label={title}>
-      <h3>{title}</h3>
+    <FinancialAttributes><section className="financial-statement-section" aria-label={title}>
+      <h3><FinancialText>{title}</FinancialText></h3>
       {rows.length === 0 ? <p className="financial-statement-empty">No posted activity in this section</p> : rows.map((row, index) => (
         <StatementLine key={`${row.accountCode ?? row.section}-${index}`} label={row.accountName ?? row.section ?? "Other"} value={row.amountMinor} tone={tone} />
       ))}
       {totalLabel && <StatementLine label={totalLabel} value={total} kind="subtotal" tone={tone} />}
-    </section>
+    </section></FinancialAttributes>
   );
 }
 
@@ -94,13 +95,13 @@ function StatementDocument({ statement, scope }: { statement: StatementResult; s
     : `For the period ${statementDate(statement.fromDate)} to ${statementDate(statement.toDate)}`;
   const sectionRows = (section: string) => statement.rows.filter((row) => row.section === section);
   return (
-    <article className="financial-statement-document" data-financial-statement aria-label={`${labels[statement.reportType]} for ${scope}`}>
+    <FinancialAttributes><article className="financial-statement-document" data-financial-statement aria-label={`${labels[statement.reportType]} for ${scope}`}>
       <header className="financial-statement-header">
         <div className="financial-statement-brand"><Image src="/abr-logo.jpg" alt="AB Ramadan logo" width={36} height={36} /><span>AB Ramadan</span></div>
         <div className="financial-statement-eyebrow">Financial report · Draft</div>
-        <h2>{labels[statement.reportType]}</h2>
-        <p>{period}</p>
-        <div className="financial-statement-meta"><span>{scope}</span><span>Amounts in Nigerian naira (NGN)</span></div>
+        <h2><FinancialText>{labels[statement.reportType]}</FinancialText></h2>
+        <p><FinancialText>{period}</FinancialText></p>
+        <div className="financial-statement-meta"><span><FinancialText>{scope}</FinancialText></span><span>Amounts in Nigerian naira (NGN)</span></div>
       </header>
       <div className="financial-statement-body">
         {statement.reportType === "income_statement" && <>
@@ -122,17 +123,18 @@ function StatementDocument({ statement, scope }: { statement: StatementResult; s
           <p className="text-xs text-[var(--muted)]">Posted cash and bank movements. Transfers between accounts cancel within the selected scope. Advance applications and credit sales do not create receipts.</p>
         </>}
         {statement.reportType === "cash_flow" && <>
-          {statement.rows.map((row, index) => <section className="financial-statement-section" key={`${row.section}-${index}`} aria-label={row.section ?? "Other activities"}><h3>{row.section ?? "Other activities"}</h3><StatementLine label={`Net cash from ${row.section?.toLowerCase() ?? "other activities"}`} value={row.amountMinor} kind="subtotal" tone={(row.amountMinor ?? 0) < 0 ? "outflow" : "income"} /></section>)}
+          {statement.rows.map((row, index) => <FinancialAttributes key={`${row.section}-${index}`}><section className="financial-statement-section" key={`${row.section}-${index}`} aria-label={row.section ?? "Other activities"}><h3><FinancialText>{row.section ?? "Other activities"}</FinancialText></h3><StatementLine label={`Net cash from ${row.section?.toLowerCase() ?? "other activities"}`} value={row.amountMinor} kind="subtotal" tone={(row.amountMinor ?? 0) < 0 ? "outflow" : "income"} /></section></FinancialAttributes>)}
           <StatementLine label="Net increase / (decrease) in cash" value={statement.netCashMovementMinor} kind="total" tone={(statement.netCashMovementMinor ?? 0) < 0 ? "outflow" : "income"} />
         </>}
-        {statement.reportType === "trial_balance" && <div className="financial-statement-trial-wrap"><table className="financial-statement-trial"><thead><tr><th scope="col">Account</th><th scope="col">Debit</th><th scope="col">Credit</th></tr></thead><tbody>{statement.rows.map((row, index) => <tr key={`${row.accountCode}-${index}`}><td>{row.accountName}{row.accountCode && <small>{row.accountCode}</small>}</td><td>{statementMoney(row.debitMinor)}</td><td>{statementMoney(row.creditMinor)}</td></tr>)}</tbody><tfoot><tr><th scope="row">Total</th><td>{statementMoney(statement.totalDebitMinor)}</td><td>{statementMoney(statement.totalCreditMinor)}</td></tr></tfoot></table></div>}
+        {statement.reportType === "trial_balance" && <div className="financial-statement-trial-wrap"><table className="financial-statement-trial"><thead><tr><th scope="col">Account</th><th scope="col">Debit</th><th scope="col">Credit</th></tr></thead><tbody>{statement.rows.map((row, index) => <tr key={`${row.accountCode}-${index}`}><td><FinancialText>{row.accountName}</FinancialText>{row.accountCode && <small><FinancialText>{row.accountCode}</FinancialText></small>}</td><td><FinancialValue>{statementMoney(row.debitMinor)}</FinancialValue></td><td><FinancialValue>{statementMoney(row.creditMinor)}</FinancialValue></td></tr>)}</tbody><tfoot><tr><th scope="row">Total</th><td><FinancialValue>{statementMoney(statement.totalDebitMinor)}</FinancialValue></td><td><FinancialValue>{statementMoney(statement.totalCreditMinor)}</FinancialValue></td></tr></tfoot></table></div>}
       </div>
       <footer className="financial-statement-footer">Ledger-derived draft · Review before external use</footer>
-    </article>
+    </article></FinancialAttributes>
   );
 }
 
 export function FinancialStatements() {
+  const { printing, printActual } = useFinancialPrint();
   const { operatingContext } = useAuth();
   const { identity, access, error: accessError } = useFinancialAccess();
   const branches = useFinancialBranches(access, identity);
@@ -226,7 +228,7 @@ export function FinancialStatements() {
         <label className="text-sm font-medium">
           Statement
           <select value={reportType} onChange={(event) => setReportType(event.target.value as StatementType)} className="mt-1 w-full rounded-lg border p-2.5">
-            {Object.entries(labels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+            {Object.entries(labels).map(([value, label]) => <option key={value} value={value}><FinancialText>{label}</FinancialText></option>)}
           </select>
         </label>
         <ReportPeriodPicker value={period} onChange={value => { setPeriod(value); if (value !== "custom") { const range = reportDateRange(value); setFromDate(range.fromDate); setToDate(range.toDate); } }} />
@@ -241,29 +243,29 @@ export function FinancialStatements() {
         <label className="text-sm font-medium">Scope
           <select value={branchId} onChange={(event) => setSelectedBranchId(event.target.value)} className="mt-1 w-full rounded-lg border p-2.5">
             {canReadOrganization && <option value="">Entire organization</option>}
-            {branchId && !branches.data.some(branch => branch.id === branchId) && <option value={branchId}>{financialScopeLabel(branchId, branches.data)}</option>}
-            {branches.data.map((branch) => <option key={branch.id} value={branch.id}>{branch.name}</option>)}
+            {branchId && !branches.data.some(branch => branch.id === branchId) && <option value={branchId}><FinancialText>{financialScopeLabel(branchId, branches.data)}</FinancialText></option>}
+            {branches.data.map((branch) => <option key={branch.id} value={branch.id}><FinancialText>{branch.name}</FinancialText></option>)}
           </select>
         </label>
       </section>
-      {accessError && <p role="alert" className="text-red-800">{accessError}</p>}
-      {branches.error && <p role="alert">Store names are unavailable: {branches.error} Statements identify the selected store by its ID.</p>}
+      {accessError && <p role="alert" className="text-red-800"><FinancialText>{accessError}</FinancialText></p>}
+      {branches.error && <p role="alert">Store names are unavailable: <FinancialMessage>{branches.error}</FinancialMessage> Statements identify the selected store by its ID.</p>}
       {!validDates && <p role="alert" className="rounded-lg bg-amber-50 p-3 text-sm text-amber-900">Select a valid date range and an assigned store.</p>}
       {validDates && !currentResult && !(error && errorKey === reportKey) && <p role="status" className="flex items-center gap-2 text-sm text-[var(--muted)]"><Loader2 className="size-4 animate-spin" /> Updating statement…</p>}
-      {error && errorKey === reportKey && <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-800">{error}</p>}
+      {error && errorKey === reportKey && <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-800"><FinancialMessage>{error}</FinancialMessage></p>}
       {currentResult && (
         <>
           <div className="flex flex-wrap items-center justify-between gap-3" data-no-print>
             <div>
-              <h2 className="text-xl font-semibold">{labels[currentResult.reportType]}</h2>
-              <p className="text-sm text-[var(--muted)]">{currentResult.fromDate} to {currentResult.toDate} · {branches.data.find((branch) => branch.id === branchId)?.name ?? "Entire organization"} · NGN</p>
+              <h2 className="text-xl font-semibold"><FinancialText>{labels[currentResult.reportType]}</FinancialText></h2>
+              <p className="text-sm text-[var(--muted)]"><FinancialText>{currentResult.fromDate}</FinancialText> to <FinancialText>{currentResult.toDate}</FinancialText> · <FinancialText>{branches.data.find((branch) => branch.id === branchId)?.name ?? "Entire organization"}</FinancialText> · NGN</p>
             </div>
-            <div className="flex flex-wrap gap-2"><Button variant="secondary" disabled={busy} onClick={() => window.print()}><Printer className="mr-2 size-4" /> Print / Save PDF</Button><Button variant="secondary" disabled={busy} onClick={download}><Download className="mr-2 size-4" /> Download CSV</Button></div>
+            <div className="flex flex-wrap gap-2"><Button variant="secondary" disabled={busy} onClick={printActual}><Printer className="mr-2 size-4" /> Print / Save PDF</Button><Button variant="secondary" disabled={busy} onClick={download}><Download className="mr-2 size-4" /> Download CSV</Button></div>
           </div>
-          <StatementDocument statement={currentResult} scope={financialScopeLabel(branchId, branches.data)} />
+          <p className="text-xs text-[var(--muted)]" data-no-print>Print and CSV contain actual financial values, regardless of the screen preference.</p><FinancialDisplayScope actual={printing}><StatementDocument statement={currentResult} scope={financialScopeLabel(branchId, branches.data)} /></FinancialDisplayScope>
           <p className="rounded-lg bg-amber-50 p-3 text-sm text-amber-900" data-no-print>
             These are ledger-derived draft statements. The balance sheet includes cumulative unclosed earnings; the cash-flow grouping follows posted journal types. Review classifications, opening balances, adjustments, and any unmatched entries before external use.
-            {currentResult.reportType === "balance_sheet" && currentResult.balanced === false && " The balance sheet does not balance; investigate the ledger before relying on it."}
+            <FinancialText>{currentResult.reportType === "balance_sheet" && currentResult.balanced === false && " The balance sheet does not balance; investigate the ledger before relying on it."}</FinancialText>
           </p>
           {currentResult.reportType === "balance_sheet" && branchId && <p className="text-xs text-[var(--muted)]" data-no-print>Store net assets include branch-tagged ledger entries only; centrally held assets and liabilities remain in the organization view.</p>}
         </>

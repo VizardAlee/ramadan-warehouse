@@ -63,6 +63,9 @@ export interface PosShift {
 }
 
 export interface PosPendingOrder {
+  createdBy?: string | null;
+  paymentAcceptedBy?: string | null;
+  actorLabels?: import("@/types/domain").RecordActorLabels;
   id: string;
   orderNumber: string;
   status: "order_received" | "payment_accepted";

@@ -1,5 +1,7 @@
 {
   "indexes": [
+    { "collectionGroup": "auditLogs", "queryScope": "COLLECTION", "fields": [{ "fieldPath": "organizationId", "order": "ASCENDING" }, { "fieldPath": "createdAt", "order": "DESCENDING" }] },
+    { "collectionGroup": "auditLogs", "queryScope": "COLLECTION", "fields": [{ "fieldPath": "organizationId", "order": "ASCENDING" }, { "fieldPath": "actorUserId", "order": "ASCENDING" }, { "fieldPath": "createdAt", "order": "DESCENDING" }] },
     {"collectionGroup":"sales","queryScope":"COLLECTION","fields":[{"fieldPath":"organizationId","order":"ASCENDING"},{"fieldPath":"recordedAt","order":"ASCENDING"},{"fieldPath":"grossAmountMinor","order":"ASCENDING"},{"fieldPath":"__name__","order":"ASCENDING"}]},
     {"collectionGroup":"sales","queryScope":"COLLECTION","fields":[{"fieldPath":"organizationId","order":"ASCENDING"},{"fieldPath":"recordedAt","order":"ASCENDING"},{"fieldPath":"creditAmountMinor","order":"ASCENDING"},{"fieldPath":"__name__","order":"ASCENDING"}]},
     {"collectionGroup":"customerPayments","queryScope":"COLLECTION","fields":[{"fieldPath":"direction","order":"ASCENDING"},{"fieldPath":"organizationId","order":"ASCENDING"},{"fieldPath":"status","order":"ASCENDING"},{"fieldPath":"recordedAt","order":"ASCENDING"},{"fieldPath":"amountMinor","order":"ASCENDING"},{"fieldPath":"__name__","order":"ASCENDING"}]},
