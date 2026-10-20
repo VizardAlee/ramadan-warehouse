@@ -1,4 +1,5 @@
 "use client";
+import { FastMovingControls, usePosFastMoving } from "@/features/pos/fast-moving";
 import { RecordAttribution } from "@/features/audit/record-attribution";
 import { FinancialAction, FinancialActionScope, FinancialAttributes, FinancialDocument, FinancialPrintAction, FinancialInput, FinancialMessage, FinancialText, FinancialValue  } from "@/features/finance/financial-privacy";
 
@@ -129,6 +130,7 @@ export default function PosPage() {
   const [heldSales, setHeldSales] = useState<HeldPosSale[]>([]);
   const [queued, setQueued] = useState<QueuedPosSale[]>([]);
   const [search, setSearch] = useState("");
+  const [fastMovingOnly, setFastMovingOnly] = useState(false);
   const [cartOpen, setCartOpen] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<PosCheckoutMethod>("cash");
   const [paymentReference, setPaymentReference] = useState("");
@@ -192,6 +194,8 @@ export default function PosPage() {
     assignedBranchId ??
     (manualBranchId || firstActiveBranchId || "");
   const checkoutScope = JSON.stringify([profile?.organizationId, user?.uid, selectedBranchId]);
+  const fastMoving = usePosFastMoving(JSON.stringify([checkoutScope, profile?.authorizationVersion]), selectedBranchId, online, workspace?.branch.id === selectedBranchId ? workspace.refreshedAt : undefined);
+  const fastMovingIds = useMemo(() => new Set(fastMoving?.status === "ready" ? fastMoving.productIds : []), [fastMoving]);
   const checkoutScopeRef = useRef(checkoutScope);
   useEffect(() => { checkoutScopeRef.current = checkoutScope; }, [checkoutScope]);
   const canReceiveOrder = Boolean(
@@ -407,11 +411,11 @@ export default function PosPage() {
   const visibleProducts = useMemo(
     () =>
       (workspace?.products ?? []).filter((product) =>
-        `${product.name} ${product.sku}`
+        (!fastMovingOnly || fastMovingIds.has(product.id)) && `${product.name} ${product.sku}`
           .toLowerCase()
           .includes(search.toLowerCase()),
       ),
-    [search, workspace?.products],
+    [search, workspace?.products, fastMovingOnly, fastMovingIds],
   );
 
   function addProduct(productId: string) {
@@ -1547,6 +1551,7 @@ export default function PosPage() {
                   className="w-full rounded-lg border py-3 pl-10 pr-3"
                 />
               </label>
+              <FastMovingControls result={fastMoving} online={online} selected={fastMovingOnly} onSelect={setFastMovingOnly} />
               <p className="mt-2 text-xs text-[var(--muted)]">
                 Need a different price for one customer? Add the product, then choose
                 <strong> Change sale price</strong> in Current sale.
@@ -1563,7 +1568,7 @@ export default function PosPage() {
                   product.availableQuantity -
                     (queuedQuantityByProduct.get(product.id) ?? 0),
                 );
-                return <PosProductCard key={product.id} product={product} available={available}
+                return <PosProductCard key={product.id} product={product} available={available} fastMoving={fastMovingIds.has(product.id)}
                   pending={Boolean(receivedOrder.pending)} ready={receivedOrder.ready} online={online}
                   onAdd={() => addProduct(product.id)}
                   onManagePrice={canManageBranchPrice && online ? () => {
@@ -1574,8 +1579,7 @@ export default function PosPage() {
               })}
               {visibleProducts.length === 0 && (
                 <div className="col-span-full rounded-xl border bg-white p-8 text-center text-[var(--muted)]">
-                  No sale-ready products match. Products require an active
-                  central selling price and branch stock.
+                  {fastMovingOnly ? "No fast-moving products match this catalogue and search. Check the suggestion status above, clear your search, or choose All products." : "No sale-ready products match. Products require an active central selling price."}
                 </div>
               )}
             </div>

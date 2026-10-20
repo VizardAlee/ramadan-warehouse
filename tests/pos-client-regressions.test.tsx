@@ -20,6 +20,21 @@ beforeEach(() => { HTMLElement.prototype.scrollIntoView = vi.fn(); state.held = 
 afterEach(() => { cleanup(); sessionStorage.clear(); vi.clearAllMocks(); });
 async function basket() { render(<PosPage />); const add = await screen.findByRole("button", { name: "Add", exact: true }); await waitFor(() => expect((add as HTMLButtonElement).disabled).toBe(false)); fireEvent.click(add); await screen.findByLabelText("Price level for Demo battery"); }
 describe("POS client complaint regressions", () => {
+  it("filters fast-moving products and adds through the normal stock-checked cart flow", async () => {
+    state.call.mockImplementation((name, input) => Promise.resolve(name === "getPosWorkspace" ? input.fastMoving ? { version: 1, branchId: "demo-store", status: "ready", productIds: [product.id], asOf: new Date().toISOString(), expiresAt: new Date(Date.now() + 900000).toISOString() } : { ...workspace, products: [product, { ...product, id: "ordinary", name: "Ordinary item" }, { ...product, id: "empty", name: "Empty stock", availableQuantity: 0 }] } : {}));
+    render(<PosPage />);
+    await screen.findByText(/Frequently bought at this branch/);
+    fireEvent.click(screen.getByRole("button", { name: "Fast-moving", exact: true }));
+    expect(screen.queryByRole("heading", { name: "Ordinary item" })).toBeNull();
+    expect(screen.getByRole("heading", { name: "Demo battery" })).toBeTruthy();
+    const add = screen.getByRole("button", { name: "Add", exact: true });
+    await waitFor(() => expect((add as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(add);
+    expect((await screen.findByLabelText("Quantity for Demo battery") as HTMLInputElement).value).toBe("1");
+    fireEvent.click(screen.getByRole("button", { name: "All products", exact: true }));
+    expect(screen.getByRole("heading", { name: "Ordinary item" })).toBeTruthy();
+    expect(state.call.mock.calls.some(c => c[0] === "createPosSaleOrder")).toBe(false);
+  });
   const remoteCustomer = { ...workspace.customers[0]!, id: "past-workspace-cap", customerNumber: "CUS-1005", name: "Alhaji Aliyu Ventures", pricingTier: "wholesale" };
   async function selectRemoteCustomer() {
     state.call.mockImplementation((name, input) => Promise.resolve(name === "getPosWorkspace" ? input.customerSearch ? { customers: [remoteCustomer], nextCursor: null, scanned: 1, complete: true, scanLimited: false } : { ...workspace, customers: input.customerId === remoteCustomer.id ? [...workspace.customers, remoteCustomer] : workspace.customers } : { orderId: "demo-order", orderNumber: "ORD-DEMO", created: true }));

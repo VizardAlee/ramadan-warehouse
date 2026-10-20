@@ -71,3 +71,15 @@
   .mobileCartButton { font-size: .875rem; }
   .cart { padding-inline: 1rem; }
 }
+
+
+.fastMovingPanel { margin-top: 1rem; border-top: 1px solid var(--border); padding-top: 1rem; }
+.catalogueFilters { display: flex; flex-wrap: wrap; gap: .75rem; }
+.catalogueFilters button { min-height: 44px; padding: .65rem 1.1rem; border: 1px solid var(--border); border-radius: 999px; font-weight: 600; background: var(--surface); color: var(--foreground); }
+.catalogueFilters button[aria-pressed="true"] { border-color: var(--brand-fill, var(--brand)); background: var(--brand-fill, var(--brand)); color: white; }
+.catalogueFilters button:focus-visible, .fastMovingHelp summary:focus-visible { outline: 3px solid var(--brand); outline-offset: 3px; }
+.fastMovingStatus { margin-top: .65rem; font-size: .8rem; line-height: 1.6; color: var(--muted); overflow-wrap: anywhere; }
+.fastMovingHelp { margin-top: .25rem; font-size: .8rem; line-height: 1.7; color: var(--muted); }
+.fastMovingHelp summary { min-height: 44px; cursor: pointer; display: list-item; align-content: center; }
+.fastMovingHelp p { padding: .25rem 0 .5rem; }
+.fastMovingBadge { align-self: flex-start; width: fit-content; max-width: 100%; border-radius: 999px; padding: .3rem .7rem; background: color-mix(in srgb, var(--brand) 12%, var(--surface)); color: var(--foreground); border: 1px solid color-mix(in srgb, var(--brand) 35%, transparent); font-size: .75rem; font-weight: 650; line-height: 1.5; }

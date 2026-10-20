@@ -9,6 +9,7 @@ import styles from "./pos-layout.module.css";
 
 interface ProductCardProps {
   product: PosProduct;
+  fastMoving?: boolean;
   available: number;
   pending: boolean;
   ready: boolean;
@@ -18,7 +19,7 @@ interface ProductCardProps {
 }
 
 /** Catalogue guidance is opt-in so unavailable stock does not overwhelm the grid. */
-export function PosProductCard({ product, available, pending, ready, online, onAdd, onManagePrice }: ProductCardProps) {
+export function PosProductCard({ product, fastMoving = false, available, pending, ready, online, onAdd, onManagePrice }: ProductCardProps) {
   const helpId = useId();
   const service = product.itemKind === "service";
   const disabled = pending || !ready || available <= 0 || (service && !online);
@@ -39,6 +40,7 @@ export function PosProductCard({ product, available, pending, ready, online, onA
         <p className={styles.sku}><FinancialText>{product.sku}</FinancialText></p>
       </div>
     </div>
+    {fastMoving && <span className={styles.fastMovingBadge}>Fast-moving</span>}
     <div className={styles.productPrice}><FinancialValue>{formatNaira(product.unitPriceMinor)}</FinancialValue></div>
     <p className={styles.priceCaption}>before VAT · <FinancialText>{product.priceSource}</FinancialText> price</p>
     <p className={available <= 0 ? styles.outOfStock : styles.availability}>
