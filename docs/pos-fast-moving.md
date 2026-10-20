@@ -47,14 +47,14 @@ No IAM, credentials, security rules or role definitions are changed.
 The browser loads suggestions separately after the ordinary catalogue, so a cold
 calculation does not block stock/prices or checkout. Server-only
 `posFastMovingSummaries` cache documents expire after 15 minutes. A transactional
-90-second lease prevents concurrent cold calculations for a branch; competing
+90-second lease prevents concurrent cold calculations for a branch; each server instance runs at most one cold calculation, while warm cache reads remain independent; competing
 requests show a refreshing state. Clients recheck at expiry while online and
 suppress labels offline or across branch/user scope changes. New sales/returns
 can take up to 15 minutes to affect labels.
 
 A refresh uses a branch/date query capped at 1,001 receipts, line queries in
 batches of 30 sale IDs (each capped at 1,501), at most 5,000 lines, batched approved
-counter/product reads, and a 20-second processing deadline within the existing 30-second callable timeout. More than 1,000
+counter/product reads that select only IDs, quantities, units, status and dates (no prices, costs or customer details), and a 20-second processing deadline within the existing 30-second callable timeout. More than 1,000
 receipts, more than 5,000 lines, missing lines, invalid quantities or inconsistent
 counter scopes produce **unavailable**, never a partial ranking. Failures are
 cached for one minute. High-volume branches beyond these explicit limits need a

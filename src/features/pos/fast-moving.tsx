@@ -46,7 +46,7 @@ export function FastMovingControls({ result, online, selected, onSelect }: {
   const ready = online && result?.status === "ready";
   const message = !online ? "Fast-moving suggestions need a connection. All products remain available from the cached catalogue."
     : !result ? "Checking this branch’s recent completed sales…"
-    : result.status === "refreshing" ? "This branch’s suggestions are being refreshed. All products remain available."
+    : result.status === "refreshing" ? "Preparing fresh suggestions. All products remain available."
     : result.status === "unavailable" ? "Suggestions are unavailable: recent sales evidence could not be verified within the safe calculation limit. All products remain available."
     : result.status === "insufficient_history" ? "Not enough repeat activity yet. This branch needs at least 10 completed goods receipts with quantity remaining across 3 days."
     : result.productIds.length === 0 ? "No products meet the repeat-purchase threshold yet."
