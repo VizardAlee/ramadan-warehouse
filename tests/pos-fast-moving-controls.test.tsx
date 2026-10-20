@@ -1,10 +1,10 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { FastMovingControls, usePosFastMoving, type PosFastMoving } from "@/features/pos/fast-moving";
 const call = vi.hoisted(() => vi.fn());
 vi.mock("@/features/administration/api", () => ({ callAdministration: call }));
-afterEach(() => { cleanup(); vi.clearAllMocks(); });
+afterEach(() => { cleanup(); vi.clearAllMocks(); vi.useRealTimers(); });
 const result: PosFastMoving = { version: 1, branchId: "store", status: "ready", productIds: ["a"], asOf: new Date().toISOString(), expiresAt: new Date(Date.now() + 900000).toISOString() };
 function Harness({ scope = "one", branch = "store", online = true }: { scope?: string; branch?: string; online?: boolean }) { const value = usePosFastMoving(scope, branch, online, "refreshed"); return <output>{JSON.stringify(value)}</output>; }
 describe("POS safe fast-moving states", () => {
@@ -25,6 +25,21 @@ describe("POS safe fast-moving states", () => {
     call.mockResolvedValue({ ...result, expiresAt: new Date(Date.now() - 1000).toISOString() });
     render(<Harness />);
     await waitFor(() => expect(screen.getByRole("status").textContent).toContain('"unavailable"'));
+    expect(screen.getByRole("status").textContent).toContain('"productIds":[]');
+  });
+  it("clears saved suggestions offline before reconnecting after their expiry", async () => {
+    vi.useFakeTimers(); const started = Date.now();
+    call.mockResolvedValue({ ...result, expiresAt: new Date(started + 900000).toISOString() });
+    const view = render(<Harness />);
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    expect(screen.getByRole("status").textContent).toContain('"a"');
+    view.rerender(<Harness online={false} />);
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    vi.setSystemTime(started + 900001);
+    view.rerender(<Harness />);
+    expect(screen.getByRole("status").textContent).toBe("null");
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    expect(screen.getByRole("status").textContent).toContain('"unavailable"');
     expect(screen.getByRole("status").textContent).toContain('"productIds":[]');
   });
   it("ignores an old branch response after a scope switch", async () => {

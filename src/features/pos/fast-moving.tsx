@@ -15,7 +15,10 @@ export interface PosFastMoving {
 export function usePosFastMoving(scope: string, branchId: string, online: boolean, refreshedAt?: string) {
   const [state, setState] = useState<{ scope: string; result: PosFastMoving | null }>({ scope: "", result: null });
   useEffect(() => {
-    if (!branchId || !online || !refreshedAt) return;
+    if (!branchId || !online || !refreshedAt) {
+      const reset = setTimeout(() => setState({ scope: "", result: null }), 0);
+      return () => clearTimeout(reset);
+    }
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout>;
     async function load() {
@@ -31,10 +34,10 @@ export function usePosFastMoving(scope: string, branchId: string, online: boolea
         timer = setTimeout(() => void load(), 60_000);
       }
     }
-    timer = setTimeout(() => void load(), 0);
+    timer = setTimeout(() => { setState({ scope, result: null }); void load(); }, 0);
     return () => { cancelled = true; clearTimeout(timer); };
   }, [scope, branchId, online, refreshedAt]);
-  return online && state.scope === scope && state.result?.branchId === branchId && Date.parse(state.result.expiresAt) > Date.now() ? state.result : null;
+  return online && state.scope === scope && state.result?.branchId === branchId ? state.result : null;
 }
 
 export function FastMovingControls({ result, online, selected, onSelect }: {
