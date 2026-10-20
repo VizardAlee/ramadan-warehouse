@@ -24,12 +24,12 @@ describe("POS client complaint regressions", () => {
   async function selectRemoteCustomer() {
     state.call.mockImplementation((name, input) => Promise.resolve(name === "getPosWorkspace" ? input.customerSearch ? { customers: [remoteCustomer], nextCursor: null, scanned: 1, complete: true, scanLimited: false } : { ...workspace, customers: input.customerId === remoteCustomer.id ? [...workspace.customers, remoteCustomer] : workspace.customers } : { orderId: "demo-order", orderNumber: "ORD-DEMO", created: true }));
     fireEvent.change(screen.getByLabelText("Search customer name"), { target: { value: "liyu" } });
-    await screen.findByRole("option", { name: "Alhaji Aliyu Ventures · CUS-1005" });
-    expect((screen.getByLabelText("Customer", { exact: true }) as HTMLSelectElement).value).toBe("");
+    await screen.findByRole("option", { name: /Alhaji Aliyu Ventures.*CUS-1005/ });
+    expect(screen.getByText("Walk-in customer")).toBeTruthy();
     expect((screen.getByLabelText("Quantity for Demo battery") as HTMLInputElement).value).toBe("2");
     expect((screen.getByLabelText("Discount (₦)") as HTMLInputElement).value).toBe("50000");
     expect(state.call.mock.calls.some(call => call[0] === "createPosSaleOrder")).toBe(false);
-    fireEvent.change(screen.getByLabelText("Customer", { exact: true }), { target: { value: remoteCustomer.id } });
+    fireEvent.click(screen.getByRole("option", { name: /Alhaji Aliyu Ventures.*CUS-1005/ }));
   }
   it("searches without changing the basket and selects the matching ID using existing wholesale pricing", async () => {
     await basket();
@@ -59,7 +59,7 @@ describe("POS client complaint regressions", () => {
     const resume = await screen.findByRole("button", { name: "Resume sale" });
     await waitFor(() => expect((resume as HTMLButtonElement).disabled).toBe(false));
     fireEvent.click(resume);
-    await waitFor(() => expect((screen.getByLabelText("Customer", { exact: true }) as HTMLSelectElement).value).toBe(remoteCustomer.id));
+    await waitFor(() => expect(screen.getByText("CUS-1005")).toBeTruthy());
     expect(state.call.mock.calls.some(call => call[0] === "getPosWorkspace" && call[1].customerSearch?.customerId === remoteCustomer.id)).toBe(true);
     expect((screen.getByLabelText("Quantity for Demo battery") as HTMLInputElement).value).toBe("2");
     expect((screen.getByLabelText("Discount reason") as HTMLInputElement).value).toBe("Held search discount");
@@ -83,7 +83,7 @@ describe("POS client complaint regressions", () => {
   it.each([["Part payment", "500000", 50_000_000, 30_000_000], ["Pay later", "0", 0, 80_000_000], ["Pay in full", "0", 80_000_000, 0]] as const)("explains the missing discount reason and receives %s once the requirement is met", async (mode, paid, paidMinor, creditMinor) => {
     await basket();
     fireEvent.change(screen.getByLabelText("Discount (₦)"), { target: { value: "50000" } });
-    fireEvent.change(screen.getByLabelText("Customer", { exact: true }), { target: { value: "demo-customer" } });
+    fireEvent.focus(screen.getByRole("combobox", { name: "Search customer name" })); fireEvent.click(screen.getByRole("option", { name: /Demo Buyer.*CUS-DEMO/ }));
     fireEvent.click(screen.getByRole("button", { name: mode, exact: true }));
     if (mode === "Part payment") fireEvent.change(screen.getByLabelText("Amount paid now (₦)"), { target: { value: paid } });
     if (mode !== "Pay in full") fireEvent.change(screen.getByLabelText(/Payment due date/), { target: { value: "2026-10-16" } });
@@ -104,7 +104,7 @@ describe("POS client complaint regressions", () => {
   });
   it("keeps ordinary customer credit authorization and online boundaries", async () => {
     state.auth.profile.roleId = "branch_manager"; state.auth.profile.roleIds = ["branch_manager"];
-    try { await basket(); fireEvent.change(screen.getByLabelText("Customer", {exact:true}), {target:{value:"demo-customer"}}); fireEvent.click(screen.getByRole("button",{name:"Pay later",exact:true})); expect((screen.getByRole("button",{name:/^Receive order/}) as HTMLButtonElement).disabled).toBe(true); expect(screen.getByText(/needs administrator-approved credit/)).toBeTruthy(); }
+    try { await basket(); fireEvent.focus(screen.getByRole("combobox", { name: "Search customer name" })); fireEvent.click(screen.getByRole("option", {name:/Demo Buyer.*CUS-DEMO/})); fireEvent.click(screen.getByRole("button",{name:"Pay later",exact:true})); expect((screen.getByRole("button",{name:/^Receive order/}) as HTMLButtonElement).disabled).toBe(true); expect(screen.getByText(/needs administrator-approved credit/)).toBeTruthy(); }
     finally { state.auth.profile.roleId="system_administrator"; state.auth.profile.roleIds=["system_administrator"]; }
   });
   it("explains absent wholesale configuration without inventing a price", () => {

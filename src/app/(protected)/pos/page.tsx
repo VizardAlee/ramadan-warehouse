@@ -1825,6 +1825,20 @@ export default function PosPage() {
               </label>
             </div>
             <div className="mt-4 rounded-xl border bg-white p-3">
+              <div className={styles.customerHeader}>
+                <h3>Customer</h3>
+                {canManageCustomers && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={!online || busy}
+                    onClick={() => setCustomerDialogOpen(true)}
+                  >
+                    <UserPlus className="mr-2 size-4" /> New customer
+                  </Button>
+                )}
+              </div>
               <div className={styles.customerRow}>
                 <PosCustomerSelector
                     key={JSON.stringify([profile?.organizationId, user?.uid, profile?.authorizationVersion, selectedBranchId])}
@@ -1847,17 +1861,7 @@ export default function PosPage() {
                       }));
                     }}
                 />
-                {canManageCustomers && (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="mt-6 shrink-0"
-                    disabled={!online || busy}
-                    onClick={() => setCustomerDialogOpen(true)}
-                  >
-                    <UserPlus className="mr-2 size-4" /> New customer
-                  </Button>
-                )}
+
               </div>
               <p className="mt-2 text-xs text-[var(--muted)]">
                 Attach named customers to cash, card, transfer, or credit sales.
