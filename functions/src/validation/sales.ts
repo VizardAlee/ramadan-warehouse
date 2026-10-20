@@ -27,6 +27,7 @@ export const branchSalesPriceInput = z.object({
 });
 
 export const posWorkspaceInput = z.object({
+  fastMoving: z.literal(true).optional(),
   branchId: id,
   limit: z.number().int().min(1).max(500).default(200),
   customerId: id.refine(value => !value.includes("/") && value !== "." && value !== "..").optional(),

@@ -1,3 +1,4 @@
+import { readPosFastMoving } from "../sales/pos-fast-moving-store.js";
 import { withRecordActors } from "../audit/record-actors.js";
 import { posCustomerSummary, readPosCustomer, searchPosCustomers } from "../sales/pos-customer-search.js";
 import { proformaRequest, validateProformaReference } from "../sales/proforma.js";
@@ -375,6 +376,12 @@ export const getPosWorkspace = onCall(
     const input = parseInput(posWorkspaceInput, request.data);
     requireBranchScope(actor, input.branchId);
     const location = await activeBranchLocation(actor.organizationId, input.branchId);
+    if (input.fastMoving) {
+      const branch = await db.doc(`branches/${input.branchId}`).get();
+      if (!branch.exists || branch.get("organizationId") !== actor.organizationId || branch.get("status") !== "active")
+        throw new HttpsError("failed-precondition", "Branch is unavailable.");
+      return readPosFastMoving(actor.organizationId, input.branchId);
+    }
     if (input.customerSearch) {
       const branch = await db.doc(`branches/${input.branchId}`).get();
       if (!branch.exists || branch.get("organizationId") !== actor.organizationId || branch.get("status") !== "active")

@@ -8,6 +8,14 @@ const product: PosProduct = { id: "demo", sku: "LONG-SKU-".repeat(12), name: "Lo
 afterEach(cleanup);
 
 describe("POS compact catalogue guidance", () => {
+  it("keeps a fast-moving out-of-stock product visible without bypassing Add checks", () => {
+    const add = vi.fn();
+    render(<PosProductCard product={product} fastMoving available={0} pending={false} ready online onAdd={add} />);
+    expect(screen.getByText("Fast-moving")).toBeTruthy();
+    expect(screen.getByText("Out of stock")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Add", exact: true }));
+    expect(add).not.toHaveBeenCalled();
+  });
   it("keeps 40 unavailable products compact, with complete names and individually expandable reasons", () => {
     const add = vi.fn();
     render(<>{Array.from({ length: 40 }, (_, i) => <PosProductCard key={i} product={{ ...product, id: String(i), name: `${i} ${product.name}` }} available={0} pending={false} ready online onAdd={add} />)}</>);
