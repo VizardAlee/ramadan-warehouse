@@ -38,12 +38,16 @@
 .cartLine { min-width: 0; overflow-wrap: anywhere; }
 .cartLineHeading { display: flex; flex-wrap: wrap; justify-content: space-between; gap: .5rem; font-size: .875rem; }
 .quantityRow { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .75rem; margin-top: .75rem; }
-.customerRow { display: flex; flex-wrap: wrap; align-items: center; gap: .75rem; }
-.customerRow > label { flex-basis: 12rem; }
+.customerRow { display: grid; grid-template-columns: minmax(0, 1fr); gap: .75rem; }
+.customerHeader { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .5rem; margin-bottom: 1rem; }
+.customerHeader h3 { font-size: .875rem; font-weight: 600; }
+.customerHeader button { min-height: 2.75rem; }
 .checkoutAction { position: sticky; bottom: -1px; z-index: 1; margin-top: 1rem; padding-block: .75rem; background: var(--surface); border-top: 1px solid var(--border); }
 .checkoutAction > :is(button, span) { width: 100%; }
 .checkoutAction button { white-space: normal; height: auto; min-height: 2.75rem; padding-block: .75rem; }
 .checkoutAction:has(button:disabled), .checkoutAction:has(details[open]) { position: static; }
+/* Keep the payment action below live suggestions instead of covering their rows. */
+.cart:has([role="combobox"][aria-expanded="true"]) .checkoutAction { position: static; }
 .mobileCartButton { gap: .75rem; flex-wrap: wrap; text-align: left; padding-block: .75rem; }
 .mobileCartButton > span { min-width: 0; overflow-wrap: anywhere; }
 .cartOverlay.cartOverlay { align-items: flex-end; padding: 0; }
