@@ -1,4 +1,5 @@
 import { withRecordActors } from "../audit/record-actors.js";
+import { posCustomerSummary, readPosCustomer, searchPosCustomers } from "../sales/pos-customer-search.js";
 import { proformaRequest, validateProformaReference } from "../sales/proforma.js";
 import { updateDispatchDetails } from "../sales/dispatch-details.js";
 import { updateDispatchDetailsInput } from "../validation/dispatch-details.js";
@@ -19,7 +20,7 @@ import { collectReservedSale } from "../sales/collection.js";
 import { readSaleSerials, changeSaleSerials, writeSaleSerialEntries } from "../sales/serials.js";
 import { uploadCollectionPhoto, uploadCollectionPhotoInput, readCollectionPhoto, readCollectionPhotoInput } from "../sales/collection-evidence.js";
 import { resolveCatalogPrice } from "../sales/pricing.js";
-import { customerArrangements, selectedArrangement, changeArrangementBalance } from "../sales/customer-arrangements.js";
+import { selectedArrangement, changeArrangementBalance } from "../sales/customer-arrangements.js";
 import { changeMoneyBalance, moneyBalances, UNDATED_DEBT } from "../sales/receivables.js";
 import { bankAccountSummary, resolveSettlementAccount } from "../accounting/settlement-account.js";
 import { writeAuditLog } from "../audit/write-audit-log.js";
@@ -374,6 +375,17 @@ export const getPosWorkspace = onCall(
     const input = parseInput(posWorkspaceInput, request.data);
     requireBranchScope(actor, input.branchId);
     const location = await activeBranchLocation(actor.organizationId, input.branchId);
+    if (input.customerSearch) {
+      const branch = await db.doc(`branches/${input.branchId}`).get();
+      if (!branch.exists || branch.get("organizationId") !== actor.organizationId || branch.get("status") !== "active")
+        throw new HttpsError("failed-precondition", "Branch is unavailable.");
+      if ("customerId" in input.customerSearch) {
+        const customer = await readPosCustomer(actor.organizationId, input.customerSearch.customerId);
+        return { customers: customer ? [customer] : [], nextCursor: null, scanned: 1, scanLimited: false, complete: true };
+      }
+      return searchPosCustomers({ organizationId: actor.organizationId, userId: actor.userId, branchId: input.branchId }, input.customerSearch);
+    }
+    const selectedCustomer = input.customerId ? await readPosCustomer(actor.organizationId, input.customerId) : null;
     const [
       branch,
       products,
@@ -507,19 +519,8 @@ export const getPosWorkspace = onCall(
         shifts.docs
           .filter((shift) => shift.get("openedBy") === actor.userId)
           .map((shift) => ({ id: shift.id, ...shift.data() }))[0] ?? null,
-      customers: customers.docs.filter((customer) => customer.get("active") === true).map((customer) => ({
-        id: customer.id,
-        customerNumber: customer.get("customerNumber"),
-        name: customer.get("name"),
-        pricingTier: customer.get("pricingTier") ?? "retail",
-        arrangements: customerArrangements(customer.data()),
-        advanceBalances: moneyBalances(customer.get("advanceBalances")),
-        phone: customer.get("phone") ?? null,
-        creditStatus: customer.get("creditStatus") ?? "pending",
-        creditLimitMinor: Number(customer.get("creditLimitMinor") ?? 0),
-        outstandingBalanceMinor: Number(customer.get("outstandingBalanceMinor") ?? 0),
-        availableCreditMinor: Number(customer.get("availableCreditMinor") ?? 0),
-      })),
+      customers: [...customers.docs.filter((customer) => customer.get("active") === true).map(posCustomerSummary),
+        ...(selectedCustomer && !customers.docs.some(customer => customer.id === selectedCustomer.id) ? [selectedCustomer] : [])],
       salesCredits: salesCredits.docs.map((credit) => ({
         id: credit.id,
         creditNumber: credit.get("creditNumber"),

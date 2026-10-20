@@ -4,6 +4,7 @@ import { FinancialAction, FinancialActionScope, FinancialAttributes, FinancialDo
 
 import { ServiceLineOptions } from "@/features/pos/service-line-options";
 import { PosProductCard } from "@/features/pos/product-card";
+import { PosCustomerSelector, type PosCustomerSearchPage } from "@/features/pos/customer-selector";
 import { PosCartSurface } from "@/features/pos/cart-surface";
 import styles from "@/features/pos/pos-layout.module.css";
 
@@ -34,6 +35,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import Link from "next/link";
@@ -122,6 +124,8 @@ export default function PosPage() {
   const [workspace, setWorkspace] = useState<PosWorkspace | null>(null);
   const [proformaId, setProformaId] = useState<string>();
   const [cart, setCart] = useState<PosCartLine[]>([]);
+  const cartRef = useRef(cart);
+  useEffect(() => { cartRef.current = cart; }, [cart]);
   const [heldSales, setHeldSales] = useState<HeldPosSale[]>([]);
   const [queued, setQueued] = useState<QueuedPosSale[]>([]);
   const [search, setSearch] = useState("");
@@ -130,6 +134,8 @@ export default function PosPage() {
   const [paymentReference, setPaymentReference] = useState("");
   const [paymentBankAccountId, setPaymentBankAccountId] = useState("");
   const [customerId, setCustomerId] = useState("");
+  const customerIdRef = useRef(customerId);
+  useEffect(() => { customerIdRef.current = customerId; }, [customerId]);
   const [customerAccountId, setCustomerAccountId] = useState("general");
   const [customerDialogOpen, setCustomerDialogOpen] = useState(false);
   const [newCustomer, setNewCustomer] = useState({
@@ -185,6 +191,9 @@ export default function PosPage() {
     branchContextId ??
     assignedBranchId ??
     (manualBranchId || firstActiveBranchId || "");
+  const checkoutScope = JSON.stringify([profile?.organizationId, user?.uid, selectedBranchId]);
+  const checkoutScopeRef = useRef(checkoutScope);
+  useEffect(() => { checkoutScopeRef.current = checkoutScope; }, [checkoutScope]);
   const canReceiveOrder = Boolean(
     profile && hasPermission(profile, "sales.order.create"),
   );
@@ -299,9 +308,9 @@ export default function PosPage() {
     try {
       if (online) {
         const result = await callAdministration<
-          { branchId: string },
+          { branchId: string; customerId?: string },
           PosWorkspace
-        >("getPosWorkspace", { branchId: selectedBranchId });
+        >("getPosWorkspace", { branchId: selectedBranchId, customerId: customerIdRef.current || undefined });
         setWorkspace(result);
         await saveCachedWorkspace(user.uid, result);
         if ("serviceWorker" in navigator)
@@ -567,9 +576,25 @@ export default function PosPage() {
       );
       return;
     }
+    let availableCustomers = workspace.customers;
+    if (online && heldSale.customerId && !availableCustomers.some(customer => customer.id === heldSale.customerId)) {
+      setBusy(true);
+      try {
+        const page = await callAdministration<object, PosCustomerSearchPage>("getPosWorkspace", { branchId: selectedBranchId, customerSearch: { customerId: heldSale.customerId } });
+        if (checkoutScopeRef.current !== checkoutScope) return;
+        if (cartRef.current.length) { setError("Keep the current basket; hold it before restoring this sale."); return; }
+        availableCustomers = [...availableCustomers, ...page.customers];
+        const next = { ...workspace, customers: availableCustomers };
+        setWorkspace(next);
+        if (user) void saveCachedWorkspace(user.uid, next).catch(() => {});
+      } catch {
+        if (checkoutScopeRef.current === checkoutScope) setError("Reconnect and retry restoring this held sale so its named customer can be checked. Your current basket is unchanged.");
+        return;
+      } finally { if (checkoutScopeRef.current === checkoutScope) setBusy(false); }
+    }
     const customerStillAvailable = Boolean(
       heldSale.customerId &&
-        workspace.customers.some((customer) => customer.id === heldSale.customerId),
+        availableCustomers.some((customer) => customer.id === heldSale.customerId),
     );
     const exchangeCreditStillAvailable = Boolean(
       heldSale.paymentReference &&
@@ -1801,13 +1826,18 @@ export default function PosPage() {
             </div>
             <div className="mt-4 rounded-xl border bg-white p-3">
               <div className={styles.customerRow}>
-                <label className="min-w-0 flex-1 text-sm font-medium">
-                  Customer
-                  <select
-                    value={customerId}
-                    onChange={(event) => {
-                      const id = event.target.value;
-                      const customer = workspace.customers.find((item) => item.id === id);
+                <PosCustomerSelector
+                    key={JSON.stringify([profile?.organizationId, user?.uid, profile?.authorizationVersion, selectedBranchId])}
+                    customers={workspace.customers} customerId={customerId} branchId={selectedBranchId}
+                    scopeKey={JSON.stringify([profile?.organizationId, user?.uid, profile?.authorizationVersion])}
+                    online={online} disabled={busy || Boolean(receivedOrder.pending)}
+                    onSelect={(customer) => {
+                      const id = customer?.id ?? "";
+                      if (customer) {
+                        const next = { ...workspace, customers: [...workspace.customers.filter(item => item.id !== id), customer] };
+                        setWorkspace(next);
+                        if (user) void saveCachedWorkspace(user.uid, next).catch(() => {});
+                      }
                       setCustomerId(id);
                       setCustomerAccountId("general");
                       setCart((lines) => lines.map((line) => {
@@ -1816,16 +1846,7 @@ export default function PosPage() {
                         return { ...line, product: productForPriceTier(original, tier), priceTier: tier };
                       }));
                     }}
-                    className="mt-1 w-full rounded-lg border p-3"
-                  >
-                    <option value="">Walk-in customer</option>
-                    {(workspace.customers ?? []).map((customer) => (
-                      <option key={customer.id} value={customer.id}>
-                        <FinancialText>{customer.name}</FinancialText> · <FinancialText>{customer.customerNumber}</FinancialText>
-                      </option>
-                    ))}
-                  </select>
-                </label>
+                />
                 {canManageCustomers && (
                   <Button
                     type="button"

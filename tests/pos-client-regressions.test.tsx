@@ -4,7 +4,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import PosPage from "@/app/(protected)/pos/page";
 import { PriceLevelControl } from "@/features/pos/price-level-control";
 import { calculatePosCart, changePosPriceTier, reconcileHeldCart } from "@/features/pos/calculations";
-const state = vi.hoisted(() => ({ call: vi.fn(), online: true, auth: { user: { uid: "demo-user" }, profile: { uid: "demo-user", organizationId: "demo-org", status: "active", roleId: "system_administrator", roleIds: ["system_administrator"], branchIds: ["demo-store"], warehouseIds: [] }, accessProfile: { branchIds: ["demo-store"] }, operatingContext: { type: "branch", id: "demo-store" } } }));
+import type { HeldPosSale } from "@/features/pos/types";
+const state = vi.hoisted(() => ({ held: [] as HeldPosSale[], call: vi.fn(), online: true, auth: { user: { uid: "demo-user" }, profile: { uid: "demo-user", organizationId: "demo-org", status: "active", roleId: "system_administrator", roleIds: ["system_administrator"], branchIds: ["demo-store"], warehouseIds: [] }, accessProfile: { branchIds: ["demo-store"] }, operatingContext: { type: "branch", id: "demo-store" } } }));
 vi.mock("@/features/auth/auth-context", () => ({ useAuth: () => state.auth }));
 vi.mock("@/features/administration/api", () => ({ callAdministration: state.call }));
 vi.mock("@/features/administration/use-organization-collection", () => ({ useOrganizationCollection: () => ({ data: [{ id: "demo-store", name: "Demo Store", status: "active" }], loading: false }) }));
@@ -12,13 +13,58 @@ vi.mock("@/lib/connectivity", () => ({ useConnectivity: () => ({ online: state.o
 vi.mock("@/features/pos/collection-queue", () => ({ CollectionQueue: () => null }));
 vi.mock("@/features/pos/service-line-options", () => ({ ServiceLineOptions: () => null }));
 vi.mock("@/components/ui/use-dialog-focus", () => ({ useDialogFocus: () => ({ current: null }) }));
-vi.mock("@/features/pos/offline-store", () => ({ listQueuedSales: async () => [], listHeldSales: async () => [], saveCachedWorkspace: async () => {}, readCachedWorkspace: async () => null, saveHeldSale: vi.fn(), removeHeldSale: async () => {}, removeQueuedSale: async () => {}, queueOfflineSale: async () => {}, updateQueuedSale: async () => {} }));
+vi.mock("@/features/pos/offline-store", () => ({ listQueuedSales: async () => [], listHeldSales: async () => state.held, saveCachedWorkspace: async () => {}, readCachedWorkspace: async () => null, saveHeldSale: async (held: HeldPosSale) => { state.held.push(held); }, removeHeldSale: async (id: string) => { state.held = state.held.filter(held => held.id !== id); }, removeQueuedSale: async () => {}, queueOfflineSale: async () => {}, updateQueuedSale: async () => {} }));
 const product = { id: "demo-product", name: "Demo battery", sku: "DEMO-BAT", unitOfMeasure: "unit", trackingType: "quantity" as const, unitPriceMinor: 85_000_000, basePriceMinor: 85_000_000, wholesalePriceMinor: 75_000_000, centralPriceVersion: 2, priceVersion: 2, priceSource: "central" as const, availableQuantity: 20, vatRateBasisPoints: 0 };
 const workspace = { branch: { id: "demo-store", name: "Demo Store", code: "DEMO" }, location: { id: "demo-location", name: "Demo Stock" }, products: [product], customers: [{ id: "demo-customer", name: "Demo Buyer", customerNumber: "CUS-DEMO", creditStatus: "pending", availableCreditMinor: 0, outstandingBalanceMinor: 0 }], bankAccounts: [], salesCredits: [], pendingOrders: [], openShift: { id: "demo-shift", deviceId: "demo-device", status: "open" }, refreshedAt: new Date().toISOString() };
-beforeEach(() => { HTMLElement.prototype.scrollIntoView = vi.fn(); state.online = true; localStorage.clear(); sessionStorage.clear(); state.call.mockImplementation(name => Promise.resolve(name === "getPosWorkspace" ? workspace : { orderId: "demo-order", orderNumber: "ORD-DEMO", created: true })); });
+beforeEach(() => { HTMLElement.prototype.scrollIntoView = vi.fn(); state.held = []; state.online = true; localStorage.clear(); sessionStorage.clear(); state.call.mockImplementation(name => Promise.resolve(name === "getPosWorkspace" ? workspace : { orderId: "demo-order", orderNumber: "ORD-DEMO", created: true })); });
 afterEach(() => { cleanup(); sessionStorage.clear(); vi.clearAllMocks(); });
 async function basket() { render(<PosPage />); const add = await screen.findByRole("button", { name: "Add", exact: true }); await waitFor(() => expect((add as HTMLButtonElement).disabled).toBe(false)); fireEvent.click(add); await screen.findByLabelText("Price level for Demo battery"); }
 describe("POS client complaint regressions", () => {
+  const remoteCustomer = { ...workspace.customers[0]!, id: "past-workspace-cap", customerNumber: "CUS-1005", name: "Alhaji Aliyu Ventures", pricingTier: "wholesale" };
+  async function selectRemoteCustomer() {
+    state.call.mockImplementation((name, input) => Promise.resolve(name === "getPosWorkspace" ? input.customerSearch ? { customers: [remoteCustomer], nextCursor: null, scanned: 1, complete: true, scanLimited: false } : { ...workspace, customers: input.customerId === remoteCustomer.id ? [...workspace.customers, remoteCustomer] : workspace.customers } : { orderId: "demo-order", orderNumber: "ORD-DEMO", created: true }));
+    fireEvent.change(screen.getByLabelText("Search customer name"), { target: { value: "liyu" } });
+    await screen.findByRole("option", { name: "Alhaji Aliyu Ventures · CUS-1005" });
+    expect((screen.getByLabelText("Customer", { exact: true }) as HTMLSelectElement).value).toBe("");
+    expect((screen.getByLabelText("Quantity for Demo battery") as HTMLInputElement).value).toBe("2");
+    expect((screen.getByLabelText("Discount (₦)") as HTMLInputElement).value).toBe("50000");
+    expect(state.call.mock.calls.some(call => call[0] === "createPosSaleOrder")).toBe(false);
+    fireEvent.change(screen.getByLabelText("Customer", { exact: true }), { target: { value: remoteCustomer.id } });
+  }
+  it("searches without changing the basket and selects the matching ID using existing wholesale pricing", async () => {
+    await basket();
+    fireEvent.change(screen.getByLabelText("Quantity for Demo battery"), { target: { value: "2" } });
+    fireEvent.change(screen.getByLabelText("Discount (₦)"), { target: { value: "50000" } });
+    fireEvent.change(screen.getByLabelText("Discount reason"), { target: { value: "Agreed search test discount" } });
+    await selectRemoteCustomer();
+    fireEvent.click(screen.getByRole("button", { name: "Refresh stock & prices" }));
+    await waitFor(() => expect(state.call.mock.calls.some(call => call[0] === "getPosWorkspace" && call[1].customerId === remoteCustomer.id)).toBe(true));
+    await waitFor(() => expect((screen.getByRole("button", { name: /^Receive order/ }) as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(screen.getByRole("button", { name: /^Receive order/ }));
+    await screen.findByText(/Order ORD-DEMO received/);
+    const orders = state.call.mock.calls.filter(call => call[0] === "createPosSaleOrder");
+    expect(orders).toHaveLength(1);
+    expect(orders[0]![1]).toMatchObject({ customerId: remoteCustomer.id, discountAmountMinor: 5_000_000, discountReason: "Agreed search test discount", lines: [{ quantity: 2, priceTier: "wholesale", unitPriceMinor: 75_000_000 }], payments: [{ method: "cash", amountMinor: 145_000_000 }] });
+  });
+  it("restores a held basket's selected customer beyond the loaded cap after a fresh page", async () => {
+    await basket();
+    fireEvent.change(screen.getByLabelText("Quantity for Demo battery"), { target: { value: "2" } });
+    fireEvent.change(screen.getByLabelText("Discount (₦)"), { target: { value: "50000" } });
+    fireEvent.change(screen.getByLabelText("Discount reason"), { target: { value: "Held search discount" } });
+    await selectRemoteCustomer();
+    fireEvent.click(screen.getByRole("button", { name: "Hold sale & start new" }));
+    await waitFor(() => expect(state.held).toHaveLength(1));
+    await screen.findByText("Sale held on this device. A new transaction is ready.");
+    cleanup(); render(<PosPage />);
+    const resume = await screen.findByRole("button", { name: "Resume sale" });
+    await waitFor(() => expect((resume as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(resume);
+    await waitFor(() => expect((screen.getByLabelText("Customer", { exact: true }) as HTMLSelectElement).value).toBe(remoteCustomer.id));
+    expect(state.call.mock.calls.some(call => call[0] === "getPosWorkspace" && call[1].customerSearch?.customerId === remoteCustomer.id)).toBe(true);
+    expect((screen.getByLabelText("Quantity for Demo battery") as HTMLInputElement).value).toBe("2");
+    expect((screen.getByLabelText("Discount reason") as HTMLInputElement).value).toBe("Held search discount");
+    expect(state.call.mock.calls.some(call => call[0] === "createPosSaleOrder")).toBe(false);
+  });
   it("retries an interrupted online order with the same payload/key after reload instead of receiving another", async () => {
     await basket(); state.call.mockImplementation(name => name === "getPosWorkspace" ? Promise.resolve(workspace) : Promise.reject(new Error("Connection interrupted")));
     fireEvent.click(screen.getByRole("button", {name:/^Receive order/}));

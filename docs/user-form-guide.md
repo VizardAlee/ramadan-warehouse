@@ -515,6 +515,12 @@ Active zero-handover population requires existing products.read and current Stor
 
 Each export contains every product in the selected view and basis/date/scope/time metadata, not just 25 visible cards. A product selection still scans the relevant cohort/period. Limits fail explicitly without partial rankings: 20,000 invoices, 100,000 movement entries/current balances and 2,000 matching products. Live reads span a calculation interval, not a transaction snapshot; recalculate after concurrent changes.
 
+## Find a customer from POS
+
+In the current sale, use **Search customer name** to type any part of a name, then choose **Customer**. Matching ignores case and extra spaces. Customer numbers distinguish people with the same name. Searching or clearing the search keeps the selected customer and basket; choosing a different customer follows the existing retail/wholesale and account-arrangement rules. Walk-in customer remains available.
+
+Online search uses the existing POS-authorized read path and returns only active customers in your organization. Each request checks up to 1,000 records for up to 25 matches. **Continue customer search** scans more records: an empty scan is not proof that no matching customer exists. Repeat the search to include later changes. Offline search covers cached customers only; reconnect to search the full directory. A selected active customer can be retained beyond the initial loaded choices when refreshing, restoring a held sale or converting a proforma. Checkout still verifies the customer's current status, credit and advance balances; searching grants no customer-register permission and creates no customer or sale.
+
 ## Hide financial values on this device
 
 Use the eye control in the top bar to hide or show money, financial percentages and money charts. Counts, physical quantities, dates, payment methods, references and workflow statuses remain available. A new organization/user combination starts hidden on this browser. Only a versioned hide/show choice is saved under that organization and user; no amount is stored by this preference. If browser storage fails, the current visit can still show or hide values.
