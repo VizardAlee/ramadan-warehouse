@@ -108,7 +108,7 @@ export default function GuidePage() {
             <ShoppingCart className="mb-3 size-7 text-emerald-800" />
             <strong>Make a sale</strong>
             <p className="mt-2 text-sm">
-              Select your store, open a shift, then add products. On a phone, use the bottom Current sale button to review the cart.
+              Select your store, open a shift, then add products. Type any part of a customer name in Search customer name and select their customer number to distinguish duplicate names. Use Continue customer search when more records remain; offline search covers cached customers only. Searching does not change the current basket. On a phone, use the bottom Current sale button to review the cart.
             </p>
           </Link>
         )}

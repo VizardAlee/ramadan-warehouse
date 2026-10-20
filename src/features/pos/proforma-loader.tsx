@@ -16,7 +16,7 @@ export function ProformaLoader({ branchId, online, disabled, queued, onLoad }: {
     try {
       if (quote.branchId !== branchId) throw new Error("Choose the proforma's store before converting it.");
       if (Date.parse(quote.expiresAt) < Date.now()) throw new Error("This proforma expired. Issue a new quote or start a new sale.");
-      const workspace = await callAdministration<object, PosWorkspace>("getPosWorkspace", { branchId, limit: 500 });
+      const workspace = await callAdministration<object, PosWorkspace>("getPosWorkspace", { branchId, limit: 500, customerId: quote.customerId ?? undefined });
       if (workspace.branch.id !== branchId) throw new Error("Fresh stock belongs to another store.");
       if (quote.customerId && !workspace.customers.some(row => row.id === quote.customerId)) throw new Error("The quoted customer is inactive or unavailable. Review the customer before conversion.");
       for (const line of quote.lines) { const product = workspace.products.find(row => row.id === line.productId); if (!product || (product.itemKind !== "service" && product.availableQuantity - (queued.get(product.id) ?? 0) < line.quantity)) throw new Error(`Current stock/catalogue cannot supply ${line.productName}. Refresh or restock; the quote reserved no goods.`); if (line.priceTier === "wholesale" && !product.wholesalePriceMinor) throw new Error(`Wholesale pricing is no longer available for ${line.productName}. Issue a revised quote.`); }

@@ -29,6 +29,12 @@ export const branchSalesPriceInput = z.object({
 export const posWorkspaceInput = z.object({
   branchId: id,
   limit: z.number().int().min(1).max(500).default(200),
+  customerId: id.refine(value => !value.includes("/") && value !== "." && value !== "..").optional(),
+  customerSearch: z.union([z.object({
+    query: z.string().trim().min(1).max(160),
+    cursor: z.string().min(1).max(1024).optional(),
+    limit: z.number().int().min(1).max(25).default(25),
+  }).strict(), z.object({ customerId: id.refine(value => !value.includes("/") && value !== "." && value !== "..") }).strict()]).optional(),
 });
 
 export const saleDocumentInput = z.object({
