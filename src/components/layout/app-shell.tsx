@@ -78,6 +78,7 @@ const navigation = [
   { href: "/hr", label: "HR & attendance", icon: UsersRound, permissions: ["hr.read"] },
   { href: "/audit", label: "Audit", icon: History, permissions: ["audit.read"] },
   { href: "/guide", label: "User guide", icon: CircleHelp, permissions: [] },
+  { href: "/help", label: "Help & feedback", icon: CircleHelp, permissions: [] },
 ] as const;
 const navigationGroups = [
   { label: "Sales & customers", hrefs: ["/pos", "/proformas", "/invoices", "/customers", "/returns", "/aftersales"] },
@@ -85,10 +86,11 @@ const navigationGroups = [
   { label: "Purchasing", hrefs: ["/suppliers", "/procurement", "/costs"] },
   { label: "Money & accounts", hrefs: ["/expenses", "/banking", "/finance", "/accounting", "/tax"] },
   { label: "Insights", hrefs: ["/reports", "/audit"] },
-  { label: "People & settings", hrefs: ["/administration", "/hr", "/guide"] },
+  { label: "People & settings", hrefs: ["/administration", "/hr", "/guide", "/help"] },
 ] as const;
 const mobilePriority = ["/dashboard", "/pos", "/transfers", "/inventory", "/procurement", "/reports", "/requests"];
 const titleFromPath = (pathname: string) => {
+  if (pathname === "/help") return "Help & feedback";
   if (pathname === "/invoices") return "Invoice History";
   const segments = pathname.split("/").filter(Boolean);
   const section = segments.at(-1) ?? "Dashboard";

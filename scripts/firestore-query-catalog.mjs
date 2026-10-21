@@ -44,6 +44,8 @@ export function queryCatalog() {
   }
   const eq = (fields) => fields.map((field) => [field, "=="]);
   const org = ["organizationId", "=="];
+  add("private support organization queue", "tickets", [], [["createdAt", "DESCENDING"], ["__name__", "DESCENDING"]], null, "supportOrganizations/index-audit-probe");
+  add("private support owner history", "tickets", [], [["createdAt", "DESCENDING"], ["__name__", "DESCENDING"]], null, "supportOrganizations/index-audit-probe/owners/index-audit-probe");
   const scopes = [[], [["branchId", "in"]], [["warehouseId", "in"]]];
   const dateOrder = (field, direction = "DESCENDING") => [[field, direction], ["__name__", direction]];
   add("stock count posting variance pages", "stockCountItems", [["stockCountId", "=="], ["variance", "!="]], [["variance", "ASCENDING"], ["__name__", "ASCENDING"]]);

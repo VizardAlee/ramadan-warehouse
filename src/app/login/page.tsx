@@ -109,6 +109,7 @@ export default function LoginPage() {
             <h2 id="sign-in-title">Sign in to your workspace</h2>
             <p className="login-card-copy">Use the account securely provisioned by your administrator.</p>
             <LoginForm />
+            <p className="mt-4 text-sm leading-6">Need help signing in? Contact <a className="break-all font-semibold underline" href="mailto:servicegurunigeria@gmail.com">servicegurunigeria@gmail.com</a>. Do not send passwords, tokens, bank details or private customer records. Signed-in users can use Help &amp; feedback for private ticket history.</p>
             <div className="login-trust-row">
               <span><ShieldCheck />Role-based access</span>
               <span><CheckCircle2 />Audited activity</span>

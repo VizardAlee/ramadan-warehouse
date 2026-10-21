@@ -1,16 +1,16 @@
 {
   "lastLiveAudit": {
     "project": "ramadan-warehouse-staging",
-    "verifiedAt": "2026-10-20T11:27:04.938Z",
-    "queryShapes": 570,
+    "verifiedAt": "2026-10-21T15:16:22.542Z",
+    "queryShapes": 576,
     "unsupportedQueries": 0,
     "readyIndexes": 258,
-    "indexInventoryVerifiedAt": "2026-10-20T11:27:04.938Z",
+    "indexInventoryVerifiedAt": "2026-10-21T15:33:54.396Z",
     "probeMethod": "planner-only analyze=false; no business reads/writes",
-    "plannerEvidenceSha256": "4fbe2fb017d0260c9f60b9bab2f94af19de2f35184b0a49bfb6933ea8bf44bde",
+    "plannerEvidenceSha256": "a59366a09e3d8c4652775db32f485a6324427393a50a0e193797886f01b354e5",
     "priorSingleFieldOverrideEvidence": 0
   },
-  "catalogSha256": "48676c3eec605f7022272d88a62ec31df788712ca2c6c4813edcd593c94cc9e4",
+  "catalogSha256": "77f23548a5a1f7f516073b2327673292c063cd5f95232ae6448de7c861357a64",
   "sourceFingerprints": {
     "functions/src/accounting/daily-close.ts": "904fa0dee8c4af98feaf99f17900caa97d86a16560cd3d0d85846ac33cd26e8e",
     "functions/src/accounting/stock-postings.ts": "005230ec2a728e426d435a3574e4ccd3e08928f30db4f8c710069da12137f24e",
@@ -81,6 +81,8 @@
     "functions/src/sales/return-follow-up.ts": "90b542fff7750c1d0f3dad17e589764d942794fb78355d18387740c161ee0fd0",
     "functions/src/sales/serials.ts": "f8cb2ba59ceb0ed584c247e4a7cefb5c97096d43a601ea28d85a4f22d631c6c5",
     "functions/src/services/assignments.ts": "66d89ec81eb211c73c678e9e39b492877e20f66382d1fddd968ae546e37c8259",
+    "functions/src/support/dispatch.ts": "5b616c16fb3c2ebb7f0030640f5156919d6a4e810b871853a14fca65913fb919",
+    "functions/src/support/store.ts": "6e034a55287dc935a14ac315a358eb160c623d3d328a4c7840e252aceb323a53",
     "functions/src/transfers/dispatch-contents.ts": "f05492004d3caac1f02781312720e3a4441470da3727990d32b3733e4ac5825b",
     "functions/src/transfers/receipt-contents.ts": "af2796287c6fb6d26caf22242b756d2434bad8f00de0f5069318f30bfd7e85f6",
     "functions/src/transfers/request-allocation.ts": "7b1f019dbea4c60c789760da89fd3ae4b4e5f681804e05cbaf493e8e9de9c5eb",

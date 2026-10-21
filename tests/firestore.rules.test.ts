@@ -28,6 +28,23 @@ beforeAll(async () => {
 afterEach(() => environment.clearFirestore());
 afterAll(() => environment.cleanup());
 
+describe("server-only private support namespaces", () => {
+  it("denies direct ticket, owner-index, image, limit and outbox access even to an app administrator", async () => {
+    await seed();
+    const paths = ["supportOrganizations/org-1/tickets/RS-test", "supportOrganizations/org-1/owners/owner/tickets/RS-test", "supportOrganizations/org-1/attachments/RS-test", "supportOrganizations/org-1/limits/user-test", "supportMailOutbox/RS-test"];
+    await environment.withSecurityRulesDisabled(async context => {
+      for (const path of paths) await context.firestore().doc(path).set({ organizationId: "org-1", ownerUid: "sales-cashier", description: "Synthetic private support record" });
+    });
+    const contexts = [environment.unauthenticatedContext(), ...["admin", "sales-cashier", "foreign-user"].map(uid => environment.authenticatedContext(uid))];
+    for (const context of contexts) {
+      for (const path of paths) {
+        await assertFails(context.firestore().doc(path).get());
+        await assertFails(context.firestore().doc(path).set({ organizationId: "org-1", ownerUid: "sales-cashier" }));
+      }
+    }
+  });
+});
+
 async function seed() {
   await environment.withSecurityRulesDisabled(async (context) => {
     const db = context.firestore();
