@@ -2,7 +2,7 @@
 import { FinancialDocument, FinancialPrintAction } from "@/features/finance/financial-privacy";
 
 import Image from "next/image";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useAuth } from "@/features/auth/auth-context";
 import { hasPermission } from "@/lib/permissions/roles";
 import { DispatchDetailsForm, type DispatchDetails } from "./dispatch-details-form";
@@ -22,10 +22,14 @@ export function CollectionWaybill({ document, collection, onBack, onClose, onUpd
 }) {
   const { profile } = useAuth();
   const canEdit = Boolean(document.official && profile && hasPermission(profile, "sales.stock.release"));
+  const editButton = useRef<HTMLButtonElement>(null);
+  const [message, setMessage] = useState<string>();
   const [editing, setEditing] = useState(false);
   const dialogRef = useDialogFocus<HTMLElement>(true, editing ? undefined : onClose);
   const [details, setDetails] = useState<DispatchDetails>(collection);
-  function saved(value: DispatchDetails) { setDetails(value); setEditing(false); onUpdated?.(value); }
+  const hasDetails = Boolean(details.dispatcherPhone || details.vehiclePlate || details.deliveryRecipientName);
+  function stopEditing() { setEditing(false); requestAnimationFrame(() => editButton.current?.focus()); }
+  function saved(value: DispatchDetails) { setDetails(value); stopEditing(); setMessage("Dispatch details saved for this handover."); onUpdated?.(value); }
   return <AppDialog role="dialog" aria-modal="true" aria-label="Collection waybill" data-sale-document-overlay>
     <section ref={dialogRef} className="app-dialog-panel max-w-3xl rounded-2xl bg-white shadow-2xl" data-print-document><FinancialDocument>
       <div className="space-y-6 p-5 sm:p-8">
@@ -50,7 +54,13 @@ export function CollectionWaybill({ document, collection, onBack, onClose, onUpd
           <div><h3 className="font-bold">Vehicle plate</h3><p>{details.vehiclePlate || "Not recorded"}</p></div>
           <div><h3 className="font-bold">Delivery recipient</h3><p>{details.deliveryRecipientName || "Not recorded"}</p></div>
         </section>
-        {canEdit && (editing ? <DispatchDetailsForm saleId={document.sale.id} collection={{ ...collection, ...details }} onSaved={saved} onCancel={() => setEditing(false)} /> : <Button variant="outline" data-no-print onClick={() => setEditing(true)}>Edit dispatch details</Button>)}
+        <section className="space-y-3 rounded-xl border-2 border-[var(--brand)] bg-slate-50 p-4" data-no-print aria-label="Update dispatch details">
+          <div className="flex flex-wrap items-center justify-between gap-3"><div><h3 className="font-semibold">Dispatch details</h3><p className="mt-1 text-sm">{canEdit ? "Use Add or Edit to type into the fields. The document above shows the saved details." : "You can view these details. Editing requires existing stock-release permission for this store."}</p></div>
+            {canEdit && !editing && <Button ref={editButton} onClick={() => { setMessage(undefined); setEditing(true); }}>{hasDetails ? "Edit dispatch details" : "Add dispatch details"}</Button>}
+          </div>
+          {canEdit && editing && <DispatchDetailsForm saleId={document.sale.id} collection={{ ...collection, ...details }} onSaved={saved} onCancel={stopEditing} />}
+          {message && <p role="status" className="text-sm">{message}</p>}
+        </section>
         <div className="overflow-x-auto">
           <table className="w-full text-left text-sm">
             <thead className="border-y-2 border-slate-700"><tr><th className="py-3 pr-3">No.</th><th className="py-3 pr-3">Goods handed over</th><th className="py-3 text-right">Quantity</th></tr></thead>

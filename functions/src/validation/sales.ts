@@ -40,9 +40,10 @@ export const posWorkspaceInput = z.object({
 
 export const saleDocumentInput = z.object({
   saleId: id.refine(value => !value.includes("/") && value !== "." && value !== ".."),
+  collectionId: id.refine(value => !value.includes("/") && value !== "." && value !== "..").optional(),
   collectionCursorId: id.refine(value => !value.includes("/") && value !== "." && value !== "..").optional(),
   collectionLimit: z.union([z.literal(25), z.literal(50), z.literal(100)]).default(25),
-});
+}).refine(value => !(value.collectionId && value.collectionCursorId), "Choose one handover or a history page.");
 
 export const listCollectionsInput = z.object({
   action: z.literal("list_collections"),
