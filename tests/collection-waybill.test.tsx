@@ -96,7 +96,7 @@ it("edits only dispatch details, freezes retries and prints saved text safely", 
   api.mockRejectedValueOnce(new Error("Network interrupted")).mockResolvedValueOnce({ dispatcherPhone: "+234 (0) 803 1234", vehiclePlate: "ABC-123 XY", deliveryRecipientName: "<img src=x onerror=bad()>", dispatchDetailsVersion: 1 });
   render(<SaleWaybills document={document} onClose={() => {}} />);
   fireEvent.click(screen.getByRole("button", { name: "View waybill" }));
-  fireEvent.click(screen.getByRole("button", { name: "Edit dispatch details" }));
+  fireEvent.click(screen.getByRole("button", { name: "Add dispatch details" }));
   fireEvent.change(screen.getByLabelText("Dispatcher phone"), { target: { value: "+234 (0) 803 1234" } });
   fireEvent.change(screen.getByLabelText("Vehicle plate"), { target: { value: "ABC-123 XY" } });
   fireEvent.change(screen.getByLabelText("Delivery recipient name"), { target: { value: "<img src=x onerror=bad()>" } });
@@ -115,4 +115,42 @@ it("explains absent handovers instead of issuing a full-invoice waybill", () => 
   render(<SaleWaybills document={{ ...document, collections: [] }} onClose={() => {}} />);
   expect(screen.getByRole("status").textContent).toContain("authorized physical release");
   expect(screen.queryByRole("button", { name: "View waybill" })).toBeNull(); expect(api).not.toHaveBeenCalled();
+});
+
+ it("focuses editable fields, cancels without a save and keeps saved preview text", () => {
+  access.mayRecordCosts = true;
+  render(<SaleWaybills document={document} onClose={() => {}} />);
+  fireEvent.click(screen.getByRole("button", { name: "View waybill" }));
+  fireEvent.click(screen.getByRole("button", { name: "Add dispatch details" }));
+  expect(screen.getByLabelText("Dispatcher phone").ownerDocument.activeElement).toBe(screen.getByLabelText("Dispatcher phone"));
+  for (const label of ["Dispatcher phone", "Vehicle plate", "Delivery recipient name"]) fireEvent.change(screen.getByLabelText(label), { target: { value: "Unsaved text" } });
+  fireEvent.click(screen.getByRole("button", { name: "Cancel editing" }));
+  expect(api).not.toHaveBeenCalled();
+  expect(screen.queryByText("Unsaved text")).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Add dispatch details" }));
+  expect(screen.getByLabelText("Dispatcher phone").getAttribute("value")).toBe("");
+ });
+ it("explains view-only authority without presenting dispatch inputs", () => {
+  render(<SaleWaybills document={document} onClose={() => {}} />);
+  fireEvent.click(screen.getByRole("button", { name: "View waybill" }));
+  expect(screen.getByText(/Editing requires existing stock-release permission/)).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "Add dispatch details" })).toBeNull();
+ });
+
+it("sends a single request for repeated save submissions and confirms before showing success", async () => {
+  access.mayRecordCosts = true;
+  let finish!: (value: unknown) => void;
+  api.mockImplementation(() => new Promise(resolve => { finish = resolve; }));
+  render(<SaleWaybills document={document} onClose={() => {}} />);
+  fireEvent.click(screen.getByRole("button", { name: "View waybill" }));
+  fireEvent.click(screen.getByRole("button", { name: "Add dispatch details" }));
+  fireEvent.change(screen.getByLabelText("Vehicle plate"), { target: { value: "ABC-123" } });
+  const form = screen.getByRole("form", { name: "Edit dispatch details" });
+  fireEvent.submit(form); fireEvent.submit(form);
+  expect(api).toHaveBeenCalledOnce();
+  expect(screen.queryByText("Dispatch details saved for this handover.")).toBeNull();
+  expect(screen.getByLabelText("Vehicle plate").hasAttribute("disabled")).toBe(true);
+  finish({ dispatcherPhone: null, vehiclePlate: "ABC-123", deliveryRecipientName: null, dispatchDetailsVersion: 1 });
+  await screen.findByText("Dispatch details saved for this handover.");
+  expect(screen.getByRole("button", { name: "Edit dispatch details" })).toBeTruthy();
 });

@@ -57,6 +57,7 @@ const navigation = [
   { href: "/pos", label: "POS", icon: ShoppingCart, permissions: ["sales.create", "sales.order.create", "sales.payment.accept", "sales.payment.confirm", "sales.stock.release"] },
   { href: "/proformas", label: "Proformas", icon: ReceiptText, permissions: ["sales.order.create", "sales.read.own_branch", "sales.read.all"] },
   { href: "/invoices", label: "Invoice History", icon: ReceiptText, permissions: ["reports.sales.read"] },
+  { href: "/waybills", label: "Waybills", icon: Truck, permissions: ["reports.sales.read", "sales.read.own_branch", "sales.read.all"] },
   { href: "/customers", label: "Customers", icon: ContactRound, permissions: ["customers.read"] },
   { href: "/returns", label: "Returns", icon: RotateCcw, permissions: ["sales.returns.read"] },
   { href: "/aftersales", label: "Aftersales", icon: Wrench, permissions: ["sales.returns.read"] },
@@ -80,7 +81,7 @@ const navigation = [
   { href: "/guide", label: "User guide", icon: CircleHelp, permissions: [] },
 ] as const;
 const navigationGroups = [
-  { label: "Sales & customers", hrefs: ["/pos", "/proformas", "/invoices", "/customers", "/returns", "/aftersales"] },
+  { label: "Sales & customers", hrefs: ["/pos", "/proformas", "/invoices", "/waybills", "/customers", "/returns", "/aftersales"] },
   { label: "Stock & movement", hrefs: ["/products", "/inventory", "/requests", "/transfers", "/daily-reconciliation"] },
   { label: "Purchasing", hrefs: ["/suppliers", "/procurement", "/costs"] },
   { label: "Money & accounts", hrefs: ["/expenses", "/banking", "/finance", "/accounting", "/tax"] },

@@ -50,6 +50,10 @@ export function queryCatalog() {
   add("stock count workspace pages", "stockCountItems", [["stockCountId", "=="]], [["__name__", "ASCENDING"]]);
   add("stock count incomplete submission guard", "stockCountItems", [["stockCountId", "=="], ["countedQuantity", "=="]]);
 
+  for (const optional of subsets(["referenceNumber"])) {
+    add("recorded waybill register and exact invoice lookup", "saleCollections", [org, ["branchId", "=="], ...eq(optional)]);
+  }
+
   // Extract direct literal collection chains, including jobs and transactional lookups.
   function chain(node) {
     if (!ts.isCallExpression(node) || !ts.isPropertyAccessExpression(node.expression)) return null;

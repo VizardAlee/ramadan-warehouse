@@ -27,13 +27,13 @@ describe("dashboard count index release guard", () => {
     const matches = (index: Index) => index.collectionGroup === "sales" &&
       index.fields.map((field) => field.fieldPath).join(",") === fields.join(",");
     it(`rejects missing count-only index for ${fields.join(", ")}`, () => {
-      expect(() => validate(manifest.indexes.filter((index: Index) => !matches(index)))).toThrow();
+      expect(() => validate(manifest.indexes.filter((index: Index) => !matches(index)))).toThrow(`Missing sales report aggregate index: ${fields.join(", ")}`);
     });
     it(`rejects descending count-only index for ${fields.join(", ")}`, () => {
       const indexes = manifest.indexes.map((index: Index) => matches(index) ? {
         ...index, fields: index.fields.map((field) => field.fieldPath === "recordedAt" ? { ...field, order: "DESCENDING" } : field),
       } : index);
-      expect(() => validate(indexes)).toThrow();
+      expect(() => validate(indexes)).toThrow(`Missing sales report aggregate index: ${fields.join(", ")}`);
     });
   }
 });

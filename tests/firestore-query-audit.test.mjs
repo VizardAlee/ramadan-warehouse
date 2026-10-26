@@ -66,4 +66,17 @@ describe("cross-section Firestore index release guard", () => {
   it("covers complete stock-count variance pages with a stable tie-breaker", () => {
     expect(catalog.find(shape => shape.sources.includes("stock count posting variance pages"))).toMatchObject({ collection: "stockCountItems", filters: [["stockCountId", "=="], ["variance", "!="]], order: [["variance", "ASCENDING"], ["__name__", "ASCENDING"]] });
   });
+  it("covers scoped waybill paging and exact invoice lookup using existing equality indexes", () => {
+    const shapes = catalog.filter(shape => shape.sources.includes("recorded waybill register and exact invoice lookup"));
+    expect(shapes).toHaveLength(2);
+    for (const shape of shapes) {
+      expect(shape.collection).toBe("saleCollections");
+      expect(shape.filters).toContainEqual(["organizationId", "=="]);
+      expect(shape.filters).toContainEqual(["branchId", "=="]);
+      expect(shape.order).toEqual([]);
+      expect(shape.sums).toBeNull();
+    }
+    expect(shapes.filter(shape => shape.filters.some(([field, operator]) => field === "referenceNumber" && operator === "=="))).toHaveLength(1);
+    expect(shapes.filter(shape => shape.filters.length === 2)).toHaveLength(1);
+  });
 });

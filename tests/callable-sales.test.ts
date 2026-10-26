@@ -466,7 +466,7 @@ describe.sequential("sales callables", () => {
     const historicalIds = Array.from({ length: 30 }, (_, index) => `history-${posted.saleId}-${String(index).padStart(2, "0")}`);
     const historyBatch = adminDb.batch();
     for (const historyId of historicalIds) historyBatch.set(adminDb.doc(`saleCollections/${historyId}`), {
-      organizationId, branchId, saleId: posted.saleId, collectedAt: Timestamp.fromDate(new Date("2020-01-01T12:00:00Z")),
+      organizationId, branchId, saleId: posted.saleId, referenceNumber: posted.saleNumber, collectedAt: Timestamp.fromDate(new Date("2020-01-01T12:00:00Z")),
       collector: "Historical collector", releasedBy: "historical-staff", totalQuantity: 1,
       lines: [{ saleItemId: officialDocument.items[0]!.id, productName: "Historical product", quantity: 1 }],
     });
@@ -480,9 +480,32 @@ describe.sequential("sales callables", () => {
     const allHistory = [...firstPage.collections, ...secondPage.collections].map(row => row.id);
     expect(new Set(allHistory).size).toBe(allHistory.length);
     expect(historicalIds.every(id => allHistory.includes(id))).toBe(true);
+    // The dedicated register must page the same physical handovers and open an older row directly.
+    type RegisterPage = { rows: Array<{ id: string; saleId: string; invoiceNumber: string; dispatcherPhone: string | null; vehiclePlate: string | null; deliveryRecipientName: string | null }>; nextCursor: string | null };
+    const lookup = { action: "list_waybills", branchId, invoiceNumber: posted.saleNumber, limit: 25 };
+    const registerFirst = await call<RegisterPage>(branchManager, "getSaleDocument", lookup);
+    const registerSecond = await call<RegisterPage>(branchManager, "getSaleDocument", { ...lookup, cursor: registerFirst.nextCursor });
+    const registerIds = [...registerFirst.rows, ...registerSecond.rows].map(row => row.id);
+    expect(historicalIds.every(id => registerIds.includes(id))).toBe(true);
+    expect(new Set(registerIds).size).toBe(registerIds.length);
+    expect(registerFirst.rows.every(row => row.saleId === posted.saleId && row.invoiceNumber === posted.saleNumber)).toBe(true);
+    const selectedId = registerSecond.rows[0]!.id;
+    const selected = await call<CollectionPage>(branchManager, "getSaleDocument", { saleId: posted.saleId, collectionId: selectedId });
+    expect(selected.collections.map(row => row.id)).toEqual([selectedId]);
+    await expect(call(branchManager, "getSaleDocument", { ...lookup, branchId: "unassigned" })).rejects.toMatchObject({ code: "functions/permission-denied" });
+    const dispatch = { action: "update_dispatch_details", saleId: posted.saleId, collectionId: selectedId, expectedVersion: 0, dispatcherPhone: "+234 800 fixture", vehiclePlate: "TEST-123", deliveryRecipientName: "Fixture recipient", idempotencyKey: crypto.randomUUID() };
+    const savedDispatch = await call(branchManager, "confirmPosSaleOrder", dispatch);
+    expect(savedDispatch).toMatchObject({ collectionId: selectedId, dispatchDetailsVersion: 1, vehiclePlate: "TEST-123" });
+    expect(await call(branchManager, "confirmPosSaleOrder", dispatch)).toEqual(savedDispatch);
+    const afterDispatch = await call<RegisterPage>(branchManager, "getSaleDocument", { ...lookup, cursor: registerFirst.nextCursor });
+    expect(afterDispatch.rows.find(row => row.id === selectedId)).toMatchObject({ dispatcherPhone: dispatch.dispatcherPhone, vehiclePlate: dispatch.vehiclePlate, deliveryRecipientName: dispatch.deliveryRecipientName });
+    expect((await adminDb.doc(`inventoryBalances/${balanceDocumentId(organizationId, productId, locationId)}`).get()).data()).toEqual(balance.data());
+    expect((await adminDb.collection("salePayments").where("saleId", "==", posted.saleId).get()).size).toBe(1);
+    expect((await adminDb.collection("journalEntries").where("referenceId", "==", posted.saleId).get()).size).toBe(journalQuery.size);
     const foreignCursor = adminDb.doc(`saleCollections/foreign-${posted.saleId}`);
     await foreignCursor.set({ organizationId, branchId, saleId: "different-sale", collectedAt: Timestamp.now() });
     await expect(call(branchManager, "getSaleDocument", { saleId: posted.saleId, collectionCursorId: foreignCursor.id })).rejects.toMatchObject({ code: "functions/invalid-argument" });
+    await expect(call(branchManager, "getSaleDocument", { saleId: posted.saleId, collectionId: foreignCursor.id })).rejects.toMatchObject({ code: "functions/not-found" });
     await foreignCursor.update({ saleId: posted.saleId, organizationId: "another-organization" });
     await expect(call(branchManager, "getSaleDocument", { saleId: posted.saleId, collectionCursorId: foreignCursor.id })).rejects.toMatchObject({ code: "functions/invalid-argument" });
     await foreignCursor.update({ organizationId, branchId: "another-store" });

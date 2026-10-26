@@ -62,9 +62,11 @@ describe("Invoice History", () => {
   it("opens the same official document and preserves real print/save-PDF controls; exposes navigation on desktop and More", async () => {
     const print = vi.spyOn(window, "print").mockImplementation(() => {});
     render(<AppShell><InvoiceHistory /></AppShell>); await screen.findByText("SAL-ORIGINAL");
-    expect(screen.getByRole("link", { name: "Invoice History" }).getAttribute("href")).toBe("/invoices"); fixture("invoice-history");
+    expect(screen.getByRole("link", { name: "Invoice History" }).getAttribute("href")).toBe("/invoices");
+    expect(screen.getByRole("link", { name: "Waybills" }).getAttribute("href")).toBe("/waybills"); fixture("invoice-history");
     fireEvent.click(screen.getByRole("button", { name: /More/ }));
-    expect(screen.getAllByRole("link", { name: "Invoice History" }).length).toBeGreaterThan(1); fixture("invoice-navigation");
+    expect(screen.getAllByRole("link", { name: "Invoice History" }).length).toBeGreaterThan(1);
+    expect(screen.getAllByRole("link", { name: "Waybills" }).length).toBeGreaterThan(1); fixture("invoice-navigation");
     fireEvent.click(screen.getAllByRole("button", { name: "Close more destinations" }).at(-1)!);
     fireEvent.click(screen.getByRole("button", { name: "View invoice" })); await screen.findByRole("dialog", { name: "Official sale invoice and receipt" });
     expect(state.call).toHaveBeenCalledWith("getSaleDocument", { saleId: "sale-a" }); fixture("invoice-dialog");

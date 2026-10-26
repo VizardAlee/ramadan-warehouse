@@ -1,3 +1,4 @@
+import { readWaybillRegister } from "../sales/waybill-register.js";
 import { readPosFastMoving } from "../sales/pos-fast-moving-store.js";
 import { withRecordActors } from "../audit/record-actors.js";
 import { posCustomerSummary, readPosCustomer, searchPosCustomers } from "../sales/pos-customer-search.js";
@@ -578,6 +579,7 @@ export const getSaleDocument = onCall(
       !hasServerPermission(actor, "sales.read.all")
     )
       throw new HttpsError("permission-denied", "You do not have permission to view sale documents.");
+    if (request.data?.action === "list_waybills") return readWaybillRegister(actor, request.data);
     if (request.data?.action === "collection_photo")
       return readCollectionPhoto(actor, parseInput(readCollectionPhotoInput, request.data));
     if (request.data?.action === "list_collections") {
@@ -607,6 +609,13 @@ export const getSaleDocument = onCall(
     requireBranchScope(actor, String(sale.get("branchId")));
     let collectionQuery = db.collection("saleCollections").where("saleId", "==", sale.id)
       .orderBy("collectedAt", "desc").orderBy(FieldPath.documentId(), "desc");
+    let selectedCollection: FirebaseFirestore.DocumentSnapshot | undefined;
+    if (input.collectionId) {
+      const selected = await db.doc(`saleCollections/${input.collectionId}`).get();
+      if (!selected.exists || selected.get("organizationId") !== actor.organizationId || selected.get("branchId") !== sale.get("branchId") || selected.get("saleId") !== sale.id || sale.get("status") !== "completed" || !(Number(selected.get("totalQuantity")) > 0))
+        throw new HttpsError("not-found", "This handover is unavailable for this invoice.");
+      selectedCollection = selected;
+    }
     if (input.collectionCursorId) {
       const cursor = await db.doc(`saleCollections/${input.collectionCursorId}`).get();
       if (!cursor.exists || cursor.get("organizationId") !== actor.organizationId ||
@@ -621,12 +630,12 @@ export const getSaleDocument = onCall(
       db.collection("salePayments").where("saleId", "==", sale.id).limit(20).get(),
       db.doc(`organizations/${actor.organizationId}`).get(),
       db.doc(`branches/${String(sale.get("branchId"))}`).get(),
-      collectionQuery.limit(input.collectionLimit + 1).get(),
+      selectedCollection ? Promise.resolve({ docs: [selectedCollection], size: 1 }) : collectionQuery.limit(input.collectionLimit + 1).get(),
     ]);
     const officialReceipt = receipt.docs[0];
     if (!officialReceipt)
       throw new HttpsError("failed-precondition", "The official receipt record is unavailable.");
-    const belongsToSale = (document: FirebaseFirestore.QueryDocumentSnapshot) =>
+    const belongsToSale = (document: FirebaseFirestore.DocumentSnapshot) =>
       document.get("organizationId") === actor.organizationId &&
       document.get("branchId") === sale.get("branchId");
     if (
