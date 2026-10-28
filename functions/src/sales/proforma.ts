@@ -13,7 +13,7 @@ import { writeAuditLog } from "../audit/write-audit-log.js";
 import { parseInput } from "../utils/callable.js";
 const id = z.string().regex(/^[A-Za-z0-9_-]{1,128}$/);
 export const proformaInput = z.discriminatedUnion("action", [
-  z.object({ action: z.literal("create_proforma"), branchId: id, customerId: id.optional(), customerName: z.string().trim().min(2).max(160).optional(), validUntil: z.string().date(), notes: z.string().trim().max(500).optional(), discountAmountMinor: z.number().int().nonnegative().safe().default(0), discountReason: z.string().trim().max(500).optional(), lines: z.array(z.object({ productId: id, quantity: z.number().int().positive().max(100000), priceTier: z.enum(["retail", "wholesale"]).default("retail") }).strict()).min(1).max(50), idempotencyKey: z.string().uuid() }).strict(),
+  z.object({ action: z.literal("create_proforma"), branchId: id, customerId: id.optional(), customerName: z.string().trim().min(2).max(160).optional(), validUntil: z.string().date(), notes: z.string().trim().max(500).optional(), discountAmountMinor: z.number().int().nonnegative().safe().default(0), discountReason: z.string().trim().max(500).optional(), lines: z.array(z.object({ productId: id, quantity: z.number().int().positive().max(100000), priceTier: z.enum(["retail", "wholesale"]).default("retail"), unitPriceMinor: z.number().int().nonnegative().safe().optional() }).strict()).min(1).max(50), idempotencyKey: z.string().uuid() }).strict(),
   z.object({ action: z.literal("get_proforma"), proformaId: id }).strict(),
   z.object({ action: z.literal("list_proformas"), branchId: id, cursorId: id.optional(), limit: z.number().int().min(1).max(100).default(25) }).strict(),
 ]);
@@ -58,11 +58,14 @@ export async function proformaRequest(actor: AccessProfile, data: unknown) {
     const lines = input.lines.map((line, index) => {
       const product = records[index * 3]!, central = records[index * 3 + 1]!, branchPrice = records[index * 3 + 2]!;
       if (!product.exists || product.get("organizationId") !== actor.organizationId || product.get("active") !== true || !central.exists || central.get("organizationId") !== actor.organizationId || central.get("active") !== true || (branchPrice.exists && (branchPrice.get("organizationId") !== actor.organizationId || branchPrice.get("branchId") !== input.branchId))) fail("A quoted product or price is unavailable.");
-      let resolved;
-      try { resolved = resolveCatalogPrice({ basePriceMinor: central.get("basePriceMinor"), version: central.get("version"), wholesalePriceMinor: central.get("wholesalePriceMinor") }, branchPrice.data() ?? {}, line.priceTier); }
-      catch (cause) { throw new HttpsError("failed-precondition", cause instanceof Error ? cause.message : "Quoted pricing requires review."); }
-      if (!Number.isSafeInteger(resolved.unitPriceMinor) || resolved.unitPriceMinor <= 0) fail("Configure a positive catalogue price before quoting this product.");
-      return { ...line, productName: String(product.get("name")), sku: String(product.get("sku")), unitOfMeasure: product.get("unitOfMeasure") ?? "unit", itemKind: product.get("itemKind") ?? "goods", unitPriceMinor: resolved.unitPriceMinor, vatRateBasisPoints: Number(central.get("vatRateBasisPoints") ?? 0), unitCostMinor: 0 };
+      // Custom prices are quote content, never catalogue or POS price changes.
+      let unitPriceMinor = line.unitPriceMinor;
+      if (unitPriceMinor === undefined) {
+        try { unitPriceMinor = resolveCatalogPrice({ basePriceMinor: central.get("basePriceMinor"), version: central.get("version"), wholesalePriceMinor: central.get("wholesalePriceMinor") }, branchPrice.data() ?? {}, line.priceTier).unitPriceMinor; }
+        catch (cause) { throw new HttpsError("failed-precondition", cause instanceof Error ? cause.message : "Quoted pricing requires review."); }
+        if (!Number.isSafeInteger(unitPriceMinor) || unitPriceMinor <= 0) fail("Configure a positive catalogue price before quoting this product.");
+      }
+      return { ...line, productName: String(product.get("name")), sku: String(product.get("sku")), unitOfMeasure: product.get("unitOfMeasure") ?? "unit", itemKind: product.get("itemKind") ?? "goods", unitPriceMinor, priceSource: line.unitPriceMinor === undefined ? "catalogue" : "custom", vatRateBasisPoints: Number(central.get("vatRateBasisPoints") ?? 0), unitCostMinor: 0 };
     });
     let calculated; try { calculated = calculateSale(lines, input.discountAmountMinor); } catch (cause) { throw new HttpsError("invalid-argument", cause instanceof Error ? cause.message : "Quote totals are invalid."); }
     const now = FieldValue.serverTimestamp(), number = `PF-${quote.id.slice(2).toUpperCase()}`;

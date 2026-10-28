@@ -33,7 +33,7 @@ beforeAll(async () => {
   for (const [id, branchId, code] of [["bank-a", "a", "1031"], ["bank-b", "b", "1032"]]) await db.doc(`bankAccounts/${id}`).set({ organizationId, branchId, active: true, bankName: "Synthetic bank", accountName: id, accountNumberLast4: "1234", ledgerAccountCode: code });
   await db.doc("suppliers/supplier").set({ organizationId, active: true, name: "Synthetic supplier", supplierNumber: "SUP-1", outstandingBalanceMinor: 0, advanceBalanceMinor: 0, advanceBalancesByLocation: {} });
   await db.doc("products/product").set({ organizationId, active: true, name: "Synthetic product", sku: "SYN-1", unitOfMeasure: "unit", itemKind: "goods" });
-  await db.doc("productSalesPrices/product").set({ organizationId, active: true, basePriceMinor: 10001, vatRateBasisPoints: 750, version: 1 });
+  await db.doc("productSalesPrices/product").set({ organizationId, active: true, basePriceMinor: 10001, wholesalePriceMinor: 8000, vatRateBasisPoints: 750, version: 1 });
   administrator = await actor("administrator"); manager = await actor("manager", "branch_manager", ["a"]); second = await actor("second");
 });
 afterAll(async () => { await Promise.all(apps.map(app => deleteApp(app))); });
@@ -90,6 +90,40 @@ describe.sequential("financial upgrade isolated callables", () => {
     await expect(call(manager, "createPosSaleOrder", { ...input, branchId: "b", idempotencyKey: crypto.randomUUID() })).rejects.toMatchObject({ code: "functions/permission-denied" });
     await expect(call(manager, "createPosSaleOrder", { ...input, payments: [{ method: "cash", amountMinor: 21502 }], idempotencyKey: crypto.randomUUID() })).rejects.toMatchObject({ code: "functions/invalid-argument" });
     expect(await Promise.all(collections.map(count))).toEqual(before);
+  });
+  it("persists custom quoted unit prices and authoritative totals without modifying business or catalogue records", async () => {
+    const collections = ["products", "productSalesPrices", "branchSalesPrices", "inventoryTransactions", "inventoryBalances", "sales", "salePayments", "saleCollections", "customers", "customerPayments", "journalEntries", "journalLines", "supplierPayments"];
+    const snapshot = async () => Promise.all(collections.map(async name => (await db.collection(name).get()).docs.map(doc => ({ id: doc.id, data: doc.data() }))));
+    const before = await snapshot();
+    const input = { action: "create_proforma", branchId: "a", customerName: "Synthetic custom-price quote", validUntil: new Date(Date.now() + 86400000).toISOString().slice(0, 10), lines: [{ productId: "product", quantity: 3, priceTier: "retail", unitPriceMinor: 12345 }], idempotencyKey: crypto.randomUUID() };
+    const [first, replay] = await Promise.all([call<{ proformaId: string }>(manager, "createPosSaleOrder", input), call(manager, "createPosSaleOrder", input)]);
+    expect(replay).toEqual(first);
+    const quote = await call(manager, "getSaleDocument", { action: "get_proforma", proformaId: first.proformaId });
+    expect(quote).toMatchObject({ subtotalAmountMinor: 37035, vatAmountMinor: 2778, grossAmountMinor: 39813, lines: [{ unitPriceMinor: 12345, quantity: 3, priceSource: "custom", grossAmountMinor: 39813 }] });
+    // A new quote gets the edited quantity; an existing quote remains immutable.
+    const changed = await call<{ proformaId: string }>(manager, "createPosSaleOrder", { ...input, lines: [{ ...input.lines[0], quantity: 4 }], idempotencyKey: crypto.randomUUID() });
+    await expect(call(manager, "getSaleDocument", { action: "get_proforma", proformaId: changed.proformaId })).resolves.toMatchObject({ subtotalAmountMinor: 49380, vatAmountMinor: 3704, grossAmountMinor: 53084, lines: [{ unitPriceMinor: 12345, quantity: 4 }] });
+    await expect(call(manager, "createPosSaleOrder", { ...input, lines: [{ ...input.lines[0], unitPriceMinor: 1 }] })).rejects.toMatchObject({ code: "functions/failed-precondition" });
+    expect(await call(manager, "getSaleDocument", { action: "get_proforma", proformaId: first.proformaId })).toEqual(quote);
+    const zero = await call<{ proformaId: string }>(manager, "createPosSaleOrder", { ...input, lines: [{ ...input.lines[0], unitPriceMinor: 0 }], idempotencyKey: crypto.randomUUID() });
+    await expect(call(manager, "getSaleDocument", { action: "get_proforma", proformaId: zero.proformaId })).resolves.toMatchObject({ grossAmountMinor: 0, lines: [{ unitPriceMinor: 0, priceSource: "custom" }] });
+    const wholesale = await call<{ proformaId: string }>(manager, "createPosSaleOrder", { ...input, lines: [{ productId: "product", quantity: 1, priceTier: "wholesale" }], idempotencyKey: crypto.randomUUID() });
+    await expect(call(manager, "getSaleDocument", { action: "get_proforma", proformaId: wholesale.proformaId })).resolves.toMatchObject({ grossAmountMinor: 8600, lines: [{ unitPriceMinor: 8000, priceSource: "catalogue" }] });
+    expect(await snapshot()).toEqual(before);
+  });
+  it("rejects malformed custom prices, forged totals, and readers without existing quote-creation authority", async () => {
+    const input = { action: "create_proforma", branchId: "a", validUntil: new Date(Date.now() + 86400000).toISOString().slice(0, 10), idempotencyKey: crypto.randomUUID() };
+    const before = (await db.collection("proformaQuotes").get()).size;
+    for (const unitPriceMinor of [-1, 1.23, "12345", Number.MAX_SAFE_INTEGER + 1]) {
+      await expect(call(manager, "createPosSaleOrder", { ...input, lines: [{ productId: "product", quantity: 1, unitPriceMinor }] })).rejects.toMatchObject({ code: "functions/invalid-argument" });
+    }
+    await expect(call(manager, "createPosSaleOrder", { ...input, lines: [{ productId: "product", quantity: 2, unitPriceMinor: Number.MAX_SAFE_INTEGER }] })).rejects.toMatchObject({ code: "functions/invalid-argument" });
+    await expect(call(manager, "createPosSaleOrder", { ...input, lines: [{ productId: "product", quantity: 1, unitPriceMinor: 100, grossAmountMinor: 1 }] })).rejects.toMatchObject({ code: "functions/invalid-argument" });
+    for (const validUntil of ["2000-01-01", "2099-01-01"]) await expect(call(manager, "createPosSaleOrder", { ...input, validUntil, lines: [{ productId: "product", quantity: 1, unitPriceMinor: 100 }] })).rejects.toMatchObject({ code: "functions/invalid-argument" });
+    const reader = await actor("custom-quote-reader", "branch_requester", ["a"]);
+    await expect(call(reader, "createPosSaleOrder", { ...input, lines: [{ productId: "product", quantity: 1, unitPriceMinor: 100 }] })).rejects.toMatchObject({ code: "functions/permission-denied" });
+    await expect(call(manager, "createPosSaleOrder", { ...input, branchId: "b", lines: [{ productId: "product", quantity: 1, unitPriceMinor: 100 }] })).rejects.toMatchObject({ code: "functions/permission-denied" });
+    expect((await db.collection("proformaQuotes").get()).size).toBe(before);
   });
   it("does not turn a separate global sales-read grant into cross-store quote creation", async () => {
     const scoped = await actor("scoped-quoter", "branch_manager", ["a"]);
