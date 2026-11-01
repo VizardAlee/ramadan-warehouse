@@ -123,7 +123,7 @@ describe("administration callables", () => {
     expect((await adminDb.doc(`organizations/${organizationId}`).get()).get("headOfficeSupplyWarehouseId")).toBe(savedWarehouse.id);
     await adminDb.doc("warehouses/foreign-supply-fixture").set({ organizationId: "foreign-org", name: "Foreign supply", status: "active" });
     await expect(save({ ...headOffice, supplyWarehouseId: "foreign-supply-fixture", idempotencyKey: crypto.randomUUID() })).rejects.toMatchObject({ code: "functions/failed-precondition" });
-    await save({ ...payload, id: saved.id, branchType: undefined, idempotencyKey: crypto.randomUUID() });
+    await save({ id: saved.id, name: payload.name, code: payload.code, status: "active", idempotencyKey: crypto.randomUUID() });
     expect((await adminDb.doc(`organizations/${organizationId}`).get()).data()).toMatchObject({ headOfficeBranchId: saved.id, headOfficeSupplyWarehouseId: savedWarehouse.id });
     await save({ ...headOffice, supplyWarehouseId: null, idempotencyKey: crypto.randomUUID() });
     expect((await adminDb.doc(`organizations/${organizationId}`).get()).data()).not.toHaveProperty("headOfficeSupplyWarehouseId");

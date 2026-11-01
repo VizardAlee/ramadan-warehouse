@@ -427,7 +427,7 @@ export function MasterDataPage({
               <Button type="button" variant="outline" onClick={() => setOpen(false)}>
                 Cancel
               </Button>
-              <Button type="submit" disabled={isSubmitting}>
+              <Button type="submit" disabled={isSubmitting || (collectionName === "branches" && branchType === "head_office" && (warehouses.loading || Boolean(warehouses.error)))} disabledReason={collectionName === "branches" && branchType === "head_office" && (warehouses.loading || warehouses.error) ? "Wait for warehouse choices to load, or refresh after a connection error, before saving Head Office supply setup." : undefined}>
                 Save securely
               </Button>
             </div>
