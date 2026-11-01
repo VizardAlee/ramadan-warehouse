@@ -29,6 +29,7 @@ import { TransferList } from "./transfer-list";
 import { downloadCsv } from "@/features/inventory/format";
 import { hasPermission } from "@/lib/permissions/roles";
 import { stockTransferExportRows } from "./stock-transfer-export";
+import { canCreateStockTransfer } from "./transfer-permissions";
 import type { BranchRequest, BranchRequestItem } from "@/types/domain";
 import {
   simpleTransferActionCopy,
@@ -59,7 +60,7 @@ interface Stock {
   available: number;
   serials: { id: string; name: string }[];
 }
-type Options = { locations: Location[]; canApprove: boolean };
+type Options = { locations: Location[]; canApprove: boolean; suggestedSourceLocationId?: string | null; supplyConfigured?: boolean };
 type Detail = {
   transfer: StockTransfer;
   events: { id: string; action: string; note?: string; createdAt: string }[];
@@ -196,18 +197,11 @@ export function StockTransferList() {
 
 function ManagedStockTransferList() {
   const { profile, operatingContext } = useAuth();
-  const roles = profile?.roleIds?.length ? profile.roleIds : [profile?.roleId];
-  const canCreate = roles.some((r) =>
-    [
-      "system_administrator",
-      "operations_administrator",
-      "branch_manager",
-      "warehouse_manager",
-    ].includes(r ?? ""),
-  );
+  const canCreate = canCreateStockTransfer(profile);
   const [rows, setRows] = useState<StockTransfer[]>([]),
     [options, setOptions] = useState<Options | null>(null);
-  const [filter, setFilter] = useState(canCreate ? "attention" : "all"),
+  const canReceive = Boolean(profile && hasPermission(profile, "transfers.receive"));
+  const [filter, setFilter] = useState(canCreate || canReceive ? "attention" : "all"),
     [error, setError] = useState(""),
     [loading, setLoading] = useState(true);
   const [quickTransferId, setQuickTransferId] = useState<string | null>(null);
@@ -264,9 +258,7 @@ function ManagedStockTransferList() {
           )
         : ["awaiting_receipt", "partially_received"].includes(t.status) &&
           (options?.canApprove ||
-            options?.locations.some(
-              (l) => l.assigned && l.id === t.destinationLocationId,
-            ));
+            (canReceive && profile?.branchIds.includes(t.destinationBranchId)));
   const scoped = rows.filter(
     (t) =>
       !operatingContext ||
@@ -367,7 +359,7 @@ function ManagedStockTransferList() {
           <p className="mt-2 text-sm text-[var(--muted)]">
             {filter === "attention"
               ? "When your location needs to confirm or receive stock, it will appear here."
-              : "Choose another view or create a new transfer."}
+              : canCreate ? "Choose another view or create a new transfer." : "Choose another view. Use branch requests when you need replenishment."}
           </p>
         </section>
       ) : (
@@ -432,9 +424,9 @@ function ManagedStockTransferList() {
         <Link className="underline" href="/transfers/legacy">
           Advanced: earlier transfers and detailed logistics
         </Link>
-        <Link className="underline" href="/transfers/create/from-request">
+        {canCreateStockTransfer(profile, true) && <Link className="underline" href="/transfers/create/from-request">
           Use an existing approved branch request
-        </Link>
+        </Link>}
       </footer>
     </div>
   );
@@ -445,6 +437,13 @@ export function StockTransferForm({
 }: {
   fromRequest?: boolean;
 }) {
+  const { profile } = useAuth();
+  if (!profile) return <p>Loading your access…</p>;
+  if (!canCreateStockTransfer(profile, fromRequest)) return <div className="rounded-xl border bg-white p-6">You do not have permission to create outgoing transfers. Use branch requests for replenishment and the incoming transfer list to receive stock.</div>;
+  return <AuthorizedStockTransferForm fromRequest={fromRequest} />;
+}
+
+function AuthorizedStockTransferForm({ fromRequest }: { fromRequest: boolean }) {
   const router = useRouter();
   const { operatingContext } = useAuth();
   const { online } = useConnectivity();
@@ -469,6 +468,7 @@ export function StockTransferForm({
       .then((o) => {
         if (!active) return;
         setOptions(o);
+        if (fromRequest && o.suggestedSourceLocationId) setSource(o.suggestedSourceLocationId);
         const own = o.locations.filter(
           (l) =>
             l.assigned &&
@@ -479,7 +479,7 @@ export function StockTransferForm({
         );
         if (own.length === 1) {
           if (own[0]!.type === "branch") setDestination(own[0]!.id);
-          else setSource(own[0]!.id);
+          else if (!fromRequest || !o.suggestedSourceLocationId) setSource(own[0]!.id);
         }
       })
       .catch((e) => {
@@ -488,7 +488,7 @@ export function StockTransferForm({
     return () => {
       active = false;
     };
-  }, [operatingContext]);
+  }, [operatingContext, fromRequest]);
   useEffect(() => {
     let active = true;
     if (fromRequest)
@@ -605,6 +605,7 @@ export function StockTransferForm({
       </header>
       <SimpleTransferSteps />
       {error && <Notice text={error} />}
+      {fromRequest && options?.supplyConfigured === false && <Notice text="Head Office supply is not configured. Ask an administrator to designate Head Office and its supply warehouse in Stores & Head Office. You may still select an existing authorized source; no Head Office source is inferred." />}
       {!online && (
         <Notice text="Connect to the internet to submit. Your current form stays on this screen." />
       )}

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Plus } from "lucide-react";
 import { AppDialog } from "@/components/ui/app-dialog";
 import { Button } from "@/components/ui/button";
@@ -10,6 +10,7 @@ import { callAdministration } from "@/features/administration/api";
 import { useOrganizationCollection } from "@/features/administration/use-organization-collection";
 import { useAuth } from "@/features/auth/auth-context";
 import { hasPermission } from "@/lib/permissions/roles";
+import { operatingRoles } from "@/lib/permissions/operating-roles";
 import type { CustomRole, PermissionId, RoleId } from "@/types/domain";
 
 type RoleOption = { roleId: RoleId; permissionIds: PermissionId[] };
@@ -30,7 +31,9 @@ export function RolesManager() {
   const [status, setStatus] = useState<"active" | "inactive">("active");
   const [reason, setReason] = useState("");
   const [saving, setSaving] = useState(false);
-  const dialogRef = useDialogFocus<HTMLFormElement>(open, () => setOpen(false));
+  const savingRef = useRef(false);
+  const saveKey = useRef<{ signature: string; key: string } | null>(null);
+  const dialogRef = useDialogFocus<HTMLFormElement>(open, () => { if (!savingRef.current) setOpen(false); });
   useEffect(() => {
     if (!canManage) return;
     let active = true;
@@ -52,25 +55,31 @@ export function RolesManager() {
     setReason("");
     setError(null);
     setOpen(true);
+    saveKey.current = null;
   }
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (savingRef.current) return;
+    savingRef.current = true;
     setSaving(true);
     setError(null);
     try {
-      await callAdministration("saveOrganizationRole", {
+      const payload = {
         id: editing?.id,
         name,
         baseRoleId,
         permissionIds: selected,
         status,
         reason: editing ? reason : undefined,
-        idempotencyKey: crypto.randomUUID(),
-      });
+      };
+      const signature = JSON.stringify(payload);
+      if (saveKey.current?.signature !== signature) saveKey.current = { signature, key: crypto.randomUUID() };
+      await callAdministration("saveOrganizationRole", { ...payload, idempotencyKey: saveKey.current.key });
       setOpen(false);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "The role could not be saved.");
     } finally {
+      savingRef.current = false;
       setSaving(false);
     }
   }
@@ -95,6 +104,7 @@ export function RolesManager() {
     {open && <AppDialog role="dialog" aria-modal="true" aria-label={editing ? "Edit role" : "Create role"}>
       <form ref={dialogRef} onSubmit={(event) => void save(event)} className="app-dialog-panel safe-bottom max-w-2xl space-y-4 rounded-2xl bg-white p-5 sm:p-6">
         <h2 className="text-xl font-semibold">{editing ? `Edit ${editing.name}` : "Create role"}</h2>
+        {!editing && <fieldset className="space-y-2 rounded-lg border p-3"><legend className="px-1 text-sm font-semibold">Operating role starting points</legend><p className="text-xs text-[var(--muted)]">Saving creates an unassigned role. Assign roles separately in Users. Combining Salesperson and Cashier lets one user perform both duties; payment confirmation and stock release remain separate permissions.</p><div className="flex flex-wrap gap-2">{operatingRoles.filter(role => options.some(option => option.roleId === role.baseRoleId && role.permissionIds.every(permission => option.permissionIds.includes(permission)))).map(role => <Button key={role.name} type="button" variant="outline" disabled={saving} onClick={() => { setName(role.name); setBaseRoleId(role.baseRoleId); setSelected([...role.permissionIds]); }}>{role.name}</Button>)}</div></fieldset>}
         <label className="block text-sm">Role name<input required minLength={2} maxLength={80} value={name} onChange={(event) => setName(event.target.value)} className="mt-1 w-full rounded-lg border p-2.5" /></label>
         <label className="block text-sm">Location scope / base profile<select value={baseRoleId} onChange={(event) => { const next = event.target.value as RoleId; setBaseRoleId(next); setSelected(options.find((option) => option.roleId === next)?.permissionIds ?? []); }} className="mt-1 w-full rounded-lg border p-2.5">{options.map((option) => <option key={option.roleId} value={option.roleId}>{label(option.roleId)}</option>)}</select></label>
         <p className="text-xs text-[var(--muted)]">The base profile determines whether the role is organization-wide, store-scoped, or stock-location-scoped. You may remove permissions within that scope; you cannot expand beyond it. To change a role&apos;s scope, first unassign it from users.</p>
@@ -102,7 +112,7 @@ export function RolesManager() {
         <label className="block text-sm">Status<select value={status} onChange={(event) => setStatus(event.target.value as "active" | "inactive")} className="mt-1 w-full rounded-lg border p-2.5"><option value="active">Active</option><option value="inactive">Inactive</option></select></label>
         {editing && <label className="block text-sm">Reason for change<input required minLength={3} maxLength={500} value={reason} onChange={(event) => setReason(event.target.value)} className="mt-1 w-full rounded-lg border p-2.5" placeholder="Why are you changing this role?" /></label>}
         {error && <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-800">{error}</p>}
-        <div className="flex justify-end gap-2"><Button type="button" variant="outline" onClick={() => setOpen(false)}>Cancel</Button><Button type="submit" aria-busy={saving} disabledReason={!name.trim() ? "Enter a distinct role name." : !available.length ? "Select a loaded allowed base profile. Ask the system administrator if no permitted profiles are available." : undefined} disabled={saving || !name.trim() || !available.length}>{saving ? "Saving…" : "Save role"}</Button></div>
+        <div className="flex justify-end gap-2"><Button type="button" variant="outline" disabled={saving} onClick={() => setOpen(false)}>Cancel</Button><Button type="submit" aria-busy={saving} disabledReason={!name.trim() ? "Enter a distinct role name." : !available.length ? "Select a loaded allowed base profile. Ask the system administrator if no permitted profiles are available." : undefined} disabled={saving || !name.trim() || !available.length}>{saving ? "Saving…" : "Save role"}</Button></div>
       </form>
     </AppDialog>}
   </div>;

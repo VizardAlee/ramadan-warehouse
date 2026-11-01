@@ -2556,3 +2556,46 @@ describe.sequential("mixed billing controls and recognition", () => {
 
 
 });
+
+describe("custom operating sales roles", () => {
+  it("hands an order to a separate cashier's shift and preserves combined-role support", async () => {
+    const { operatingRoles } = await import("../src/lib/permissions/operating-roles");
+    const { buildRoleAssignment } = await import("../functions/src/auth/custom-roles");
+    const users = [cashier, cashierTwo];
+    const refs = users.map(user => adminDb.doc(`users/${user.auth.currentUser!.uid}`));
+    const originals = await Promise.all(refs.map(ref => ref.get()));
+    const roles = [];
+    try {
+      for (const template of operatingRoles.slice(0, 2)) {
+        const saved = await call<{ roleId: string; affectedUsers: number }>(administrator, "saveOrganizationRole", { name: template.name, baseRoleId: template.baseRoleId, permissionIds: template.permissionIds, status: "active", idempotencyKey: crypto.randomUUID() });
+        expect(saved.affectedUsers).toBe(0);
+        expect((await adminDb.doc(`roles/${saved.roleId}`).get()).data()).toMatchObject({ name: template.name, permissionIds: template.permissionIds });
+        roles.push({ ...template, id: saved.roleId, organizationId, status: "active" as const });
+      }
+      for (const [index, ref] of refs.entries()) await ref.update(buildRoleAssignment([], [roles[index]!]));
+      await call(administrator, "saveProductSalesPrice", { productId, basePriceMinor: 1_000, vatRateBasisPoints: 0, active: true, idempotencyKey: crypto.randomUUID() });
+      const device = crypto.randomUUID(), paymentDevice = crypto.randomUUID();
+      const shift = await call<{ shiftId: string }>(cashier, "openPosShift", { branchId, deviceId: device, deviceName: "Fictional salesperson desk", openingCashMinor: 0, idempotencyKey: crypto.randomUUID() });
+      const paymentShift = await call<{ shiftId: string }>(cashierTwo, "openPosShift", { branchId, deviceId: paymentDevice, deviceName: "Fictional cashier desk", openingCashMinor: 0, idempotencyKey: crypto.randomUUID() });
+      const input = { branchId, shiftId: shift.shiftId, deviceId: device, recordedAt: new Date().toISOString(), offline: false, lines: [{ productId, quantity: 1 }], payments: [{ method: "cash", amountMinor: 1_000 }], idempotencyKey: crypto.randomUUID() };
+      await expect(call(cashierTwo, "createPosSaleOrder", input)).rejects.toMatchObject({ code: "functions/permission-denied" });
+      const order = await call<{ orderId: string }>(cashier, "createPosSaleOrder", input);
+      const acceptance = { orderId: order.orderId, shiftId: paymentShift.shiftId, deviceId: paymentDevice, idempotencyKey: crypto.randomUUID() };
+      await expect(call(cashier, "acceptPosSaleOrderPayment", acceptance)).rejects.toMatchObject({ code: "functions/permission-denied" });
+      await expect(call(cashierTwo, "getPosWorkspace", { branchId })).resolves.toHaveProperty("pendingOrders");
+      await call(cashierTwo, "acceptPosSaleOrderPayment", acceptance);
+      await call(cashierTwo, "acceptPosSaleOrderPayment", acceptance);
+      const accepted = (await adminDb.doc(`salesOrders/${order.orderId}`).get()).data()!;
+      expect(accepted).toMatchObject({ createdBy: cashier.auth.currentUser!.uid, paymentAcceptedBy: cashierTwo.auth.currentUser!.uid, status: "payment_accepted" });
+      expect(accepted.payload.shiftId).toBe(paymentShift.shiftId);
+      await expect(call(cashierTwo, "confirmPosSaleOrder", { orderId: order.orderId, idempotencyKey: crypto.randomUUID() })).rejects.toMatchObject({ code: "functions/permission-denied" });
+      await refs[0]!.update(buildRoleAssignment([], roles));
+      const combinedOrder = await call<{ orderId: string }>(cashier, "createPosSaleOrder", { ...input, idempotencyKey: crypto.randomUUID() });
+      await call(cashier, "acceptPosSaleOrderPayment", { orderId: combinedOrder.orderId, shiftId: shift.shiftId, deviceId: device, idempotencyKey: crypto.randomUUID() });
+      expect((await adminDb.doc(`salesOrders/${combinedOrder.orderId}`).get()).data()).toMatchObject({ createdBy: cashier.auth.currentUser!.uid, paymentAcceptedBy: cashier.auth.currentUser!.uid });
+      await expect(call(cashier, "getPosWorkspace", { branchId: "foreign-branch" })).rejects.toMatchObject({ code: "functions/permission-denied" });
+    } finally {
+      await Promise.all(refs.map((ref, index) => ref.set(originals[index]!.data()!)));
+    }
+  }, 120_000);
+});

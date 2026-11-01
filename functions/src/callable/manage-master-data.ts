@@ -84,7 +84,7 @@ async function saveMaster(kind: MasterKind, input: Record<string, unknown>, acto
   let resultId = id; let saved = true;
   let authorizationUserIds: string[] = [];
   await db.runTransaction(async (transaction) => {
-    const [current, codeOwner, previousOperation, organization] = await Promise.all([transaction.get(reference), transaction.get(codeReference), transaction.get(operation), transaction.get(organizationReference)]);
+    const [current, codeOwner, previousOperation, organization, supplyWarehouse] = await Promise.all([transaction.get(reference), transaction.get(codeReference), transaction.get(operation), transaction.get(organizationReference), kind === "branch" && typeof input.supplyWarehouseId === "string" ? transaction.get(db.collection("warehouses").doc(input.supplyWarehouseId)) : undefined]);
     if (previousOperation.exists) {
       resultId = previousOperation.get("entityId") as string;
       authorizationUserIds = stringArray(
@@ -130,7 +130,9 @@ async function saveMaster(kind: MasterKind, input: Record<string, unknown>, acto
     if (current.exists && current.get("systemManaged") === true && !hasRole(actor, "system_administrator")) throw new HttpsError("permission-denied", "This system-managed location cannot be edited.");
     if (kind === "branch") {
       const nextIsHeadOffice =
-        input.branchType === "head_office" && input.status === "active";
+        (input.branchType ?? current.get("branchType")) === "head_office" && input.status === "active";
+      if (typeof input.supplyWarehouseId === "string" && (!nextIsHeadOffice || !supplyWarehouse?.exists || supplyWarehouse.get("organizationId") !== actor.organizationId || supplyWarehouse.get("status") !== "active"))
+        throw new HttpsError("failed-precondition", "Choose an active supply warehouse in this organization for an active Head Office.");
       const designatedHeadOfficeId = organization.get("headOfficeBranchId");
       if (
         nextIsHeadOffice &&
@@ -144,12 +146,14 @@ async function saveMaster(kind: MasterKind, input: Record<string, unknown>, acto
       if (nextIsHeadOffice)
         transaction.update(organizationReference, {
           headOfficeBranchId: id,
+          ...(input.supplyWarehouseId !== undefined ? { headOfficeSupplyWarehouseId: input.supplyWarehouseId ?? FieldValue.delete() } : {}),
           updatedAt: FieldValue.serverTimestamp(),
           updatedBy: actor.userId,
         });
       else if (designatedHeadOfficeId === id)
         transaction.update(organizationReference, {
           headOfficeBranchId: FieldValue.delete(),
+          headOfficeSupplyWarehouseId: FieldValue.delete(),
           updatedAt: FieldValue.serverTimestamp(),
           updatedBy: actor.userId,
         });

@@ -572,3 +572,30 @@ describe.sequential("simple manager stock transfers", () => {
     ).rejects.toMatchObject({ code: "functions/failed-precondition" });
   });
 });
+
+describe("custom operating stock role", () => {
+  it("submits a branch stock request and receives stock without creating or approving transfers", async () => {
+    const { operatingRoles } = await import("../src/lib/permissions/operating-roles");
+    const { buildRoleAssignment } = await import("../functions/src/auth/custom-roles");
+    const template = operatingRoles[2]!;
+    const saved = await call<{ roleId: string; affectedUsers: number }>(h.creator, "saveOrganizationRole", { name: template.name, baseRoleId: template.baseRoleId, permissionIds: template.permissionIds, status: "active", idempotencyKey: key() });
+    expect(saved.affectedUsers).toBe(0);
+    const ref = h.db.doc(`users/${h.receiver.uid}`), original = (await ref.get()).data()!;
+    const branchId = original.branchIds[0];
+    const transferId = await create(2, {}, h.manager);
+    await approve(transferId, {}, h.manager);
+    try {
+      await ref.update(buildRoleAssignment([], [{ ...template, id: saved.roleId, organizationId: h.organizationId, status: "active" }]));
+      const request = await call<{ requestId: string }>(h.receiver, "createBranchRequest", { branchId, requestType: "stock_replenishment", priority: "normal", purpose: "Fictional branch stock replenishment", attachmentMetadata: [], items: [{ productId: h.productId, requestedQuantity: 2 }], idempotencyKey: key() });
+      const draft = await call<{ request: { version: number } }>(h.receiver, "getBranchRequest", { requestId: request.requestId });
+      await call(h.receiver, "submitBranchRequest", { requestId: request.requestId, expectedVersion: draft.request.version, idempotencyKey: key() });
+      expect((await h.db.doc(`branchRequests/${request.requestId}`).get()).get("status")).toBe("submitted");
+      await expect(create(1, {}, h.receiver)).rejects.toMatchObject({ code: "functions/permission-denied" });
+      await expect(api(h.receiver, { action: "stock", locationId: h.originLocationId })).rejects.toMatchObject({ code: "functions/permission-denied" });
+      await expect(approve(transferId, {}, h.receiver)).rejects.toMatchObject({ code: "functions/permission-denied" });
+      await receive(transferId, 2, 0, h.receiver);
+      expect((await read(transferId)).status).toBe("completed");
+      await expect(call(h.receiver, "createBranchRequest", { branchId: "foreign-branch", requestType: "stock_replenishment", priority: "normal", purpose: "Fictional scope denial test", attachmentMetadata: [], items: [{ productId: h.productId, requestedQuantity: 1 }], idempotencyKey: key() })).rejects.toMatchObject({ code: "functions/permission-denied" });
+    } finally { await ref.set(original); }
+  }, 120_000);
+});

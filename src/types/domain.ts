@@ -448,6 +448,7 @@ export interface Branch {
   name: string;
   code: string;
   branchType?: "head_office" | "store";
+  supplyWarehouseId?: string | null;
   status: EntityStatus;
   address?: string;
   state?: string;

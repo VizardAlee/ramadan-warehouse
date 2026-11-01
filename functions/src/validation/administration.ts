@@ -46,6 +46,7 @@ export const reissueInvitationInput = z.object({ userId: id, idempotencyKey: z.s
 const baseMaster = z.object({ id: optionalId, name: z.string().trim().min(2).max(120), code, status: z.enum(["active", "inactive"]).default("active"), address: text(500), state: text(80) });
 export const branchInput = baseMaster.extend({
   branchType: z.enum(["head_office", "store"]).optional(),
+  supplyWarehouseId: id.nullable().optional(),
   contactEmail: optionalEmail,
   contactPhone: text(24),
   managerUserId: optionalId,

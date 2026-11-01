@@ -23,6 +23,7 @@ import {
   type Branch,
   type UserProfile,
   type CustomRole,
+  type Warehouse,
 } from "@/types/domain";
 
 function dateValue(value: DateTimeValue | undefined) {
@@ -79,6 +80,7 @@ export default function UsersPage() {
   const { profile, user: authenticatedUser } = useAuth();
   const users = useOrganizationCollection<UserProfile>("users");
   const branches = useOrganizationCollection<Branch>("branches");
+  const warehouses = useOrganizationCollection<Warehouse>("warehouses", Boolean(profile && hasPermission(profile, "user.manage")));
   const customRoles = useOrganizationCollection<CustomRole>("roles");
   const [search, setSearch] = useState("");
   const [role, setRole] = useState("");
@@ -555,6 +557,10 @@ export default function UsersPage() {
                     </option>
                   ))}
                 </select>
+              </label>
+              <label className="text-sm">Warehouse stock locations
+                {!warehouses.loading && !warehouses.error && <select multiple {...register("warehouseIds")} className="mt-1 h-32 w-full rounded-lg border p-2.5">{warehouses.data.filter(item => item.status === "active" || editing?.warehouseIds.includes(item.id)).map(item => <option key={item.id} value={item.id}>{item.name}{item.status !== "active" ? " (inactive)" : ""}</option>)}</select>}
+                <span className="mt-1 block text-xs text-[var(--muted)]">{warehouses.loading ? "Loading warehouse assignments…" : warehouses.error ? "Warehouse assignments could not load. Existing saved selections are retained; refresh before changing them." : "Select the existing warehouse locations for warehouse duties. Head Office designation and stock history are managed separately; no location is selected automatically."}</span>
               </label>
             </div>
             <div className="sticky bottom-0 flex justify-end gap-3 border-t bg-white pt-4">
