@@ -65,7 +65,7 @@ beforeEach(() => {
 });
 
 describe("offline manager transfer workflows", () => {
-  it("preserves store-only discovery without exposing legacy warehouse, system or inactive areas", async () => {
+  it("discovers active store and warehouse source names without exposing foreign, system or inactive areas", async () => {
     state.db.seed("warehouses/inactive", { organizationId: "org", status: "inactive", name: "Closed" });
     state.db.seed("inventoryLocations/closed", { organizationId: "org", status: "active", type: "warehouse", warehouseId: "inactive" });
     state.db.seed("inventoryLocations/transit", { organizationId: "org", status: "active", type: "goods_in_transit", branchId: "branch" });
@@ -74,9 +74,10 @@ describe("offline manager transfer workflows", () => {
     expect(result.locations).toEqual(expect.arrayContaining([
       expect.objectContaining({ id: "source", name: "Sending store", assigned: true }),
       expect.objectContaining({ id: "destination", name: "Receiving branch", assigned: false }),
+      expect.objectContaining({ id: "warehouse", name: "Main warehouse", assigned: false }),
     ]));
-    expect(result.locations).toHaveLength(2);
-    expect(result.locations.map(location => location.id)).not.toContain("warehouse");
+    expect(result.locations).toHaveLength(3);
+    for (const hidden of ["closed", "transit", "foreign"]) expect(result.locations.map(location => location.id)).not.toContain(hidden);
   });
 
   it("holds approval stock, permits partial receipts, and conserves final-unit quantity and value", async () => {

@@ -30,6 +30,7 @@ const schema = z.object({
   state: z.string().optional(),
   address: z.string().optional(),
   branchType: z.enum(["head_office", "store"]).optional(),
+  supplyWarehouseId: z.string().nullable().optional(),
   contactPhone: z.string().optional(),
   managerUserId: z.string().optional(),
   managerIds: z.array(z.string()),
@@ -63,6 +64,7 @@ const defaults: Values = {
   managerIds: [],
   status: "active",
   branchType: "store",
+  supplyWarehouseId: "",
   systemManaged: false,
 };
 const configuration = {
@@ -93,6 +95,7 @@ export function MasterDataPage({
   const users = useOrganizationCollection<UserProfile>("users");
   const branchManagers = eligibleManagers(users.data, "branch_manager");
   const canManage = profile ? hasPermission(profile, config.permission) : false;
+  const warehouses = useOrganizationCollection<Row>("warehouses", canManage && collectionName === "branches");
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Row | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -113,6 +116,7 @@ export function MasterDataPage({
     defaultValues: defaults,
   });
   const type = useWatch({ control, name: "type" });
+  const branchType = useWatch({ control, name: "branchType" });
   function edit(row?: Row) {
     setEditing(row ?? null);
     reset(
@@ -120,6 +124,7 @@ export function MasterDataPage({
         ? {
             ...row,
             managerIds: row.managerIds ?? [],
+            supplyWarehouseId: row.supplyWarehouseId ?? "",
             relatedId: row.branchId ?? row.warehouseId,
           }
         : {
@@ -145,6 +150,7 @@ export function MasterDataPage({
       await callAdministration(config.callable, {
         ...sanitized,
         ...owner,
+        ...(collectionName === "branches" ? { supplyWarehouseId: values.branchType === "head_office" ? values.supplyWarehouseId || null : null } : {}),
         ...(editing ? { id: editing.id } : {}),
         idempotencyKey: crypto.randomUUID(),
       });
@@ -184,6 +190,7 @@ export function MasterDataPage({
           </Button>
         )}
       </div>
+      {collectionName === "branches" && canManage && !records.loading && !records.error && !records.data.some(row => row.status === "active" && row.branchType === "head_office" && row.supplyWarehouseId) && <p role="status" className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm">Head Office supply setup is incomplete. An administrator can edit the intended branch, choose Head office / central distribution and select its supply warehouse. Nothing is selected automatically; existing requests and stock records remain unchanged.</p>}
       {(error || records.error) && (
         <p className="rounded-lg bg-red-50 p-3 text-sm text-red-800">
           {error ?? records.error}
@@ -336,6 +343,7 @@ export function MasterDataPage({
                       other stores.
                     </span>
                   </label>
+                  {branchType === "head_office" && <label className="text-sm">Head Office supply warehouse (optional)<select {...register("supplyWarehouseId")} className="mt-1 w-full rounded-lg border p-2.5"><option value="">Not configured — administrator to decide</option>{warehouses.data.filter(row => row.status === "active").map(row => <option key={row.id} value={row.id}>{row.name}</option>)}</select><span className="mt-1 block text-xs text-[var(--muted)]">Suggests the source for approved branch requests. This does not move stock, assign staff or prohibit other authorized transfers.</span>{warehouses.error && <span role="alert">Warehouse options could not load. Refresh before changing this setting.</span>}</label>}
                   <label className="text-sm">
                     Contact phone (optional)
                     <input
@@ -416,10 +424,10 @@ export function MasterDataPage({
               </label>
             </div>
             <div className="sticky bottom-0 flex justify-end gap-3 border-t bg-white pt-4">
-              <Button variant="outline" onClick={() => setOpen(false)}>
+              <Button type="button" variant="outline" onClick={() => setOpen(false)}>
                 Cancel
               </Button>
-              <Button type="submit" disabled={isSubmitting}>
+              <Button type="submit" disabled={isSubmitting || (collectionName === "branches" && branchType === "head_office" && (warehouses.loading || Boolean(warehouses.error)))} disabledReason={collectionName === "branches" && branchType === "head_office" && (warehouses.loading || warehouses.error) ? "Wait for warehouse choices to load, or refresh after a connection error, before saving Head Office supply setup." : undefined}>
                 Save securely
               </Button>
             </div>

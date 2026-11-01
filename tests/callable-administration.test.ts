@@ -118,6 +118,16 @@ describe("administration callables", () => {
     const warehouseResult = await warehouse({ name: "Central Warehouse", code: "central", managerIds: [], status: "active", idempotencyKey: crypto.randomUUID() });
     const savedWarehouse = await adminDb.doc(`warehouses/${(warehouseResult.data as { id: string }).id}`).get();
     expect(savedWarehouse.data()).toMatchObject({ name: "Central Warehouse", code: "CENTRAL", managerIds: [] });
+    const headOffice = { ...payload, id: saved.id, supplyWarehouseId: savedWarehouse.id, idempotencyKey: crypto.randomUUID() };
+    await save(headOffice);
+    expect((await adminDb.doc(`organizations/${organizationId}`).get()).get("headOfficeSupplyWarehouseId")).toBe(savedWarehouse.id);
+    await adminDb.doc("warehouses/foreign-supply-fixture").set({ organizationId: "foreign-org", name: "Foreign supply", status: "active" });
+    await expect(save({ ...headOffice, supplyWarehouseId: "foreign-supply-fixture", idempotencyKey: crypto.randomUUID() })).rejects.toMatchObject({ code: "functions/failed-precondition" });
+    await save({ id: saved.id, name: payload.name, code: payload.code, status: "active", idempotencyKey: crypto.randomUUID() });
+    expect((await adminDb.doc(`organizations/${organizationId}`).get()).data()).toMatchObject({ headOfficeBranchId: saved.id, headOfficeSupplyWarehouseId: savedWarehouse.id });
+    await save({ ...headOffice, supplyWarehouseId: null, idempotencyKey: crypto.randomUUID() });
+    expect((await adminDb.doc(`organizations/${organizationId}`).get()).data()).not.toHaveProperty("headOfficeSupplyWarehouseId");
+
 
     const manager = await adminAuth.getUserByEmail("dual-manager@example.test");
     const updateUser = httpsCallable(administrator.functions, "updateOrganizationUser");

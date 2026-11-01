@@ -299,9 +299,9 @@ export const stockTransfers = onCall({ enforceAppCheck }, async (request) => {
       .flatMap(role => role.permissionIds) };
   }
   if (input.action === "options") {
-    // Only names/identities needed to request stock are discoverable across branches.
-    const [locations, branches] = await Promise.all(
-      ["inventoryLocations", "branches"].map((collection) =>
+    // Only location names/identities needed to request stock are discoverable across branches and warehouses.
+    const [locations, branches, warehouses] = await Promise.all(
+      ["inventoryLocations", "branches", "warehouses"].map((collection) =>
         db
           .collection(collection)
           .where("organizationId", "==", actor.organizationId)
@@ -313,17 +313,20 @@ export const stockTransfers = onCall({ enforceAppCheck }, async (request) => {
         .filter((d) => d.get("status") === "active")
         .map((d) => [d.id, d.get("name")]),
     );
+    const warehouseNames = new Map(warehouses!.docs.filter(d => d.get("status") === "active").map(d => [d.id, d.get("name")]));
+    const organization = await db.doc(`organizations/${actor.organizationId}`).get();
+    const headOfficeId = organization?.get("headOfficeBranchId");
+    const supplyWarehouseId = organization?.get("headOfficeSupplyWarehouseId");
+    const supplyConfigured = branches!.docs.some(d => d.id === headOfficeId && d.get("status") === "active" && d.get("branchType") === "head_office") && warehouseNames.has(supplyWarehouseId);
+    const availableLocations = locations!.docs.filter(d => d.get("status") === "active" && (d.get("type") === "branch" ? units.has(d.get("branchId")) : d.get("type") === "warehouse" && warehouseNames.has(d.get("warehouseId"))));
+    const supplyLocations = supplyConfigured ? availableLocations.filter(d => d.get("type") === "warehouse" && d.get("warehouseId") === supplyWarehouseId) : [];
     return {
-      locations: locations!.docs
-        .filter(
-          (d) =>
-            d.get("type") === "branch" &&
-            d.get("status") === "active" &&
-            units.has(d.get("branchId")),
-        )
+      suggestedSourceLocationId: supplyLocations.length === 1 ? supplyLocations[0]!.id : null,
+      supplyConfigured,
+      locations: availableLocations
         .map((d) => ({
           id: d.id,
-          name: units.get(d.get("branchId")),
+          name: d.get("type") === "warehouse" ? warehouseNames.get(d.get("warehouseId")) : units.get(d.get("branchId")),
           stockArea: d.get("name"),
           type: d.get("type"),
           branchId: d.get("branchId") ?? null,
@@ -338,6 +341,9 @@ export const stockTransfers = onCall({ enforceAppCheck }, async (request) => {
       .doc(`inventoryLocations/${input.locationId}`)
       .get();
     validateLocation(location, actor.organizationId);
+    const mayChooseExternalSource = (["transfers.create.direct", "transfers.create.from_request"] as const).some(permission => permitted(actor, permission) && (organizationAction(actor, permission) || actor.branchIds.length > 0));
+    if (!permitted(actor, "inventory.read") || (!owns(actor, location.data()!) && !mayChooseExternalSource))
+      throw new HttpsError("permission-denied", "Stock is outside your assigned inventory scope.");
     const [balances, products] = await Promise.all([
       db
         .collection("inventoryBalances")

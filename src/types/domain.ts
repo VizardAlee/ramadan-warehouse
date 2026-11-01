@@ -429,6 +429,8 @@ export interface UserProfile {
 }
 export interface Organization {
   id: string;
+  headOfficeBranchId?: string;
+  headOfficeSupplyWarehouseId?: string;
   legalName: string;
   tradingName?: string;
   code: string;
@@ -448,6 +450,7 @@ export interface Branch {
   name: string;
   code: string;
   branchType?: "head_office" | "store";
+  supplyWarehouseId?: string | null;
   status: EntityStatus;
   address?: string;
   state?: string;

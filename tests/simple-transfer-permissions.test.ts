@@ -159,3 +159,32 @@ describe("combined custom global reading and scoped transfer actions", () => {
     expect(state.loadRoles).not.toHaveBeenCalled();
   });
 });
+
+describe("administrator-configured Head Office supply suggestions", () => {
+  const document = (id: string, values: Record<string, unknown>) => ({ id, get: (field: string) => values[field], data: () => values });
+  it.each([false, true])("suggests a warehouse source only after explicit HQ setup (%s)", async configured => {
+    custom("branch_manager", ["transfers.read.own_branch"]);
+    const location = document("supply-area", { type: "warehouse", warehouseId: "supply", status: "active", name: "Supply stock" });
+    state.read.mockResolvedValueOnce({ docs: [location] }).mockResolvedValueOnce({ docs: [document("hq", { status: "active", branchType: "head_office", name: "HQ" })] }).mockResolvedValueOnce({ docs: [document("supply", { status: "active", name: "Supply warehouse" })] });
+    state.get.mockResolvedValue(document("org", configured ? { headOfficeBranchId: "hq", headOfficeSupplyWarehouseId: "supply" } : {}));
+    await expect(invoke({ action: "options" })).resolves.toMatchObject({ supplyConfigured: configured, suggestedSourceLocationId: configured ? "supply-area" : null, locations: [expect.objectContaining({ id: "supply-area", type: "warehouse", assigned: false })] });
+    expect(state.transaction).not.toHaveBeenCalled();
+  });
+  it("does not pick an arbitrary stock area when the configured warehouse has several", async () => {
+    custom("branch_manager", ["transfers.read.own_branch"]);
+    state.read.mockResolvedValueOnce({ docs: ["one", "two"].map(id => document(id, { type: "warehouse", warehouseId: "supply", status: "active" })) }).mockResolvedValueOnce({ docs: [document("hq", { status: "active", branchType: "head_office" })] }).mockResolvedValueOnce({ docs: [document("supply", { status: "active" })] });
+    state.get.mockResolvedValue(document("org", { headOfficeBranchId: "hq", headOfficeSupplyWarehouseId: "supply" }));
+    await expect(invoke({ action: "options" })).resolves.toMatchObject({ supplyConfigured: true, suggestedSourceLocationId: null });
+  });
+});
+
+
+describe("receipt-only stock visibility", () => {
+  it("does not expose foreign warehouse balances to a branch stock role", async () => {
+    custom("branch_manager", ["transfers.read.own_branch", "inventory.read", "transfers.receive"]);
+    const values = { organizationId: "org", type: "warehouse", warehouseId: "foreign-warehouse", status: "active" };
+    state.get.mockResolvedValue({ exists: true, get: (key: keyof typeof values) => values[key], data: () => values });
+    await expect(invoke({ action: "stock", locationId: "foreign-location" })).rejects.toMatchObject({ code: "permission-denied" });
+    expect(state.read).not.toHaveBeenCalled();
+  });
+});

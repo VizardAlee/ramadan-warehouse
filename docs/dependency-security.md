@@ -2,6 +2,12 @@
 
 Use `npm ci` with the committed lockfiles and Node 22.12 or newer on the supported Node 22 or 24 lines. CI and deployed Functions use Node 22. Pin direct dependencies, review lockfile integrity changes, run both production dependency audits, and retain the high-severity release gate and secret scan. An audit endpoint or network failure is not a clean result.
 
+## Operating-role release review: 2026-11-01
+
+The release CI production audit blocked `re2js` 2.8.6 on [GHSA-gg6h-894w-4m9c](https://github.com/advisories/GHSA-gg6h-894w-4m9c). The root lockfile now resolves 2.9.1 within the Firebase Firestore client's existing `^2.8.3` range. Direct dependencies and application APIs are unchanged; its Node 20 minimum is within this repository's supported Node 22 runtime.
+
+Fresh production audits report zero high or critical findings in both trees. Four moderate root findings and six moderate Functions findings remain; this is a high-severity gate pass, not a claim of zero vulnerabilities. No forced major upgrades or audit suppression were used. Exact-head CI and publication verification remain required after the lockfile update.
+
 ## Local remediation review: 2026-10-10
 
 The customer-statement review found production dependency vulnerabilities. The local remediation updates Next.js and its ESLint configuration to 16.4.0, Firebase browser SDK to 12.19.0, Firebase Admin to 14.5.0 in both dependency trees, Functions google-auth-library to 11.1.0, Firebase Tools to 15.33.0, Vitest to the patched 4.1.11 line, and Node type definitions to 22.20.5. Firebase Admin 14 requires Node 22 and modular imports; the repository already uses those imports. No Firebase browser SDK 13 or forced downgrade was introduced.
