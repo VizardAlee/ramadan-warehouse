@@ -1,15 +1,63 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-const state = vi.hoisted(() => ({ call: vi.fn(), users: [] as Record<string, unknown>[] }));
+const state = vi.hoisted(() => ({ call: vi.fn(), users: [] as Record<string, unknown>[], branches: [] as Record<string, unknown>[] }));
 vi.mock("@/features/administration/api", () => ({ callAdministration: state.call }));
 vi.mock("@/features/auth/auth-context", () => ({ useAuth: () => ({ profile: { status: "active", roleId: "system_administrator", organizationId: "fixture-org" }, user: { uid: "fixture-admin" } }) }));
-vi.mock("@/features/administration/use-organization-collection", () => ({ useOrganizationCollection: (name: string) => ({ data: name === "warehouses" ? [{ id: "fixture-warehouse", name: "Existing warehouse", status: "active" }] : name === "users" ? state.users : [], loading: false, error: null }) }));
+vi.mock("@/features/administration/use-organization-collection", () => ({ useOrganizationCollection: (name: string) => ({ data: name === "warehouses" ? [{ id: "fixture-warehouse", name: "Existing warehouse", status: "active" }] : name === "users" ? state.users : name === "branches" ? state.branches : [], loading: false, error: null }) }));
 import { MasterDataPage } from "../src/features/administration/master-data-page";
 import UsersPage from "../src/app/(protected)/administration/users/page";
-beforeEach(() => { state.users = []; state.call.mockReset(); state.call.mockResolvedValue({ saved: true }); });
+beforeEach(() => { state.users = []; state.branches = []; state.call.mockReset(); state.call.mockResolvedValue({ saved: true }); });
 afterEach(cleanup);
 describe("administrator-owned Head Office setup", () => {
+  it("saves a setup-only edit without changing the existing HQ supply designation", async () => {
+    state.branches = [{ id: "fixture-hq", name: "Fictional HQ", code: "FHQ", status: "active", branchType: "head_office", supplyWarehouseId: "fixture-warehouse" }];
+    render(<MasterDataPage collectionName="branches" />);
+    fireEvent.click(screen.getByRole("button", { name: "Edit", exact: true }));
+    fireEvent.change(screen.getByLabelText("Address", { exact: true }), { target: { value: "Updated fixture address" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save securely" }));
+    await waitFor(() => expect(state.call).toHaveBeenCalledOnce());
+    expect(state.call).toHaveBeenCalledWith("saveBranch", expect.objectContaining({ id: "fixture-hq", address: "Updated fixture address", branchType: "head_office", supplyWarehouseId: "fixture-warehouse" }));
+  });
+  it("edits a persisted branch and its manager, then reopens and reloads the saved values", async () => {
+    // saveBranch stores branch fields, not the inventory-location-only systemManaged flag.
+    state.branches = [{ id: "fixture-branch", name: "Fictional store", code: "FST", status: "active" }];
+    state.users = [{ id: "fixture-manager", displayName: "Fictional manager", roleId: "branch_manager", roleIds: ["branch_manager"], status: "active" }];
+    state.call.mockImplementation(async (_name: string, saved: Record<string, unknown>) => {
+      const branchFields = ["id", "name", "code", "state", "address", "contactPhone", "managerUserId", "branchType", "status", "supplyWarehouseId"];
+      state.branches = [{ ...state.branches[0], ...Object.fromEntries(Object.entries(saved).filter(([key]) => branchFields.includes(key))) }];
+      return { saved: true, id: saved.id };
+    });
+    const view = render(<MasterDataPage collectionName="branches" />);
+    fireEvent.click(screen.getByRole("button", { name: "Edit", exact: true }));
+    fireEvent.change(screen.getByLabelText("Name", { exact: true }), { target: { value: "Fictional updated store" } });
+    fireEvent.change(screen.getByLabelText("Address", { exact: true }), { target: { value: "Fixture address" } });
+    fireEvent.change(screen.getByLabelText(/Contact phone/), { target: { value: "07032545288" } });
+    fireEvent.change(screen.getByLabelText("Manager", { exact: true }), { target: { value: "fixture-manager" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save securely" }));
+    await waitFor(() => expect(state.call).toHaveBeenCalledOnce());
+    expect(state.call).toHaveBeenCalledWith("saveBranch", expect.objectContaining({ id: "fixture-branch", name: "Fictional updated store", address: "Fixture address", contactPhone: "07032545288", managerUserId: "fixture-manager", branchType: "store" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    fireEvent.click(screen.getByRole("button", { name: "Edit", exact: true }));
+    expect((screen.getByLabelText("Name", { exact: true }) as HTMLInputElement).value).toBe("Fictional updated store");
+    expect((screen.getByLabelText("Manager", { exact: true }) as HTMLSelectElement).value).toBe("fixture-manager");
+    fireEvent.click(screen.getByRole("button", { name: "Cancel", exact: true }));
+    view.unmount();
+    render(<MasterDataPage collectionName="branches" />);
+    fireEvent.click(screen.getByRole("button", { name: "Edit", exact: true }));
+    expect((screen.getByLabelText("Address", { exact: true }) as HTMLInputElement).value).toBe("Fixture address");
+    expect((screen.getByLabelText("Manager", { exact: true }) as HTMLSelectElement).value).toBe("fixture-manager");
+  });
+  it("edits legacy optional null fields and displays a server rejection inside the dialog", async () => {
+    state.branches = [{ id: "fixture-branch", name: "Fictional store", code: "FST", status: "active", state: null, address: null, contactPhone: null, managerUserId: null, systemManaged: null }];
+    state.call.mockRejectedValue(new Error("Fixture server rejection"));
+    render(<MasterDataPage collectionName="branches" />);
+    fireEvent.click(screen.getByRole("button", { name: "Edit", exact: true }));
+    fireEvent.change(screen.getByLabelText("Name", { exact: true }), { target: { value: "Fictional revised store" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save securely" }));
+    await waitFor(() => expect(state.call).toHaveBeenCalledOnce());
+    expect(screen.getByRole("dialog").textContent).toContain("Fixture server rejection");
+  });
   it("starts with no HQ or supply selection and cancellation writes nothing", () => {
     render(<MasterDataPage collectionName="branches" />);
     expect(screen.getByText(/Head Office supply setup is incomplete/)).toBeTruthy();

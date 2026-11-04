@@ -148,6 +148,18 @@ describe("administration callables", () => {
     expect((await adminDb.doc(`users/${replacement.uid}`).get()).data()).toMatchObject({ branchIds: [saved.id], warehouseIds: [savedWarehouse.id], authorizationVersion: 3 });
     expect((await adminAuth.getUser(replacement.uid)).customClaims).toMatchObject({ organizationId, authorizationVersion: 3 });
     expect((await adminDb.doc(`users/${manager.uid}`).get()).data()).toMatchObject({ branchIds: [], warehouseIds: [] });
+
+    // A new store's persisted shape has no inventory-location form flags.
+    // Edit its setup and designate an existing manager, then read fresh snapshots.
+    const newStore = await save({ name: "Fixture new store", code: "FXNEW", status: "active", idempotencyKey: crypto.randomUUID() });
+    const newStoreId = (newStore.data as { id: string }).id;
+    expect((await adminDb.doc(`branches/${newStoreId}`).get()).data()).not.toHaveProperty("systemManaged");
+    const editStore = { id: newStoreId, name: "Fixture edited store", code: "FXEDIT", state: "Kano", address: "Fictional test address", contactPhone: "07032545288", branchType: "store", managerUserId: replacement.uid, status: "active", idempotencyKey: crypto.randomUUID() };
+    await save(editStore);
+    expect((await save(editStore)).data).toMatchObject({ saved: false, id: newStoreId });
+    expect((await adminDb.doc(`branches/${newStoreId}`).get()).data()).toMatchObject({ name: editStore.name, code: editStore.code, state: editStore.state, address: editStore.address, contactPhone: editStore.contactPhone, branchType: "store", managerUserId: replacement.uid });
+    expect((await adminDb.doc(`users/${replacement.uid}`).get()).data()).toMatchObject({ roleIds: ["warehouse_manager", "branch_manager"], branchIds: [saved.id, newStoreId], warehouseIds: [savedWarehouse.id], authorizationVersion: 4 });
+    expect((await adminAuth.getUser(replacement.uid)).customClaims).toMatchObject({ organizationId, authorizationVersion: 4 });
   });
 
   it("creates and edits a custom role, updates assigned users, and rejects role escalation", async () => {
