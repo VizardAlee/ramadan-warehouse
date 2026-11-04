@@ -119,13 +119,25 @@ export function MasterDataPage({
   const branchType = useWatch({ control, name: "branchType" });
   function edit(row?: Row) {
     setEditing(row ?? null);
+    setError(null);
     reset(
       row
         ? {
+            // Branch records do not contain inventory-location form fields.
+            // Restore those defaults and normalize legacy nullable text before
+            // validating the shared form, rather than silently blocking submit.
+            ...defaults,
             ...row,
+            state: row.state ?? "",
+            address: row.address ?? "",
+            contactPhone: row.contactPhone ?? "",
+            managerUserId: row.managerUserId ?? "",
+            branchType: row.branchType ?? "store",
             managerIds: row.managerIds ?? [],
+            systemManaged: row.systemManaged ?? false,
+            type: row.type ?? undefined,
             supplyWarehouseId: row.supplyWarehouseId ?? "",
-            relatedId: row.branchId ?? row.warehouseId,
+            relatedId: row.branchId ?? row.warehouseId ?? "",
           }
         : {
             ...defaults,
@@ -191,7 +203,7 @@ export function MasterDataPage({
         )}
       </div>
       {collectionName === "branches" && canManage && !records.loading && !records.error && !records.data.some(row => row.status === "active" && row.branchType === "head_office" && row.supplyWarehouseId) && <p role="status" className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm">Head Office supply setup is incomplete. An administrator can edit the intended branch, choose Head office / central distribution and select its supply warehouse. Nothing is selected automatically; existing requests and stock records remain unchanged.</p>}
-      {(error || records.error) && (
+      {!open && (error || records.error) && (
         <p className="rounded-lg bg-red-50 p-3 text-sm text-red-800">
           {error ?? records.error}
         </p>
@@ -423,6 +435,7 @@ export function MasterDataPage({
                 </select>
               </label>
             </div>
+            {error && <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-800">{error}</p>}
             <div className="sticky bottom-0 flex justify-end gap-3 border-t bg-white pt-4">
               <Button type="button" variant="outline" onClick={() => setOpen(false)}>
                 Cancel
