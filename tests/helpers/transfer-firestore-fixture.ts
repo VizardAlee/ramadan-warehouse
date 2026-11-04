@@ -9,6 +9,7 @@ type Row = Record<string, unknown>;
 type Ref = { path: string; id: string; get: () => Promise<Snapshot> };
 type Snapshot = { id: string; ref: Ref; exists: boolean; get: (field: string) => unknown; data: () => Row | undefined };
 type Filter = [string, string, unknown];
+const scalar = (value: unknown): unknown => value && typeof value === "object" && "toMillis" in value && typeof value.toMillis === "function" ? value.toMillis() : value;
 
 // Offline callable fixture: staged writes roll back on errors, reads after writes
 // fail, and a discarded attempt can model Firestore rerunning a transaction.
@@ -37,7 +38,7 @@ export class TransferFirestoreFixture {
       where: (field: string, operation: string, value: unknown) => query([...filters, [field, operation, value]], count, cursor),
       orderBy: () => query(filters, count, cursor),
       limit: (value: number) => query(filters, value, cursor),
-      startAfter: (value: string) => query(filters, count, value),
+      startAfter: (value: string | Snapshot) => query(filters, count, typeof value === "string" ? value : value.id),
       get: async () => {
         const docs = [...this.rows.keys()].sort().filter(key => {
           if (!key.startsWith(`${path}/`) || key.split("/").length !== 2 || (cursor && this.doc(key).id <= cursor)) return false;
@@ -47,6 +48,16 @@ export class TransferFirestoreFixture {
             if (operation === "in") {
               if ((value as unknown[]).length > 30) throw new Error("Firestore in-query limit exceeded");
               return (value as unknown[]).includes(actual);
+            }
+            if (["<", "<=", ">", ">="].includes(operation)) {
+              const left = scalar(actual), right = scalar(value);
+              const comparison = typeof left === "number" && typeof right === "number" ? left - right
+                : typeof left === "string" && typeof right === "string" ? (left === right ? 0 : left < right ? -1 : 1)
+                  : NaN;
+              if (operation === "<") return comparison < 0;
+              if (operation === "<=") return comparison <= 0;
+              if (operation === ">") return comparison > 0;
+              return comparison >= 0;
             }
             throw new Error(`Unsupported fixture filter: ${operation}`);
           });

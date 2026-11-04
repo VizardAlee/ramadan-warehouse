@@ -6,6 +6,15 @@ export interface CostedBalance {
   readonly averageUnitCostMinor: number;
 }
 
+/** Exact proportional cost, including the remainder when the last unit leaves. */
+export function internalTransferMovementValue(totalValueMinor: number, quantity: number, moved: number) {
+  if (![totalValueMinor, quantity, moved].every(Number.isSafeInteger) || totalValueMinor < 0 || quantity <= 0 || moved <= 0 || moved > quantity)
+    throw new Error("Invalid internal transfer valuation.");
+  const numerator = BigInt(totalValueMinor) * BigInt(moved);
+  const denominator = BigInt(quantity);
+  return Number((numerator * 2n + denominator) / (denominator * 2n));
+}
+
 export function normalizeInventoryIdentifier(value: string): string {
   return value.trim().replace(/\s+/g, " ").toUpperCase();
 }

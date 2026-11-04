@@ -14,6 +14,8 @@ export function stockTransferExportRows(transfers: readonly StockTransfer[]) {
           From: t.sourceName,
           To: t.destinationName,
           Status: stockTransferStatusLabels[t.status],
+          "Supply route": t.tradeAgreement ? "Internal head-office supply" : "Inventory movement",
+          "Internal pricing": t.tradeAgreement?.pricingStatus ?? "Not applicable",
           Product: item.productName,
           SKU: item.sku,
           Requested: item.requested,

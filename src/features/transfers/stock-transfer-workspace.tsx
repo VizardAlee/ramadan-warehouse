@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import {
   ArrowRight,
   Boxes,
@@ -30,6 +30,10 @@ import { downloadCsv } from "@/features/inventory/format";
 import { hasPermission } from "@/lib/permissions/roles";
 import { stockTransferExportRows } from "./stock-transfer-export";
 import { canCreateStockTransfer } from "./transfer-permissions";
+import { useStockTransferAction } from "./use-stock-transfer-action";
+import { HQTransferPricing, InternalTradeInvoiceCard } from "@/features/branch-trading/transfer-trading";
+import { FinancialAction, FinancialActionScope } from "@/features/finance/financial-privacy";
+import type { InternalTradeInvoice } from "../../../functions/src/branch-trading/model";
 import type { BranchRequest, BranchRequestItem } from "@/types/domain";
 import {
   simpleTransferActionCopy,
@@ -60,12 +64,15 @@ interface Stock {
   available: number;
   serials: { id: string; name: string }[];
 }
-type Options = { locations: Location[]; canApprove: boolean; suggestedSourceLocationId?: string | null; supplyConfigured?: boolean };
+type Options = { locations: Location[]; canApprove: boolean; canReadTrading?: boolean; suggestedSourceLocationId?: string | null; supplyConfigured?: boolean };
 type Detail = {
   transfer: StockTransfer;
   events: { id: string; action: string; note?: string; createdAt: string }[];
   canApprove: boolean;
   canReceive: boolean;
+  canPrice?: boolean;
+  canReadTrading?: boolean;
+  invoice?: InternalTradeInvoice | null;
 };
 function errorText(error: unknown) {
   return error instanceof Error
@@ -287,8 +294,11 @@ function ManagedStockTransferList() {
           <p className="mt-2 text-[var(--muted)]">
             From Head Office to a store, or directly between any two stores.
           </p>
+          <p className="mt-1 text-sm text-[var(--muted)]">New head-office supplies use internal prices and create a branch invoice when receipt is confirmed.</p>
         </div>
         <div className="flex flex-wrap gap-2">
+          {options?.canReadTrading && <Link href="/transfers/accounts" className="inline-flex min-h-12 items-center rounded-xl border px-4 font-semibold">Head-office accounts</Link>}
+          {profile && hasPermission(profile, "procurement.read") && <Link href="/procurement" className="inline-flex min-h-12 items-center rounded-xl border px-4 font-semibold">Buy from supplier</Link>}
           {profile &&
             hasPermission(profile, "reports.transfers.export") &&
             shown.length > 0 && (
@@ -827,8 +837,15 @@ function AuthorizedStockTransferForm({ fromRequest }: { fromRequest: boolean }) 
 }
 
 export function StockTransferDetail({ transferId, embedded = false }: { transferId: string; embedded?: boolean }) {
-  const { profile } = useAuth();
+  const { profile, operatingContext } = useAuth();
   const { online } = useConnectivity();
+  const owner = `${profile?.organizationId ?? ""}:${profile?.uid ?? ""}:${transferId}`;
+  const scope = operatingContext ? `${operatingContext.type}:${operatingContext.id}` : "organization";
+  const viewScope = `${owner}:${scope}`;
+  const scopeRef = useRef(viewScope);
+  useEffect(() => { scopeRef.current = viewScope; }, [viewScope]);
+  const savedAction = useStockTransferAction(owner, scope);
+  const [loadedScope, setLoadedScope] = useState("");
   const [detail, setDetail] = useState<Detail | null>(null),
     [stock, setStock] = useState<Stock[]>([]);
   const [error, setError] = useState(""),
@@ -853,9 +870,10 @@ export function StockTransferDetail({ transferId, embedded = false }: { transfer
     (isActive: () => boolean = () => true) =>
       api<Detail>({ action: "get", transferId })
         .then(async (result) => {
-          if (!isActive()) return;
+          if (!isActive() || scopeRef.current !== viewScope) return;
           setError("");
           setDetail(result);
+          setLoadedScope(viewScope);
           setQuantities(
             Object.fromEntries(
               result.transfer.items.map((l) => [
@@ -876,13 +894,13 @@ export function StockTransferDetail({ transferId, embedded = false }: { transfer
               action: "stock",
               locationId: result.transfer.sourceLocationId,
             });
-            if (isActive()) setStock(response.stock);
+            if (isActive() && scopeRef.current === viewScope) setStock(response.stock);
           }
         })
         .catch((e) => {
-          if (isActive()) setError(errorText(e));
+          if (isActive() && scopeRef.current === viewScope) setError(errorText(e));
         }),
-    [transferId],
+    [transferId, viewScope],
   );
   useEffect(() => {
     let active = true;
@@ -891,13 +909,14 @@ export function StockTransferDetail({ transferId, embedded = false }: { transfer
       active = false;
     };
   }, [load, profile]);
-  const transfer = detail?.transfer;
+  const transfer = loadedScope === viewScope ? detail?.transfer : undefined;
+  const locked = busy || savedAction.busy || !savedAction.ready || Boolean(savedAction.pending);
   async function act(action: string, extras: object = {}) {
-    if (!transfer || busy || !online) return;
+    if (!transfer || locked || !online) return;
     setBusy(true);
     setError("");
     try {
-      await api({
+      await savedAction.run({
         action,
         transferId,
         version: transfer.version,
@@ -911,6 +930,12 @@ export function StockTransferDetail({ transferId, embedded = false }: { transfer
     } finally {
       setBusy(false);
     }
+  }
+  async function retrySavedAction() {
+    if (!savedAction.pending || savedAction.busy || savedAction.scopeChanged || !online) return;
+    setError("");
+    try { await savedAction.run(); await load(); }
+    catch (cause) { setError(errorText(cause)); }
   }
   function update(id: string, values: Partial<(typeof quantities)[string]>) {
     setQuantities((v) => ({ ...v, [id]: { ...v[id]!, ...values } }));
@@ -936,6 +961,8 @@ export function StockTransferDetail({ transferId, embedded = false }: { transfer
     detail.canReceive &&
     transfer.items.some((l) => pendingStock(l) > 0);
   const finished = ["completed", "cancelled"].includes(transfer.status);
+  const pricingRequired = transfer.tradeAgreement?.pricingStatus === "required";
+  const ActionScope = transfer.tradeAgreement ? FinancialActionScope : Fragment;
   const waitingTitle =
     transfer.status === "requested"
       ? `Waiting for ${transfer.sourceName}`
@@ -971,18 +998,27 @@ export function StockTransferDetail({ transferId, embedded = false }: { transfer
             : transfer.status === "requested"
               ? approval
                 ? "Confirm the available quantity below. The stock will be held automatically for this transfer."
-                : `A manager responsible for ${transfer.sourceName} confirms the stock. No separate administrator is required.`
+                : pricingRequired ? "An administrator sets the internal branch prices before the source manager confirms stock." : `A manager responsible for ${transfer.sourceName} confirms the stock.`
               : `The manager at ${transfer.destinationName} confirms only the goods that have actually arrived.`}
         </p>
       </header>
       <SimpleTransferProgress transfer={transfer} />
       {error && <Notice text={error} />}
+      {savedAction.error && <Notice text={savedAction.error} />}
+      {savedAction.pending && <section className="rounded-xl border border-amber-300 bg-amber-50 p-4" role="status">
+        <p>The last {savedAction.pending.input.action.replaceAll("_", " ")} result is not yet confirmed. Check it before recording another action. Retry uses the original quantities, prices and reference.</p>
+        {savedAction.scopeChanged && <p className="mt-2">Return to the original working location before retrying.</p>}
+        <FinancialAction retry><Button className="mt-3" disabled={!online || savedAction.busy || savedAction.scopeChanged} onClick={() => void retrySavedAction()}>{savedAction.busy ? "Checking saved result…" : "Retry saved action"}</Button></FinancialAction>
+      </section>}
+      {detail.invoice && <InternalTradeInvoiceCard invoice={detail.invoice} />}
       {!online && (
         <Notice text="Reconnect before approving or confirming stock. This prevents duplicate or conflicting stock movements." />
       )}
       {transfer.problemNote && (
         <Notice text={`Reported problem: ${transfer.problemNote}`} />
       )}
+      <fieldset disabled={locked} className="contents">
+      {transfer.tradeAgreement && <HQTransferPricing transfer={transfer} canPrice={Boolean(detail.canPrice)} disabled={locked || !online} onPrice={lines => act("price", {lines})} />}
       {transfer.note && <p className={panel}>Request note: {transfer.note}</p>}
       {receipt && (
         <div className="flex flex-wrap gap-3">
@@ -1141,7 +1177,7 @@ export function StockTransferDetail({ transferId, embedded = false }: { transfer
         })}
       </section>
       {(approval || receipt) && (
-        <section className={`${panel} space-y-4`}>
+        <ActionScope><section className={`${panel} space-y-4`}>
           {receipt && partial && (
             <label className="block">
               Explain any problem
@@ -1162,10 +1198,12 @@ export function StockTransferDetail({ transferId, embedded = false }: { transfer
               ? "Approved goods become unavailable for other sales or transfers. This does not confirm delivery."
               : "Confirm only after counting the goods. Good stock becomes available for sale; damaged stock is kept separately."}
           </p>
-          <Button
+          {receipt && transfer.tradeAgreement && <p className="text-sm">Good goods are charged to the internal head-office invoice when you confirm receipt. Damaged goods stay separate and their charge is held until an administrator reviews it. Authorized finance staff can record an immediate payment from Head-office accounts, or leave the amount on credit. This action does not send money.</p>}
+          {approval && pricingRequired && <p role="status" className="text-sm text-amber-900">Ask an administrator to set all internal prices before confirming stock.</p>}
+          <FinancialAction financial={Boolean(transfer.tradeAgreement)}><Button
             aria-busy={busy}
             disabledReason={!online ? "Reconnect to confirm the current transfer stage. Do not record delivery until the goods have actually arrived and been counted." : undefined}
-            disabled={busy || !online}
+            disabled={locked || !online || (approval && pricingRequired)}
             onClick={() =>
               void (approval
                 ? act("approve", {
@@ -1198,8 +1236,8 @@ export function StockTransferDetail({ transferId, embedded = false }: { transfer
               : approval
                 ? "Confirm transfer and hold stock"
                 : "Confirm goods received"}
-          </Button>
-        </section>
+          </Button></FinancialAction>
+        </section></ActionScope>
       )}
       {!finished && (
         <details className={panel}>
@@ -1279,6 +1317,7 @@ export function StockTransferDetail({ transferId, embedded = false }: { transfer
           )}
         </details>
       )}
+      </fieldset>
       <details className={panel}>
         <summary className="cursor-pointer font-semibold">
           Audit history and technical details
@@ -1294,6 +1333,7 @@ export function StockTransferDetail({ transferId, embedded = false }: { transfer
                   {
                     created: "Stock requested",
                     approve: "Source manager confirmed stock",
+                    price: "Administrator set internal prices",
                     receive: "Receipt recorded",
                     report_problem: "Problem reported",
                     resolve: "Source manager decision",

@@ -17,6 +17,7 @@ import { writeAuditLog } from "../audit/write-audit-log.js";
 import {
   balanceDocumentId,
   issueCost,
+  internalTransferMovementValue,
   normalizeInventoryIdentifier,
   parseSerialNumbers,
   receiptCost,
@@ -63,6 +64,8 @@ export interface PostingRequest {
   readonly sourceFunction: string;
   /** Trusted callers with stable instructions may opt into exact financial retries. */
   readonly requestFingerprint?: string;
+  /** Trusted linked internal-trade return only; never accepted by callable schemas. */
+  readonly preserveInternalTransferValue?: true;
   /** Trusted internal capability. Callable schemas never expose this field. */
   readonly transferContext?: {
     readonly transferId: string;
@@ -529,6 +532,10 @@ async function executeInventoryPosting<State = undefined>(
         destinationLocation,
         trustedTransfer,
       );
+    if (input.preserveInternalTransferValue && (!sourceLocation || !destinationLocation ||
+      input.referenceType !== "internalTradeInvoice" || input.transactionType !== "transfer_receipt" ||
+      input.sourceFunction !== "stockTransfers.return_goods" || !input.referenceId || !input.requestFingerprint))
+      throw new HttpsError("failed-precondition", "Exact internal valuation requires a linked branch return.");
     const source = sourceBalanceSnapshot
       ? readBalance(sourceBalanceSnapshot)
       : undefined;
@@ -615,7 +622,10 @@ async function executeInventoryPosting<State = undefined>(
           ? serialValues.reduce((sum, item) => sum + (item?.cost ?? 0), 0)
           : undefined;
       try {
-        const issued = issueCost(source, input.quantity, serialValue);
+        const exactValue = serialValue ?? (input.preserveInternalTransferValue
+          ? internalTransferMovementValue(source.totalValueMinor, source.quantity, input.quantity)
+          : undefined);
+        const issued = issueCost(source, input.quantity, exactValue);
         nextSource = {
           ...source,
           quantity: issued.balance.quantity,
