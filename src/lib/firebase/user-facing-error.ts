@@ -1,4 +1,5 @@
 const messages: Record<string, string> = {
+  SAVED_ACTION_NOT_COMMITTED: "The saved action was not recorded, and the record has since changed. Refresh and review the latest details before submitting a corrected action.",
   PURCHASE_RECEIPT_RECONCILIATION_REQUIRED: "An older receipt has unresolved stock evidence. Check receiving history and ask authorized inventory/accounting staff to reconcile its goods-received note. Do not receive the same goods again.",
   RETRY_INSTRUCTIONS_MISMATCH: "This retry reference cannot confirm these instructions. Review the original saved request and transaction history; do not record the same stock or money again.",
   "functions/unauthenticated": "Your sign-in or device verification could not be confirmed. Refresh and try again; sign in again only if the app asks you to.",

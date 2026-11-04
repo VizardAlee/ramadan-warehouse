@@ -1,3 +1,4 @@
+import type { InternalTradeAgreement } from "../branch-trading/model.js";
 export interface StockTransferLine {
   id: string;
   productId: string;
@@ -37,6 +38,7 @@ export interface StockTransfer {
   sourceWarehouseId?: string;
   destinationBranchId: string;
   sourceRequestId?: string;
+  tradeAgreement?: InternalTradeAgreement;
   note: string;
   problemNote: string;
   createdBy: string;
