@@ -2626,7 +2626,7 @@ describe("custom operating sales roles", () => {
     expect((await balance.get()).get("onHandQuantity")).toBe(50);
     expect((await adminDb.doc(`productSalesPrices/${item}`).get()).data()).toEqual(central.data());
     const quote = await call<{ proformaId: string }>(branchManager, "createPosSaleOrder", { action: "create_proforma", branchId, validUntil: new Date(Date.now() + 86400000).toISOString().slice(0, 10), lines: [{ productId: item, quantity: 1, priceTier: "wholesale" }], idempotencyKey: crypto.randomUUID(), operatingContext: context });
-    expect((await adminDb.doc(`proformaQuotes/${quote.proformaId}`).get()).get("lines")[0]).toMatchObject({ unitPriceMinor: 9000, priceSource: "branch", priceVersion: 1 });
+    expect((await adminDb.doc(`proformaQuotes/${quote.proformaId}`).get()).get("lines")[0]).toMatchObject({ unitPriceMinor: 9000, priceSource: "catalogue", catalogPriceSource: "branch", priceVersion: 1 });
     const deviceId = crypto.randomUUID();
     const shift = await call<{ shiftId: string }>(branchManager, "openPosShift", { branchId, deviceId, deviceName: "Branch pricing", openingCashMinor: 0, idempotencyKey: crypto.randomUUID(), operatingContext: context });
     const payload = { branchId, deviceId, shiftId: shift.shiftId, recordedAt: new Date().toISOString(), lines: [{ productId: item, quantity: 1, priceTier: "wholesale", unitPriceMinor: 9000, priceVersion: 1, vatRateBasisPoints: 0 }], payments: [{ method: "cash", amountMinor: 9000 }], idempotencyKey: crypto.randomUUID(), operatingContext: context };

@@ -66,7 +66,7 @@ export async function proformaRequest(actor: AccessProfile, data: unknown) {
         catch (cause) { throw new HttpsError("failed-precondition", cause instanceof Error ? cause.message : "Quoted pricing requires review."); }
         if (!Number.isSafeInteger(unitPriceMinor) || unitPriceMinor <= 0) fail("Configure a positive catalogue price before quoting this product.");
       }
-      return { ...line, productName: String(product.get("name")), sku: String(product.get("sku")), unitOfMeasure: product.get("unitOfMeasure") ?? "unit", itemKind: product.get("itemKind") ?? "goods", unitPriceMinor, priceSource: catalogue?.priceSource ?? "custom", priceVersion: catalogue?.priceVersion ?? null, vatRateBasisPoints: Number(central.get("vatRateBasisPoints") ?? 0), unitCostMinor: 0 };
+      return { ...line, productName: String(product.get("name")), sku: String(product.get("sku")), unitOfMeasure: product.get("unitOfMeasure") ?? "unit", itemKind: product.get("itemKind") ?? "goods", unitPriceMinor, priceSource: line.unitPriceMinor === undefined ? "catalogue" : "custom", catalogPriceSource: catalogue?.priceSource ?? null, priceVersion: catalogue?.priceVersion ?? null, vatRateBasisPoints: Number(central.get("vatRateBasisPoints") ?? 0), unitCostMinor: 0 };
     });
     let calculated; try { calculated = calculateSale(lines, input.discountAmountMinor); } catch (cause) { throw new HttpsError("invalid-argument", cause instanceof Error ? cause.message : "Quote totals are invalid."); }
     const now = FieldValue.serverTimestamp(), number = `PF-${quote.id.slice(2).toUpperCase()}`;

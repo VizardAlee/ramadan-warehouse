@@ -388,7 +388,7 @@ export const saveBranchSalesPrice = onCall(
           wholesalePriceMinor,
           active: input.active,
           belowWholesaleApproved: input.active && belowWholesale,
-          belowBaseApproved: belowBase,
+          belowBaseApproved: input.active && belowBase,
           version,
         },
       });
