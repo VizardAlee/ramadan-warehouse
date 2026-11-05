@@ -12,15 +12,16 @@ It does not introduce a second catalogue, customer identity or sales ledger.
 - Selecting a customer applies their level to the basket where configured.
   Products without wholesale use retail, with the level visible on each line.
   Staff receiving an order can choose either approved level on a basket line.
-- Store-wide overrides apply to retail only. Wholesale uses its approved central
-  price and central version, not an unrelated store override version.
+- Branch overrides apply independently to retail and wholesale. Each level falls
+  back to its central default when cleared or inactive; the effective level uses
+  its own branch or central version. See [Branch selling prices](branch-sales-pricing.md).
 - Sale-specific manual prices retain their existing required audit reason.
   Switching customer or level preserves these manual prices; review the total.
 
 ## Trusted validation and history
 
 Order intake and posting resolve the selected price on the server. Wholesale
-snapshots must match the central price, VAT and version. Unconfigured wholesale,
+snapshots must match the effective branch/central price, central VAT and effective version. Unconfigured wholesale,
 invalid money and stale snapshots fail rather than silently switching levels.
 Price configuration, level selection and manual overrides are audited.
 

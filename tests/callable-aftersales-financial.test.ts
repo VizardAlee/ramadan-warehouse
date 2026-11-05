@@ -611,4 +611,18 @@ describe("financial statement final instant", () => {
     const tax = await call<{ vat: { outputVatMinor: number } }>("getTaxWorkspace", range);
     expect(tax.vat.outputVatMinor).toBe(77);
   });
+  it("snapshots branch service prices while preserving earlier cases and inventory cost", async () => {
+    const service = await call<{ productId: string }>("saveProduct", { name: "Branch service", sku: "SVC-BRANCH", itemKind: "service", trackingType: "quantity", unitOfMeasure: "job", active: true, defaultUnitCostMinor: 0, idempotencyKey: crypto.randomUUID() });
+    await call("saveProductSalesPrice", { productId: service.productId, basePriceMinor: 10000, vatRateBasisPoints: 750, idempotencyKey: crypto.randomUUID() });
+    await call("saveBranchSalesPrice", { branchId, productId: service.productId, sellingPriceMinor: 12000, idempotencyKey: crypto.randomUUID() });
+    const work = await call<{ serviceItems: Array<{ id: string; grossAmountMinor: number }> }>("getAftersalesWorkspace", { branchId });
+    expect(work.serviceItems.find(item => item.id === service.productId)?.grossAmountMinor).toBe(12900);
+    const created = await call<{ caseId: string }>("createAftersalesCase", { branchId, customerId, serviceItemId: service.productId, serviceType: "non_warranty", requestType: "installation", complaint: "Branch installation price", idempotencyKey: crypto.randomUUID() });
+    expect((await adminDb.doc(`aftersalesCases/${created.caseId}`).get()).get("serviceCatalog")).toMatchObject({ basePriceMinor: 12000, priceSource: "branch", priceVersion: 1, grossAmountMinor: 12900 });
+    await call("saveBranchSalesPrice", { branchId, productId: service.productId, sellingPriceMinor: 14000, idempotencyKey: crypto.randomUUID() });
+    expect((await adminDb.doc(`aftersalesCases/${created.caseId}`).get()).get("serviceCatalog").basePriceMinor).toBe(12000);
+    expect((await adminDb.doc(`productCosts/${service.productId}`).get()).get("defaultUnitCostMinor")).toBe(0);
+    expect((await adminDb.collection("inventoryEntries").where("productId", "==", service.productId).get()).size).toBe(0);
+  });
+
 });

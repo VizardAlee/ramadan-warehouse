@@ -11,7 +11,8 @@ export function PriceLevelControl({ line, onChange }: { line: PosCartLine; onCha
         <option value="wholesale" disabled={!available}>Wholesale</option>
       </select>
     </label>
-    {!available && <p className="mt-1 text-xs text-[var(--muted)]">Wholesale is unavailable: no current wholesale price is configured. Ask an authorized catalogue manager to set Wholesale selling price in Products, then refresh POS.</p>}
+    <p className="mt-1 text-xs text-[var(--muted)]">{line.priceTier === "wholesale" ? "Wholesale" : "Retail"} · {line.product.priceSource === "branch" ? "branch override" : "central default"}</p>
+    {!available && <p className="mt-1 text-xs text-[var(--muted)]">Wholesale is unavailable: no current wholesale price is configured. Ask an authorized price manager to configure this branch or its central wholesale default, then refresh POS.</p>}
     {line.serviceCase ? <p className="mt-1 text-xs text-[var(--muted)]">This linked service uses its confirmed charge; price level cannot change.</p>
       : line.sellingPriceMinor !== undefined && <p className="mt-1 text-xs text-[var(--muted)]">A this-sale-only price is applied. Choosing a price level replaces that override with the configured price.</p>}
   </div>;

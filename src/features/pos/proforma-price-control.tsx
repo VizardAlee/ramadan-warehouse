@@ -20,7 +20,7 @@ export function ProformaPriceControl({ line, index, product, onChange }: {
       <label>Custom quoted unit price {index + 1} (₦)<FinancialInput><input className="input mt-1 block w-full" inputMode="decimal"
         aria-label={`Custom quoted unit price ${index + 1} (₦)`} aria-describedby={helpId} value={line.customUnitPrice} maxLength={24}
         onChange={event => onChange({ ...line, customUnitPrice: event.target.value })} /></FinancialInput></label>
-      <p id={helpId} className="mt-1 text-xs text-[var(--muted)]">Leave blank to use the selected preset{preset != null ? <>: <FinancialValue>{formatNaira(preset)}</FinancialValue></> : " (where configured)"}. Custom prices apply only to this quotation. Changing the price tier clears the custom price.</p>
+      <p id={helpId} className="mt-1 text-xs text-[var(--muted)]">Leave blank to use this branch’s selected price level{preset != null ? <>: <FinancialValue>{formatNaira(preset)}</FinancialValue></> : " (where configured)"}. Custom prices apply only to this quotation. Changing the price tier clears the custom price.</p>
     </div>
   </>;
 }

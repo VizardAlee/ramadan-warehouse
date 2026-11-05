@@ -8,8 +8,10 @@ describe("POS price controls", () => {
 
     expect(page).toContain("Change sale price · this order only");
     expect(page).toContain('className="mt-3 w-full justify-center border-[var(--brand)] text-[var(--brand)]"');
-    expect(page).toContain("Store-wide price");
-    expect(page).toContain("This changes future sales at this store.");
+    expect(readFileSync(join(process.cwd(), "src/features/pos/product-card.tsx"), "utf8")).toContain("Store-wide price");
+    expect(page).toContain("<BranchPriceEditor");
+    const branchEditor = readFileSync(join(process.cwd(), "src/features/products/branch-price-editor.tsx"), "utf8");
+    expect(branchEditor).toContain("Applies to future sales and quotations at this branch.");
     expect(page).toContain("setSalePriceProductId(line.product.id)");
     expect(page).toContain("<SalePriceDialog");
     const dialog = readFileSync(join(process.cwd(), "src/features/pos/sale-price-dialog.tsx"), "utf8");

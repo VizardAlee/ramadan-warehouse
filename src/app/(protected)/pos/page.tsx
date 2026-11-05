@@ -1,4 +1,5 @@
 "use client";
+import { BranchPriceEditor } from "@/features/products/branch-price-editor";
 import { FastMovingControls, usePosFastMoving } from "@/features/pos/fast-moving";
 import { RecordAttribution } from "@/features/audit/record-attribution";
 import { FinancialAction, FinancialActionScope, FinancialAttributes, FinancialDocument, FinancialPrintAction, FinancialInput, FinancialMessage, FinancialText, FinancialValue  } from "@/features/finance/financial-privacy";
@@ -167,8 +168,6 @@ export default function PosPage() {
     document?: SaleDocument;
   } | null>(null);
   const [priceProductId, setPriceProductId] = useState<string | null>(null);
-  const [branchPrice, setBranchPrice] = useState("");
-  const [priceReason, setPriceReason] = useState("");
   const [salePriceProductId, setSalePriceProductId] = useState<string | null>(null);
   const [salePrice, setSalePrice] = useState("");
   const [salePriceReason, setSalePriceReason] = useState("");
@@ -179,7 +178,6 @@ export default function PosPage() {
     () => setCustomerDialogOpen(false),
   );
   const salePriceDialogRef = useDialogFocus<HTMLFormElement>(Boolean(salePriceProductId), () => setSalePriceProductId(null));
-  const branchPriceDialogRef = useDialogFocus<HTMLElement>(Boolean(priceProductId), () => setPriceProductId(null));
   const branchContextId =
     operatingContext?.type === "branch" ? operatingContext.id : undefined;
   const assignedBranchId =
@@ -1148,37 +1146,6 @@ export default function PosPage() {
     }
   }
 
-  async function saveBranchPrice() {
-    const product = workspace?.products.find(
-      (item) => item.id === priceProductId,
-    );
-    if (!workspace || !product) return;
-    setBusy(true);
-    setError(null);
-    try {
-      await callAdministration("saveBranchSalesPrice", {
-        branchId: workspace.branch.id,
-        productId: product.id,
-        sellingPriceMinor: nairaToKobo(Number(branchPrice)),
-        active: true,
-        reason: priceReason.trim() || undefined,
-        idempotencyKey: crypto.randomUUID(),
-      });
-      setPriceProductId(null);
-      setPriceReason("");
-      await loadWorkspace();
-      setMessage(`Store-wide price updated for ${product.name}.`);
-    } catch (cause) {
-      setError(
-        cause instanceof Error
-          ? cause.message
-          : "The branch price could not be saved.",
-      );
-    } finally {
-      setBusy(false);
-    }
-  }
-
   function saveSalePrice() {
     const line = cart.find((item) => item.product.id === salePriceProductId);
     if (!line) return;
@@ -1573,8 +1540,6 @@ export default function PosPage() {
                   onAdd={() => addProduct(product.id)}
                   onManagePrice={canManageBranchPrice && online ? () => {
                     setPriceProductId(product.id);
-                    setBranchPrice(String(product.unitPriceMinor / 100));
-                    setPriceReason("");
                   } : undefined} />;
               })}
               {visibleProducts.length === 0 && (
@@ -2394,81 +2359,13 @@ export default function PosPage() {
         );
       })()}
 
-      {priceProductId &&
-        workspace &&
-        (() => {
-          const product = workspace.products.find(
-            (item) => item.id === priceProductId,
-          );
-          if (!product) return null;
-          const enteredMinor = Number.isFinite(Number(branchPrice))
-            ? Math.round(Number(branchPrice) * 100)
-            : 0;
-          const belowBase = enteredMinor < product.basePriceMinor;
-          return (
-            <AppDialog
-              role="dialog"
-              aria-modal="true"
-              aria-label="Store-wide selling price"
-            >
-              <FinancialActionScope><section ref={branchPriceDialogRef} className={`${styles.dialog} app-dialog-panel max-w-md rounded-2xl bg-white p-6 shadow-2xl`}>
-                <h2 className="text-xl font-semibold">Set store-wide price</h2>
-                <p className="mt-1 text-sm text-[var(--muted)]">
-                  <FinancialText>{product.name}</FinancialText> · Central base{" "}
-                  <FinancialValue>{formatNaira(product.basePriceMinor)}</FinancialValue>
-                </p>
-                <p className="mt-2 text-sm text-[var(--muted)]">
-                  This changes future sales at this store. To change just one
-                  order, use Change sale price in Current sale.
-                </p>
-                <label className="mt-5 block text-sm font-medium">
-                  Store-wide price before VAT (₦)
-                  <FinancialInput><input
-                    type="number"
-                    min="0.01"
-                    step="0.01"
-                    inputMode="decimal"
-                    value={branchPrice}
-                    onChange={(event) => setBranchPrice(event.target.value)}
-                    className="mt-1 w-full rounded-lg border p-3 text-lg"
-                  /></FinancialInput>
-                </label>
-                {belowBase && (
-                  <div className="mt-3 rounded-lg bg-amber-50 p-3 text-sm text-amber-950">
-                    This is below the central base. Only a system administrator
-                    may approve it, and a reason is mandatory.
-                  </div>
-                )}
-                <label className="mt-3 block text-sm font-medium">
-                  Approval reason <FinancialText>{belowBase ? "(required)" : "(optional)"}</FinancialText>
-                  <textarea
-                    value={priceReason}
-                    onChange={(event) => setPriceReason(event.target.value)}
-                    className="mt-1 w-full rounded-lg border p-3"
-                  />
-                </label>
-                <div className="mt-5 flex flex-wrap justify-end gap-3">
-                  <Button
-                    variant="secondary"
-                    onClick={() => setPriceProductId(null)}
-                  >
-                    Cancel
-                  </Button>
-                  <FinancialAction><Button
-                    disabled={
-                      busy ||
-                      !branchPrice ||
-                      (belowBase && priceReason.trim().length < 3)
-                    }
-                    onClick={() => void saveBranchPrice()}
-                  >
-                    Save branch price
-                  </Button></FinancialAction>
-                </div>
-              </section></FinancialActionScope>
-            </AppDialog>
-          );
-        })()}
+      {priceProductId && workspace && (() => {
+        const product = workspace.products.find(item => item.id === priceProductId);
+        return product ? <BranchPriceEditor branchId={workspace.branch.id} branchName={workspace.branch.name} productId={product.id} productName={product.name}
+          central={{ basePriceMinor: product.basePriceMinor, wholesalePriceMinor: product.centralWholesalePriceMinor, version: product.centralPriceVersion! }}
+          current={{ active: product.branchPriceActive, sellingPriceMinor: product.branchRetailPriceMinor, wholesalePriceMinor: product.branchWholesalePriceMinor, version: product.branchPriceVersion, basePriceVersion: product.branchBasePriceVersion ?? undefined, belowBaseApproved: product.branchBelowBaseApproved, belowWholesaleApproved: product.branchBelowWholesaleApproved }}
+          onClose={() => setPriceProductId(null)} onSaved={async () => { await loadWorkspace(); setMessage(`Branch prices updated for ${product.name}. Review the current basket before confirming.`); }} /> : null;
+      })()}
     </div>
   );
 }

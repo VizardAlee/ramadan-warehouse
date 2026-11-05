@@ -26,7 +26,7 @@ export function posLineUnitPriceMinor(line: PosCartLine): number {
 
 export function hasWholesalePrice(product: PosProduct): boolean {
   return Number.isSafeInteger(product.wholesalePriceMinor) && Number(product.wholesalePriceMinor) > 0 &&
-    Number.isSafeInteger(product.centralPriceVersion) && Number(product.centralPriceVersion) > 0;
+    Number.isSafeInteger(product.wholesalePriceVersion ?? product.centralPriceVersion) && Number(product.wholesalePriceVersion ?? product.centralPriceVersion) > 0;
 }
 
 export function changePosPriceTier(line: PosCartLine, catalog: PosProduct, tier: "retail" | "wholesale"): PosCartLine {
@@ -38,7 +38,7 @@ export function productForPriceTier(product: PosProduct, tier: "retail" | "whole
   if (tier === "retail") return product;
   if (!hasWholesalePrice(product))
     throw new Error(`Wholesale price is not configured for ${product.name}.`);
-  return { ...product, unitPriceMinor: Number(product.wholesalePriceMinor), priceVersion: Number(product.centralPriceVersion), priceSource: "wholesale" };
+  return { ...product, unitPriceMinor: Number(product.wholesalePriceMinor), priceVersion: Number(product.wholesalePriceVersion ?? product.centralPriceVersion), priceSource: product.wholesalePriceSource ?? "wholesale" };
 }
 
 export function reconcileHeldCart(

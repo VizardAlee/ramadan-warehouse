@@ -60,12 +60,13 @@ export async function proformaRequest(actor: AccessProfile, data: unknown) {
       if (!product.exists || product.get("organizationId") !== actor.organizationId || product.get("active") !== true || !central.exists || central.get("organizationId") !== actor.organizationId || central.get("active") !== true || (branchPrice.exists && (branchPrice.get("organizationId") !== actor.organizationId || branchPrice.get("branchId") !== input.branchId))) fail("A quoted product or price is unavailable.");
       // Custom prices are quote content, never catalogue or POS price changes.
       let unitPriceMinor = line.unitPriceMinor;
+      let catalogue: ReturnType<typeof resolveCatalogPrice> | undefined;
       if (unitPriceMinor === undefined) {
-        try { unitPriceMinor = resolveCatalogPrice({ basePriceMinor: central.get("basePriceMinor"), version: central.get("version"), wholesalePriceMinor: central.get("wholesalePriceMinor") }, branchPrice.data() ?? {}, line.priceTier).unitPriceMinor; }
+        try { catalogue = resolveCatalogPrice({ basePriceMinor: central.get("basePriceMinor"), version: central.get("version"), wholesalePriceMinor: central.get("wholesalePriceMinor") }, branchPrice.data() ?? {}, line.priceTier); unitPriceMinor = catalogue.unitPriceMinor; }
         catch (cause) { throw new HttpsError("failed-precondition", cause instanceof Error ? cause.message : "Quoted pricing requires review."); }
         if (!Number.isSafeInteger(unitPriceMinor) || unitPriceMinor <= 0) fail("Configure a positive catalogue price before quoting this product.");
       }
-      return { ...line, productName: String(product.get("name")), sku: String(product.get("sku")), unitOfMeasure: product.get("unitOfMeasure") ?? "unit", itemKind: product.get("itemKind") ?? "goods", unitPriceMinor, priceSource: line.unitPriceMinor === undefined ? "catalogue" : "custom", vatRateBasisPoints: Number(central.get("vatRateBasisPoints") ?? 0), unitCostMinor: 0 };
+      return { ...line, productName: String(product.get("name")), sku: String(product.get("sku")), unitOfMeasure: product.get("unitOfMeasure") ?? "unit", itemKind: product.get("itemKind") ?? "goods", unitPriceMinor, priceSource: catalogue?.priceSource ?? "custom", priceVersion: catalogue?.priceVersion ?? null, vatRateBasisPoints: Number(central.get("vatRateBasisPoints") ?? 0), unitCostMinor: 0 };
     });
     let calculated; try { calculated = calculateSale(lines, input.discountAmountMinor); } catch (cause) { throw new HttpsError("invalid-argument", cause instanceof Error ? cause.message : "Quote totals are invalid."); }
     const now = FieldValue.serverTimestamp(), number = `PF-${quote.id.slice(2).toUpperCase()}`;

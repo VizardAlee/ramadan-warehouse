@@ -1,3 +1,4 @@
+import { requirePermissionScope, scopedAccess } from "../auth/permission-scope.js";
 import { readWaybillRegister } from "../sales/waybill-register.js";
 import { readPosFastMoving } from "../sales/pos-fast-moving-store.js";
 import { withRecordActors } from "../audit/record-actors.js";
@@ -141,6 +142,8 @@ function catalogPriceFromSnapshots(
   branch: FirebaseFirestore.DocumentSnapshot,
   tier: "retail" | "wholesale" = "retail",
 ) {
+  if (branch.exists && (branch.get("organizationId") !== central.get("organizationId") || branch.get("productId") !== central.id))
+    throw new HttpsError("failed-precondition", "The branch price does not match this catalogue product.");
   try {
     return resolveCatalogPrice({
       basePriceMinor: Number(central.get("basePriceMinor")),
@@ -149,6 +152,8 @@ function catalogPriceFromSnapshots(
     }, {
       active: branch.get("active"),
       sellingPriceMinor: branch.get("sellingPriceMinor"),
+      wholesalePriceMinor: branch.get("wholesalePriceMinor"),
+      belowWholesaleApproved: branch.get("belowWholesaleApproved"),
       version: branch.get("version"),
       belowBaseApproved: branch.get("belowBaseApproved"),
       basePriceVersion: branch.get("basePriceVersion"),
@@ -261,7 +266,7 @@ export const saveBranchSalesPrice = onCall(
     const actor = await requireAccess(request);
     requirePermission(actor, "sales.price.branch.manage");
     const input = parseInput(branchSalesPriceInput, request.data);
-    requireBranchScope(actor, input.branchId);
+    requirePermissionScope(await scopedAccess(actor), { branchId: input.branchId }, "sales.price.branch.manage");
     const branch = db.doc(`branches/${input.branchId}`);
     const product = db.doc(`products/${input.productId}`);
     const basePrice = db.doc(`productSalesPrices/${input.productId}`);
@@ -275,7 +280,11 @@ export const saveBranchSalesPrice = onCall(
     await db.runTransaction(async (transaction) => {
       const [branchSnapshot, productSnapshot, central, current, previousOperation] =
         await transaction.getAll(branch, product, basePrice, price, operation);
-      if (previousOperation!.exists) return;
+      if (previousOperation!.exists) {
+        if (previousOperation!.get("requestFingerprint") && previousOperation!.get("requestFingerprint") !== requestFingerprint(input))
+          throw new HttpsError("invalid-argument", "Retry the original branch price instructions without changes.");
+        return;
+      }
       if (
         !branchSnapshot!.exists ||
         branchSnapshot!.get("organizationId") !== actor.organizationId ||
@@ -297,19 +306,35 @@ export const saveBranchSalesPrice = onCall(
           "failed-precondition",
           "Set the central base selling price before a branch price.",
         );
-      const belowBase = input.sellingPriceMinor < Number(central!.get("basePriceMinor"));
-      if (belowBase && !hasRole(actor, "system_administrator"))
-        throw new HttpsError(
-          "permission-denied",
-          "A price below the central base price requires administrator approval.",
-        );
-      if (belowBase && !input.reason)
-        throw new HttpsError(
-          "invalid-argument",
-          "Administrator approval below the base price requires a reason.",
-        );
+      if (input.expectedCentralVersion !== undefined && input.expectedCentralVersion !== Number(central!.get("version")))
+        throw new HttpsError("failed-precondition", "Central prices changed. Refresh and review before saving branch prices.");
+      if (input.expectedVersion !== undefined && input.expectedVersion !== Number(current!.get("version") ?? 0))
+        throw new HttpsError("failed-precondition", "Branch prices changed. Refresh and review before saving.");
+      const sellingPriceMinor = input.sellingPriceMinor === undefined ? current!.get("sellingPriceMinor") ?? null : input.sellingPriceMinor;
+      const wholesalePriceMinor = input.wholesalePriceMinor === undefined ? current!.get("wholesalePriceMinor") ?? null : input.wholesalePriceMinor;
+      const belowBase = sellingPriceMinor !== null && sellingPriceMinor < Number(central!.get("basePriceMinor"));
+      const centralWholesale = central!.get("wholesalePriceMinor");
+      const belowWholesale = wholesalePriceMinor !== null && (!Number.isSafeInteger(centralWholesale) || centralWholesale <= 0 || wholesalePriceMinor < centralWholesale);
+      const sameApproval = (field: string, value: number | null, approval: string) => current!.get("active") === true &&
+        current!.get(field) === value && current!.get(approval) === true && current!.get("basePriceVersion") === central!.get("version");
+      const needsApproval = (belowBase && !sameApproval("sellingPriceMinor", sellingPriceMinor, "belowBaseApproved")) ||
+        (belowWholesale && !sameApproval("wholesalePriceMinor", wholesalePriceMinor, "belowWholesaleApproved"));
+      if (input.active && needsApproval && !hasRole(actor, "system_administrator"))
+        throw new HttpsError("permission-denied", "A price below its central level, or wholesale without a central default, requires administrator approval.");
+      if (input.active && needsApproval && !input.reason)
+        throw new HttpsError("invalid-argument", "Administrator price approval requires a reason.");
       const now = FieldValue.serverTimestamp();
       const version = Number(current!.get("version") ?? 0) + 1;
+      const priorVersionRef = price.collection("versions").doc(String(current!.get("version") ?? 0));
+      const priorVersion = current!.exists ? await transaction.get(priorVersionRef) : undefined;
+      if (current!.exists && !priorVersion?.exists) transaction.create(priorVersionRef, current!.data()!);
+      transaction.create(price.collection("versions").doc(String(version)), {
+        organizationId: actor.organizationId, branchId: input.branchId, productId: input.productId,
+        sellingPriceMinor, wholesalePriceMinor, active: input.active, version,
+        basePriceVersion: central!.get("version"), reason: input.reason ?? null,
+        belowBaseApproved: input.active && belowBase, belowWholesaleApproved: input.active && belowWholesale,
+        createdAt: now, createdBy: actor.userId,
+      });
       transaction.set(price, {
         organizationId: actor.organizationId,
         branchId: input.branchId,
@@ -317,14 +342,18 @@ export const saveBranchSalesPrice = onCall(
         sku: productSnapshot!.get("sku"),
         productName: productSnapshot!.get("name"),
         basePriceMinor: central!.get("basePriceMinor"),
-        sellingPriceMinor: input.sellingPriceMinor,
+        sellingPriceMinor,
+        wholesalePriceMinor,
+        belowWholesaleApproved: input.active && belowWholesale,
         vatRateBasisPoints: central!.get("vatRateBasisPoints"),
         basePriceVersion: central!.get("version"),
         currency: "NGN",
         active: input.active,
-        belowBaseApproved: belowBase,
-        belowBaseApprovedBy: belowBase ? actor.userId : null,
-        belowBaseApprovalReason: belowBase ? input.reason : null,
+        belowBaseApproved: input.active && belowBase,
+        belowBaseApprovedBy: input.active && belowBase ? sameApproval("sellingPriceMinor", sellingPriceMinor, "belowBaseApproved") ? current!.get("belowBaseApprovedBy") ?? actor.userId : actor.userId : null,
+        belowBaseApprovalReason: input.active && belowBase ? input.reason ?? current!.get("belowBaseApprovalReason") ?? null : null,
+        belowWholesaleApprovedBy: input.active && belowWholesale ? sameApproval("wholesalePriceMinor", wholesalePriceMinor, "belowWholesaleApproved") ? current!.get("belowWholesaleApprovedBy") ?? actor.userId : actor.userId : null,
+        belowWholesaleApprovalReason: input.active && belowWholesale ? input.reason ?? current!.get("belowWholesaleApprovalReason") ?? null : null,
         version,
         createdAt: current!.exists ? current!.get("createdAt") : now,
         createdBy: current!.exists ? current!.get("createdBy") : actor.userId,
@@ -334,13 +363,14 @@ export const saveBranchSalesPrice = onCall(
       transaction.create(operation, {
         organizationId: actor.organizationId,
         action: "saveBranchSalesPrice",
+        requestFingerprint: requestFingerprint(input),
         entityId: price.id,
         status: "completed",
         createdAt: now,
         createdBy: actor.userId,
       });
       writeAuditLog(transaction, actor, {
-        action: belowBase
+        action: belowBase || belowWholesale
           ? "branch_sales_price.below_base_approved"
           : `branch_sales_price.${current!.exists ? "updated" : "created"}`,
         entityType: "branchSalesPrice",
@@ -349,12 +379,15 @@ export const saveBranchSalesPrice = onCall(
         correlationId: cid,
         sourceFunction: "saveBranchSalesPrice",
         before: current!.exists
-          ? { sellingPriceMinor: current!.get("sellingPriceMinor") }
+          ? { sellingPriceMinor: current!.get("sellingPriceMinor") ?? null, wholesalePriceMinor: current!.get("wholesalePriceMinor") ?? null, active: current!.get("active") }
           : undefined,
         after: {
           branchId: input.branchId,
           productId: input.productId,
-          sellingPriceMinor: input.sellingPriceMinor,
+          sellingPriceMinor,
+          wholesalePriceMinor,
+          active: input.active,
+          belowWholesaleApproved: input.active && belowWholesale,
           belowBaseApproved: belowBase,
           version,
         },
@@ -490,19 +523,11 @@ export const getPosWorkspace = onCall(
           const override = branchByProduct.get(product.id);
           const centralVersion = Number(central.get("version"));
           const centralBasePrice = Number(central.get("basePriceMinor"));
-          const overrideActive = Boolean(
-            override?.exists &&
-              override.get("active") === true &&
-              (Number(override.get("sellingPriceMinor")) >= centralBasePrice ||
-                (override.get("belowBaseApproved") === true &&
-                  Number(override.get("basePriceVersion")) === centralVersion)),
-          );
-          const unitPriceMinor = overrideActive
-            ? Number(override?.get("sellingPriceMinor"))
-            : centralBasePrice;
-          const priceVersion = overrideActive
-            ? Number(override?.get("version"))
-            : Number(central.get("version"));
+          const retail = resolveCatalogPrice({ basePriceMinor: centralBasePrice, wholesalePriceMinor: central.get("wholesalePriceMinor"), version: centralVersion }, override?.data() ?? {});
+          let wholesale: ReturnType<typeof resolveCatalogPrice> | undefined;
+          try { wholesale = resolveCatalogPrice({ basePriceMinor: centralBasePrice, wholesalePriceMinor: central.get("wholesalePriceMinor"), version: centralVersion }, override?.data() ?? {}, "wholesale"); } catch { /* Unconfigured wholesale is unavailable, never an inferred discount. */ }
+          const unitPriceMinor = retail.unitPriceMinor;
+          const priceVersion = retail.priceVersion;
           const balance = balanceByProduct.get(product.id);
           return [
             {
@@ -516,8 +541,18 @@ export const getPosWorkspace = onCall(
               basePriceMinor: centralBasePrice,
               vatRateBasisPoints: Number(central.get("vatRateBasisPoints")),
               priceVersion,
-              priceSource: overrideActive ? "branch" : "central",
-              wholesalePriceMinor: central.get("wholesalePriceMinor") ?? null,
+              priceSource: retail.priceSource,
+              wholesalePriceMinor: wholesale?.unitPriceMinor ?? null,
+              wholesalePriceVersion: wholesale?.priceVersion ?? null,
+              wholesalePriceSource: wholesale?.priceSource ?? null,
+              centralWholesalePriceMinor: central.get("wholesalePriceMinor") ?? null,
+              branchRetailPriceMinor: override?.get("sellingPriceMinor") ?? null,
+              branchWholesalePriceMinor: override?.get("wholesalePriceMinor") ?? null,
+              branchPriceActive: override?.get("active") === true,
+              branchPriceVersion: Number(override?.get("version") ?? 0),
+              branchBasePriceVersion: override?.get("basePriceVersion") ?? null,
+              branchBelowBaseApproved: override?.get("belowBaseApproved") === true,
+              branchBelowWholesaleApproved: override?.get("belowWholesaleApproved") === true,
               centralPriceVersion: centralVersion,
               availableQuantity: Number(balance?.get("availableQuantity") ?? 0),
             },
@@ -1057,7 +1092,7 @@ export const createPosSaleOrder = onCall(
     const operation = db.doc(
       `idempotencyKeys/${actor.organizationId}_createPosSaleOrder_${input.idempotencyKey}`,
     );
-    const pricedLines = input.lines.filter((line) => line.sellingPriceMinor !== undefined || line.priceTier === "wholesale");
+    const pricedLines = input.lines.filter((line) => line.unitPriceMinor !== undefined || line.sellingPriceMinor !== undefined || line.priceTier === "wholesale");
     const centralPriceReferences = pricedLines.map((line) => db.doc(`productSalesPrices/${line.productId}`));
     const branchPriceReferences = pricedLines.map((line) => db.doc(
       `branchSalesPrices/${branchPriceId(actor.organizationId, input.branchId, line.productId)}`,
@@ -1681,7 +1716,7 @@ async function postPosSale(
         const vatRateBasisPoints = Number(central.get("vatRateBasisPoints"));
         const priceVersion = selected.priceVersion;
         if (
-          (input.offline || line.sellingPriceMinor !== undefined || line.priceTier === "wholesale") &&
+          (input.offline || line.unitPriceMinor !== undefined || line.sellingPriceMinor !== undefined || line.priceTier === "wholesale") &&
           (line.unitPriceMinor !== unitPriceMinor ||
             line.vatRateBasisPoints !== vatRateBasisPoints ||
             line.priceVersion !== priceVersion)

@@ -20,7 +20,10 @@ export const salesPriceInput = z.object({
 export const branchSalesPriceInput = z.object({
   branchId: id,
   productId: id,
-  sellingPriceMinor: positiveMoney,
+  sellingPriceMinor: positiveMoney.nullable().optional(),
+  wholesalePriceMinor: positiveMoney.nullable().optional(),
+  expectedVersion: z.number().int().nonnegative().safe().optional(),
+  expectedCentralVersion: z.number().int().positive().safe().optional(),
   active: z.boolean().default(true),
   reason: z.string().trim().min(3).max(500).optional(),
   idempotencyKey: z.string().uuid(),

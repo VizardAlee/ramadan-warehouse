@@ -1,3 +1,4 @@
+import { resolveCatalogPrice } from "../sales/pricing.js";
 import { FieldPath, FieldValue, Timestamp } from "firebase-admin/firestore";
 import { createHash } from "node:crypto";
 import { calculateSaleLine } from "../sales/calculations.js";
@@ -84,7 +85,7 @@ export const getAftersalesWorkspace = onCall(
     let query: FirebaseFirestore.Query = db.collection("aftersalesCases")
       .where("organizationId", "==", actor.organizationId);
     if (input.branchId) query = query.where("branchId", "==", input.branchId);
-    const [cases, customers, products, bankAccounts, sales, suppliers, servicePrices] = await Promise.all([
+    const [cases, customers, products, bankAccounts, sales, suppliers, servicePrices, branchPrices] = await Promise.all([
       query.limit(input.limit).get(),
       db.collection("customers").where("organizationId", "==", actor.organizationId).limit(500).get(),
       db.collection("products").where("organizationId", "==", actor.organizationId).limit(500).get(),
@@ -92,6 +93,7 @@ export const getAftersalesWorkspace = onCall(
       db.collection("sales").where("organizationId", "==", actor.organizationId).limit(200).get(),
       hasServerPermission(actor, "suppliers.read") ? db.collection("suppliers").where("organizationId", "==", actor.organizationId).where("active", "==", true).limit(500).get() : null,
       db.collection("productSalesPrices").where("organizationId", "==", actor.organizationId).where("active", "==", true).limit(500).get(),
+      input.branchId ? db.collection("branchSalesPrices").where("organizationId", "==", actor.organizationId).where("branchId", "==", input.branchId).limit(500).get() : null,
     ]);
     return {
       cases: (selectedCase ? [selectedCase] : cases.docs)
@@ -102,7 +104,8 @@ export const getAftersalesWorkspace = onCall(
       serviceItems: products.docs.filter(item => item.get("active") === true && item.get("itemKind") === "service").flatMap(item => {
         const price = servicePrices.docs.find(price => price.id === item.id || price.get("productId") === item.id);
         if (!price) return [];
-        const calculation = calculateSaleLine({ quantity: 1, unitPriceMinor: Number(price.get("basePriceMinor")), vatRateBasisPoints: Number(price.get("vatRateBasisPoints")), unitCostMinor: 0 });
+        const selected = resolveCatalogPrice({ basePriceMinor: price.get("basePriceMinor"), version: price.get("version") }, branchPrices?.docs.find(override => override.get("productId") === item.id)?.data() ?? {});
+        const calculation = calculateSaleLine({ quantity: 1, unitPriceMinor: selected.unitPriceMinor, vatRateBasisPoints: Number(price.get("vatRateBasisPoints")), unitCostMinor: 0 });
         return [{ id: item.id, name: item.get("name"), sku: item.get("sku"), grossAmountMinor: calculation.grossAmountMinor }];
       }),
       bankAccounts: bankAccounts.docs.map(bankAccountSummary),
@@ -128,11 +131,12 @@ export const createAftersalesCase = onCall(
     const product = db.doc(`products/${input.productId ?? "no-product"}`);
     const serviceItem = db.doc(`products/${input.serviceItemId ?? "no-service"}`);
     const servicePrice = db.doc(`productSalesPrices/${input.serviceItemId ?? "no-service"}`);
+    const serviceBranchPrice = db.doc(`branchSalesPrices/${uniquenessDocumentId(actor.organizationId, "branchSalesPrice", input.branchId, input.serviceItemId ?? "no-service")}`);
     const sale = db.doc(`sales/${input.saleId ?? "no-sale"}`);
     let result = { caseId: caseRef.id, created: true };
     await db.runTransaction(async (transaction) => {
-      const [previous, branchSnapshot, customerSnapshot, productSnapshot, saleSnapshot, serviceSnapshot, servicePriceSnapshot] =
-        await transaction.getAll(operation, branch, customer, product, sale, serviceItem, servicePrice);
+      const [previous, branchSnapshot, customerSnapshot, productSnapshot, saleSnapshot, serviceSnapshot, servicePriceSnapshot, serviceBranchSnapshot] =
+        await transaction.getAll(operation, branch, customer, product, sale, serviceItem, servicePrice, serviceBranchPrice);
       if (previous!.exists) {
         checkRetry(previous!, input);
         const original = await transaction.get(db.doc(`aftersalesCases/${String(previous!.get("entityId"))}`));
@@ -156,10 +160,11 @@ export const createAftersalesCase = onCall(
         if (!serviceSnapshot!.exists || serviceSnapshot!.get("organizationId") !== actor.organizationId || serviceSnapshot!.get("active") !== true || serviceSnapshot!.get("itemKind") !== "service" ||
           !servicePriceSnapshot!.exists || servicePriceSnapshot!.get("organizationId") !== actor.organizationId || servicePriceSnapshot!.get("active") !== true)
           throw new HttpsError("failed-precondition", "Select an active service with a configured catalogue price.");
-        const basePriceMinor = Number(servicePriceSnapshot!.get("basePriceMinor"));
+        const selected = resolveCatalogPrice({ basePriceMinor: servicePriceSnapshot!.get("basePriceMinor"), version: servicePriceSnapshot!.get("version") }, serviceBranchSnapshot!.data() ?? {});
+        const basePriceMinor = selected.unitPriceMinor;
         const vatRateBasisPoints = Number(servicePriceSnapshot!.get("vatRateBasisPoints"));
         const calculation = calculateSaleLine({ quantity: 1, unitPriceMinor: basePriceMinor, vatRateBasisPoints, unitCostMinor: 0 });
-        serviceCatalog = { itemId: input.serviceItemId, name: serviceSnapshot!.get("name"), sku: serviceSnapshot!.get("sku"), basePriceMinor, vatRateBasisPoints, priceVersion: servicePriceSnapshot!.get("version"), grossAmountMinor: calculation.grossAmountMinor };
+        serviceCatalog = { itemId: input.serviceItemId, name: serviceSnapshot!.get("name"), sku: serviceSnapshot!.get("sku"), basePriceMinor, vatRateBasisPoints, priceVersion: selected.priceVersion, priceSource: selected.priceSource, grossAmountMinor: calculation.grossAmountMinor };
       }
       if (input.saleId && (!saleSnapshot!.exists || saleSnapshot!.get("organizationId") !== actor.organizationId || saleSnapshot!.get("branchId") !== input.branchId || (saleSnapshot!.get("customerId") && saleSnapshot!.get("customerId") !== input.customerId)))
         throw new HttpsError("failed-precondition", "The sale does not match this store and customer.");

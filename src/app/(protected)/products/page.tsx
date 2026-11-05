@@ -26,6 +26,7 @@ import {
   nairaToKobo,
 } from "@/features/inventory/format";
 import { hasPermission } from "@/lib/permissions/roles";
+import { BranchPrices } from "@/features/products/branch-prices";
 import { CatalogImportDialog } from "@/features/products/catalog-import-dialog";
 import { ProductHistoryPreview } from "@/features/reports/product-history-preview";
 import {
@@ -119,6 +120,7 @@ function ProductCatalogue() {
     id: string;
     productId: string;
     basePriceMinor: number;
+    version: number;
     wholesalePriceMinor?: number | null;
     vatRateBasisPoints: number;
     active: boolean;
@@ -131,6 +133,8 @@ function ProductCatalogue() {
   const localProductIds = scopedInventory.productIds;
   const loading = products.loading || scopedInventory.loading;
   const inventoryError = scopedInventory.error;
+  const [showAllForPricing, setShowAllForPricing] = useState(false);
+  const [pricingProduct, setPricingProduct] = useState<Product | null>(null);
   const [search, setSearch] = useState("");
   const [expandedProductId, setExpandedProductId] = useState<string | null>(null);
   const [tracking, setTracking] = useState("");
@@ -152,14 +156,14 @@ function ProductCatalogue() {
     () =>
       products.data.filter(
         (product) =>
-          (!locationScoped || localProductIds.has(product.id)) &&
+          (!locationScoped || showAllForPricing || localProductIds.has(product.id)) &&
           (!search ||
             `${product.name} ${product.sku} ${product.brand ?? ""}`
               .toLowerCase()
               .includes(search.toLowerCase())) &&
           (!tracking || product.trackingType === tracking),
       ),
-    [products.data, search, tracking, locationScoped, localProductIds],
+    [products.data, search, tracking, locationScoped, localProductIds, showAllForPricing],
   );
   const pagination = useTablePagination(filtered);
   function edit(product?: Product) {
@@ -269,6 +273,7 @@ function ProductCatalogue() {
   });
   return (
     <div className="space-y-5">
+      {pricingProduct && (() => { const price = productSalesPrices.data.find(item => item.productId === pricingProduct.id); return price?.active ? <BranchPrices key={pricingProduct.id} productId={pricingProduct.id} productName={pricingProduct.name} central={{ basePriceMinor: price.basePriceMinor, wholesalePriceMinor: price.wholesalePriceMinor, version: price.version }} onClose={() => setPricingProduct(null)} /> : null; })()}
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-3xl font-semibold">Product catalogue</h1>
@@ -296,6 +301,7 @@ function ProductCatalogue() {
         )}
         </div>
       </div>
+      {locationScoped && profile && hasPermission(profile, "sales.price.branch.manage") && <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={showAllForPricing} onChange={event => { setShowAllForPricing(event.target.checked); pagination.setPage(1); }} />Show all catalogue items to configure branch prices, including items with no local stock</label>}
       <div className="grid gap-3 rounded-xl border bg-white p-4 md:grid-cols-2">
         <label className="relative">
           <Search className="absolute left-3 top-3 size-4 text-slate-400" />
@@ -424,6 +430,7 @@ function ProductCatalogue() {
                     </StatusBadge>
                   </td>
                   <td data-label="Actions" data-actions="true" className="px-4">
+                    {profile && hasPermission(profile, "sales.price.branch.manage") && productSalesPrices.data.some(price => price.productId === product.id && price.active) && <Button variant="ghost" onClick={() => setPricingProduct(product)}>Branch prices</Button>}
                     {canUpdate && (
                       <Button variant="ghost" onClick={() => edit(product)}>
                         Edit
