@@ -7,7 +7,7 @@ export function PriceLevelControl({ line, onChange }: { line: PosCartLine; onCha
     <label className="mt-2 block text-xs font-medium">Price level
       <select aria-label={`Price level for ${line.product.name}`} className="mt-1 w-full rounded-lg border p-2" value={line.priceTier ?? "retail"} disabled={Boolean(line.serviceCase)}
         onChange={event => onChange(event.target.value as "retail" | "wholesale")}>
-        <option value="retail">Retail / store price</option>
+        <option value="retail" disabled={line.product.retailPriceAvailable === false}>Retail / store price</option>
         <option value="wholesale" disabled={!available}>Wholesale</option>
       </select>
     </label>

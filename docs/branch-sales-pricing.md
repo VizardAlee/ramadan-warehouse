@@ -2,10 +2,14 @@
 
 Products → Branch prices lets authorized price staff choose an active branch and
 review retail and wholesale overrides. POS → Store-wide price opens the same
-editor for the current branch. No stock location or inventory posting is needed
+editor for the current branch. No stock location, central selling-price record or inventory posting is needed
 to configure pricing. Blank means inherit that level's central default; clearing
-both restores central pricing. A missing central wholesale default leaves that
-level unavailable unless an administrator explicitly approves branch wholesale.
+both restores central pricing. A missing central default leaves its level unavailable unless an administrator
+explicitly approves a branch-only price. Without a central record, a VAT rate
+must be chosen explicitly (including 0% where applicable); branch-only VAT
+changes require administrator approval and a reason. No central record is
+created as a side effect. Wholesale-only products are labelled and cannot be
+sold as unconfigured retail. Inactive central records retain their block.
 
 Existing central prices and existing retail branch records remain compatible.
 Omitted fields from legacy callers preserve existing settings; explicit null

@@ -7,7 +7,7 @@ import { useOperatingContextOptions } from "@/features/auth/use-operating-contex
 import { useOrganizationCollection } from "@/features/administration/use-organization-collection";
 import { BranchPriceEditor, type BranchPriceRecord } from "./branch-price-editor";
 import type { CentralSalesPrice } from "../../../functions/src/sales/pricing";
-export function BranchPrices({ productId, productName, central, onClose }: { productId: string; productName: string; central: CentralSalesPrice; onClose: () => void }) {
+export function BranchPrices({ productId, productName, central, onClose }: { productId: string; productName: string; central: CentralSalesPrice | null; onClose: () => void }) {
   const { profile, operatingContext } = useAuth();
   const { options: contexts } = useOperatingContextOptions();
   const [branchId, setBranchId] = useState(operatingContext?.type === "branch" ? operatingContext.id : "");

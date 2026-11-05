@@ -273,7 +273,7 @@ function ProductCatalogue() {
   });
   return (
     <div className="space-y-5">
-      {pricingProduct && (() => { const price = productSalesPrices.data.find(item => item.productId === pricingProduct.id); return price?.active ? <BranchPrices key={pricingProduct.id} productId={pricingProduct.id} productName={pricingProduct.name} central={{ basePriceMinor: price.basePriceMinor, wholesalePriceMinor: price.wholesalePriceMinor, version: price.version }} onClose={() => setPricingProduct(null)} /> : null; })()}
+      {pricingProduct && (() => { const price = productSalesPrices.data.find(item => item.productId === pricingProduct.id); return <BranchPrices key={pricingProduct.id} productId={pricingProduct.id} productName={pricingProduct.name} central={price?.active ? { basePriceMinor: price.basePriceMinor, wholesalePriceMinor: price.wholesalePriceMinor, version: price.version, vatRateBasisPoints: price.vatRateBasisPoints } : null} onClose={() => setPricingProduct(null)} />; })()}
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-3xl font-semibold">Product catalogue</h1>
@@ -343,8 +343,8 @@ function ProductCatalogue() {
                 "Tracking",
                 "Unit",
                 "Default cost",
-                "Base selling price",
-                "VAT",
+                "Central retail",
+                "Central VAT",
                 "Status",
                 "",
               ].map((label) => (
@@ -405,7 +405,7 @@ function ProductCatalogue() {
                       )?.defaultUnitCostMinor,
                     )}</FinancialValue>
                   </td>
-                  <td data-label="Base selling price" className="px-4">
+                  <td data-label="Central retail" className="px-4">
                     <FinancialValue>{formatNaira(
                       productSalesPrices.data.find(
                         (price) =>
@@ -414,7 +414,7 @@ function ProductCatalogue() {
                       )?.basePriceMinor,
                     )}</FinancialValue>
                   </td>
-                  <td data-label="VAT" className="px-4">
+                  <td data-label="Central VAT" className="px-4">
                     <FinancialValue>{(() => {
                       const rate = productSalesPrices.data.find(
                         (price) =>
@@ -430,7 +430,7 @@ function ProductCatalogue() {
                     </StatusBadge>
                   </td>
                   <td data-label="Actions" data-actions="true" className="px-4">
-                    {profile && hasPermission(profile, "sales.price.branch.manage") && productSalesPrices.data.some(price => price.productId === product.id && price.active) && <Button variant="ghost" onClick={() => setPricingProduct(product)}>Branch prices</Button>}
+                    {profile && hasPermission(profile, "sales.price.branch.manage") && product.active && <Button disabledReason={productSalesPrices.data.some(price => price.productId === product.id && !price.active) ? "Central pricing is inactive. Reactivate it before configuring branch prices." : undefined} variant="ghost" onClick={() => setPricingProduct(product)}>Branch prices</Button>}
                     {canUpdate && (
                       <Button variant="ghost" onClick={() => edit(product)}>
                         Edit

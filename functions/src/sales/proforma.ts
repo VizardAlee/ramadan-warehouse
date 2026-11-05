@@ -8,7 +8,7 @@ import { scopedAccess, hasPermissionScope, requirePermissionScope } from "../aut
 import { requestFingerprint } from "../utils/request-fingerprint.js";
 import { uniquenessDocumentId } from "../inventory/calculations.js";
 import { calculateSale } from "./calculations.js";
-import { resolveCatalogPrice } from "./pricing.js";
+import { centralSalesPrice, resolveCatalogPrice, resolveCatalogVatRate } from "./pricing.js";
 import { writeAuditLog } from "../audit/write-audit-log.js";
 import { parseInput } from "../utils/callable.js";
 const id = z.string().regex(/^[A-Za-z0-9_-]{1,128}$/);
@@ -57,16 +57,20 @@ export async function proformaRequest(actor: AccessProfile, data: unknown) {
     const records = await tx.getAll(...input.lines.flatMap(line => [db.doc(`products/${line.productId}`), db.doc(`productSalesPrices/${line.productId}`), db.doc(`branchSalesPrices/${uniquenessDocumentId(actor.organizationId, "branchSalesPrice", input.branchId, line.productId)}`)]));
     const lines = input.lines.map((line, index) => {
       const product = records[index * 3]!, central = records[index * 3 + 1]!, branchPrice = records[index * 3 + 2]!;
-      if (!product.exists || product.get("organizationId") !== actor.organizationId || product.get("active") !== true || !central.exists || central.get("organizationId") !== actor.organizationId || central.get("active") !== true || (branchPrice.exists && (branchPrice.get("organizationId") !== actor.organizationId || branchPrice.get("branchId") !== input.branchId))) fail("A quoted product or price is unavailable.");
+      if (!product.exists || product.get("organizationId") !== actor.organizationId || product.get("active") !== true || (central.exists && (central.get("organizationId") !== actor.organizationId || central.get("active") !== true)) || (branchPrice.exists && (branchPrice.get("organizationId") !== actor.organizationId || branchPrice.get("branchId") !== input.branchId))) fail("A quoted product or price is unavailable.");
+      const base = centralSalesPrice(central.data()), local = branchPrice.data() ?? {};
+      let vatRateBasisPoints: number;
+      try { vatRateBasisPoints = resolveCatalogVatRate(base, local); }
+      catch (cause) { throw new HttpsError("failed-precondition", (cause as Error).message); }
       // Custom prices are quote content, never catalogue or POS price changes.
       let unitPriceMinor = line.unitPriceMinor;
       let catalogue: ReturnType<typeof resolveCatalogPrice> | undefined;
       if (unitPriceMinor === undefined) {
-        try { catalogue = resolveCatalogPrice({ basePriceMinor: central.get("basePriceMinor"), version: central.get("version"), wholesalePriceMinor: central.get("wholesalePriceMinor") }, branchPrice.data() ?? {}, line.priceTier); unitPriceMinor = catalogue.unitPriceMinor; }
+        try { catalogue = resolveCatalogPrice(centralSalesPrice(central.data()), branchPrice.data() ?? {}, line.priceTier); unitPriceMinor = catalogue.unitPriceMinor; }
         catch (cause) { throw new HttpsError("failed-precondition", cause instanceof Error ? cause.message : "Quoted pricing requires review."); }
         if (!Number.isSafeInteger(unitPriceMinor) || unitPriceMinor <= 0) fail("Configure a positive catalogue price before quoting this product.");
       }
-      return { ...line, productName: String(product.get("name")), sku: String(product.get("sku")), unitOfMeasure: product.get("unitOfMeasure") ?? "unit", itemKind: product.get("itemKind") ?? "goods", unitPriceMinor, priceSource: line.unitPriceMinor === undefined ? "catalogue" : "custom", catalogPriceSource: catalogue?.priceSource ?? null, priceVersion: catalogue?.priceVersion ?? null, vatRateBasisPoints: Number(central.get("vatRateBasisPoints") ?? 0), unitCostMinor: 0 };
+      return { ...line, productName: String(product.get("name")), sku: String(product.get("sku")), unitOfMeasure: product.get("unitOfMeasure") ?? "unit", itemKind: product.get("itemKind") ?? "goods", unitPriceMinor, priceSource: line.unitPriceMinor === undefined ? "catalogue" : "custom", catalogPriceSource: catalogue?.priceSource ?? null, priceVersion: catalogue?.priceVersion ?? null, vatRateBasisPoints, unitCostMinor: 0 };
     });
     let calculated; try { calculated = calculateSale(lines, input.discountAmountMinor); } catch (cause) { throw new HttpsError("invalid-argument", cause instanceof Error ? cause.message : "Quote totals are invalid."); }
     const now = FieldValue.serverTimestamp(), number = `PF-${quote.id.slice(2).toUpperCase()}`;

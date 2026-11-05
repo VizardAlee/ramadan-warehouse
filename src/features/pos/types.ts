@@ -46,6 +46,9 @@ export interface PosProduct {
   priceSource: "central" | "branch" | "wholesale";
   wholesalePriceMinor?: number | null;
   centralPriceVersion?: number;
+  hasCentralPrice?: boolean;
+  retailPriceAvailable?: boolean;
+  branchVatRateBasisPoints?: number | null;
   wholesalePriceVersion?: number | null;
   wholesalePriceSource?: "branch" | "wholesale" | null;
   centralWholesalePriceMinor?: number | null;

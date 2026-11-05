@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { resolveCatalogPrice } from "../functions/src/sales/pricing";
+import { resolveCatalogPrice, resolveCatalogVatRate } from "../functions/src/sales/pricing";
 import { branchSalesPriceInput } from "../functions/src/validation/sales";
-import { productForPriceTier, reconcileHeldCart } from "../src/features/pos/calculations";
+import { productForPriceTier, reconcileHeldCart, defaultPosPriceTier } from "../src/features/pos/calculations";
 import type { PosProduct } from "../src/features/pos/types";
 
 describe("branch retail and wholesale prices", () => {
@@ -32,8 +32,31 @@ describe("branch retail and wholesale prices", () => {
   });
   it("uses the effective wholesale version and source in POS and resumed baskets", () => {
     const product: PosProduct = { id: "product", sku: "P", name: "Panel", unitOfMeasure: "unit", trackingType: "quantity", unitPriceMinor: 12000, basePriceMinor: 10000, priceVersion: 4, priceSource: "branch", wholesalePriceMinor: 9000, wholesalePriceVersion: 4, wholesalePriceSource: "branch", centralPriceVersion: 7, vatRateBasisPoints: 0, availableQuantity: 10 };
+    expect(defaultPosPriceTier({ ...product, basePriceMinor: 0, centralPriceVersion: 0, hasCentralPrice: false, retailPriceAvailable: false }, "retail")).toBe("wholesale");
+    expect(() => productForPriceTier({ ...product, retailPriceAvailable: false }, "retail")).toThrow("Retail pricing");
     expect(productForPriceTier(product, "wholesale")).toMatchObject({ unitPriceMinor: 9000, priceVersion: 4, priceSource: "branch" });
     const held = { lines: [{ productId: "product", quantity: 1, priceTier: "wholesale" as const }] };
     expect(reconcileHeldCart(held.lines, [product]).lines[0]!.product).toMatchObject({ unitPriceMinor: 9000, priceVersion: 4 });
+  });
+});
+
+
+describe("branch-only prices without central records", () => {
+  const local = { active: true, sellingPriceMinor: 12000, wholesalePriceMinor: 10000, version: 1, basePriceVersion: 0, belowBaseApproved: true, belowWholesaleApproved: true, vatRateBasisPoints: 750 };
+  it("resolves each explicitly approved level without a central row", () => {
+    expect(resolveCatalogPrice(null, local)).toEqual({ unitPriceMinor: 12000, priceVersion: 1, priceSource: "branch" });
+    expect(resolveCatalogPrice(null, local, "wholesale").unitPriceMinor).toBe(10000);
+    expect(resolveCatalogVatRate(null, local)).toBe(750);
+    expect(resolveCatalogVatRate(null, { ...local, vatRateBasisPoints: 0 })).toBe(0);
+  });
+  it("never invents missing prices or VAT, and preserves central deactivation", () => {
+    expect(() => resolveCatalogPrice(null, {})).toThrow("not configured");
+    expect(() => resolveCatalogPrice(null, { ...local, belowBaseApproved: false })).toThrow("not configured");
+    expect(() => resolveCatalogPrice(null, { ...local, basePriceVersion: 1 })).toThrow("not configured");
+    expect(() => resolveCatalogVatRate(null, { active: true })).toThrow("explicit VAT");
+    expect(() => resolveCatalogPrice({ basePriceMinor: 9000, version: 1, active: false }, local)).toThrow("inactive");
+    const central = { basePriceMinor: 15000, wholesalePriceMinor: 13000, version: 1, vatRateBasisPoints: 0 };
+    expect(resolveCatalogPrice(central, local).unitPriceMinor).toBe(15000);
+    expect(resolveCatalogVatRate(central, local)).toBe(0);
   });
 });

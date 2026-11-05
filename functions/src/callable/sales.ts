@@ -22,7 +22,7 @@ import { accountingPeriodReference, assertAccountingPeriodOpen } from "../accoun
 import { collectReservedSale } from "../sales/collection.js";
 import { readSaleSerials, changeSaleSerials, writeSaleSerialEntries } from "../sales/serials.js";
 import { uploadCollectionPhoto, uploadCollectionPhotoInput, readCollectionPhoto, readCollectionPhotoInput } from "../sales/collection-evidence.js";
-import { resolveCatalogPrice } from "../sales/pricing.js";
+import { centralSalesPrice, resolveCatalogPrice, resolveCatalogVatRate } from "../sales/pricing.js";
 import { selectedArrangement, changeArrangementBalance } from "../sales/customer-arrangements.js";
 import { changeMoneyBalance, moneyBalances, UNDATED_DEBT } from "../sales/receivables.js";
 import { bankAccountSummary, resolveSettlementAccount } from "../accounting/settlement-account.js";
@@ -138,29 +138,16 @@ async function activeBranchLocation(
 }
 
 function catalogPriceFromSnapshots(
-  central: FirebaseFirestore.DocumentSnapshot,
-  branch: FirebaseFirestore.DocumentSnapshot,
-  tier: "retail" | "wholesale" = "retail",
+  central: FirebaseFirestore.DocumentSnapshot, branch: FirebaseFirestore.DocumentSnapshot,
+  tier: "retail" | "wholesale", organizationId: string, branchId: string,
 ) {
-  if (branch.exists && (branch.get("organizationId") !== central.get("organizationId") || branch.get("productId") !== central.id))
+  if ((central.exists && central.get("organizationId") !== organizationId) ||
+    (branch.exists && (branch.get("organizationId") !== organizationId || branch.get("branchId") !== branchId || branch.get("productId") !== central.id)))
     throw new HttpsError("failed-precondition", "The branch price does not match this catalogue product.");
   try {
-    return resolveCatalogPrice({
-      basePriceMinor: Number(central.get("basePriceMinor")),
-      version: Number(central.get("version")),
-      wholesalePriceMinor: central.get("wholesalePriceMinor"),
-    }, {
-      active: branch.get("active"),
-      sellingPriceMinor: branch.get("sellingPriceMinor"),
-      wholesalePriceMinor: branch.get("wholesalePriceMinor"),
-      belowWholesaleApproved: branch.get("belowWholesaleApproved"),
-      version: branch.get("version"),
-      belowBaseApproved: branch.get("belowBaseApproved"),
-      basePriceVersion: branch.get("basePriceVersion"),
-    }, tier);
-  } catch (cause) {
-    throw new HttpsError("failed-precondition", (cause as Error).message);
-  }
+    const base = centralSalesPrice(central.data()), local = branch.data() ?? {};
+    return { ...resolveCatalogPrice(base, local, tier), vatRateBasisPoints: resolveCatalogVatRate(base, local) };
+  } catch (cause) { throw new HttpsError("failed-precondition", (cause as Error).message); }
 }
 
 export const saveProductSalesPrice = onCall(
@@ -297,30 +284,32 @@ export const saveBranchSalesPrice = onCall(
         productSnapshot!.get("active") !== true
       )
         throw new HttpsError("failed-precondition", "Product is unavailable.");
-      if (
-        !central!.exists ||
-        central!.get("organizationId") !== actor.organizationId ||
-        central!.get("active") !== true
-      )
-        throw new HttpsError(
-          "failed-precondition",
-          "Set the central base selling price before a branch price.",
-        );
-      if (input.expectedCentralVersion !== undefined && input.expectedCentralVersion !== Number(central!.get("version")))
+      if (central!.exists && (central!.get("organizationId") !== actor.organizationId || central!.get("active") !== true))
+        throw new HttpsError("failed-precondition", "Central pricing is unavailable or inactive. Ask a price administrator to review it.");
+      const centralVersion = central!.exists ? Number(central!.get("version")) : 0;
+      if (input.expectedCentralVersion !== undefined && input.expectedCentralVersion !== centralVersion)
         throw new HttpsError("failed-precondition", "Central prices changed. Refresh and review before saving branch prices.");
+      const vatRateBasisPoints = central!.exists ? Number(central!.get("vatRateBasisPoints")) : input.vatRateBasisPoints ?? current!.get("vatRateBasisPoints");
+      if (!Number.isInteger(vatRateBasisPoints) || vatRateBasisPoints < 0 || vatRateBasisPoints > 10000)
+        throw new HttpsError("invalid-argument", "Choose an explicit VAT rate for branch-only pricing.");
+      if (central!.exists && input.vatRateBasisPoints !== undefined && input.vatRateBasisPoints !== vatRateBasisPoints)
+        throw new HttpsError("invalid-argument", "VAT follows the central configuration when a central price exists.");
       if (input.expectedVersion !== undefined && input.expectedVersion !== Number(current!.get("version") ?? 0))
         throw new HttpsError("failed-precondition", "Branch prices changed. Refresh and review before saving.");
       const sellingPriceMinor = input.sellingPriceMinor === undefined ? current!.get("sellingPriceMinor") ?? null : input.sellingPriceMinor;
       const wholesalePriceMinor = input.wholesalePriceMinor === undefined ? current!.get("wholesalePriceMinor") ?? null : input.wholesalePriceMinor;
-      const belowBase = sellingPriceMinor !== null && sellingPriceMinor < Number(central!.get("basePriceMinor"));
+      const belowBase = sellingPriceMinor !== null && (!central!.exists || sellingPriceMinor < Number(central!.get("basePriceMinor")));
       const centralWholesale = central!.get("wholesalePriceMinor");
       const belowWholesale = wholesalePriceMinor !== null && (!Number.isSafeInteger(centralWholesale) || centralWholesale <= 0 || wholesalePriceMinor < centralWholesale);
       const sameApproval = (field: string, value: number | null, approval: string) => current!.get("active") === true &&
-        current!.get(field) === value && current!.get(approval) === true && current!.get("basePriceVersion") === central!.get("version");
-      const needsApproval = (belowBase && !sameApproval("sellingPriceMinor", sellingPriceMinor, "belowBaseApproved")) ||
+        current!.get(field) === value && current!.get(approval) === true && current!.get("basePriceVersion") === centralVersion;
+      const changesBranchVat = !central!.exists && input.vatRateBasisPoints !== undefined && input.vatRateBasisPoints !== current!.get("vatRateBasisPoints");
+      if (changesBranchVat && !hasRole(actor, "system_administrator"))
+        throw new HttpsError("permission-denied", "Branch-only VAT configuration requires administrator approval.");
+      const needsApproval = changesBranchVat || (belowBase && !sameApproval("sellingPriceMinor", sellingPriceMinor, "belowBaseApproved")) ||
         (belowWholesale && !sameApproval("wholesalePriceMinor", wholesalePriceMinor, "belowWholesaleApproved"));
       if (input.active && needsApproval && !hasRole(actor, "system_administrator"))
-        throw new HttpsError("permission-denied", "A price below its central level, or wholesale without a central default, requires administrator approval.");
+        throw new HttpsError("permission-denied", "A price below its central level, or a branch-only price without a central default, requires administrator approval.");
       if (input.active && needsApproval && !input.reason)
         throw new HttpsError("invalid-argument", "Administrator price approval requires a reason.");
       const now = FieldValue.serverTimestamp();
@@ -331,7 +320,7 @@ export const saveBranchSalesPrice = onCall(
       transaction.create(price.collection("versions").doc(String(version)), {
         organizationId: actor.organizationId, branchId: input.branchId, productId: input.productId,
         sellingPriceMinor, wholesalePriceMinor, active: input.active, version,
-        basePriceVersion: central!.get("version"), reason: input.reason ?? null,
+        vatRateBasisPoints, basePriceVersion: centralVersion, reason: input.reason ?? null,
         belowBaseApproved: input.active && belowBase, belowWholesaleApproved: input.active && belowWholesale,
         createdAt: now, createdBy: actor.userId,
       });
@@ -341,12 +330,12 @@ export const saveBranchSalesPrice = onCall(
         productId: input.productId,
         sku: productSnapshot!.get("sku"),
         productName: productSnapshot!.get("name"),
-        basePriceMinor: central!.get("basePriceMinor"),
+        basePriceMinor: central!.get("basePriceMinor") ?? null,
         sellingPriceMinor,
         wholesalePriceMinor,
         belowWholesaleApproved: input.active && belowWholesale,
-        vatRateBasisPoints: central!.get("vatRateBasisPoints"),
-        basePriceVersion: central!.get("version"),
+        vatRateBasisPoints,
+        basePriceVersion: centralVersion,
         currency: "NGN",
         active: input.active,
         belowBaseApproved: input.active && belowBase,
@@ -386,6 +375,7 @@ export const saveBranchSalesPrice = onCall(
           productId: input.productId,
           sellingPriceMinor,
           wholesalePriceMinor,
+          vatRateBasisPoints,
           active: input.active,
           belowWholesaleApproved: input.active && belowWholesale,
           belowBaseApproved: input.active && belowBase,
@@ -519,15 +509,20 @@ export const getPosWorkspace = onCall(
         )
         .flatMap((product) => {
           const central = centralByProduct.get(product.id);
-          if (!central?.exists || central.get("active") !== true) return [];
           const override = branchByProduct.get(product.id);
-          const centralVersion = Number(central.get("version"));
-          const centralBasePrice = Number(central.get("basePriceMinor"));
-          const retail = resolveCatalogPrice({ basePriceMinor: centralBasePrice, wholesalePriceMinor: central.get("wholesalePriceMinor"), version: centralVersion }, override?.data() ?? {});
+          const base = centralSalesPrice(central?.data()), local = override?.data() ?? {};
+          const centralVersion = base?.version ?? 0;
+          const centralBasePrice = base?.basePriceMinor ?? 0;
+          let retail: ReturnType<typeof resolveCatalogPrice> | undefined;
           let wholesale: ReturnType<typeof resolveCatalogPrice> | undefined;
-          try { wholesale = resolveCatalogPrice({ basePriceMinor: centralBasePrice, wholesalePriceMinor: central.get("wholesalePriceMinor"), version: centralVersion }, override?.data() ?? {}, "wholesale"); } catch { /* Unconfigured wholesale is unavailable, never an inferred discount. */ }
-          const unitPriceMinor = retail.unitPriceMinor;
-          const priceVersion = retail.priceVersion;
+          try { retail = resolveCatalogPrice(base, local); } catch { /* This level is unavailable. */ }
+          try { wholesale = resolveCatalogPrice(base, local, "wholesale"); } catch { /* This level is unavailable. */ }
+          const displayed = retail ?? wholesale;
+          if (!displayed) return [];
+          let vatRateBasisPoints: number;
+          try { vatRateBasisPoints = resolveCatalogVatRate(base, local); } catch { return []; }
+          const unitPriceMinor = displayed.unitPriceMinor;
+          const priceVersion = displayed.priceVersion;
           const balance = balanceByProduct.get(product.id);
           return [
             {
@@ -539,13 +534,16 @@ export const getPosWorkspace = onCall(
               itemKind: product.get("itemKind") === "service" ? "service" : "goods",
               unitPriceMinor,
               basePriceMinor: centralBasePrice,
-              vatRateBasisPoints: Number(central.get("vatRateBasisPoints")),
+              vatRateBasisPoints,
               priceVersion,
-              priceSource: retail.priceSource,
+              retailPriceAvailable: Boolean(retail),
+              hasCentralPrice: Boolean(central?.exists),
+              branchVatRateBasisPoints: override?.get("vatRateBasisPoints") ?? null,
+              priceSource: displayed.priceSource,
               wholesalePriceMinor: wholesale?.unitPriceMinor ?? null,
               wholesalePriceVersion: wholesale?.priceVersion ?? null,
               wholesalePriceSource: wholesale?.priceSource ?? null,
-              centralWholesalePriceMinor: central.get("wholesalePriceMinor") ?? null,
+              centralWholesalePriceMinor: base?.wholesalePriceMinor ?? null,
               branchRetailPriceMinor: override?.get("sellingPriceMinor") ?? null,
               branchWholesalePriceMinor: override?.get("wholesalePriceMinor") ?? null,
               branchPriceActive: override?.get("active") === true,
@@ -1133,13 +1131,11 @@ export const createPosSaleOrder = onCall(
       pricedLines.forEach((line, index) => {
         const central = snapshots[5 + index]!;
         const override = snapshots[5 + pricedLines.length + index]!;
-        if (!central.exists || central.get("organizationId") !== actor.organizationId || central.get("active") !== true)
-          throw new HttpsError("failed-precondition", "The central product price is unavailable.");
-        const selected = catalogPriceFromSnapshots(central, override, line.priceTier);
+        const selected = catalogPriceFromSnapshots(central, override, line.priceTier ?? "retail", actor.organizationId, input.branchId);
         const catalogPrice = selected.unitPriceMinor;
         const catalogVersion = selected.priceVersion;
         if (line.unitPriceMinor !== catalogPrice || line.priceVersion !== catalogVersion ||
-          line.vatRateBasisPoints !== Number(central.get("vatRateBasisPoints")))
+          line.vatRateBasisPoints !== selected.vatRateBasisPoints)
           throw new HttpsError("failed-precondition", "The catalogue price changed. Refresh the POS and review this sale price.");
       });
       if (
@@ -1702,18 +1698,9 @@ async function postPosSale(
             "failed-precondition",
             "Batch checkout requires its controlled lot workflow.",
           );
-        if (
-          !central.exists ||
-          central.get("organizationId") !== actor.organizationId ||
-          central.get("active") !== true
-        )
-          throw new HttpsError(
-            "failed-precondition",
-            `Set the central selling price for ${String(product.get("name"))}.`,
-          );
-        const selected = catalogPriceFromSnapshots(central, override, line.priceTier);
+        const selected = catalogPriceFromSnapshots(central, override, line.priceTier ?? "retail", actor.organizationId, input.branchId);
         const unitPriceMinor = selected.unitPriceMinor;
-        const vatRateBasisPoints = Number(central.get("vatRateBasisPoints"));
+        const vatRateBasisPoints = selected.vatRateBasisPoints;
         const priceVersion = selected.priceVersion;
         if (
           (input.offline || line.unitPriceMinor !== undefined || line.sellingPriceMinor !== undefined || line.priceTier === "wholesale") &&
@@ -1998,7 +1985,7 @@ async function postPosSale(
           unitPriceMinor: line.unitPriceMinor,
           catalogUnitPriceMinor: line.catalogUnitPriceMinor,
           priceOverrideReason: line.priceOverrideReason ?? null,
-          basePriceMinor: centralPrices[index]!.get("basePriceMinor"),
+          basePriceMinor: centralPrices[index]!.get("basePriceMinor") ?? null,
           priceVersion: line.priceVersion,
           priceSource: line.priceSource,
           priceTier: line.input.priceTier ?? "retail",

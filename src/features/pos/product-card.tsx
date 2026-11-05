@@ -42,7 +42,7 @@ export function PosProductCard({ product, fastMoving = false, available, pending
     </div>
     {fastMoving && <span className={styles.fastMovingBadge}>Fast-moving</span>}
     <div className={styles.productPrice}><FinancialValue>{formatNaira(product.unitPriceMinor)}</FinancialValue></div>
-    <p className={styles.priceCaption}>before VAT · <FinancialText>{product.priceSource}</FinancialText> price</p>
+    <p className={styles.priceCaption}>before VAT{product.retailPriceAvailable === false ? " · Wholesale only" : ""} · <FinancialText>{product.priceSource}</FinancialText> price</p>
     <p className={available <= 0 ? styles.outOfStock : styles.availability}>
       <FinancialText>{available <= 0 ? "Out of stock" : service ? online ? "Service · online confirmation" : "Internet required" : `${available} ${product.unitOfMeasure} available`}</FinancialText>
     </p>

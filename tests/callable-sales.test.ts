@@ -2644,4 +2644,46 @@ describe("custom operating sales roles", () => {
     expect((await adminDb.doc(`proformaQuotes/${quote.proformaId}`).get()).get("lines")[0].unitPriceMinor).toBe(9000);
   }, 120000);
 
+  it("sells and quotes branch-only retail and wholesale without creating central price records", async () => {
+    const item = "branch-only-imported", other = "branch-only-other", context = { type: "branch", id: branchId };
+    await adminDb.doc(`products/${item}`).set({ organizationId, name: "Imported branch-only panel", sku: item, unitOfMeasure: "unit", trackingType: "quantity", active: true });
+    await adminDb.doc(`productCosts/${item}`).set({ organizationId, productId: item, defaultUnitCostMinor: 5000 });
+    await adminDb.doc(`branches/${other}`).set({ organizationId, name: "Other unpriced branch", code: "NOP", status: "active" });
+    await adminDb.doc(`inventoryLocations/${other}`).set({ organizationId, branchId: other, type: "branch", status: "active", name: "Other unpriced stock" });
+    await adminDb.doc(`inventoryBalances/${balanceDocumentId(organizationId, item, locationId)}`).set({ organizationId, branchId, productId: item, locationId, onHandQuantity: 20, availableQuantity: 20, reservedQuantity: 0, totalValueMinor: 100000, averageUnitCostMinor: 5000 });
+    const centralRef = adminDb.doc(`productSalesPrices/${item}`);
+    const instruction = { branchId, productId: item, sellingPriceMinor: 12000, wholesalePriceMinor: 10000, expectedVersion: 0, expectedCentralVersion: 0, reason: "Approved initial branch-only prices", idempotencyKey: crypto.randomUUID(), operatingContext: context };
+    await expect(call(administrator, "saveBranchSalesPrice", instruction)).rejects.toMatchObject({ code: "functions/invalid-argument" });
+    await expect(call(branchManager, "saveBranchSalesPrice", { ...instruction, vatRateBasisPoints: 750 })).rejects.toMatchObject({ code: "functions/permission-denied" });
+    await call(administrator, "saveBranchSalesPrice", { ...instruction, vatRateBasisPoints: 750 });
+    expect((await centralRef.get()).exists).toBe(false);
+    const workspace = await call<{ products: Array<Record<string, unknown>> }>(branchManager, "getPosWorkspace", { branchId, operatingContext: context });
+    expect(workspace.products.find(product => product.id === item)).toMatchObject({ unitPriceMinor: 12000, wholesalePriceMinor: 10000, wholesalePriceVersion: 1, wholesalePriceSource: "branch", hasCentralPrice: false, retailPriceAvailable: true, vatRateBasisPoints: 750, priceSource: "branch", priceVersion: 1, centralPriceVersion: 0 });
+    const otherWorkspace = await call<{ products: Array<Record<string, unknown>> }>(administrator, "getPosWorkspace", { branchId: other, operatingContext: { type: "branch", id: other } });
+    expect(otherWorkspace.products.some(product => product.id === item)).toBe(false);
+    for (const [priceTier, expected] of [["retail", 12000], ["wholesale", 10000]] as const) {
+      const quote = await call<{ proformaId: string }>(branchManager, "createPosSaleOrder", { action: "create_proforma", branchId, validUntil: new Date(Date.now() + 86400000).toISOString().slice(0, 10), lines: [{ productId: item, quantity: 1, priceTier }], idempotencyKey: crypto.randomUUID(), operatingContext: context });
+      expect((await adminDb.doc(`proformaQuotes/${quote.proformaId}`).get()).get("lines")[0]).toMatchObject({ unitPriceMinor: expected, vatRateBasisPoints: 750, catalogPriceSource: "branch" });
+    }
+    const deviceId = crypto.randomUUID();
+    const shift = await call<{ shiftId: string }>(branchManager, "openPosShift", { branchId, deviceId, deviceName: "Branch-only till", openingCashMinor: 0, idempotencyKey: crypto.randomUUID(), operatingContext: context });
+    const payload = { branchId, deviceId, shiftId: shift.shiftId, recordedAt: new Date().toISOString(), lines: [{ productId: item, quantity: 1, priceTier: "retail", unitPriceMinor: 12000, priceVersion: 1, vatRateBasisPoints: 750 }], payments: [{ method: "cash", amountMinor: 12900 }], idempotencyKey: crypto.randomUUID(), operatingContext: context };
+    const order = await call<{ orderId: string }>(branchManager, "createPosSaleOrder", payload);
+    await call(branchManager, "acceptPosSaleOrderPayment", { orderId: order.orderId, deviceId, shiftId: shift.shiftId, idempotencyKey: crypto.randomUUID(), operatingContext: context });
+    const sale = await call<{ saleId: string }>(branchManager, "confirmPosSaleOrder", { orderId: order.orderId, idempotencyKey: crypto.randomUUID(), operatingContext: context });
+    expect((await adminDb.collection("saleItems").where("saleId", "==", sale.saleId).get()).docs[0]!.data()).toMatchObject({ unitPriceMinor: 12000, basePriceMinor: null, vatRateBasisPoints: 750, priceSource: "branch", unitCostMinor: 5000 });
+    await expect(call(branchManager, "saveBranchSalesPrice", { ...instruction, expectedVersion: 1, vatRateBasisPoints: 0, idempotencyKey: crypto.randomUUID() })).rejects.toMatchObject({ code: "functions/permission-denied" });
+    await call(administrator, "saveBranchSalesPrice", { ...instruction, expectedVersion: 1, vatRateBasisPoints: 0, idempotencyKey: crypto.randomUUID() });
+    await expect(call(branchManager, "commitPosSale", { ...payload, offline: true, provisionalReceiptReference: "OFF-BRANCH-VAT-STALE", idempotencyKey: crypto.randomUUID() })).rejects.toMatchObject({ code: "functions/failed-precondition" });
+    expect((await adminDb.collection("saleItems").where("saleId", "==", sale.saleId).get()).docs[0]!.get("vatRateBasisPoints")).toBe(750);
+    await call(administrator, "saveBranchSalesPrice", { ...instruction, sellingPriceMinor: null, expectedVersion: 2, vatRateBasisPoints: 0, idempotencyKey: crypto.randomUUID() });
+    const wholesaleOnly = await call<{ products: Array<Record<string, unknown>> }>(branchManager, "getPosWorkspace", { branchId, operatingContext: context });
+    expect(wholesaleOnly.products.find(product => product.id === item)).toMatchObject({ retailPriceAvailable: false, wholesalePriceMinor: 10000 });
+    await expect(call(branchManager, "commitPosSale", { ...payload, offline: true, provisionalReceiptReference: "OFF-NO-CENTRAL-STALE", idempotencyKey: crypto.randomUUID() })).rejects.toMatchObject({ code: "functions/failed-precondition" });
+    const wholesaleSale = await call<{ saleId: string }>(branchManager, "commitPosSale", { ...payload, lines: [{ productId: item, quantity: 1, priceTier: "wholesale", unitPriceMinor: 10000, vatRateBasisPoints: 0, priceVersion: 3 }], payments: [{ method: "cash", amountMinor: 10000 }], idempotencyKey: crypto.randomUUID() });
+    expect((await adminDb.collection("saleItems").where("saleId", "==", wholesaleSale.saleId).get()).docs[0]!.data()).toMatchObject({ unitPriceMinor: 10000, priceTier: "wholesale", vatRateBasisPoints: 0, priceSource: "branch" });
+    expect((await centralRef.get()).exists).toBe(false);
+    expect((await adminDb.doc(`productCosts/${item}`).get()).get("defaultUnitCostMinor")).toBe(5000);
+  }, 120000);
+
 });

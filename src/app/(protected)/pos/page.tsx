@@ -52,6 +52,7 @@ import {
   changePosPriceTier,
   posLineUnitPriceMinor,
   productForPriceTier,
+  defaultPosPriceTier,
   provisionalReceiptReference,
   reconcileHeldCart,
 } from "@/features/pos/calculations";
@@ -439,9 +440,9 @@ export default function PosPage() {
               : line,
           )
         : [...lines, {
-            product: productForPriceTier(product, selectedCustomer?.pricingTier === "wholesale" && product.wholesalePriceMinor ? "wholesale" : "retail"),
+            product: productForPriceTier(product, defaultPosPriceTier(product, selectedCustomer?.pricingTier)),
             quantity: 1,
-            priceTier: selectedCustomer?.pricingTier === "wholesale" && product.wholesalePriceMinor ? "wholesale" : "retail",
+            priceTier: defaultPosPriceTier(product, selectedCustomer?.pricingTier),
           }];
     });
   }
@@ -1544,7 +1545,7 @@ export default function PosPage() {
               })}
               {visibleProducts.length === 0 && (
                 <div className="col-span-full rounded-xl border bg-white p-8 text-center text-[var(--muted)]">
-                  {fastMovingOnly ? "No fast-moving products match this catalogue and search. Check the suggestion status above, clear your search, or choose All products." : "No sale-ready products match. Products require an active central selling price."}
+                  {fastMovingOnly ? "No fast-moving products match this catalogue and search. Check the suggestion status above, clear your search, or choose All products." : "No sale-ready products match. Products require a configured branch or central selling price."}
                 </div>
               )}
             </div>
@@ -1825,7 +1826,7 @@ export default function PosPage() {
                       setCustomerAccountId("general");
                       setCart((lines) => lines.map((line) => {
                         const original = workspace.products.find((item) => item.id === line.product.id)!;
-                        const tier = customer?.pricingTier === "wholesale" && original.wholesalePriceMinor ? "wholesale" : "retail";
+                        const tier = defaultPosPriceTier(original, customer?.pricingTier);
                         return { ...line, product: productForPriceTier(original, tier), priceTier: tier };
                       }));
                     }}
@@ -2362,8 +2363,8 @@ export default function PosPage() {
       {priceProductId && workspace && (() => {
         const product = workspace.products.find(item => item.id === priceProductId);
         return product ? <BranchPriceEditor branchId={workspace.branch.id} branchName={workspace.branch.name} productId={product.id} productName={product.name}
-          central={{ basePriceMinor: product.basePriceMinor, wholesalePriceMinor: product.centralWholesalePriceMinor, version: product.centralPriceVersion! }}
-          current={{ active: product.branchPriceActive, sellingPriceMinor: product.branchRetailPriceMinor, wholesalePriceMinor: product.branchWholesalePriceMinor, version: product.branchPriceVersion, basePriceVersion: product.branchBasePriceVersion ?? undefined, belowBaseApproved: product.branchBelowBaseApproved, belowWholesaleApproved: product.branchBelowWholesaleApproved }}
+          central={product.hasCentralPrice === false ? null : { basePriceMinor: product.basePriceMinor, wholesalePriceMinor: product.centralWholesalePriceMinor, version: product.centralPriceVersion!, vatRateBasisPoints: product.vatRateBasisPoints }}
+          current={{ vatRateBasisPoints: product.branchVatRateBasisPoints ?? undefined, active: product.branchPriceActive, sellingPriceMinor: product.branchRetailPriceMinor, wholesalePriceMinor: product.branchWholesalePriceMinor, version: product.branchPriceVersion, basePriceVersion: product.branchBasePriceVersion ?? undefined, belowBaseApproved: product.branchBelowBaseApproved, belowWholesaleApproved: product.branchBelowWholesaleApproved }}
           onClose={() => setPriceProductId(null)} onSaved={async () => { await loadWorkspace(); setMessage(`Branch prices updated for ${product.name}. Review the current basket before confirming.`); }} /> : null;
       })()}
     </div>

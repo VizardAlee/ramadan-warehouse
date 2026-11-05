@@ -9,12 +9,12 @@ export function ProformaPriceControl({ line, index, product, onChange }: {
   product?: PosProduct;
   onChange: (line: ProformaDraftLine) => void;
 }) {
-  const preset = line.priceTier === "wholesale" ? product?.wholesalePriceMinor : product?.unitPriceMinor;
+  const preset = line.priceTier === "wholesale" ? product?.wholesalePriceMinor : product?.retailPriceAvailable === false ? null : product?.unitPriceMinor;
   const helpId = `quoted-price-help-${index}`;
   return <>
     <label>Price tier<select className="input mt-1 block w-full" value={line.priceTier}
       onChange={event => onChange({ ...line, priceTier: event.target.value as ProformaDraftLine["priceTier"], customUnitPrice: "" })}>
-      <option value="retail">Retail</option><option value="wholesale">Wholesale (where configured)</option>
+      <option value="retail" disabled={product?.retailPriceAvailable === false}>Retail</option><option value="wholesale">Wholesale (where configured)</option>
     </select></label>
     <div>
       <label>Custom quoted unit price {index + 1} (₦)<FinancialInput><input className="input mt-1 block w-full" inputMode="decimal"
