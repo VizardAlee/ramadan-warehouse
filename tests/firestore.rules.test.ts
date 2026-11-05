@@ -1018,3 +1018,20 @@ describe("financial branch metadata against actual branch rules", () => {
     await assertFails(store.doc("branches/branch-1").get());
   });
 });
+
+
+it("keeps branch prices scoped and their current and historical records server-write-only", async () => {
+  await seed();
+  await environment.withSecurityRulesDisabled(async context => {
+    for (const [id, branchId, organizationId] of [["local", "branch-1", "org-1"], ["other", "branch-2", "org-1"], ["foreign", "branch-1", "org-2"]])
+      await context.firestore().doc(`branchSalesPrices/${id}`).set({ organizationId, branchId, productId: "product-1", sellingPriceMinor: 2000, wholesalePriceMinor: 1800 });
+  });
+  const manager = environment.authenticatedContext("branch-manager").firestore();
+  const administrator = environment.authenticatedContext("admin").firestore();
+  await assertSucceeds(manager.doc("branchSalesPrices/local").get());
+  await assertFails(manager.doc("branchSalesPrices/other").get());
+  await assertFails(manager.doc("branchSalesPrices/foreign").get());
+  await assertFails(manager.doc("branchSalesPrices/local").update({ wholesalePriceMinor: 1 }));
+  await assertFails(administrator.doc("branchSalesPrices/local").update({ wholesalePriceMinor: 1 }));
+  await assertFails(administrator.doc("branchSalesPrices/local/versions/1").set({ organizationId: "org-1", wholesalePriceMinor: 1 }));
+});

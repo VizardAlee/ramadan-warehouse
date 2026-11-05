@@ -26,7 +26,7 @@ export function posLineUnitPriceMinor(line: PosCartLine): number {
 
 export function hasWholesalePrice(product: PosProduct): boolean {
   return Number.isSafeInteger(product.wholesalePriceMinor) && Number(product.wholesalePriceMinor) > 0 &&
-    Number.isSafeInteger(product.centralPriceVersion) && Number(product.centralPriceVersion) > 0;
+    Number.isSafeInteger(product.wholesalePriceVersion ?? product.centralPriceVersion) && Number(product.wholesalePriceVersion ?? product.centralPriceVersion) > 0;
 }
 
 export function changePosPriceTier(line: PosCartLine, catalog: PosProduct, tier: "retail" | "wholesale"): PosCartLine {
@@ -35,10 +35,13 @@ export function changePosPriceTier(line: PosCartLine, catalog: PosProduct, tier:
 }
 
 export function productForPriceTier(product: PosProduct, tier: "retail" | "wholesale"): PosProduct {
-  if (tier === "retail") return product;
+  if (tier === "retail") {
+    if (product.retailPriceAvailable === false) throw new Error(`Retail pricing is not configured for ${product.name}. Choose wholesale.`);
+    return product;
+  }
   if (!hasWholesalePrice(product))
     throw new Error(`Wholesale price is not configured for ${product.name}.`);
-  return { ...product, unitPriceMinor: Number(product.wholesalePriceMinor), priceVersion: Number(product.centralPriceVersion), priceSource: "wholesale" };
+  return { ...product, unitPriceMinor: Number(product.wholesalePriceMinor), priceVersion: Number(product.wholesalePriceVersion ?? product.centralPriceVersion), priceSource: product.wholesalePriceSource ?? "wholesale" };
 }
 
 export function reconcileHeldCart(
@@ -115,4 +118,8 @@ export function provisionalReceiptReference(
 ) {
   const date = now.toISOString().slice(0, 10).replaceAll("-", "");
   return `OFF-${branchCode}-${date}-${id.slice(0, 8).toUpperCase()}`;
+}
+
+export function defaultPosPriceTier(product: PosProduct, preferred: "retail" | "wholesale" = "retail"): "retail" | "wholesale" {
+  return (preferred === "wholesale" || product.retailPriceAvailable === false) && hasWholesalePrice(product) ? "wholesale" : "retail";
 }
