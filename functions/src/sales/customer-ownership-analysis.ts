@@ -49,7 +49,7 @@ export function analyzeCustomerOwnership(customer: Record<string, unknown>, bran
   if (currentBranchId && totals.some(entry => entry.branchId !== currentBranchId)) issues.push("history_owner_conflict");
   if (unattributedRecords) issues.push("unattributed_history");
   const financialReview = invalidAmounts || outstandingMinor === null || !Number.isSafeInteger(advanceMinor) || !Number.isSafeInteger(trackedUnpaidMinor) ||
-    outstandingMinor !== trackedUnpaidMinor || outstandingMinor > 0 && openInvoices.some(invoice => !invoice.tracked) ||
+    outstandingMinor !== trackedUnpaidMinor || openInvoices.some(invoice => !invoice.tracked) ||
     arrangements.reduce((sum, account) => sum + (account.outstandingMinor ?? 0), 0) > (outstandingMinor ?? 0) ||
     !records.length && advanceMinor > 0;
   if (financialReview) issues.push("balance_review_required");

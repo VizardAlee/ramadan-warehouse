@@ -2943,6 +2943,15 @@ describe("reviewed customer ownership", () => {
     expect((await customer.get()).get("branchId")).toBe(branchId); expect((await invoice.get()).data()).toEqual(posted);
     await expect(call(administrator, "getCustomerHistory", { action: "ownership_detail", customerId: "customer-outside-organization", ...all })).rejects.toMatchObject({ code: "functions/not-found" });
   });
+  it("does not treat a zero master balance as settlement evidence for an untracked legacy credit invoice", async () => {
+    const customerId = `ownership-legacy-zero-${crypto.randomUUID()}`;
+    await adminDb.doc(`customers/${customerId}`).set({ organizationId, customerNumber: customerId, name: "Legacy zero-master fixture", active: true, outstandingBalanceMinor: 0 });
+    await adminDb.doc(`sales/${customerId}`).set({ organizationId, branchId, customerId, saleNumber: "OWN-LEGACY", status: "completed", creditAmountMinor: 100 });
+    const detail = await call<{ fingerprint: string; blockers: string[]; allowedTargetBranchIds: string[] }>(administrator, "getCustomerHistory", { action: "ownership_detail", customerId, ...all });
+    expect(detail.blockers).toContain("balance_review_required"); expect(detail.allowedTargetBranchIds).toEqual([]);
+    await expect(call(administrator, "getCustomerHistory", { action: "ownership_assign", customerId, branchId, expectedFingerprint: detail.fingerprint, confirmedCustomerNumber: customerId, acknowledgeHistoryUnchanged: true, reason: "Unknown invoice debt cannot be assumed settled", idempotencyKey: crypto.randomUUID(), ...all })).rejects.toMatchObject({ code: "functions/failed-precondition", details: { code: "CUSTOMER_OWNERSHIP_REVIEW_REQUIRED" } });
+    expect((await adminDb.doc(`customers/${customerId}`).get()).get("branchId")).toBeUndefined();
+  });
   it("blocks ambiguous cross-branch history and exposes invoices and balances for review", async () => {
     const customerId = `ownership-conflict-${crypto.randomUUID()}`, other = `ownership-branch-${crypto.randomUUID()}`;
     await adminDb.doc(`branches/${other}`).set({ organizationId, name: "Other owner", status: "active" });
