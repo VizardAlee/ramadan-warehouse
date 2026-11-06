@@ -1,3 +1,5 @@
+import { customerInView, requireCustomerView, requireCustomerBranch } from "../sales/customer-scope.js";
+import { assignedBranchQuery } from "../auth/view-scope.js";
 import { scopedAccess, requirePermissionScope } from "../auth/permission-scope.js";
 import { accountReceipt } from "../accounting/account-receipt.js";
 import { receiveBilling, type MixedBilling, type BillingJournalLine } from "../billing/allocations.js";
@@ -14,7 +16,7 @@ import {
   hasRole,
   hasServerPermission,
   requireAccess,
-  requireBranchScope,
+  requireBranchViewScope as requireBranchScope,
   requirePermission,
 } from "../auth/authorize.js";
 import { enforceAppCheck } from "../config.js";
@@ -30,6 +32,7 @@ import {
   customerHistoryInput,
   decideCustomerCreditInput,
   saveCustomerInput,
+  customerRegisterInput,
 } from "../validation/sales.js";
 
 // Timestamp.toDate() can round a final nanosecond into the next millisecond.
@@ -40,16 +43,37 @@ function statementInstant(value: Timestamp) {
 }
 
 export const getCustomerHistory = onCall({ enforceAppCheck, timeoutSeconds: 300 }, async (request) => {
-  const actor = await requireAccess(request);
+  const actor = await scopedAccess(await requireAccess(request));
   requirePermission(actor, "customers.read");
+  if (request.data?.action === "list_customers") {
+    const input = parseInput(customerRegisterInput, request.data);
+    const term = input.searchField === "name" || input.searchField === "email" ? input.search.toLowerCase() : input.search;
+    const field = term ? ({ name: "normalizedName", number: "customerNumber", phone: "phone", email: "email" } as const)[input.searchField] : "customerNumber";
+    const globalRead = actor.organizationPermissions.includes("customers.read");
+    if (input.branchId) requirePermissionScope(actor, { branchId: input.branchId }, "customers.read");
+    let page = assignedBranchQuery(actor, db.collection("customers").where("organizationId", "==", actor.organizationId), globalRead, input.branchId).orderBy(field);
+    const fingerprint = createHash("sha256").update(JSON.stringify([actor.userId, actor.organizationId, actor.authorizationVersion, actor.branchIds, actor.organizationPermissions, actor.operatingContext, input.branchId, input.searchField, term, input.limit])).digest("hex");
+    if (input.cursor) {
+      let id: string;
+      try { const cursor = JSON.parse(Buffer.from(input.cursor, "base64url").toString()); if (cursor.fingerprint !== fingerprint || typeof cursor.id !== "string" || !/^[A-Za-z0-9_-]{1,160}$/.test(cursor.id)) throw Error(); id = cursor.id; }
+      catch { throw new HttpsError("invalid-argument", "Restart the customer register after changing branch, search or access."); }
+      const cursor = await db.doc(`customers/${id}`).get();
+      if (!cursor.exists || !customerInView(actor, cursor.data()!) || input.branchId && cursor.get("branchId") !== input.branchId || term && !String(cursor.get(field) ?? "").startsWith(term)) throw new HttpsError("invalid-argument", "This customer page belongs to another register.");
+      page = page.startAfter(cursor);
+    } else if (term) page = page.startAt(term);
+    if (term) page = page.endAt(`${term}\uf8ff`);
+    const result = await page.limit(input.limit + 1).get(), visible = result.docs.slice(0, input.limit);
+    const fields = ["organizationId", "branchId", "customerNumber", "name", "phone", "email", "address", "taxId", "pricingTier", "active", "creditStatus", "creditLimitMinor", "outstandingBalanceMinor", "availableCreditMinor", "arrangements", "advanceBalances", "createdAt", "createdBy", "updatedAt", "updatedBy"];
+    return { rows: visible.map(doc => ({ id: doc.id, ...Object.fromEntries(fields.flatMap(field => { const value = doc.get(field); return value === undefined ? [] : [[field, value instanceof Timestamp ? value.toDate().toISOString() : value]]; })) })), nextCursor: result.size > input.limit ? Buffer.from(JSON.stringify({ id: visible.at(-1)!.id, fingerprint })).toString("base64url") : null };
+  }
   const input = parseInput(customerHistoryInput, request.data);
   const customer = await db.doc(`customers/${input.customerId}`).get();
   if (!customer.exists || customer.get("organizationId") !== actor.organizationId)
     throw new HttpsError("not-found", "Customer not found.");
+  requireCustomerView(actor, customer.data()!);
   const allBranches = hasServerPermission(actor, "sales.read.all");
   const branchId = input.branchId ?? (!allBranches && actor.branchIds.length === 1 ? actor.branchIds[0] : undefined);
-  if (!allBranches && !branchId)
-    throw new HttpsError("invalid-argument", "Select an assigned branch for this customer history.");
+
   if (branchId) requireBranchScope(actor, branchId);
   if (input.view === "payment_receipt") {
     const payment = await db.doc(`customerPayments/${input.paymentId}`).get();
@@ -66,7 +90,7 @@ export const getCustomerHistory = onCall({ enforceAppCheck, timeoutSeconds: 300 
   if (input.view === "statement") {
     let query: FirebaseFirestore.Query = db.collection("customerAccountEntries")
       .where("organizationId", "==", actor.organizationId).where("customerId", "==", customer.id);
-    if (branchId) query = query.where("branchId", "==", branchId);
+    query = assignedBranchQuery(actor, query, allBranches, branchId);
     const summaryQuery = query;
     if (input.fromDate) query = query.where("effectiveAt", ">=", Timestamp.fromDate(new Date(`${input.fromDate}T00:00:00+01:00`)));
     if (input.toDate) query = query.where("effectiveAt", "<", Timestamp.fromMillis(Date.parse(`${input.toDate}T00:00:00+01:00`) + 86400000));
@@ -151,7 +175,7 @@ export const getCustomerHistory = onCall({ enforceAppCheck, timeoutSeconds: 300 
   }
   if (input.view === "receivables") {
     let base: FirebaseFirestore.Query = db.collection("sales").where("organizationId", "==", actor.organizationId).where("customerId", "==", customer.id).where("receivableStatus", "==", "open");
-    if (branchId) base = base.where("branchId", "==", branchId);
+    base = assignedBranchQuery(actor, base, allBranches, branchId);
     let page = base.orderBy("receivableDueDate").orderBy("__name__");
     if (input.cursor?.sale) {
       const start = await db.doc(`sales/${input.cursor.sale}`).get();
@@ -187,7 +211,7 @@ export const getCustomerHistory = onCall({ enforceAppCheck, timeoutSeconds: 300 
     let query: FirebaseFirestore.Query = db.collection(collection)
       .where("organizationId", "==", actor.organizationId)
       .where("customerId", "==", input.customerId);
-    if (branchId) query = query.where("branchId", "==", branchId);
+    query = assignedBranchQuery(actor, query, allBranches, branchId);
     query = query.orderBy(dateField, "desc");
     const cursorId = input.cursor?.[source];
     if (cursorId) {
@@ -287,7 +311,7 @@ function clean(values: Record<string, unknown>) {
 }
 
 export const saveCustomer = onCall({ enforceAppCheck }, async (request) => {
-  const actor = await requireAccess(request);
+  const actor = await scopedAccess(await requireAccess(request));
   requirePermission(actor, "customers.manage");
   const input = parseInput(saveCustomerInput, request.data);
   const customer = input.customerId
@@ -306,6 +330,9 @@ export const saveCustomer = onCall({ enforceAppCheck }, async (request) => {
       operation,
     );
     if (previousOperation!.exists) {
+      const original = await transaction.get(db.doc(`customers/${String(previousOperation!.get("entityId"))}`));
+      if (!original.exists) throw new HttpsError("not-found", "Customer not found.");
+      requireCustomerView(actor, original.data()!, "customers.manage");
       result = {
         customerId: String(previousOperation!.get("entityId")),
         customerNumber: String(previousOperation!.get("customerNumber")),
@@ -318,6 +345,15 @@ export const saveCustomer = onCall({ enforceAppCheck }, async (request) => {
       (!current!.exists || current!.get("organizationId") !== actor.organizationId)
     )
       throw new HttpsError("not-found", "Customer not found.");
+    if (current!.exists) requireCustomerView(actor, current!.data()!, "customers.manage");
+    if (!current!.exists && !input.branchId) throw new HttpsError("invalid-argument", "Choose the owning branch for this new customer.");
+    if (input.branchId) {
+      requireBranchScope(actor, input.branchId);
+      requirePermissionScope(actor, { branchId: input.branchId }, "customers.manage");
+      const owner = await transaction.get(db.doc(`branches/${input.branchId}`));
+      if (!owner.exists || owner.get("organizationId") !== actor.organizationId || owner.get("status") !== "active") throw new HttpsError("failed-precondition", "Choose an active customer branch in this organization.");
+    }
+    if (current!.exists && input.branchId && input.branchId !== current!.get("branchId")) throw new HttpsError("failed-precondition", "Customer ownership changes require a separate reviewed action.");
     if (
       current!.exists &&
       !input.active &&
@@ -363,6 +399,7 @@ export const saveCustomer = onCall({ enforceAppCheck }, async (request) => {
       transaction.create(customer, {
         organizationId: actor.organizationId,
         customerNumber,
+        branchId: input.branchId,
         ...mutable,
         creditStatus: "pending",
         creditLimitMinor: 0,
@@ -399,7 +436,7 @@ export const saveCustomer = onCall({ enforceAppCheck }, async (request) => {
 export const decideCustomerCredit = onCall(
   { enforceAppCheck },
   async (request) => {
-    const actor = await requireAccess(request);
+    const actor = await scopedAccess(await requireAccess(request));
     requirePermission(actor, "customers.credit.approve");
     if (!hasRole(actor, "system_administrator"))
       throw new HttpsError(
@@ -417,6 +454,7 @@ export const decideCustomerCredit = onCall(
       if (previousOperation!.exists) return;
       if (!current!.exists || current!.get("organizationId") !== actor.organizationId)
         throw new HttpsError("not-found", "Customer not found.");
+      requireCustomerView(actor, current!.data()!, "customers.credit.approve");
       if (current!.get("active") !== true && input.decision === "approve")
         throw new HttpsError("failed-precondition", "Activate the customer before approving credit.");
       const outstanding = Number(current!.get("outstandingBalanceMinor") ?? 0);
@@ -469,12 +507,14 @@ export const decideCustomerCredit = onCall(
 export const recordCustomerPayment = onCall(
   { enforceAppCheck },
   async (request) => {
-    const actor = await requireAccess(request);
+    const actor = await scopedAccess(await requireAccess(request));
     requirePermission(actor, "customers.payment.record");
     const input = parseInput(customerPaymentInput, request.data);
     const refund = input.purpose === "advance_refund";
     if (refund) requirePermission(actor, "sales.returns.approve");
     requireBranchScope(actor, input.branchId);
+    requirePermissionScope(actor, { branchId: input.branchId }, "customers.payment.record");
+    if (refund) requirePermissionScope(actor, { branchId: input.branchId }, "sales.returns.approve");
     const fingerprint = createHash("sha256").update(JSON.stringify(input)).digest("hex");
     const customer = db.doc(`customers/${input.customerId}`);
     const branch = db.doc(`branches/${input.branchId}`);
@@ -521,6 +561,7 @@ export const recordCustomerPayment = onCall(
       assertAccountingPeriodOpen(accountingPeriodSnapshot!);
       if (!current!.exists || current!.get("organizationId") !== actor.organizationId)
         throw new HttpsError("not-found", "Customer not found.");
+      requireCustomerBranch(current!.data()!, input.branchId);
       if (
         !branchSnapshot!.exists ||
         branchSnapshot!.get("organizationId") !== actor.organizationId ||

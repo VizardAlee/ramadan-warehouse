@@ -1,3 +1,4 @@
+import { requireView } from "../auth/view-scope.js";
 import {
   FieldValue,
   Timestamp,
@@ -241,6 +242,7 @@ function validateLocation(
       "failed-precondition",
       "Inventory location is unavailable.",
     );
+  if (!trustedTransfer) requireView(actor, { branchId: record.branchId, warehouseId: record.warehouseId });
   if (!trustedTransfer && record.warehouseId)
     requireWarehouseScope(actor, record.warehouseId);
   if (!trustedTransfer && record.branchId)

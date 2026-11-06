@@ -165,7 +165,8 @@ describe.sequential("inventory callables", () => {
     const scopedInstruction = { ...instruction, idempotencyKey: crypto.randomUUID() };
     await call(scopedManager, "createStockCount", scopedInstruction);
     await adminDb.doc(`users/${scopedManager.auth.currentUser!.uid}`).update({ branchIds: ["other-store"] });
-    await expect(call(scopedManager, "createStockCount", scopedInstruction)).rejects.toMatchObject({ code: "functions/permission-denied" });
+    await expect(call(scopedManager, "createStockCount", scopedInstruction)).rejects.toMatchObject({ code: "functions/failed-precondition", details: { code: "OPERATING_CONTEXT_MISMATCH" } });
+    await expect(call(scopedManager, "createStockCount", { ...scopedInstruction, operatingContext: { type: "all" } })).rejects.toMatchObject({ code: "functions/permission-denied" });
     const operation = adminDb.doc(`idempotencyKeys/${organizationId}_createStockCount_${instruction.idempotencyKey}`);
     await operation.update({ payloadFingerprint: FieldValue.delete() });
     expect(await call(administrator, "createStockCount", instruction)).toMatchObject({ stockCountId: first.stockCountId, created: false });

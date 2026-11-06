@@ -1,3 +1,4 @@
+import { requireView, viewQuery } from "../auth/view-scope.js";
 import {
   FieldPath,
   FieldValue,
@@ -55,6 +56,7 @@ function serialize(snapshot: Snapshot) {
   return output;
 }
 function assertReadScope(actor: AccessProfile, record: Snapshot) {
+  requireView(actor, record.data() ?? {});
   if (record.get("organizationId") !== actor.organizationId)
     throw new HttpsError("not-found", "Request not found.");
   if (hasServerPermission(actor, "requests.read.all")) return;
@@ -1389,6 +1391,7 @@ function scopedRequests(
   let query: Query = db
     .collection("branchRequests")
     .where("organizationId", "==", actor.organizationId);
+  query = viewQuery(actor, query);
   if (!hasServerPermission(actor, "requests.read.all")) {
     requirePermission(actor, "requests.read.own_branch");
     if (input.branchId) requireBranchScope(actor, input.branchId);

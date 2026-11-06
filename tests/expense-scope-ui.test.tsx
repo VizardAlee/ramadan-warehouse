@@ -19,17 +19,20 @@ beforeEach(() => {
 afterEach(() => { cleanup(); sessionStorage.clear(); });
 describe("expense authority and assigned-store initialization", () => {
   it("initializes a mixed-role local reader to an assigned store and keeps the provider panel in that scope", async () => {
-    render(<ExpensesPage />);
+    state.context = { type: "branch", id: "own" };
+    const view = render(<ExpensesPage />);
     await screen.findByText("EXP-own");
     expect(state.call).toHaveBeenCalledWith("getExpenseWorkspace", { view: "access" });
     const requests = state.call.mock.calls.filter(([name, input]) => name === "getExpenseWorkspace" && input.view !== "access");
     expect(requests[0]![1]).toEqual({ branchId: "own", limit: 25 });
     const picker = screen.getByLabelText("Expense register scope");
-    expect(within(picker).queryByRole("option", { name: "Entire organization" })).toBeNull();
+    expect(within(picker).getByRole("option", { name: "All authorized locations" })).toBeTruthy();
     expect(within(picker).queryByRole("option", { name: "Remote store" })).toBeNull();
     expect(screen.getByTestId("provider-scope").textContent).toBe("own:true");
     expect((screen.getByLabelText("Location") as HTMLSelectElement).value).toBe("own");
-    fireEvent.change(picker, { target: { value: "branch:second" } });
+    expect((picker as HTMLSelectElement).disabled).toBe(true);
+    state.context = { type: "branch", id: "second" };
+    view.rerender(<ExpensesPage />);
     await screen.findByText("EXP-second");
     expect(screen.queryByText("EXP-own")).toBeNull();
     expect(state.call).toHaveBeenCalledWith("getExpenseWorkspace", { branchId: "second", limit: 25 });
@@ -40,7 +43,7 @@ describe("expense authority and assigned-store initialization", () => {
     render(<ExpensesPage />);
     await screen.findByText("EXP-remote");
     expect(state.call).toHaveBeenCalledWith("getExpenseWorkspace", { limit: 25 });
-    expect(within(screen.getByLabelText("Expense register scope")).getByRole("option", { name: "Entire organization" })).toBeTruthy();
+    expect(within(screen.getByLabelText("Expense register scope")).getByRole("option", { name: "All authorized locations" })).toBeTruthy();
     expect(within(screen.getByLabelText("Allocate to")).queryByRole("option", { name: "Whole organization" })).toBeNull();
     expect(within(screen.getByLabelText("Location")).queryByRole("option", { name: "Remote store" })).toBeNull();
     expect(screen.getAllByRole("button", { name: "Approve" })).toHaveLength(1);
@@ -50,9 +53,11 @@ describe("expense authority and assigned-store initialization", () => {
     state.access.organizationPermissions = ["expenses.create"];
     render(<ExpensesPage />);
     await screen.findByText("EXP-own");
-    expect(state.call).toHaveBeenCalledWith("getExpenseWorkspace", { branchId: "own", limit: 25 });
+    expect(state.call).toHaveBeenCalledWith("getExpenseWorkspace", { limit: 25 });
+    expect(screen.queryByText("EXP-remote")).toBeNull();
     expect(within(screen.getByLabelText("Expense register scope")).queryByRole("option", { name: "Remote store" })).toBeNull();
     expect(within(screen.getByLabelText("Allocate to")).getByRole("option", { name: "Whole organization" })).toBeTruthy();
+    fireEvent.change(screen.getByLabelText("Allocate to"), { target: { value: "branch" } });
     expect(within(screen.getByLabelText("Location")).getByRole("option", { name: "Remote store" })).toBeTruthy();
     expect(screen.queryByText("EXP-remote")).toBeNull();
   });
@@ -80,7 +85,7 @@ describe("expense authority and assigned-store initialization", () => {
     view.rerender(<ExpensesPage />);
     await screen.findByText("EXP-own");
     expect(screen.queryByText("EXP-second")).toBeNull();
-    expect((screen.getByLabelText("Expense register scope") as HTMLSelectElement).value).toBe("branch:own");
+    expect((screen.getByLabelText("Expense register scope") as HTMLSelectElement).value).toBe("organization");
   });
   it("does not substitute another store for an unauthorized linked record", async () => {
     state.params = new URLSearchParams("caseId=service-case&branchId=remote");

@@ -22,10 +22,10 @@ interface Line {
 }
 export function TransferForm({ source }: { source: "request" | "direct" }) {
   const router = useRouter();
-  const branches = useOrganizationCollection<Branch>("branches");
-  const warehouses = useOrganizationCollection<Warehouse>("warehouses");
+  const branches = useOrganizationCollection<Branch>("branches", true, undefined, "authority");
+  const warehouses = useOrganizationCollection<Warehouse>("warehouses", true, undefined, "authority");
   const locations =
-    useOrganizationCollection<InventoryLocation>("inventoryLocations");
+    useOrganizationCollection<InventoryLocation>("inventoryLocations", true, undefined, "authority");
   const products = useOrganizationCollection<Product>("products");
   const [requests, setRequests] = useState<BranchRequest[]>([]);
   const [requestId, setRequestId] = useState("");

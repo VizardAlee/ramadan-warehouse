@@ -18,8 +18,8 @@ export type ActivityInput = z.infer<typeof activityInput>;
 export function activityBounds(input: Pick<ActivityInput, "fromDate" | "toDate">) {
   return { from: Date.parse(`${input.fromDate}T00:00:00+01:00`), until: Date.parse(`${input.toDate}T00:00:00+01:00`) + 86400000 };
 }
-export function activityFingerprint(scope: { userId: string; organizationId: string; authorizationVersion: number }, input: ActivityInput) {
-  return createHash("sha256").update(JSON.stringify([scope.userId, scope.organizationId, scope.authorizationVersion,
+export function activityFingerprint(scope: { userId: string; organizationId: string; authorizationVersion: number; operatingContext?: { type: string; id: string } }, input: ActivityInput) {
+  return createHash("sha256").update(JSON.stringify([scope.userId, scope.organizationId, scope.authorizationVersion, scope.operatingContext ?? null,
     input.fromDate, input.toDate, input.actorUserId, input.action, input.module, input.entityType, input.reference, input.pageSize])).digest("hex");
 }
 export interface ActivityCursor { v: 1; fingerprint: string; id: string; seconds: number; nanoseconds: number }

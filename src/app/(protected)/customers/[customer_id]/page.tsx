@@ -29,7 +29,7 @@ export default function CustomerHistoryPage() {
   const [toDate, setToDate] = useState("");
   const [accountId, setAccountId] = useState("");
   const [arrangementOptions, setArrangementOptions] = useState<NonNullable<CustomerHistory["customer"]["arrangements"]>>([]);
-  const branchId = canAllStores ? selectedBranchId : selectedBranchId || (operatingContext?.type === "branch" ? operatingContext.id : accessProfile?.branchIds[0] ?? "");
+  const branchId = operatingContext?.type === "branch" ? operatingContext.id : selectedBranchId;
   const [pageSize, setPageSize] = useState(25);
   const [pageStarts, setPageStarts] = useState<(CustomerHistoryCursor | null)[]>([null]);
   const [response, setResponse] = useState<{ key: string; result?: CustomerHistory; error?: string } | null>(null);
@@ -42,7 +42,7 @@ export default function CustomerHistoryPage() {
   const error = currentResponse?.error;
 
   useEffect(() => {
-    if (!customerId || !canRead || (!canAllStores && !branchId)) return;
+    if (!customerId || !canRead) return;
     const version = ++requestVersion.current;
     void callAdministration<object, CustomerHistory>("getCustomerHistory", {
       customerId,
@@ -96,7 +96,7 @@ export default function CustomerHistoryPage() {
       </label>}
       <label className="block max-w-sm text-sm font-medium">Activity at store
         <select value={branchId} onChange={(event) => { setSelectedBranchId(event.target.value); setPageStarts([null]); }} className="mt-1 w-full rounded-lg border p-3">
-          {canAllStores && <option value="">All stores</option>}
+          <option value="">All authorized branches</option>
           {visibleBranches.map((branch) => <option key={branch.id} value={branch.id}><FinancialText>{branch.name}</FinancialText></option>)}
         </select>
       </label>

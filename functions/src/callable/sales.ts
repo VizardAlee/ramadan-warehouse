@@ -1,5 +1,7 @@
+import { requireCustomerBranch } from "../sales/customer-scope.js";
 import { resolveDeviceShift } from "../sales/shift-session.js";
-import { requirePermissionScope, scopedAccess } from "../auth/permission-scope.js";
+import { assignedBranchQuery } from "../auth/view-scope.js";
+import { hasOrganizationPermission, requirePermissionScope, scopedAccess } from "../auth/permission-scope.js";
 import { readWaybillRegister } from "../sales/waybill-register.js";
 import { readPosFastMoving } from "../sales/pos-fast-moving-store.js";
 import { withRecordActors } from "../audit/record-actors.js";
@@ -16,7 +18,7 @@ import { AggregateField, FieldPath, FieldValue, Timestamp } from "firebase-admin
 import { logger } from "firebase-functions";
 import { createHash } from "node:crypto";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
-import type { z } from "zod";
+import { z } from "zod";
 import { db } from "../admin.js";
 import { requestFingerprint } from "../utils/request-fingerprint.js";
 import { accountingPeriodReference, assertAccountingPeriodOpen } from "../accounting/period-lock.js";
@@ -32,7 +34,7 @@ import {
   hasServerPermission,
   hasRole,
   requireAccess,
-  requireBranchScope,
+  requireBranchViewScope as requireBranchScope,
   requirePermission,
 } from "../auth/authorize.js";
 import { enforceAppCheck } from "../config.js";
@@ -94,15 +96,6 @@ function clean(values: Record<string, unknown>) {
 
 function iso(value: unknown): string | null {
   return value instanceof Timestamp ? value.toDate().toISOString() : null;
-}
-
-function canReadAllSales(actor: Awaited<ReturnType<typeof requireAccess>>) {
-  return ([
-    "system_administrator",
-    "operations_administrator",
-    "finance_officer",
-    "auditor",
-  ] as const).some((role) => hasRole(actor, role));
 }
 
 function branchPriceId(
@@ -413,12 +406,12 @@ export const getPosWorkspace = onCall(
       if (!branch.exists || branch.get("organizationId") !== actor.organizationId || branch.get("status") !== "active")
         throw new HttpsError("failed-precondition", "Branch is unavailable.");
       if ("customerId" in input.customerSearch) {
-        const customer = await readPosCustomer(actor.organizationId, input.customerSearch.customerId);
+        const customer = await readPosCustomer(actor.organizationId, input.customerSearch.customerId, input.branchId);
         return { customers: customer ? [customer] : [], nextCursor: null, scanned: 1, scanLimited: false, complete: true };
       }
       return searchPosCustomers({ organizationId: actor.organizationId, userId: actor.userId, branchId: input.branchId }, input.customerSearch);
     }
-    const selectedCustomer = input.customerId ? await readPosCustomer(actor.organizationId, input.customerId) : null;
+    const selectedCustomer = input.customerId ? await readPosCustomer(actor.organizationId, input.customerId, input.branchId) : null;
     const [
       branch,
       products,
@@ -467,6 +460,7 @@ export const getPosWorkspace = onCall(
         db
           .collection("customers")
           .where("organizationId", "==", actor.organizationId)
+          .where("branchId", "==", input.branchId)
           .limit(500)
           .get(),
         db.collection("salesCredits").where("organizationId", "==", actor.organizationId)
@@ -614,6 +608,14 @@ export const getSaleDocument = onCall(
   { enforceAppCheck },
   async (request) => {
     const actor = await requireAccess(request);
+    if (request.data?.action === "get_sales_voucher") {
+      if (!["sales.order.create", "sales.read.all", "sales.read.own_branch"].some(permission => hasServerPermission(actor, permission as Parameters<typeof hasServerPermission>[1]))) throw new HttpsError("permission-denied", "Sales voucher access requires existing sales authority.");
+      const { orderId } = parseInput(z.object({ action: z.literal("get_sales_voucher"), orderId: z.string().regex(/^[A-Za-z0-9_-]{1,160}$/) }), request.data);
+      const order = await db.doc(`salesOrders/${orderId}`).get();
+      if (!order.exists || order.get("organizationId") !== actor.organizationId) throw new HttpsError("not-found", "Sales voucher not found.");
+      requireBranchScope(actor, String(order.get("branchId")));
+      return { orderId: order.id, orderNumber: order.get("orderNumber"), branchName: order.get("branchName"), customerName: order.get("customerName") ?? "Customer name not recorded", grossAmountMinor: order.get("grossAmountMinor"), status: order.get("status"), createdBy: order.get("createdBy"), lines: order.get("voucherLines") ?? (order.get("payload.lines") ?? []).map((line: { productId: string; quantity: number }) => ({ productName: line.productId, quantity: line.quantity })) };
+    }
     if (["get_proforma", "list_proformas"].includes(request.data?.action)) return proformaRequest(actor, request.data);
     if (
       !hasServerPermission(actor, "reports.sales.read") &&
@@ -801,19 +803,19 @@ export const getSaleDocument = onCall(
 export const generateSalesReport = onCall(
   { enforceAppCheck, timeoutSeconds: 120 },
   async (request) => {
-    const actor = await requireAccess(request);
+    const actor = await scopedAccess(await requireAccess(request));
     requirePermission(actor, "reports.sales.read");
     const input = parseInput(salesReportInput, request.data);
+    const organizationWide = hasOrganizationPermission(actor, "reports.sales.read");
     let branchId = input.branchId;
-    if (!canReadAllSales(actor)) {
-      branchId ??= actor.branchIds.length === 1 ? actor.branchIds[0] : undefined;
-      if (!branchId)
-        throw new HttpsError("invalid-argument", "Select one assigned branch for this report.");
+    if (!organizationWide) branchId ??= actor.branchIds.length === 1 ? actor.branchIds[0] : undefined;
+    if (branchId) {
+      requirePermissionScope(actor, { branchId }, "reports.sales.read");
+      requireBranchScope(actor, branchId);
     }
-    if (branchId) requireBranchScope(actor, branchId);
     let query = db.collection("sales")
       .where("organizationId", "==", actor.organizationId);
-    if (branchId) query = query.where("branchId", "==", branchId);
+    query = assignedBranchQuery(actor, query, organizationWide, branchId);
     if (input.fromDate)
       query = query.where("recordedAt", ">=", Timestamp.fromDate(new Date(`${input.fromDate}T00:00:00.000+01:00`)));
     if (input.toDate) {
@@ -1178,6 +1180,7 @@ export const createPosSaleOrder = onCall(
         );
       if (input.customerId && (!customerSnapshot!.exists || customerSnapshot!.get("organizationId") !== actor.organizationId || customerSnapshot!.get("active") !== true))
         throw new HttpsError("failed-precondition", "Select an active customer from this organization.");
+      if (input.customerId) requireCustomerBranch(customerSnapshot!.data()!, input.branchId);
       const customerAccount = input.customerId ? selectedArrangement(customerSnapshot!.data()!, input.customerAccountId) : null;
       const advanceAmount = input.payments.find(payment => payment.method === "customer_advance")?.amountMinor ?? 0;
       if (advanceAmount > (moneyBalances(customerSnapshot!.get("advanceBalances"))[customerAccount?.id ?? "general"] ?? 0))
@@ -1217,6 +1220,8 @@ export const createPosSaleOrder = onCall(
         organizationId: actor.organizationId,
         branchId: input.branchId,
         branchName: branchSnapshot!.get("name"),
+        customerName: customerSnapshot!.exists ? customerSnapshot!.get("name") : "Walk-in customer",
+        voucherLines: orderProducts.map((product, index) => ({ productName: product.get("name"), sku: product.get("sku"), quantity: input.lines[index]!.quantity })),
         orderNumber,
         status: "order_received",
         customerId: input.customerId ?? null,
@@ -1438,9 +1443,10 @@ async function postPosSale(
   input: CommitSaleInput,
   allowWorkflowShift = false,
   workflowCreditAuthorization?: { authorizedBy: string; customerId: string; amountMinor: number },
-  deferCollection = false,
+  deferCollection = true,
   workflowOrder?: { id: string; confirmationIdempotencyKey: string },
 ) {
+  deferCollection = true;
   requirePermission(actor, "sales.create");
   if (input.payments.some(payment => payment.method === "customer_advance"))
     requirePermission(actor, "sales.payment.confirm");
@@ -1560,9 +1566,11 @@ async function postPosSale(
         orderSnapshot.get("branchId") !== input.branchId))
         throw new HttpsError("not-found", "Sales order not found.");
       if (previousOperation.exists) {
-        if (previousOperation.get("postingFingerprint") && previousOperation.get("postingFingerprint") !== postingFingerprint)
+        const historicalPostingFingerprint = createHash("sha256").update(JSON.stringify({ input, deferCollection: false, salesOrderId: workflowOrder?.id ?? null })).digest("hex");
+        const historicalSerialFingerprint = input.lines.some(line => line.serialNumbers?.length) ? createHash("sha256").update(JSON.stringify({ input, deferCollection: false })).digest("hex") : null;
+        if (previousOperation.get("postingFingerprint") && previousOperation.get("postingFingerprint") !== postingFingerprint && previousOperation.get("postingFingerprint") !== historicalPostingFingerprint)
           throw new HttpsError("invalid-argument", "This checkout reference belongs to different sale instructions. Retry the original sale.");
-        if (previousOperation.get("serialFingerprint") && previousOperation.get("serialFingerprint") !== serialFingerprint)
+        if (previousOperation.get("serialFingerprint") && previousOperation.get("serialFingerprint") !== serialFingerprint && previousOperation.get("serialFingerprint") !== historicalSerialFingerprint)
           throw new HttpsError("invalid-argument", "Retry the original serialized sale without changing its details.");
         if (orderSnapshot && !previousOperation.get("postingFingerprint")) {
           const created = orderSnapshot.get("createdAt"), posted = previousOperation.get("createdAt");
@@ -1641,6 +1649,7 @@ async function postPosSale(
           "failed-precondition",
           "Select an active customer from this organization.",
         );
+      if (input.customerId) requireCustomerBranch(customerSnapshot.data()!, input.branchId);
       const customerAccount = input.customerId ? selectedArrangement(customerSnapshot.data()!, input.customerAccountId) : null;
       const advanceAmount = input.payments.find(payment => payment.method === "customer_advance")?.amountMinor ?? 0;
       const advanceBalances = advanceAmount > 0
@@ -1924,6 +1933,11 @@ async function postPosSale(
         postedAt: now,
         createdAt: now,
         createdBy: actor.userId,
+        workflowVersion: 2,
+        voucherCreatedBy: orderSnapshot?.get("createdBy") ?? actor.userId,
+        paymentAcceptedBy: orderSnapshot?.get("paymentAcceptedBy") ?? actor.userId,
+        paymentConfirmedBy: actor.userId,
+        workflowSource: workflowOrder ? "sales_order" : "legacy_combined_authorized",
       }));
       transaction.create(receipt, clean({
         organizationId: actor.organizationId,
@@ -2353,7 +2367,7 @@ export const confirmPosSaleOrder = onCall(
       return collectReservedSale(actor, parseInput(collectSaleInput, request.data));
     requirePermission(actor, "sales.payment.confirm");
     const input = parseInput(confirmPosSaleOrderInput, request.data);
-    if (!input.deferCollection) requirePermission(actor, "sales.stock.release");
+
     const order = db.doc(`salesOrders/${input.orderId}`);
     const current = await order.get();
     if (
@@ -2387,7 +2401,7 @@ export const confirmPosSaleOrder = onCall(
             customerId: String(current.get("creditAuthorizedCustomerId")),
             amountMinor: Number(current.get("creditAuthorizedAmountMinor")) }
         : undefined;
-    const saleResult = await postPosSale(actor, payload, true, workflowCreditAuthorization, input.deferCollection, { id: order.id, confirmationIdempotencyKey: input.idempotencyKey });
+    const saleResult = await postPosSale(actor, payload, true, workflowCreditAuthorization, true, { id: order.id, confirmationIdempotencyKey: input.idempotencyKey });
     // Compatibility recovery for a sale posted before atomic order completion
     // was introduced. New postings have already completed this order atomically.
     await db.runTransaction(async (transaction) => {
@@ -2456,6 +2470,9 @@ export const commitPosSale = onCall(
   async (request) => {
     const actor = await requireAccess(request);
     const input = parseInput(commitSaleInput, request.data);
-    return postPosSale(actor, input);
+    requirePermission(actor, "sales.order.create");
+    requirePermission(actor, "sales.payment.accept");
+    requirePermission(actor, "sales.payment.confirm");
+    return postPosSale(actor, input, false, undefined, true);
   },
 );

@@ -1035,3 +1035,30 @@ it("keeps branch prices scoped and their current and historical records server-w
   await assertFails(administrator.doc("branchSalesPrices/local").update({ wholesalePriceMinor: 1 }));
   await assertFails(administrator.doc("branchSalesPrices/local/versions/1").set({ organizationId: "org-1", wholesalePriceMinor: 1 }));
 });
+
+
+describe("customer branch ownership rules", () => {
+  it("requires an assigned branch for raw reads and preserves unknown records for organization review", async () => {
+    await seed();
+    await environment.withSecurityRulesDisabled(async context => {
+      const db = context.firestore();
+      await db.doc("customers/customer-own").set({ organizationId: "org-1", branchId: "branch-1" });
+      await db.doc("customers/customer-other").set({ organizationId: "org-1", branchId: "branch-2" });
+      await db.doc("customers/customer-foreign").set({ organizationId: "org-2", branchId: "branch-1" });
+      await db.doc("users/custom-customer-reader").set({ organizationId: "org-1", status: "active", roleId: "operations_administrator", roleIds: ["operations_administrator"], directRoleIds: [], customRoleIds: ["customer-custom"], effectivePermissions: ["customers.read"], branchIds: ["branch-1"], warehouseIds: [] });
+    });
+    const manager = environment.authenticatedContext("branch-manager").firestore();
+    const custom = environment.authenticatedContext("custom-customer-reader").firestore();
+    const admin = environment.authenticatedContext("admin").firestore();
+    for (const db of [manager, custom]) {
+      await assertSucceeds(db.doc("customers/customer-own").get());
+      await assertFails(db.doc("customers/customer-other").get());
+      await assertFails(db.doc("customers/customer-1").get());
+      await assertFails(db.doc("customers/customer-foreign").get());
+      await assertFails(db.collection("customers").where("organizationId", "==", "org-1").get());
+      await assertSucceeds(db.collection("customers").where("organizationId", "==", "org-1").where("branchId", "==", "branch-1").get());
+    }
+    await assertSucceeds(admin.doc("customers/customer-1").get());
+    await assertFails(admin.doc("customers/customer-own").update({ branchId: "branch-2" }));
+  });
+});

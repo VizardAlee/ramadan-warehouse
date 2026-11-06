@@ -1,3 +1,4 @@
+import { assignedBranchQuery } from "../auth/view-scope.js";
 import { withRecordActors } from "../audit/record-actors.js";
 import { assertIndependentProviderExpense } from "../billing/expense-guard.js";
 import { createHash } from "node:crypto";
@@ -187,12 +188,12 @@ export const getExpenseWorkspace = onCall(
       permissions: actor.effectivePermissions, organizationPermissions: actor.organizationPermissions,
       branchIds: actor.branchIds, warehouseIds: actor.warehouseIds,
     };
-    requirePermissionScope(actor, { branchId: input.branchId, warehouseId: input.warehouseId }, "expenses.read");
+    if (input.branchId || input.warehouseId || hasOrganizationPermission(actor, "expenses.read")) requirePermissionScope(actor, { branchId: input.branchId, warehouseId: input.warehouseId }, "expenses.read");
     if (input.view === "choices") return { kind: input.choiceKind!, ...await loadExpenseChoices(actor, input.choiceKind!, input.choiceCursor) };
     const binding = expenseCursorBinding(actor.organizationId, actor.userId, input);
     const after = readExpenseCursor(input.cursor, binding);
     let query: FirebaseFirestore.Query = db.collection("expenses").where("organizationId", "==", actor.organizationId);
-    if (input.branchId) query = query.where("branchId", "==", input.branchId);
+    if (!input.warehouseId) query = assignedBranchQuery(actor, query, hasOrganizationPermission(actor, "expenses.read"), input.branchId);
     if (input.warehouseId) query = query.where("warehouseId", "==", input.warehouseId);
     query = query.orderBy(FieldPath.documentId());
     if (after) query = query.startAfter(after);

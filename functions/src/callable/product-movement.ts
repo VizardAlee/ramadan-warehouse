@@ -1,7 +1,8 @@
+import { assignedBranchQuery } from "../auth/view-scope.js";
 import { Timestamp } from "firebase-admin/firestore";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
 import { db } from "../admin.js";
-import { hasRole, hasServerPermission, requireAccess, requireBranchScope, requirePermission, type AccessProfile } from "../auth/authorize.js";
+import { hasRole, hasServerPermission, requireAccess, requireBranchViewScope as requireBranchScope, requirePermission, type AccessProfile } from "../auth/authorize.js";
 import { enforceAppCheck } from "../config.js";
 import { parseInput } from "../utils/callable.js";
 import { visitQueryPages } from "../utils/query-pages.js";
@@ -14,8 +15,7 @@ export function movementStoreScope(actor: AccessProfile, requested?: string) {
   if (broad) return requested;
   if (!hasRole(actor, "branch_manager") || actor.warehouseIds.length || !actor.branchIds.length) throw new HttpsError("permission-denied", "Customer movement requires an assigned Store inventory context.");
   const branch = requested ?? (actor.branchIds.length === 1 ? actor.branchIds[0] : undefined);
-  if (!branch) throw new HttpsError("invalid-argument", "Select an assigned Store.");
-  requireBranchScope(actor, branch); return branch;
+  if (branch) requireBranchScope(actor, branch); return branch;
 }
 const evidence = (doc: FirebaseFirestore.DocumentSnapshot): MovementEvidence | undefined => doc.exists ? { ...doc.data(), id: doc.id } : undefined;
 export const getProductMovement = onCall({ enforceAppCheck, timeoutSeconds: 300 }, async request => {
@@ -33,7 +33,7 @@ export const getProductMovement = onCall({ enforceAppCheck, timeoutSeconds: 300 
   let query: FirebaseFirestore.Query = db.collection("inventoryEntries").where("organizationId", "==", actor.organizationId)
     .where("effectiveAt", ">=", Timestamp.fromDate(new Date(`${input.fromDate}T00:00:00+01:00`)))
     .where("effectiveAt", "<", Timestamp.fromMillis(Date.parse(`${input.toDate}T00:00:00+01:00`) + 86_400_000)).orderBy("effectiveAt", "desc");
-  if (branchId) query = query.where("branchId", "==", branchId);
+  query = assignedBranchQuery(actor, query, ["system_administrator", "operations_administrator", "finance_officer", "auditor"].some(role => hasRole(actor, role as Parameters<typeof hasRole>[1])), branchId);
   try {
     await visitQueryPages(query, async docs => {
       scannedEntries += docs.length;
@@ -68,7 +68,7 @@ export const getProductMovement = onCall({ enforceAppCheck, timeoutSeconds: 300 
     // including zero balances. No global catalogue permission is inferred.
     const balances = new Map<string, number>();
     let balanceQuery: FirebaseFirestore.Query = db.collection("inventoryBalances").where("organizationId", "==", actor.organizationId);
-    if (branchId) balanceQuery = balanceQuery.where("branchId", "==", branchId);
+    balanceQuery = assignedBranchQuery(actor, balanceQuery, ["system_administrator", "operations_administrator", "finance_officer", "auditor"].some(role => hasRole(actor, role as Parameters<typeof hasRole>[1])), branchId);
     await visitQueryPages(balanceQuery.select("productId", "branchId", "locationId", "onHandQuantity"), docs => {
       scannedBalances += docs.length;
       if (scannedBalances > 100000) throw new HttpsError("resource-exhausted", "More than 100,000 current balances; no partial report was returned.");

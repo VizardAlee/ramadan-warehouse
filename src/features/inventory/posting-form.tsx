@@ -3,7 +3,7 @@ import { FinancialInput, FinancialMessage, FinancialText, FinancialValue } from 
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Controller, useForm, useWatch } from "react-hook-form";
 import { z } from "zod";
 import { Button } from "@/components/ui/button";
@@ -44,7 +44,7 @@ const schema = z.object({
     )
     .optional(),
   effectiveAt: z.string().min(1),
-  reason: z.string().min(3, "Enter a short reason."),
+  reason: z.string().trim().min(5, "Enter a reason of at least 5 characters.").max(500),
   referenceNumber: z.string().optional(),
   serialText: z.string(),
   lotNumber: z.string().optional(),
@@ -103,9 +103,13 @@ const config = {
 export function PostingForm({
   mode,
   initialProductId,
+  initialLocationId,
+  replacementReference,
 }: {
   mode: keyof typeof config;
   initialProductId?: string;
+  initialLocationId?: string;
+  replacementReference?: string;
 }) {
   const { profile } = useAuth();
   const products = useOrganizationCollection<Product>("products");
@@ -117,15 +121,20 @@ export function PostingForm({
     useOrganizationCollection<InventoryLocation>("inventoryLocations");
   const branches = useOrganizationCollection<Branch>("branches");
   const [message, setMessage] = useState<string | null>(null);
+  const retryKey = useRef<string | null>(null);
+  const [overrideCostProduct, setOverrideCostProduct] = useState<string | null>(null);
   const form = useForm<Values, unknown, ParsedValues>({
     resolver: zodResolver(schema),
     defaultValues: {
       ...defaults,
       productId: initialProductId ?? "",
-      reason: mode === "opening" ? "Initial stock setup" : "",
+      destinationLocationId: initialLocationId ?? "",
+      referenceNumber: replacementReference ? `Correction of ${replacementReference}` : "",
+      reason: replacementReference ? `Replacement of opening stock ${replacementReference}` : mode === "opening" ? "Initial stock setup" : "",
     },
   });
   const productId = useWatch({ control: form.control, name: "productId" });
+  const overrideOpeningCost = overrideCostProduct === productId;
   const quantity = useWatch({ control: form.control, name: "quantity" });
   const product = products.data.find((item) => item.id === productId);
   const configuredUnitCostMinor = productCosts.data.find(
@@ -194,7 +203,7 @@ export function PostingForm({
     openingOwnersWithoutLocations,
     products.data,
   ]);
-  const submit = form.handleSubmit(async (values) => {
+  const submit = async (values: ParsedValues) => {
     setMessage(null);
     const destinationRequired = mode === "opening" || mode === "receipt";
     if (destinationRequired && !values.destinationLocationId) {
@@ -219,7 +228,7 @@ export function PostingForm({
     }
     if (
       (mode === "opening" &&
-        configuredUnitCostMinor === undefined &&
+        (configuredUnitCostMinor === undefined || overrideOpeningCost) &&
         values.unitCostNaira === undefined) ||
       (mode === "receipt" && values.unitCostNaira === undefined)
     ) {
@@ -282,7 +291,7 @@ export function PostingForm({
         reason: values.reason,
         referenceNumber: values.referenceNumber || undefined,
         serialNumbers: serials.values,
-        idempotencyKey: crypto.randomUUID(),
+        idempotencyKey: retryKey.current ??= crypto.randomUUID(),
       };
       const lot =
         product?.trackingType === "batch"
@@ -319,6 +328,7 @@ export function PostingForm({
                     ? openingStockUnitCost(
                         configuredUnitCostMinor,
                         enteredUnitCostMinor,
+                        overrideOpeningCost,
                       )
                     : enteredUnitCostMinor,
                 externalAccount: mode === "opening" ? "migration" : "supplier",
@@ -330,9 +340,11 @@ export function PostingForm({
       >(config[mode].callable, payload);
       setMessage(
         result.posted
-          ? `Stock added successfully. Reference: ${result.transactionNumber}.`
-          : `This stock was already added. Reference: ${result.transactionNumber}.`,
+          ? `${mode === "adjustment" ? "Stock adjustment" : mode === "movement" ? "Stock movement" : "Stock entry"} recorded successfully. Reference: ${result.transactionNumber}.`
+          : `This stock entry was already recorded. Reference: ${result.transactionNumber}.`,
       );
+      retryKey.current = null;
+      setOverrideCostProduct(null);
       form.reset({
         ...defaults,
         productId: initialProductId ?? "",
@@ -345,7 +357,7 @@ export function PostingForm({
           : "Stock could not be added. Review the highlighted fields and try again.",
       );
     }
-  });
+  };
   if (!profile || !hasPermission(profile, config[mode].permission))
     return (
       <div className="rounded-xl border bg-white p-8">
@@ -356,7 +368,7 @@ export function PostingForm({
       </div>
     );
   return (
-    <form onSubmit={submit} className="max-w-3xl space-y-5">
+    <form onSubmit={event => { void form.handleSubmit(submit)(event); }} className="max-w-3xl space-y-5">
       <div>
         <h1 className="text-3xl font-semibold">
           <FinancialText>{mode === "opening" ? "Add initial stock" : config[mode].title}</FinancialText>
@@ -367,6 +379,7 @@ export function PostingForm({
             : "Record the inventory movement securely."}</FinancialText>
         </p>
       </div>
+      {replacementReference && <p className="rounded-lg border bg-amber-50 p-3 text-sm">Replacement for <FinancialText>{replacementReference}</FinancialText>. Review the quantity, unit cost and location. This posts a new opening entry; it does not change the original history.</p>}
       {message && (
         <p className="rounded-lg bg-amber-50 p-3 text-sm"><FinancialMessage>{message}</FinancialMessage></p>
       )}
@@ -389,7 +402,7 @@ export function PostingForm({
               .filter((item) => item.active && item.itemKind !== "service")
               .map((item) => (
                 <option key={item.id} value={item.id}>
-                  <FinancialText>{item.sku}</FinancialText> — <FinancialText>{item.name}</FinancialText>
+                  <FinancialText>{item.name}</FinancialText> · <FinancialText>{item.sku}</FinancialText>
                 </option>
               ))}
           </select>
@@ -519,7 +532,8 @@ export function PostingForm({
             </span>
           )}
         </label>
-        {mode === "opening" && configuredUnitCostMinor !== undefined ? (
+        {mode === "opening" && configuredUnitCostMinor !== undefined && <label className="text-sm md:col-span-2"><input type="checkbox" checked={overrideOpeningCost} onChange={event => setOverrideCostProduct(event.target.checked ? productId : null)} /> Use a different unit cost for this entry. The product default stays unchanged.</label>}
+        {mode === "opening" && configuredUnitCostMinor !== undefined && !overrideOpeningCost ? (
           <div className="rounded-lg border bg-slate-50 p-3 text-sm">
             <span className="block text-[var(--muted)]">
               Unit cost from product
@@ -534,7 +548,7 @@ export function PostingForm({
         ) : mode !== "movement" ? (
           <label className="text-sm">
             <FinancialText>{mode === "opening"
-              ? "Unit cost (₦ — no product default configured)"
+              ? overrideOpeningCost ? "Replacement unit cost (₦)" : "Unit cost (₦ — no product default configured)"
               : "Unit cost (₦)"}</FinancialText>
             <FinancialInput><input
               type="number"
@@ -658,6 +672,7 @@ export function PostingForm({
               <label className="text-sm md:col-span-2">
                 Reason
                 <textarea {...form.register("reason")} className="mt-1 w-full rounded-lg border p-2.5" />
+                {form.formState.errors.reason?.message && <span role="alert" className="mt-1 block text-xs text-red-700"><FinancialMessage>{form.formState.errors.reason.message}</FinancialMessage></span>}
               </label>
             </div>
           </details>
@@ -665,6 +680,7 @@ export function PostingForm({
           <label className="text-sm md:col-span-2">
             Reason
             <textarea {...form.register("reason")} className="mt-1 w-full rounded-lg border p-2.5" />
+                {form.formState.errors.reason?.message && <span role="alert" className="mt-1 block text-xs text-red-700"><FinancialMessage>{form.formState.errors.reason.message}</FinancialMessage></span>}
           </label>
         )}
         <div className="md:col-span-2">

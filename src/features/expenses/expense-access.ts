@@ -7,6 +7,7 @@ export interface ExpenseAccess {
 }
 export function hasExpenseScope(access: ExpenseAccess | undefined, scope: ExpenseScope, permission: PermissionId) {
   return Boolean(access?.permissions.includes(permission) && (access.organizationPermissions.includes(permission) ||
+    permission === "expenses.read" && !scope.branchId && !scope.warehouseId && access.branchIds.length > 0 ||
     Boolean(scope.branchId || scope.warehouseId) && (!scope.branchId || access.branchIds.includes(scope.branchId)) &&
     (!scope.warehouseId || access.warehouseIds.includes(scope.warehouseId))));
 }

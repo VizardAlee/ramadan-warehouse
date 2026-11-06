@@ -3,7 +3,7 @@ import { FinancialMessage, FinancialText, FinancialValue } from "@/features/fina
 
 import Link from "next/link";
 import { ArrowRight, ArrowUpRight, Building2, Compass, RefreshCw, Search, Sparkles } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { callAdministration } from "@/features/administration/api";
 import { useAuth } from "@/features/auth/auth-context";
 import { formatNaira } from "@/features/inventory/format";
@@ -23,10 +23,11 @@ const metricValue = (metric: CeoMetric) => metric.state === "not_configured" ? "
 const panel = "ceo-panel p-5 sm:p-7";
 
 export function CeoView() {
-  const { profile, setOperatingContext } = useAuth();
+  const { profile, operatingContext, setOperatingContext } = useAuth();
   const allowed = canReadCeoView(profile);
   const accessKey = JSON.stringify([profile?.organizationId, profile?.uid, profile?.authorizationVersion, profile?.roleId, profile?.roleIds, profile?.effectivePermissions]);
-  const [filters, setFilters] = useState({ ...ceoPreset(30), branchId: "" });
+  const [localFilters, setFilters] = useState({ ...ceoPreset(30), branchId: "" });
+  const filters = useMemo(() => ({ ...localFilters, branchId: operatingContext?.type === "branch" ? operatingContext.id : "" }), [localFilters, operatingContext]);
   const [draft, setDraft] = useState(filters);
   const [initialized, setInitialized] = useState(false);
   const [loadedWorkspace, setWorkspace] = useState<{ accessKey: string; data: CeoDashboard } | null>(null);
@@ -39,9 +40,9 @@ export function CeoView() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search), defaults = ceoPreset(30);
     const date = (key: string, fallback: string) => /^\d{4}-\d{2}-\d{2}$/.test(params.get(key) ?? "") ? params.get(key)! : fallback;
-    const restored = { fromDate: date("fromDate", defaults.fromDate), toDate: date("toDate", defaults.toDate), branchId: params.get("branchId") ?? "" };
+    const restored = { fromDate: date("fromDate", defaults.fromDate), toDate: date("toDate", defaults.toDate), branchId: operatingContext?.type === "branch" ? operatingContext.id : params.get("branchId") ?? "" };
     queueMicrotask(() => { setFilters(restored); setDraft(restored); setInitialized(true); });
-  }, []);
+  }, [operatingContext]);
   useEffect(() => {
     if (!allowed || !initialized) return;
     let active = true;
@@ -66,7 +67,7 @@ export function CeoView() {
   const invoiced = period.find(item => item.id === "invoiced");
   const go = (branchId = filters.branchId) => setOperatingContext(branchId ? { type: "branch", id: branchId } : null);
   const href = (path: string, from = filters.fromDate, to = filters.toDate, branch = filters.branchId) => ceoDrilldown(path, from, to, branch);
-  const apply = (next: typeof filters) => { setFilters(next); setDraft(next); setCursor(""); };
+  const apply = (next: typeof filters) => { setOperatingContext(next.branchId ? { type: "branch", id: next.branchId } : null); setFilters(next); setDraft(next); setCursor(""); };
   const card = (metric: CeoMetric) => <Link key={metric.id} href={href(metric.href)} onClick={() => go()} className={`ceo-metric group ${["invoiced", "checkout", "credit"].includes(metric.id) ? "ceo-metric-primary" : ""}`}>
     <span className="flex items-start justify-between gap-3 text-sm ceo-copy"><FinancialText>{metric.label}</FinancialText><ArrowUpRight className="size-4 shrink-0 ceo-accent" aria-hidden="true" /></span>
     <strong className="mt-4 block break-words text-2xl font-semibold tracking-tight tabular-nums sm:text-3xl"><FinancialValue financial={metric.money}>{metricValue(metric)}</FinancialValue></strong>

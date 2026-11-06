@@ -1,6 +1,7 @@
 export function openingStockUnitCost(
   configuredUnitCostMinor: number | undefined,
   enteredUnitCostMinor: number | undefined,
+  useEnteredCost = false,
 ): number | undefined {
-  return configuredUnitCostMinor ?? enteredUnitCostMinor;
+  return useEnteredCost ? enteredUnitCostMinor : configuredUnitCostMinor ?? enteredUnitCostMinor;
 }

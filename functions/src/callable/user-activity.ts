@@ -1,3 +1,5 @@
+import { matchesView } from "../auth/view-scope.js";
+import { auditLocation } from "../audit/activity-projection.js";
 import { FieldPath, Timestamp, type Query, type QueryDocumentSnapshot } from "firebase-admin/firestore";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
 import { db } from "../admin.js";
@@ -31,7 +33,7 @@ export const getUserActivity = onCall({ enforceAppCheck, timeoutSeconds: 60 }, a
     let processed = 0;
     for (const doc of page.docs) {
       last = doc; scanned++; processed++;
-      if (matchesActivity(doc.data(), input)) matches.push(doc);
+      if (matchesView(actor, auditLocation(doc.get("locationEvidence")) ?? auditLocation(doc.get("after")) ?? auditLocation(doc.get("before")) ?? {}, { branch: ["branchId", "sourceBranchId", "destinationBranchId"], warehouse: ["warehouseId", "sourceWarehouseId", "destinationWarehouseId"] }) && matchesActivity(doc.data(), input)) matches.push(doc);
       if (matches.length === input.pageSize) break;
     }
     hasMore = processed < page.size || page.size === limit;
@@ -44,6 +46,6 @@ export const getUserActivity = onCall({ enforceAppCheck, timeoutSeconds: 60 }, a
     rows: matches.map(doc => projectActivity(doc.id, doc.data(), names[String(doc.get("actorUserId"))])),
     nextCursor: hasMore && last && time ? encodeActivityCursor({ v: 1, fingerprint, id: last.id, seconds: time.seconds, nanoseconds: time.nanoseconds }) : null,
     scanned, scanLimited: hasMore && scanned === 1000, fromDate: input.fromDate, toDate: input.toDate,
-    note: "Recorded events only; not every click or read. Dates use Africa/Lagos. Current names are not historical identity evidence. Refresh to include newer events.",
+    note: `${actor.operatingContext ? "Only events with recorded evidence for this location are included; unattributed historical events are available in All locations. " : ""}Recorded events only; not every click or read. Dates use Africa/Lagos. Current names are not historical identity evidence. Refresh to include newer events.`,
   };
 });

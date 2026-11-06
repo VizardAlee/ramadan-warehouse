@@ -108,6 +108,7 @@ export async function loadCeoDashboard(actor: AccessProfile, input: z.infer<type
   }
   pending.push((async () => {
     let q: FirebaseFirestore.Query = org("branches").orderBy(FieldPath.documentId());
+    if (input.branchId) q = q.where(FieldPath.documentId(), "==", input.branchId);
     if (input.branchCursor) {
       const cursor = await db.doc(`branches/${input.branchCursor}`).get();
       if (!cursor.exists || cursor.get("organizationId") !== actor.organizationId) throw new Error("Invalid branch page.");

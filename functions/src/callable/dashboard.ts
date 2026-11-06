@@ -1,3 +1,4 @@
+import { assignedBranchQuery } from "../auth/view-scope.js";
 import { AggregateField, Filter, Timestamp } from "firebase-admin/firestore";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
 import { z } from "zod";
@@ -12,8 +13,13 @@ import { ceoInput, loadCeoDashboard } from "../dashboard/ceo.js";
 const inputSchema = z.object({ branchId: z.string().min(1).max(128).optional(), warehouseId: z.string().min(1).max(128).optional(), section: z.enum(["all", "operations", "sales"]).default("all") })
   .refine((input) => !(input.branchId && input.warehouseId), "Select one operating location.");
 async function count(query: FirebaseFirestore.Query) { return safeMinor((await query.count().get()).data().count); }
-async function active(query: FirebaseFirestore.Query, terminal: string[]) {
-  const [all, ended] = await Promise.all([count(query), count(query.where("status", "in", terminal))]);
+async function statusCount(query: FirebaseFirestore.Query, statuses: string[], width = 15) {
+  const groups = Array.from({ length: Math.ceil(statuses.length / width) }, (_, index) => statuses.slice(index * width, (index + 1) * width));
+  const values = await Promise.all(groups.map(group => count(query.where("status", "in", group))));
+  return values.reduce((sum, value) => sum + value, 0);
+}
+async function active(query: FirebaseFirestore.Query, terminal: string[], width = 15) {
+  const [all, ended] = await Promise.all([count(query), statusCount(query, terminal, width)]);
   return Math.max(0, all - ended);
 }
 function scopedTransfer(query: FirebaseFirestore.Query, branchId: string | undefined, warehouseId: string | undefined, simple: boolean) {
@@ -45,33 +51,65 @@ export const getDashboardWorkspace = onCall({ enforceAppCheck, timeoutSeconds: 1
   const result: DashboardWorkspace = { asOf: now.toISOString(), fromDate: new Date(from.toMillis() + 3_600_000).toISOString().slice(0, 10), toDate: date,
     summary: { requests: null, transfers: null, products: null, discrepancies: null }, pipeline: [], sales: null, trend: [], paymentMix: [] };
   const work: Promise<unknown>[] = [];
-  if (input.section !== "sales" && hasServerPermission(actor, "products.read")) work.push(count(organizationQuery("products").where("active", "==", true)).then((value) => { result.summary.products = value; }));
+  if (input.section !== "sales" && hasServerPermission(actor, "products.read")) {
+    const scopedProducts = Boolean(input.branchId || input.warehouseId || actor.operatingContext);
+    if (!scopedProducts) work.push(count(organizationQuery("products").where("active", "==", true)).then(value => { result.summary.products = value; }));
+    else if (hasServerPermission(actor, "inventory.read")) work.push((async () => {
+      let query: FirebaseFirestore.Query = organizationQuery("inventoryBalances");
+      if (input.branchId) query = query.where("branchId", "==", input.branchId);
+      if (input.warehouseId) query = query.where("warehouseId", "==", input.warehouseId);
+      const balances = await query.select("productId").limit(10001).get();
+      if (balances.size > 10000) return; // Explicitly unavailable, never a partial count.
+      const ids = [...new Set(balances.docs.map(doc => doc.get("productId")).filter((id): id is string => typeof id === "string" && /^[A-Za-z0-9_-]{1,160}$/.test(id)))];
+      let total = 0;
+      for (let offset = 0; offset < ids.length; offset += 400) {
+        const products = await db.getAll(...ids.slice(offset, offset + 400).map(id => db.doc(`products/${id}`)));
+        total += products.filter(doc => doc.exists && doc.get("organizationId") === actor.organizationId && doc.get("active") === true).length;
+      }
+      result.summary.products = total;
+    })());
+  }
   const requestBranch = input.branchId ?? (!hasServerPermission(actor, "requests.read.all") && actor.branchIds.length === 1 ? actor.branchIds[0] : undefined);
-  if (input.section !== "sales" && (hasServerPermission(actor, "requests.read.all") || (hasServerPermission(actor, "requests.read.own_branch") && requestBranch))) {
+  if (input.section !== "sales" && (hasServerPermission(actor, "requests.read.all") || (hasServerPermission(actor, "requests.read.own_branch") && actor.branchIds.length > 0))) {
     let query: FirebaseFirestore.Query = organizationQuery("branchRequests");
-    if (requestBranch) { requireBranchScope(actor, requestBranch); query = query.where("branchId", "==", requestBranch); }
+    if (requestBranch) requireBranchScope(actor, requestBranch);
+    query = assignedBranchQuery(actor, query, hasServerPermission(actor, "requests.read.all"), requestBranch);
     work.push(active(query, ["fulfilled", "cancelled", "closed", "rejected"]).then((value) => { result.summary.requests = value; }));
   }
   const orgTransfers = hasServerPermission(actor, "transfers.read.all");
   const transferBranch = input.branchId ?? (!orgTransfers && !input.warehouseId && actor.branchIds.length === 1 ? actor.branchIds[0] : undefined);
   const transferWarehouse = input.warehouseId ?? (!orgTransfers && !transferBranch && actor.warehouseIds.length === 1 ? actor.warehouseIds[0] : undefined);
-  const mayReadScopedTransfers = (transferBranch && hasServerPermission(actor, "transfers.read.own_branch")) || (transferWarehouse && hasServerPermission(actor, "transfers.read.assigned_warehouse"));
+  const mayReadScopedTransfers = (actor.branchIds.length > 0 && hasServerPermission(actor, "transfers.read.own_branch")) || (actor.warehouseIds.length > 0 && hasServerPermission(actor, "transfers.read.assigned_warehouse"));
   if (input.section !== "sales" && (orgTransfers || mayReadScopedTransfers)) {
     if (transferBranch) requireBranchScope(actor, transferBranch);
     if (transferWarehouse) requireWarehouseScope(actor, transferWarehouse);
-    const queries = ["transfers", "stockTransfers"].map((collection) => scopedTransfer(organizationQuery(collection), transferBranch, transferWarehouse, collection === "stockTransfers"));
-    work.push(Promise.all(queries.map((query) => active(query, ["closed", "cancelled", "completed"]))).then((values) => { result.summary.transfers = values.reduce((sum, value) => sum + value, 0); }));
-    work.push(Promise.all(queries.map((query) => count(query.where("status", "in", ["disputed", "problem"])))).then((values) => { result.summary.discrepancies = values.reduce((sum, value) => sum + value, 0); }));
+    const queries = ["transfers", "stockTransfers"].map(collection => {
+      let query: FirebaseFirestore.Query = scopedTransfer(organizationQuery(collection), transferBranch, transferWarehouse, collection === "stockTransfers");
+      if (!orgTransfers && !transferBranch && !transferWarehouse) {
+        if (hasServerPermission(actor, "transfers.read.own_branch") && actor.branchIds.length) {
+          if (actor.branchIds.length > 10) throw new HttpsError("resource-exhausted", "Choose a branch to review this transfer overview; no partial totals were returned.");
+          query = query.where(Filter.or(Filter.where("sourceBranchId", "in", actor.branchIds), Filter.where("destinationBranchId", "in", actor.branchIds)));
+        } else {
+          if (!actor.warehouseIds.length || actor.warehouseIds.length > 30) throw new HttpsError("resource-exhausted", "Choose an assigned warehouse to review this overview.");
+          query = query.where(collection === "stockTransfers" ? "sourceWarehouseId" : "originWarehouseId", "in", actor.warehouseIds);
+        }
+      }
+      return query;
+    });
+    const statusWidth = !orgTransfers && !transferBranch && !transferWarehouse && actor.branchIds.length ? Math.max(1, Math.floor(30 / (2 * actor.branchIds.length))) : 15;
+    work.push(Promise.all(queries.map((query) => active(query, ["closed", "cancelled", "completed"], statusWidth))).then((values) => { result.summary.transfers = values.reduce((sum, value) => sum + value, 0); }));
+    work.push(Promise.all(queries.map((query) => statusCount(query, ["disputed", "problem"], statusWidth))).then((values) => { result.summary.discrepancies = values.reduce((sum, value) => sum + value, 0); }));
     work.push(Promise.all(Object.entries(pipelineStages).map(async ([label, statuses]) => {
-      const values = await Promise.all(queries.map((query) => count(query.where("status", "in", statuses))));
+      const values = await Promise.all(queries.map((query) => statusCount(query, statuses, statusWidth)));
       return { label, value: values.reduce((sum, value) => sum + value, 0) };
     })).then((values) => { result.pipeline = values; }));
   }
   const orgSales = hasServerPermission(actor, "sales.read.all");
   const salesBranch = input.branchId ?? (!orgSales && actor.branchIds.length === 1 ? actor.branchIds[0] : undefined);
-  if (input.section !== "operations" && !input.warehouseId && hasServerPermission(actor, "reports.sales.read") && (orgSales || salesBranch)) {
+  if (input.section !== "operations" && !input.warehouseId && hasServerPermission(actor, "reports.sales.read") && (orgSales || actor.branchIds.length > 0)) {
     let query: FirebaseFirestore.Query = organizationQuery("sales");
-    if (salesBranch) { requireBranchScope(actor, salesBranch); query = query.where("branchId", "==", salesBranch); }
+    if (salesBranch) requireBranchScope(actor, salesBranch);
+    query = assignedBranchQuery(actor, query, orgSales, salesBranch);
     const base = query.where("recordedAt", ">=", from).where("recordedAt", "<=", Timestamp.fromDate(now));
     work.push(Promise.all([count(base), base.aggregate({ grossAmountMinor: AggregateField.sum("grossAmountMinor"), amountPaidMinor: AggregateField.sum("amountPaidMinor"), creditAmountMinor: AggregateField.sum("creditAmountMinor") }).get()])
       .then(([saleCount, totals]) => { const data = totals.data(); result.sales = { saleCount, grossAmountMinor: safeMinor(data.grossAmountMinor), amountPaidMinor: safeMinor(data.amountPaidMinor), creditAmountMinor: safeMinor(data.creditAmountMinor) }; }));

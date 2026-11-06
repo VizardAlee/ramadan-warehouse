@@ -1,3 +1,5 @@
+import { assignedBranchQuery } from "../auth/view-scope.js";
+import { requireCustomerBranch } from "../sales/customer-scope.js";
 import { centralSalesPrice, resolveCatalogPrice, resolveCatalogVatRate } from "../sales/pricing.js";
 import { FieldPath, FieldValue, Timestamp } from "firebase-admin/firestore";
 import { createHash } from "node:crypto";
@@ -13,7 +15,7 @@ import {
   hasRole,
   hasServerPermission,
   requireAccess,
-  requireBranchScope,
+  requireBranchViewScope as requireBranchScope,
   requirePermission,
 } from "../auth/authorize.js";
 import { enforceAppCheck } from "../config.js";
@@ -87,7 +89,7 @@ export const getAftersalesWorkspace = onCall(
     if (input.branchId) query = query.where("branchId", "==", input.branchId);
     const [cases, customers, products, bankAccounts, sales, suppliers, servicePrices, branchPrices] = await Promise.all([
       query.limit(input.limit).get(),
-      db.collection("customers").where("organizationId", "==", actor.organizationId).limit(500).get(),
+      assignedBranchQuery(actor, db.collection("customers").where("organizationId", "==", actor.organizationId), hasServerPermission(actor, "sales.read.all"), input.branchId).limit(500).get(),
       db.collection("products").where("organizationId", "==", actor.organizationId).limit(500).get(),
       db.collection("bankAccounts").where("organizationId", "==", actor.organizationId).where("active", "==", true).limit(100).get(),
       db.collection("sales").where("organizationId", "==", actor.organizationId).limit(200).get(),
@@ -152,6 +154,7 @@ export const createAftersalesCase = onCall(
       }
       if (!branchSnapshot!.exists || branchSnapshot!.get("organizationId") !== actor.organizationId || branchSnapshot!.get("status") !== "active")
         throw new HttpsError("failed-precondition", "The selected store is unavailable.");
+      if (customerSnapshot!.exists) requireCustomerBranch(customerSnapshot!.data()!, input.branchId);
       if (!customerSnapshot!.exists || customerSnapshot!.get("organizationId") !== actor.organizationId || customerSnapshot!.get("active") !== true)
         throw new HttpsError("failed-precondition", "Select an active customer from this organization.");
       if (input.productId && (!productSnapshot!.exists || productSnapshot!.get("organizationId") !== actor.organizationId || productSnapshot!.get("itemKind") === "service"))

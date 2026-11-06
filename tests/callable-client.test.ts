@@ -56,8 +56,8 @@ describe("callAdministration", () => {
     ).resolves.toEqual({ rows: [] });
     expect(mocks.getIdToken).toHaveBeenCalledWith(true);
     expect(mocks.callable).toHaveBeenCalledTimes(2);
-    expect(mocks.callable).toHaveBeenNthCalledWith(1, { limit: 50 });
-    expect(mocks.callable).toHaveBeenNthCalledWith(2, { limit: 50 });
+    expect(mocks.callable).toHaveBeenNthCalledWith(1, { limit: 50, operatingContext: { type: "all" } });
+    expect(mocks.callable).toHaveBeenNthCalledWith(2, { limit: 50, operatingContext: { type: "all" } });
   });
 
   it("does not retry ordinary permission failures", async () => {
@@ -91,7 +91,7 @@ describe("callAdministration", () => {
 
   it("includes the selected operating context in callable requests", async () => {
     vi.stubGlobal("window", {
-      localStorage: {
+      sessionStorage: {
         getItem: () => JSON.stringify({ type: "branch", id: "branch-1" }),
       },
     });

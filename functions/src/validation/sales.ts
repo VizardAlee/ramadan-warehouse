@@ -81,6 +81,7 @@ export const salesReportInput = z.object({
 export const saveCustomerInput = z
   .object({
     customerId: id.optional(),
+    branchId: id.optional(),
     name: z.string().trim().min(2).max(160),
     phone: z.string().trim().regex(/^0\d{10}$/, "Use an 11-digit Nigerian number beginning with 0.").optional(),
     email: z.string().trim().email().max(254).optional(),
@@ -442,4 +443,12 @@ export const rejectPosSaleOrderInput = z.object({
   orderId: id,
   reason: z.string().trim().min(5).max(500),
   idempotencyKey: z.string().uuid(),
+});
+
+export const customerRegisterInput = z.object({
+  action: z.literal("list_customers"), branchId: id.optional(),
+  searchField: z.enum(["name", "number", "phone", "email"]).default("name"),
+  search: z.string().trim().max(160).default(""),
+  limit: z.union([z.literal(25), z.literal(50), z.literal(100)]).default(25),
+  cursor: z.string().max(1500).optional(),
 });

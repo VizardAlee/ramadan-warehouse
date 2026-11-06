@@ -79,7 +79,7 @@ describe("operating context", () => {
     ).toBe(profile);
   });
 
-  it("does not scope organization-wide administrators", () => {
+  it("scopes the administrator view while preserving organization-wide roles", () => {
     const administrator = {
       ...profile,
       roleId: "system_administrator",
@@ -92,6 +92,6 @@ describe("operating context", () => {
         type: "branch",
         id: "any-organization-branch",
       }),
-    ).toBe(administrator);
+    ).toMatchObject({ roleIds: administrator.roleIds, branchIds: ["any-organization-branch"], warehouseIds: [] });
   });
 });

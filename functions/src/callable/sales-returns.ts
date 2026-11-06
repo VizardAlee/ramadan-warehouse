@@ -13,7 +13,7 @@ import { writeAuditLog } from "../audit/write-audit-log.js";
 import {
   canSelfAuthorize,
   requireAccess,
-  requireBranchScope,
+  requireBranchViewScope as requireBranchScope,
   requirePermission,
 } from "../auth/authorize.js";
 import { enforceAppCheck } from "../config.js";

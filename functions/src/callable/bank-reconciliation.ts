@@ -1,3 +1,4 @@
+import { matchesView, viewQuery, requireAllLocations } from "../auth/view-scope.js";
 import { createHash } from "node:crypto";
 import { FieldValue, Timestamp } from "firebase-admin/firestore";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
@@ -187,8 +188,8 @@ export const getBankReconciliationWorkspace = onCall(
       .where("organizationId", "==", actor.organizationId)
       .get();
     const stores = await db.collection("branches").where("organizationId", "==", actor.organizationId).where("status", "==", "active").get();
-    const branches = stores.docs.map(row => ({ id: row.id, name: row.get("name") }));
-    const accounts = accountsSnapshot.docs.map((document) => ({
+    const branches = stores.docs.filter(doc => !actor.operatingContext || actor.operatingContext.type === "branch" && doc.id === actor.operatingContext.id).map(row => ({ id: row.id, name: row.get("name") }));
+    const accounts = accountsSnapshot.docs.filter(doc => matchesView(actor, doc.data())).map((document) => ({
       id: document.id,
       ...document.data(),
     }));
@@ -202,7 +203,7 @@ export const getBankReconciliationWorkspace = onCall(
     const account = accountsSnapshot.docs.find(
       (document) => document.id === input.bankAccountId,
     );
-    if (!account) throw new HttpsError("not-found", "Bank account not found.");
+    if (!account || !matchesView(actor, account.data())) throw new HttpsError("not-found", "Bank account not found in the selected location. Shared company accounts require All locations.");
     const [statements, lines, reconciliations] = await Promise.all([
       db
         .collection("bankStatementTransactions")
@@ -210,9 +211,9 @@ export const getBankReconciliationWorkspace = onCall(
         .where("bankAccountId", "==", account.id)
         .limit(500)
         .get(),
-      db
+      viewQuery(actor, db
         .collection("journalLines")
-        .where("organizationId", "==", actor.organizationId)
+        .where("organizationId", "==", actor.organizationId))
         .where("accountCode", "==", String(account.get("ledgerAccountCode")))
         .limit(500)
         .get(),
@@ -250,6 +251,7 @@ export const getBankReconciliationWorkspace = onCall(
 
 export const saveBankAccount = onCall({ enforceAppCheck }, async (request) => {
   const actor = await scopedAccess(await requireAccess(request));
+  requireAllLocations(actor);
   requirePermissionScope(actor, {}, "banking.manage");
   const input = parseInput(saveBankAccountInput, request.data);
   const account = input.bankAccountId

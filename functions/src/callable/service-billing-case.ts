@@ -1,7 +1,7 @@
 import { HttpsError, onCall } from "firebase-functions/v2/https";
 import { z } from "zod";
 import { db } from "../admin.js";
-import { hasServerPermission, requireAccess, requireBranchScope, requirePermission } from "../auth/authorize.js";
+import { hasServerPermission, requireAccess, requireBranchViewScope as requireBranchScope, requirePermission } from "../auth/authorize.js";
 import { enforceAppCheck } from "../config.js";
 import { parseInput } from "../utils/callable.js";
 const caseSchema = z.object({ caseId: z.string().regex(/^[A-Za-z0-9_-]{1,128}$/), branchId: z.string().regex(/^[A-Za-z0-9_-]{1,128}$/), serviceItemId: z.string().regex(/^[A-Za-z0-9_-]{1,128}$/), customerId: z.string().regex(/^[A-Za-z0-9_-]{1,128}$/).optional() });

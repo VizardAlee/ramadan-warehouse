@@ -1,8 +1,9 @@
+import { assignedBranchQuery } from "../auth/view-scope.js";
 import { Timestamp } from "firebase-admin/firestore";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
 import { productPerformanceInput } from "../validation/product-performance.js";
 import { db } from "../admin.js";
-import { hasServerPermission, requireAccess, requireBranchScope, requirePermission } from "../auth/authorize.js";
+import { hasServerPermission, requireAccess, requireBranchViewScope as requireBranchScope, requirePermission } from "../auth/authorize.js";
 import { enforceAppCheck } from "../config.js";
 import { parseInput } from "../utils/callable.js";
 import { visitQueryPages } from "../utils/query-pages.js";
@@ -13,14 +14,14 @@ export const getProductMargins = onCall({ enforceAppCheck, timeoutSeconds: 300 }
   let branchId = input.branchId;
   if (!hasServerPermission(actor, "sales.read.all")) {
     branchId ??= actor.branchIds.length === 1 ? actor.branchIds[0] : undefined;
-    if (!branchId) throw new HttpsError("invalid-argument", "Select an assigned store for product margins.");
+
   }
   if (branchId) requireBranchScope(actor, branchId);
   const startedAt = new Date().toISOString();
   let sales: FirebaseFirestore.Query = db.collection("sales").where("organizationId", "==", actor.organizationId)
     .where("recordedAt", ">=", Timestamp.fromDate(new Date(`${input.fromDate}T00:00:00+01:00`)))
     .where("recordedAt", "<", Timestamp.fromMillis(Date.parse(`${input.toDate}T00:00:00+01:00`) + 86_400_000));
-  if (branchId) sales = sales.where("branchId", "==", branchId);
+  sales = assignedBranchQuery(actor, sales, hasServerPermission(actor, "sales.read.all"), branchId);
   const totals = new Map<string, ProductMargin>(); let invoiceCount = 0, selectedInvoiceCount = 0;
   const providerFunds = { originalMinor: 0, creditedMinor: 0, netMinor: 0 };
   try {

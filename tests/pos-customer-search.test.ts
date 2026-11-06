@@ -3,14 +3,14 @@ const state = vi.hoisted(() => ({ rows: [] as Array<Record<string, unknown> & { 
 function document(row?: Record<string, unknown> & { id: string }) {
   return { id: row?.id ?? "missing", exists: Boolean(row), get: (key: string) => row?.[key], data: () => row };
 }
-function query(organizationId?: string, after = "", count = 100) {
+function query(organizationId?: string, after = "", count = 100, branchId?: string) {
   return {
-    where: (_field: string, _operator: string, value: string) => query(value, after, count),
-    orderBy: () => query(organizationId, after, count),
-    startAfter: (anchor: { id: string }) => query(organizationId, anchor.id, count),
-    limit: (value: number) => query(organizationId, after, value),
+    where: (field: string, _operator: string, value: string) => query(field === "organizationId" ? value : organizationId, after, count, field === "branchId" ? value : branchId),
+    orderBy: () => query(organizationId, after, count, branchId),
+    startAfter: (anchor: { id: string }) => query(organizationId, anchor.id, count, branchId),
+    limit: (value: number) => query(organizationId, after, value, branchId),
     get: async () => {
-      const rows = state.rows.filter(row => row.organizationId === organizationId && row.id > after).sort((a, b) => a.id.localeCompare(b.id)).slice(0, count).map(document);
+      const rows = state.rows.filter(row => row.organizationId === organizationId && (!branchId || row.branchId === branchId) && row.id > after).sort((a, b) => a.id.localeCompare(b.id)).slice(0, count).map(document);
       return { docs: rows, empty: rows.length === 0, size: rows.length };
     },
   };
@@ -19,7 +19,7 @@ vi.mock("../functions/src/admin.js", () => ({ db: { collection: () => query(), d
 import { readPosCustomer, searchPosCustomers } from "../functions/src/sales/pos-customer-search";
 import { posWorkspaceInput } from "../functions/src/validation/sales";
 const scope = { organizationId: "org", userId: "cashier", branchId: "store" };
-function customer(id: string, name: string, extra = {}) { return { id, name, customerNumber: `CUS-${id}`, organizationId: "org", active: true, ...extra }; }
+function customer(id: string, name: string, extra = {}) { return { id, name, customerNumber: `CUS-${id}`, organizationId: "org", branchId: "store", active: true, ...extra }; }
 beforeEach(() => { state.rows = []; });
 describe("POS name search through existing authorized workspace", () => {
   it("finds a case-insensitive middle-name fragment beyond500 and explicitly continues past1000", async () => {
@@ -43,8 +43,8 @@ describe("POS name search through existing authorized workspace", () => {
     const result = await searchPosCustomers(scope, { query: "yam", limit: 25 });
     expect(result.customers.map(row => [row.id, row.customerNumber])).toEqual([["a", "CUS-a"], ["b", "CUS-b"]]);
     expect(Object.keys(result.customers[0]!).sort()).toEqual(["id", "customerNumber", "name", "pricingTier", "arrangements", "advanceBalances", "phone", "creditStatus", "creditLimitMinor", "outstandingBalanceMinor", "availableCreditMinor"].sort());
-    expect(await readPosCustomer("org", "c")).toBeNull(); expect(await readPosCustomer("org", "d")).toBeNull();
-    expect(await readPosCustomer("org", "b")).toMatchObject({ id: "b", name: "Maryam Buyer" });
+    expect(await readPosCustomer("org", "c", "store")).toBeNull(); expect(await readPosCustomer("org", "d", "store")).toBeNull();
+    expect(await readPosCustomer("org", "b", "store")).toMatchObject({ id: "b", name: "Maryam Buyer" });
   });
   it("binds continuation to the viewer, branch, organization, search and page size", async () => {
     state.rows = [customer("a", "Buyer"), customer("b", "Buyer")];

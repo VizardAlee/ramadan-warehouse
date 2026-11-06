@@ -106,7 +106,7 @@ export default function CustomersPage() {
     activeBranches[0]?.id ||
     "";
   const initialHistoryBranchId = contextBranchId || assignedBranchId ||
-    (profile && hasPermission(profile, "sales.read.all") ? "" : accessProfile?.branchIds[0] ?? "");
+    "";
   const visible = customers.data;
   let paymentMinor = 0;
   try { paymentMinor = nairaToKobo(Number(paymentAmount)); } catch { /* submit explains invalid amounts */ }
@@ -179,6 +179,7 @@ export default function CustomersPage() {
         { customerNumber: string }
       >("saveCustomer", {
         customerId: selected?.id,
+        branchId: selected ? selected.branchId : contextBranchId || manualBranchId || undefined,
         ...form,
         phone: form.phone || undefined,
         email: form.email || undefined,
@@ -544,6 +545,7 @@ export default function CustomersPage() {
                     className="mt-1 w-full rounded-lg border p-3"
                   />
                 </label>
+                {!selected && <label className="text-sm font-medium">Customer branch<select required disabled={Boolean(contextBranchId)} value={contextBranchId || manualBranchId} onChange={event => setManualBranchId(event.target.value)} className="mt-1 w-full rounded-lg border p-3"><option value="">Choose the owning branch</option>{activeBranches.map(branch => <option key={branch.id} value={branch.id}>{branch.name}</option>)}</select></label>}
                 <label className="text-sm font-medium">
                   Phone (070 format)
                   <input

@@ -1,3 +1,4 @@
+import { assignedBranchQuery } from "../auth/view-scope.js";
 import { withRecordActors } from "../audit/record-actors.js";
 import { createHash } from "node:crypto";
 import { FieldPath, FieldValue, Timestamp } from "firebase-admin/firestore";
@@ -41,11 +42,12 @@ export const accountingJournals = onCall({ enforceAppCheck }, async request => {
   }
   if (input.action === "workspace") {
     const branchId = input.branchId ?? (!organizationWide && actor.branchIds.length === 1 ? actor.branchIds[0] : undefined);
-    assertScope(branchId);
+    if (branchId || organizationWide) assertScope(branchId);
+    else for (const id of actor.branchIds) assertScope(id);
     let query: FirebaseFirestore.Query = db.collection("journalEntries").where("organizationId", "==", actor.organizationId)
       .where("effectiveAt", ">=", Timestamp.fromDate(new Date(`${input.fromDate}T00:00:00Z`)))
       .where("effectiveAt", "<=", Timestamp.fromDate(new Date(`${input.toDate}T23:59:59.999Z`)));
-    if (branchId) query = query.where("branchId", "==", branchId);
+    query = assignedBranchQuery(actor, query, organizationWide, branchId);
     query = query.orderBy("effectiveAt", "desc").orderBy(FieldPath.documentId(), "desc");
     if (input.cursorId) {
       const cursor = await db.doc(`journalEntries/${input.cursorId}`).get();

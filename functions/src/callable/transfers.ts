@@ -1,3 +1,4 @@
+import { requireView, viewQuery } from "../auth/view-scope.js";
 import { withRecordActors } from "../audit/record-actors.js";
 import {
   FieldPath,
@@ -107,6 +108,7 @@ const serialize = (snapshot: Snapshot) => {
   return output;
 };
 function assertTransferScope(actor: AccessProfile, transfer: Snapshot) {
+  requireView(actor, transfer.data() ?? {}, { branch: ["sourceBranchId", "destinationBranchId"], warehouse: ["originWarehouseId"] });
   if (
     !transfer.exists ||
     transfer.get("organizationId") !== actor.organizationId
@@ -3495,6 +3497,7 @@ export const listTransfers = onCall({ enforceAppCheck }, async (request) => {
   let query: Query = db
     .collection("transfers")
     .where("organizationId", "==", actor.organizationId);
+  query = viewQuery(actor, query, { branch: ["sourceBranchId", "destinationBranchId"], warehouse: ["originWarehouseId"] });
   if (!hasServerPermission(actor, "transfers.read.all")) {
     if (hasServerPermission(actor, "transfers.read.assigned_warehouse")) {
       if (input.warehouseId) requireWarehouseScope(actor, input.warehouseId);
@@ -3503,7 +3506,7 @@ export const listTransfers = onCall({ enforceAppCheck }, async (request) => {
         "in",
         input.warehouseId
           ? [input.warehouseId]
-          : actor.warehouseIds.slice(0, 10),
+          : [...actor.warehouseIds],
       );
     } else {
       requirePermission(actor, "transfers.read.own_branch");
@@ -3511,13 +3514,13 @@ export const listTransfers = onCall({ enforceAppCheck }, async (request) => {
       query = query.where(
         "destinationBranchId",
         "in",
-        input.branchId ? [input.branchId] : actor.branchIds.slice(0, 10),
+        input.branchId ? [input.branchId] : [...actor.branchIds],
       );
     }
   } else {
     if (input.warehouseId)
       query = query.where("originWarehouseId", "==", input.warehouseId);
-    if (input.branchId)
+    if (input.branchId && !actor.operatingContext)
       query = query.where("destinationBranchId", "==", input.branchId);
   }
   if (input.status) query = query.where("status", "==", input.status);

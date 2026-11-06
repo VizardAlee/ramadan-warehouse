@@ -1,3 +1,5 @@
+import { inventoryProductLabels } from "../inventory/product-labels.js";
+import { requireView } from "../auth/view-scope.js";
 import { FieldPath, FieldValue, Timestamp } from "firebase-admin/firestore";
 import { createHash } from "node:crypto";
 import { stockAccounting } from "../accounting/stock-postings.js";
@@ -32,6 +34,7 @@ function requireCountScope(
   actor: AccessProfile,
   count: { get(field: string): unknown },
 ) {
+  requireView(actor, { branchId: count.get("branchId"), warehouseId: count.get("warehouseId") });
   const warehouseId = count.get("warehouseId");
   const branchId = count.get("branchId");
   if (typeof warehouseId === "string")
@@ -91,7 +94,7 @@ export const getStockCountWorkspace = onCall(
     return {
       count: { id: count.id, ...count.data() },
       nextCursor: items.size > input.limit ? page.at(-1)!.id : null,
-      items: page.map((item) => {
+      items: await inventoryProductLabels(actor.organizationId, page.map((item) => {
         const data = { id: item.id, ...item.data() } as Record<string, unknown>;
         if (hideExpected) {
           delete data.expectedQuantity;
@@ -99,7 +102,7 @@ export const getStockCountWorkspace = onCall(
           delete data.variance;
         }
         return data;
-      }),
+      })),
     };
   },
 );

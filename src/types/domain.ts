@@ -231,6 +231,8 @@ export interface CustomerArrangement {
 }
 
 export interface Customer {
+  /** Absent on legacy records awaiting explicit ownership review. */
+  branchId?: string;
   advanceBalances?: Record<string, number>;
   arrangements?: CustomerArrangement[];
   pricingTier?: "retail" | "wholesale";
@@ -836,6 +838,7 @@ export interface InventoryEntry {
   transactionType: InventoryTransactionType;
   productId: string;
   sku: string;
+  productName?: string;
   locationId?: string;
   counterpartyLocationId?: string;
   externalAccount?: string;
@@ -860,6 +863,7 @@ export interface InventoryBalance {
   organizationId: string;
   productId: string;
   sku: string;
+  productName?: string;
   trackingType?: ProductTrackingType;
   locationId: string;
   warehouseId?: string;
@@ -893,6 +897,7 @@ export interface SerializedItem {
   organizationId: string;
   productId: string;
   sku: string;
+  productName?: string;
   serialNumber: string;
   normalizedSerialNumber: string;
   currentLocationId: string | null;

@@ -102,7 +102,8 @@ describe.sequential("store daily close", () => {
     const financeStores = await call<{ rows: Array<{ id: string }> }>(financeOfficer, "getDailyCloseWorkspace", { action: "locations" });
     expect(financeStores.rows.map((store) => store.id)).toContain(branchId);
     expect(financeStores.rows.map((store) => store.id)).not.toContain("daily-foreign-store");
-    await expect(call(manager, "getDailyCloseWorkspace", { branchId: "daily-other-store", date })).rejects.toMatchObject({ code: "functions/permission-denied" });
+    await expect(call(manager, "getDailyCloseWorkspace", { branchId: "daily-other-store", date })).rejects.toMatchObject({ code: "functions/failed-precondition", details: { code: "OPERATING_CONTEXT_MISMATCH" } });
+    await expect(call(manager, "getDailyCloseWorkspace", { branchId: "daily-other-store", date, operatingContext: { type: "all" } })).rejects.toMatchObject({ code: "functions/permission-denied" });
     await expect(call(administrator, "getDailyCloseWorkspace", { branchId: "daily-foreign-store", date })).rejects.toMatchObject({ code: "functions/not-found" });
     await expect(call(cashier, "getDailyCloseWorkspace", { branchId, date })).rejects.toMatchObject({ code: "functions/permission-denied" });
   });
@@ -155,6 +156,7 @@ describe.sequential("bounded dashboard aggregates", () => {
     await adminDb.doc("sales/dashboard-foreign").set({ organizationId: "other-org", branchId, recordedAt: now, grossAmountMinor: 999999, amountPaidMinor: 999999, creditAmountMinor: 0, paymentStatus: "recorded" });
     await adminDb.doc("sales/dashboard-other").set({ organizationId, branchId: "daily-other-store", recordedAt: now, grossAmountMinor: 500, amountPaidMinor: 500, creditAmountMinor: 0, paymentStatus: "recorded" });
     await adminDb.doc("products/dashboard-product").set({ organizationId, active: true });
+    await adminDb.doc("inventoryBalances/dashboard-product").set({ organizationId, branchId, productId: "dashboard-product", onHandQuantity: 1 });
     await adminDb.doc("products/dashboard-inactive").set({ organizationId, active: false });
     await adminDb.doc("branchRequests/dashboard-request").set({ organizationId, branchId, status: "submitted" });
     await adminDb.doc("branchRequests/dashboard-complete").set({ organizationId, branchId, status: "closed" });
@@ -175,7 +177,7 @@ describe.sequential("bounded dashboard aggregates", () => {
     await adminDb.doc(`users/${custom.auth.currentUser!.uid}`).update({ branchIds: [branchId], directRoleIds: [], customRoleIds: ["limited-role"], effectivePermissions: ["products.read"] });
     const limited = await call<Dashboard>(custom, "getDashboardWorkspace", { branchId });
     expect(limited.sales).toBeNull();
-    expect(limited.summary).toEqual({ requests: null, transfers: null, discrepancies: null, products: 1 });
+    expect(limited.summary).toEqual({ requests: null, transfers: null, discrepancies: null, products: null });
     await expect(call(custom, "getDailyCloseWorkspace", { branchId, date: "2025-02-05" })).rejects.toMatchObject({ code: "functions/permission-denied" });
   });
 });
@@ -292,8 +294,8 @@ describe.sequential("daily-close action-specific role scope", () => {
     const actor = await createActor("daily-custom-assigned@example.test", "branch_manager");
     const role = await assign(actor, [], "branch_manager", ["daily.close.read", "daily.close.prepare", "daily.close.approve"], "scope-custom-assigned");
     expect((await stores(actor)).rows.map(row => row.id)).toEqual([own]);
-    await expect(workspace(actor, remote, "2025-06-15")).rejects.toMatchObject({ code: "functions/permission-denied" });
-    await expect(workspace(actor, foreign, "2025-06-15")).rejects.toMatchObject({ code: "functions/permission-denied" });
+    await expect(workspace(actor, remote, "2025-06-15")).rejects.toMatchObject({ code: "functions/failed-precondition", details: { code: "OPERATING_CONTEXT_MISMATCH" } });
+    await expect(workspace(actor, foreign, "2025-06-15")).rejects.toMatchObject({ code: "functions/failed-precondition", details: { code: "OPERATING_CONTEXT_MISMATCH" } });
     const prepared = await prepare(actor, own, "2025-06-15");
     await expect(call(actor, "signDailyClose", { branchId: own, date: "2025-06-15", version: prepared.result.version, idempotencyKey: key() })).resolves.toMatchObject({ signed: true });
     await role.update({ status: "inactive" });

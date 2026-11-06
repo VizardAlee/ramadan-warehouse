@@ -26,6 +26,7 @@ import {
   nairaToKobo,
 } from "@/features/inventory/format";
 import { hasPermission } from "@/lib/permissions/roles";
+import { useBranchPriceColumns } from "@/features/products/branch-price-columns";
 import { BranchPrices } from "@/features/products/branch-prices";
 import { CatalogImportDialog } from "@/features/products/catalog-import-dialog";
 import { ProductHistoryPreview } from "@/features/reports/product-history-preview";
@@ -105,6 +106,7 @@ export default function ProductsPage() {
 
 function ProductCatalogue() {
   const { profile, operatingContext } = useAuth();
+  const branchPriceValue = useBranchPriceColumns();
   const products = useOrganizationCollection<Product>("products");
   const categories =
     useOrganizationCollection<ProductCategory>("productCategories");
@@ -345,6 +347,8 @@ function ProductCatalogue() {
                 "Default cost",
                 "Central retail",
                 "Central VAT",
+                "Branch retail",
+                "Branch wholesale",
                 "Status",
                 "",
               ].map((label) => (
@@ -357,13 +361,13 @@ function ProductCatalogue() {
           <tbody>
             {loading ? (
               <tr>
-                <td colSpan={9} className="p-8 text-center">
+                <td colSpan={11} className="p-8 text-center">
                   Loading…
                 </td>
               </tr>
             ) : filtered.length === 0 ? (
               <tr>
-                <td colSpan={9} className="p-8 text-center text-[var(--muted)]">
+                <td colSpan={11} className="p-8 text-center text-[var(--muted)]">
                   <FinancialText>{inventoryError ? "Inventory could not be loaded." : operatingContext && canReadInventory && !search && !tracking ? "No products with inventory history at this location." : "No products found."}</FinancialText>
                 </td>
               </tr>
@@ -421,6 +425,7 @@ function ProductCatalogue() {
                       return productSalesPrices.loading ? "Loading…" : productSalesPrices.error ? "Unable to load" : rate == null ? "Not provided" : `${rate / 100}%`;
                     })()}</FinancialValue>
                   </td>
+                  {(["retail", "wholesale"] as const).map(tier => <td key={tier} data-label={`Branch ${tier}`} className="px-4 py-3">{branchPriceValue(product.id, productSalesPrices.error ? null : productSalesPrices.data.find(price => price.productId === product.id || price.id === product.id) ?? null, tier, productSalesPrices.loading ? "loading" : productSalesPrices.error ? "error" : undefined)}</td>)}
                   <td data-label="Status" className="px-4">
                     <StatusBadge tone={product.active ? "success" : "warning"}>
                       {product.active ? "active" : "inactive"}
@@ -435,7 +440,7 @@ function ProductCatalogue() {
                     )}
                   </td>
                 </tr>
-                {expandedProductId === product.id && canReadInventory && <tr id={`product-history-preview-${product.id}`}><td colSpan={9} className="p-2 sm:p-3"><ProductHistoryPreview locationIds={locationScoped ? locations.data.filter((location) => operatingContext?.type === "branch" ? location.branchId === operatingContext.id : operatingContext?.type === "warehouse" && location.warehouseId === operatingContext.id).map((location) => location.id) : undefined} productId={product.id} productName={product.name} locations={Object.fromEntries(locations.data.map((location) => [location.id, location.name]))} reportRow={{}} /></td></tr>}
+                {expandedProductId === product.id && canReadInventory && <tr id={`product-history-preview-${product.id}`}><td colSpan={11} className="p-2 sm:p-3"><ProductHistoryPreview locationIds={locationScoped ? locations.data.filter((location) => operatingContext?.type === "branch" ? location.branchId === operatingContext.id : operatingContext?.type === "warehouse" && location.warehouseId === operatingContext.id).map((location) => location.id) : undefined} productId={product.id} productName={product.name} locations={Object.fromEntries(locations.data.map((location) => [location.id, location.name]))} reportRow={{}} /></td></tr>}
                 </Fragment>
               ))
             )}

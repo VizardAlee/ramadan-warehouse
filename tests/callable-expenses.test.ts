@@ -381,7 +381,8 @@ describe.sequential("expense callables", () => {
     expect(new Set(ids).size).toBe(106); expect(next.nextCursorId).toBeNull();
     expect(ids).not.toContain("foreign-choice"); expect(ids).not.toContain("inactive-choice");
     await expect(call(branchManager, "getExpenseWorkspace", { view: "choices", choiceKind: "bankAccounts", branchId: "outside" })).rejects.toMatchObject({ code: "functions/permission-denied" });
-    await expect(call(branchManager, "getExpenseWorkspace", { view: "choices", choiceKind: "bankAccounts" })).rejects.toMatchObject({ code: "functions/permission-denied" });
+    await expect(call(branchManager, "getExpenseWorkspace", { view: "choices", choiceKind: "bankAccounts" })).resolves.toMatchObject({ kind: "bankAccounts" });
+    await expect(call(branchManager, "getExpenseWorkspace", { view: "choices", choiceKind: "bankAccounts", operatingContext: { type: "all" } })).resolves.toMatchObject({ kind: "bankAccounts" });
   });
 
 });

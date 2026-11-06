@@ -17,8 +17,8 @@ it("opens branch pricing for an imported product without any central selling-pri
   render(<ProductsPage />);
   expect(screen.getByText("active")).toBeTruthy();
   expect(screen.queryByText("[object Object]")).toBeNull();
-  expect(screen.getByText("Not configured")).toBeTruthy();
-  expect(screen.getByText("Not configured").closest("td")?.getAttribute("data-label")).toBe("Central retail");
+  const central = screen.getByRole("cell", { name: "Not configured", exact: true });
+  expect(central.getAttribute("data-label")).toBe("Central retail");
   fireEvent.click(screen.getByRole("button", { name: "Branch prices" }));
   fireEvent.change(screen.getByLabelText("Pricing branch"), { target: { value: "civic" } });
   fireEvent.click(screen.getByRole("button", { name: "Review branch prices" }));

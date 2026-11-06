@@ -11,7 +11,7 @@ const workspace = { categories: [], branches: [{ id: "store-a", name: "Head Offi
 afterEach(() => { cleanup(); sessionStorage.clear(); vi.resetAllMocks(); state.auth.operatingContext.id = "store-a"; });
 describe("outsourced bill interface", () => {
   it("accepts ordinary two-decimal partial payments without binary-float rejection", async () => {
-    state.call.mockImplementation(name => name === "getExpenseWorkspace" ? Promise.resolve({ ...workspace, expenses: [{ id: "bill", expenseNumber: "EXP-001", categoryName: "Service", payeeName: "Technician", status: "approved", netAmountMinor: 2000, vatAmountMinor: 0, grossAmountMinor: 2000, outstandingAmountMinor: 2000, description: "Customer installation", createdBy: "user" }] }) : Promise.reject(new Error("Interrupted")));
+    state.call.mockImplementation(name => name === "getExpenseWorkspace" ? Promise.resolve({ ...workspace, expenses: [{ id: "bill", branchId: "store-a", expenseNumber: "EXP-001", categoryName: "Service", payeeName: "Technician", status: "approved", netAmountMinor: 2000, vatAmountMinor: 0, grossAmountMinor: 2000, outstandingAmountMinor: 2000, description: "Customer installation", createdBy: "user" }] }) : Promise.reject(new Error("Interrupted")));
     render(<ExpensesPage />);
     const amount = await screen.findByLabelText("Payment amount in naira");
     fireEvent.change(amount, { target: { value: "14.55" } });

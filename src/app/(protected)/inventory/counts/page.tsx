@@ -19,6 +19,7 @@ import type {
 interface CountItem {
   id: string;
   sku: string;
+  productName?: string;
   trackingType?: "quantity" | "batch" | "serial";
   expectedQuantity?: number;
   countedQuantity?: number;
@@ -354,11 +355,11 @@ export default function CountsPage() {
                   {workspace.items.map((item) => (
                     <tr key={item.id} className="border-t">
                       <td
-                        data-label="SKU"
+                        data-label="Product / SKU"
                         data-primary="true"
-                        className="py-2 font-mono"
+                        className="py-2"
                       >
-                        {item.sku}
+                        <p className="font-semibold">{item.productName ?? "Product name unavailable"}</p><p className="font-mono text-xs text-[var(--muted)]">{item.sku}</p>
                       </td>
                       {item.expectedQuantity !== undefined && (
                         <td data-label="Expected">{item.expectedQuantity}</td>
@@ -377,7 +378,7 @@ export default function CountsPage() {
                             }))
                           }
                           disabled={workspaceBusy || !canEditWorkspace}
-                          aria-label={`Counted quantity for ${item.sku}`}
+                          aria-label={`Counted quantity for ${item.productName ?? item.sku}`}
                           className="w-24 rounded border p-2"
                         />
                       </td>

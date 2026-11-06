@@ -2,7 +2,7 @@ import { Timestamp } from "firebase-admin/firestore";
 import { HttpsError } from "firebase-functions/v2/https";
 import { z } from "zod";
 import { db } from "../admin.js";
-import { hasServerPermission, requireBranchScope, type AccessProfile } from "../auth/authorize.js";
+import { hasServerPermission, requireBranchViewScope as requireBranchScope, type AccessProfile } from "../auth/authorize.js";
 import { parseInput } from "../utils/callable.js";
 
 const id = z.string().min(1).max(200).refine(value => !value.includes("/") && value !== "." && value !== "..");

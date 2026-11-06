@@ -1,135 +1,32 @@
 "use client";
 
-import { doc, getDoc } from "firebase/firestore";
-import { useEffect, useMemo, useState } from "react";
-import { getFirebaseServices } from "@/lib/firebase/client";
-import { useOrganizationCollection } from "@/features/administration/use-organization-collection";
-import type { Branch } from "@/types/domain";
+import { useEffect, useState } from "react";
 import { useAuth } from "./auth-context";
-import {
-  availableOperatingContexts,
-  hasOrganizationWideOperatingAccess,
-  operatingContextTypeLabel,
-  type OperatingContext,
-} from "./operating-context";
+import { hasOrganizationWideOperatingAccess, operatingContextTypeLabel, type OperatingContext } from "./operating-context";
+import { loadOperatingBranches, type OperatingBranch } from "./operating-context-metadata";
 
-export type OperatingContextOption = OperatingContext & {
-  value: string;
-  name: string;
-  typeLabel: string;
-};
-
-interface ContextMetadata {
-  name: string;
-  branchType?: "head_office" | "store";
-}
+export type OperatingContextOption = OperatingContext & { value: string; name: string; typeLabel: string };
 
 export function useOperatingContextOptions() {
   const { accessProfile, operatingContext, setOperatingContext } = useAuth();
-  const organizationWide = Boolean(
-    accessProfile && hasOrganizationWideOperatingAccess(accessProfile),
-  );
-  const branches = useOrganizationCollection<Branch>("branches", organizationWide);
-  const assignedContexts = useMemo(
-    () => (accessProfile ? availableOperatingContexts(accessProfile) : []),
-    [accessProfile],
-  );
-  const contexts = useMemo(
-    () =>
-      organizationWide
-        ? [
-            ...branches.data
-              .filter((branch) => branch.status === "active")
-              .map((branch) => ({ type: "branch" as const, id: branch.id })),
-          ]
-        : assignedContexts.filter((context) => context.type === "branch"),
-    [assignedContexts, branches.data, organizationWide],
-  );
-  const [contextMetadata, setContextMetadata] = useState<
-    Record<string, ContextMetadata>
-  >({});
-
+  const organizationWide = Boolean(accessProfile && hasOrganizationWideOperatingAccess(accessProfile));
+  const key = JSON.stringify([accessProfile?.uid, accessProfile?.organizationId, accessProfile?.authorizationVersion, accessProfile?.roleIds, accessProfile?.effectivePermissions, accessProfile?.branchIds]);
+  const [response, setResponse] = useState<{ key: string; branches: OperatingBranch[]; error?: string }>();
   useEffect(() => {
+    if (!accessProfile) return;
     let active = true;
-    if (contexts.length === 0) {
-      queueMicrotask(() => {
-        if (active) setContextMetadata({});
-      });
-      return () => {
-        active = false;
-      };
-    }
-    void Promise.all(
-      contexts.map(async (context) => {
-        const value = `${context.type}:${context.id}`;
-        const snapshot = await getDoc(
-          doc(
-            getFirebaseServices().db,
-            "branches",
-            context.id,
-          ),
-        );
-        return [
-          value,
-          {
-            name: snapshot.exists()
-              ? String(
-                  snapshot.get("name") || snapshot.get("code") || context.id,
-                )
-              : context.id,
-            branchType:
-              context.type === "branch" &&
-              snapshot.get("branchType") === "head_office"
-                ? ("head_office" as const)
-                : context.type === "branch"
-                  ? ("store" as const)
-                  : undefined,
-          },
-        ] as const;
-      }),
-    )
-      .then((entries) => {
-        if (active) setContextMetadata(Object.fromEntries(entries));
-      })
-      .catch(() => {
-        if (active) setContextMetadata({});
-      });
-    return () => {
-      active = false;
-    };
-  }, [contexts]);
-
-  const options = contexts.map<OperatingContextOption>((context) => {
-    const value = `${context.type}:${context.id}`;
-    return {
-      ...context,
-      value,
-      name: contextMetadata[value]?.name ?? context.id,
-      typeLabel: operatingContextTypeLabel(
-        context,
-        contextMetadata[value]?.branchType,
-      ),
-    };
-  });
-  const activeValue = operatingContext
-    ? `${operatingContext.type}:${operatingContext.id}`
-    : "";
-  const activeOption = options.find((option) => option.value === activeValue);
-
+    void loadOperatingBranches(accessProfile).then(branches => { if (active) setResponse({ key, branches }); }).catch(() => { if (active) setResponse({ key, branches: [], error: "Operating locations could not be loaded." }); });
+    return () => { active = false; };
+  // key includes the immutable authority used to discover options, not the selected view.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key]);
+  const options: OperatingContextOption[] = response?.key === key ? response.branches.map(branch => ({ type: branch.type ?? "branch", id: branch.id, value: `${branch.type ?? "branch"}:${branch.id}`, name: branch.name, typeLabel: operatingContextTypeLabel({ type: branch.type ?? "branch", id: branch.id }, branch.branchType) })) : [];
+  const activeValue = operatingContext ? `${operatingContext.type}:${operatingContext.id}` : "";
+  const canSelectAll = organizationWide || options.length > 1 || options.some(option => option.type === "warehouse");
   function selectValue(value: string) {
-    if (!value && organizationWide) {
-      setOperatingContext(null);
-      return;
-    }
-    const selected = options.find((option) => option.value === value);
+    if (!value && canSelectAll) { setOperatingContext(null); return; }
+    const selected = options.find(option => option.value === value);
     if (selected) setOperatingContext({ type: selected.type, id: selected.id });
   }
-
-  return {
-    options,
-    activeValue,
-    activeOption,
-    canSelectAll: organizationWide,
-    selectValue,
-  };
+  return { options, activeValue, activeOption: options.find(option => option.value === activeValue), canSelectAll, selectValue, error: response?.key === key ? response.error : undefined };
 }

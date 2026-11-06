@@ -59,7 +59,8 @@ describe.sequential("trusted budget workflow", () => {
     await expect(call({ ...comparison, unexpectedBusinessField: true })).rejects.toMatchObject({ code: "functions/invalid-argument" });
     await expect(call({ ...comparison, operatingContext: { ...operatingContext, extra: true } })).rejects.toMatchObject({ code: "functions/invalid-argument" });
     await expect(call({ ...comparison, operatingContext: { type: "branch", id: "branch-b" } }, branchReader)).rejects.toMatchObject({ code: "functions/permission-denied" });
-    await expect(call({ ...comparison, branchId: "branch-b" }, branchReader)).rejects.toMatchObject({ code: "functions/permission-denied" });
+    await expect(call({ ...comparison, branchId: "branch-b" }, branchReader)).rejects.toMatchObject({ code: "functions/failed-precondition", details: { code: "OPERATING_CONTEXT_MISMATCH" } });
+    await expect(call({ ...comparison, branchId: "branch-b", operatingContext: { type: "all" } }, branchReader)).rejects.toMatchObject({ code: "functions/permission-denied" });
   });
   it("compares actuals using Lagos month boundaries and separate consolidated targets", async () => {
     await call(save({ accountId: "expense", amountMinor: 10000 }));

@@ -7,7 +7,7 @@ import { getFirebaseServices } from "@/lib/firebase/client";
 import { loadFinancialBranches, type FinancialBranch, type FinancialBranchAccess } from "./financial-branches";
 
 export function useFinancialBranches(access: FinancialBranchAccess | undefined, identity?: string) {
-  const { profile } = useAuth();
+  const { profile, operatingContext } = useAuth();
   const key = JSON.stringify([identity, profile?.organizationId, profile?.uid, profile?.authorizationVersion, access]);
   const [response, setResponse] = useState<{ key: string; data?: FinancialBranch[]; error?: string }>();
   useEffect(() => {
@@ -22,5 +22,6 @@ export function useFinancialBranches(access: FinancialBranchAccess | undefined, 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key]);
   const current = response?.key === key ? response : undefined;
-  return { data: current?.data ?? [], error: current?.error, loading: Boolean(profile && access && !current) };
+  const branches = (current?.data ?? []).filter(branch => !operatingContext || operatingContext.type === "branch" && operatingContext.id === branch.id);
+  return { data: branches, error: current?.error, loading: Boolean(profile && access && !current) };
 }

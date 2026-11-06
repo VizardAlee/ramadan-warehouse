@@ -371,13 +371,17 @@ export function AppShell({ children }: { children: ReactNode }) {
             </p>
           </div>
           <div className="ml-auto flex min-w-0 max-w-full flex-wrap items-center gap-1 sm:flex-nowrap">
-            {showContextSwitcher && pathname !== "/dashboard/ceo" && (
+            {showContextSwitcher && (
               <label className="min-w-0">
                 <span className="sr-only">Working location</span>
                 <select
                   aria-label="Working location"
                   value={contextValue}
                   onChange={(event) => {
+                    if (document.querySelector('[data-unsaved-work="true"]')) {
+                      window.alert("Hold or finish the current sale before changing the working location.");
+                      return;
+                    }
                     selectValue(event.target.value);
                   }}
                   className="min-h-10 max-w-[10rem] rounded-lg border border-slate-300 bg-white px-2 text-xs font-semibold text-slate-800 sm:max-w-[16rem] sm:text-sm"

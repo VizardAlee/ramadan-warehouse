@@ -382,7 +382,7 @@ service cloud.firestore {
       allow create, update, delete: if false;
     }
     match /customers/{documentId} {
-      allow read: if sameOrganization(resource.data) && hasAnyRole(["system_administrator", "operations_administrator", "branch_manager", "finance_officer", "auditor"]) && permitted("customers.read");
+      allow read: if sameOrganization(resource.data) && hasAnyRole(["system_administrator", "operations_administrator", "branch_manager", "finance_officer", "auditor"]) && permitted("customers.read") && ((hasDirectRole("system_administrator") || hasDirectRole("operations_administrator") || hasDirectRole("finance_officer") || hasDirectRole("auditor")) || (resource.data.keys().hasAny(["branchId"]) && resource.data.branchId in profile().branchIds));
       allow create, update, delete: if false;
     }
     match /customerPayments/{documentId} {

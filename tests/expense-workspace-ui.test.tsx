@@ -5,7 +5,7 @@ import ExpensesPage from "@/app/(protected)/expenses/page";
 
 const state = vi.hoisted(() => ({ call: vi.fn() }));
 vi.mock("next/navigation", () => ({ useSearchParams: () => new URLSearchParams() }));
-vi.mock("@/features/auth/auth-context", () => ({ useAuth: () => ({ user: { uid: "staff" }, profile: { organizationId: "org" }, operatingContext: null }) }));
+vi.mock("@/features/auth/auth-context", () => ({ useAuth: () => ({ user: { uid: "staff" }, profile: { organizationId: "org" }, operatingContext: { type: "branch", id: "own" } }) }));
 vi.mock("@/lib/permissions/roles", () => ({ hasPermission: () => true, canSelfAuthorize: () => false }));
 vi.mock("@/features/administration/api", () => ({ callAdministration: state.call }));
 vi.mock("@/features/accounting/provider-funds", () => ({ ProviderFunds: () => <p>Separate provider workspace</p> }));
