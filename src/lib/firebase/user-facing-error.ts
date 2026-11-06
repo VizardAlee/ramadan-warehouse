@@ -14,6 +14,8 @@ const messages: Record<string, string> = {
   "auth/invalid-credential": "The email address or password is incorrect.",
   "auth/too-many-requests": "Too many sign-in attempts. Wait briefly before trying again.",
   "auth/network-request-failed": "Sign-in could not reach the service. Check your connection and try again.",
+  POS_DEVICE_IN_USE: "This device has an open shift under another account. Use the account that opened it, or ask an authorized supervisor to review it.",
+  POS_SHIFT_REVIEW_REQUIRED: "This device saved shift needs an authorized review. No shift or opening cash has been changed.",
   STALE_POS_PRICE: "An offline sale uses an outdated price. Review and refresh it before posting.",
   POS_STOCK_RECONCILIATION_REQUIRED: "An offline sale exceeds current branch stock. A manager must reconcile stock before posting it.",
   CUSTOMER_CREDIT_LIMIT_EXCEEDED: "This sale exceeds the customer's currently available credit. Reduce the sale, collect a payment, or ask an administrator to review the limit.",
@@ -31,6 +33,7 @@ const messages: Record<string, string> = {
   INVITATION_USER_INACTIVE: "Activate this user before issuing a new invitation link.",
 };
 const prerequisiteMessages: Record<string, string> = {
+  "This POS device already has an open shift.": "This device already has an open shift. Reload POS using the account that opened it to restore the session; ask an authorized supervisor if it cannot be restored.",
   "Select the active company financial account for this money line.": "Select the active company account matching this money-ledger code. Ask authorized banking staff to configure or reconcile the mapping if absent.",
   "This ledger code is shared by multiple financial accounts. Give each account its own code before posting manual money entries.": "Ask authorized banking staff and the accountant to reconcile this duplicated financial-account ledger mapping before posting. Do not create another journal to bypass the duplicate.",
   "The account picker requires paging before more than 500 ledger accounts can be used. No accounts were silently omitted.": "This register exceeds the supported account picker capacity. Ask the application administrator and accountant for supported paging. No accounts were silently omitted; repeating the same request cannot resolve the limit.",

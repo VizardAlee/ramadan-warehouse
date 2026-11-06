@@ -217,5 +217,6 @@ export function queryCatalog() {
   }
   for (const actor of [[], [["actorUserId", "=="]]])
     add("bounded user activity audit pages", "auditLogs", [org, ...actor, ["createdAt", ">="], ["createdAt", "<"]], dateOrder("createdAt"));
+  for (const field of ["deviceId", "openedBy"]) add("POS exact device / owner shift restoration", "posShifts", eq(["organizationId", "branchId", "status", field]));
   return [...shapes.values()];
 }

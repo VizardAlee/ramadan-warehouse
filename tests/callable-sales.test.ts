@@ -2722,3 +2722,35 @@ describe("custom operating sales roles", () => {
   },120000);
 
 });
+
+describe("POS device session restoration", () => {
+  it("restores the exact locked shift beyond twenty other branch shifts and preserves the original cash on resume", async () => {
+    const deviceId = `resume-${crypto.randomUUID()}`;
+    const opened = await call<{ shiftId: string }>(branchManager, "openPosShift", { branchId, deviceId, deviceName: "Restoration regression", openingCashMinor: 12345, idempotencyKey: crypto.randomUUID() });
+    const before = (await adminDb.doc(`posShifts/${opened.shiftId}`).get()).data();
+    const batch = adminDb.batch(), ids: string[] = [];
+    for (let n = 0; n < 25; n++) { const id = `unrelated-resume-${n}-${deviceId}`; ids.push(id); batch.set(adminDb.doc(`posShifts/${id}`), { organizationId, branchId, deviceId: `other-${n}-${deviceId}`, openedBy: cashier.auth.currentUser!.uid, status: "open", openingCashMinor: 999 }); }
+    await batch.commit();
+    const workspace = await call<{ openShift: { id: string; openingCashMinor: number }; shiftRecovery: { status: string } }>(branchManager, "getPosWorkspace", { branchId, deviceId });
+    expect(workspace.openShift.id).toBe(opened.shiftId); expect(workspace.openShift.openingCashMinor).toBe(12345); expect(workspace.shiftRecovery.status).toBe("ready");
+    const resumed = await call<{ shiftId: string; opened: boolean; resumed: boolean }>(branchManager, "openPosShift", { branchId, deviceId, deviceName: "Same browser after login", openingCashMinor: 999999, idempotencyKey: crypto.randomUUID() });
+    expect(resumed).toMatchObject({ shiftId: opened.shiftId, opened: false, resumed: true });
+    expect((await adminDb.doc(`posShifts/${opened.shiftId}`).get()).data()).toEqual(before);
+    const wrongAccount = await call<{ openShift: unknown; shiftRecovery: { status: string } }>(administrator, "getPosWorkspace", { branchId, deviceId });
+    expect(wrongAccount.openShift).toBeNull(); expect(wrongAccount.shiftRecovery.status).toBe("other_user");
+    await expect(call(administrator, "openPosShift", { branchId, deviceId, deviceName: "Another account", openingCashMinor: 0, idempotencyKey: crypto.randomUUID() })).rejects.toMatchObject({ code: "functions/failed-precondition", details: { code: "POS_DEVICE_IN_USE" } });
+    expect((await adminDb.doc(`posShifts/${opened.shiftId}`).get()).data()).toEqual(before);
+    const cleanup = adminDb.batch(); ids.forEach(id => cleanup.delete(adminDb.doc(`posShifts/${id}`))); await cleanup.commit();
+  });
+  it("reports orphaned device evidence without deleting a lock, opening a replacement or changing shift history", async () => {
+    const deviceId = `orphan-${crypto.randomUUID()}`;
+    const shift = adminDb.collection("posShifts").doc();
+    const record = { organizationId, branchId, deviceId, openedBy: branchManager.auth.currentUser!.uid, status: "open", openingCashMinor: 4321 };
+    await shift.set(record);
+    const workspace = await call<{ openShift: unknown; shiftRecovery: { status: string } }>(branchManager, "getPosWorkspace", { branchId, deviceId });
+    expect(workspace.openShift).toBeNull(); expect(workspace.shiftRecovery.status).toBe("needs_review");
+    await expect(call(branchManager, "openPosShift", { branchId, deviceId, deviceName: "Orphan review", openingCashMinor: 0, idempotencyKey: crypto.randomUUID() })).rejects.toMatchObject({ code: "functions/failed-precondition", details: { code: "POS_SHIFT_REVIEW_REQUIRED" } });
+    expect((await shift.get()).data()).toEqual(record);
+    await shift.delete();
+  });
+});
