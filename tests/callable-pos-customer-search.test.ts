@@ -106,7 +106,7 @@ it("excludes same-organization customers without this branch's ownership from se
   let cursor: string | null | undefined;
   for (let page = 0; page < 10; page++) {
     const result = await search(cashier, { query: "Unassigned target", ...(cursor ? { cursor } : {}) });
-    expect(result.items).toEqual([]);
+    expect(result.customers).toEqual([]);
     cursor = result.nextCursor;
     if (!cursor) break;
     if (page === 9) throw Error("Customer search did not finish within its expected scan pages");

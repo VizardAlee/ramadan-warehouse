@@ -1096,12 +1096,15 @@ export default function PosPage() {
 
   async function createCustomerFromPos(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!workspace) return;
+    if (!workspace || workspace.branch.id !== selectedBranchId) { setError("Refresh the selected branch before creating this customer."); return; }
+    const customerBranchId = workspace.branch.id;
+    const customerScope = checkoutScope;
     setBusy(true);
     setError(null);
     try {
       const result = await callAdministration<
         {
+          branchId: string;
           name: string;
           phone?: string;
           email?: string;
@@ -1110,12 +1113,14 @@ export default function PosPage() {
         },
         { customerId: string; customerNumber: string }
       >("saveCustomer", {
+        branchId: customerBranchId,
         name: newCustomer.name.trim(),
         phone: newCustomer.phone.trim() || undefined,
         email: newCustomer.email.trim() || undefined,
         active: true,
         idempotencyKey: crypto.randomUUID(),
       });
+      if (checkoutScopeRef.current !== customerScope) return;
       const createdCustomer: PosCustomer = {
         id: result.customerId,
         customerNumber: result.customerNumber,
@@ -1127,7 +1132,7 @@ export default function PosPage() {
         availableCreditMinor: 0,
       };
       setWorkspace((current) =>
-        current
+        current && current.branch.id === customerBranchId
           ? {
               ...current,
               customers: [

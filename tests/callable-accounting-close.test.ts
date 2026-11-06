@@ -177,7 +177,7 @@ describe.sequential("bounded dashboard aggregates", () => {
     await adminDb.doc(`users/${custom.auth.currentUser!.uid}`).update({ branchIds: [branchId], directRoleIds: [], customRoleIds: ["limited-role"], effectivePermissions: ["products.read"] });
     const limited = await call<Dashboard>(custom, "getDashboardWorkspace", { branchId });
     expect(limited.sales).toBeNull();
-    expect(limited.summary).toEqual({ requests: null, transfers: null, discrepancies: null, products: 1 });
+    expect(limited.summary).toEqual({ requests: null, transfers: null, discrepancies: null, products: null });
     await expect(call(custom, "getDailyCloseWorkspace", { branchId, date: "2025-02-05" })).rejects.toMatchObject({ code: "functions/permission-denied" });
   });
 });
