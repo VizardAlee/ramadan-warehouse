@@ -625,4 +625,13 @@ describe("financial statement final instant", () => {
     expect((await adminDb.collection("inventoryEntries").where("productId", "==", service.productId).get()).size).toBe(0);
   });
 
+  it("creates a branch-only service case with explicitly unprovided VAT and retains that snapshot", async () => {
+    const service = await call<{productId:string}>("saveProduct", { name:"VAT optional service",sku:"SVC-NO-VAT",itemKind:"service",trackingType:"quantity",unitOfMeasure:"job",active:true,defaultUnitCostMinor:0,idempotencyKey:crypto.randomUUID() });
+    await call("saveBranchSalesPrice", { branchId,productId:service.productId,sellingPriceMinor:12000,vatRateBasisPoints:null,reason:"VAT not provided for initial service prices",idempotencyKey:crypto.randomUUID() });
+    const created = await call<{caseId:string}>("createAftersalesCase", { branchId,customerId,serviceItemId:service.productId,serviceType:"non_warranty",requestType:"installation",complaint:"VAT optional installation",idempotencyKey:crypto.randomUUID() });
+    expect((await adminDb.doc(`aftersalesCases/${created.caseId}`).get()).get("serviceCatalog")).toMatchObject({vatRateBasisPoints:null,grossAmountMinor:12000});
+    await call("saveBranchSalesPrice", {branchId,productId:service.productId,sellingPriceMinor:12000,vatRateBasisPoints:750,reason:"Later configured VAT",idempotencyKey:crypto.randomUUID()});
+    expect((await adminDb.doc(`aftersalesCases/${created.caseId}`).get()).get("serviceCatalog.vatRateBasisPoints")).toBeNull();
+  });
+
 });

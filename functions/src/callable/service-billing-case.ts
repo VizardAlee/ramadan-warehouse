@@ -24,5 +24,5 @@ export const getServiceBillingCase = onCall({ enforceAppCheck }, async request =
   const doc = await db.doc(`aftersalesCases/${input.caseId}`).get();
   if (!doc.exists || doc.get("organizationId") !== actor.organizationId || doc.get("branchId") !== input.branchId || doc.get("serviceCatalog.itemId") !== input.serviceItemId || (doc.get("customerId") && doc.get("customerId") !== input.customerId)) throw new HttpsError("not-found", "A matching service case was not found for this store, service and customer.");
   if (doc.get("billingSaleId") || doc.get("serviceBillingVersion") !== 2 || !["due", "partially_paid", "paid"].includes(doc.get("chargeStatus")) || ["cancelled", "rejected"].includes(doc.get("status"))) throw new HttpsError("failed-precondition", "This case is already billed or needs reconciliation before linking.");
-  return { id: doc.id, caseNumber: doc.get("caseNumber") ?? doc.id, grossMinor: doc.get("chargeAmountMinor"), vatMinor: doc.get("chargeVatMinor"), paidMinor: doc.get("amountPaidMinor") ?? 0 };
+  return { id: doc.id, caseNumber: doc.get("caseNumber") ?? doc.id, grossMinor: doc.get("chargeAmountMinor"), vatMinor: doc.get("chargeVatMinor"), vatRateBasisPoints: doc.get("serviceCatalog.vatRateBasisPoints") ?? null, paidMinor: doc.get("amountPaidMinor") ?? 0 };
 });

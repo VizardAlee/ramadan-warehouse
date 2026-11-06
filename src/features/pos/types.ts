@@ -1,4 +1,4 @@
-export interface ServiceCaseCharge { id: string; caseNumber: string; grossMinor: number; vatMinor: number; paidMinor: number }
+export interface ServiceCaseCharge { id: string; caseNumber: string; grossMinor: number; vatMinor: number; vatRateBasisPoints?: number | null; paidMinor: number }
 export interface ServiceLineDetails { includedParts?: Array<{ productId: string; quantity: number; serialNumbers?: string[] }>; providerFunds?: { supplierId: string; amountMinor: number }; serviceCase?: ServiceCaseCharge; caseVerified?: boolean }
 export type PosPaymentMethod = "cash" | "card" | "bank_transfer" | "exchange_credit" | "customer_advance";
 export type PosCheckoutMethod = PosPaymentMethod | "customer_credit" | "split";
@@ -41,7 +41,7 @@ export interface PosProduct {
   trackingType: "quantity" | "serial";
   unitPriceMinor: number;
   basePriceMinor: number;
-  vatRateBasisPoints: number;
+  vatRateBasisPoints: number | null;
   priceVersion: number;
   priceSource: "central" | "branch" | "wholesale";
   wholesalePriceMinor?: number | null;
@@ -174,7 +174,7 @@ export interface PosSalePayload {
     priceVersion?: number;
     priceTier?: "retail" | "wholesale";
     unitPriceMinor?: number;
-    vatRateBasisPoints?: number;
+    vatRateBasisPoints?: number | null;
     sellingPriceMinor?: number;
     priceOverrideReason?: string;
   }>;
@@ -276,7 +276,7 @@ export interface SaleDocument {
     unitPriceMinor: number;
     subtotalAmountMinor: number;
     discountAmountMinor: number;
-    vatRateBasisPoints: number;
+    vatRateBasisPoints: number | null;
     netAmountMinor: number;
     vatAmountMinor: number;
     grossAmountMinor: number;

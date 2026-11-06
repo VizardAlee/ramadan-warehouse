@@ -1,8 +1,8 @@
 export type PriceTier = "retail" | "wholesale";
-export interface CentralSalesPrice { basePriceMinor: number; version: number; wholesalePriceMinor?: number | null; vatRateBasisPoints?: number; active?: boolean }
+export interface CentralSalesPrice { basePriceMinor: number; version: number; wholesalePriceMinor?: number | null; vatRateBasisPoints?: number | null; active?: boolean }
 export interface BranchSalesPrice {
   active?: boolean; sellingPriceMinor?: number | null; wholesalePriceMinor?: number | null;
-  version?: number; belowBaseApproved?: boolean; belowWholesaleApproved?: boolean; basePriceVersion?: number; vatRateBasisPoints?: number;
+  version?: number; belowBaseApproved?: boolean; belowWholesaleApproved?: boolean; basePriceVersion?: number; vatRateBasisPoints?: number | null;
 }
 const positiveMoney = (value: unknown): value is number => Number.isSafeInteger(value) && Number(value) > 0;
 
@@ -24,12 +24,13 @@ export function resolveCatalogPrice(central: CentralSalesPrice | null, branch: B
 
 export function centralSalesPrice(record: Record<string, unknown> | undefined): CentralSalesPrice | null {
   return record ? { basePriceMinor: Number(record.basePriceMinor), wholesalePriceMinor: record.wholesalePriceMinor as number | null | undefined,
-    version: Number(record.version), vatRateBasisPoints: record.vatRateBasisPoints as number | undefined, active: record.active === true } : null;
+    version: Number(record.version), vatRateBasisPoints: record.vatRateBasisPoints as number | null | undefined, active: record.active === true } : null;
 }
-export function resolveCatalogVatRate(central: CentralSalesPrice | null, branch: BranchSalesPrice): number {
+export function resolveCatalogVatRate(central: CentralSalesPrice | null, branch: BranchSalesPrice): number | null {
   if (central?.active === false) throw new Error("Central pricing is inactive. Ask a price administrator to review it.");
   const rate = central ? central.vatRateBasisPoints : branch.active ? branch.vatRateBasisPoints : undefined;
+  if (rate == null) return null;
   if (!Number.isInteger(rate) || Number(rate) < 0 || Number(rate) > 10000)
-    throw new Error("Choose an explicit VAT rate before using branch-only pricing.");
+    throw new Error("VAT configuration is invalid. Ask a price administrator to review it.");
   return Number(rate);
 }

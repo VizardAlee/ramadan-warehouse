@@ -155,3 +155,13 @@ describe("POS cart calculations", () => {
     expect(reconcileHeldCart([{ ...line, sellingPriceMinor: 0 }], [product])).toMatchObject({ resetPriceCount: 1 });
   });
 });
+
+it("keeps optional VAT and fixed historic service VAT separate in a mixed cart", () => {
+  const result = calculatePosCart([
+    { product: { ...product, vatRateBasisPoints: null }, quantity: 1 },
+    { product: { ...product, id: "service", itemKind: "service", vatRateBasisPoints: null }, quantity: 1,
+      serviceCase: { id: "case", caseNumber: "AF-1", grossMinor: 10750, vatMinor: 750, vatRateBasisPoints: 750, paidMinor: 0 } },
+  ]);
+  expect(result.vatAmountMinor).toBe(750);
+  expect(result.grossAmountMinor).toBe(110750);
+});

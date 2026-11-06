@@ -15,9 +15,13 @@ vi.mock("@/features/products/catalog-import-dialog", () => ({ CatalogImportDialo
 afterEach(cleanup);
 it("opens branch pricing for an imported product without any central selling-price record", () => {
   render(<ProductsPage />);
+  expect(screen.getByText("active")).toBeTruthy();
+  expect(screen.queryByText("[object Object]")).toBeNull();
+  expect(screen.getByText("Not configured")).toBeTruthy();
+  expect(screen.getByText("Not configured").closest("td")?.getAttribute("data-label")).toBe("Central retail");
   fireEvent.click(screen.getByRole("button", { name: "Branch prices" }));
   fireEvent.change(screen.getByLabelText("Pricing branch"), { target: { value: "civic" } });
   fireEvent.click(screen.getByRole("button", { name: "Review branch prices" }));
   expect(screen.getByRole("dialog", { name: "Branch selling prices" }).textContent).toContain("No central price exists");
-  expect((screen.getByLabelText("Branch VAT (%)") as HTMLInputElement).value).toBe("");
+  expect((screen.getByLabelText("Branch VAT (%) — optional") as HTMLInputElement).value).toBe("");
 });

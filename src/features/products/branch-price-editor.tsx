@@ -22,10 +22,10 @@ export function BranchPriceEditor({ branchId, branchName, productId, productName
   // Hold the version shown when the editor opened: never overwrite another editor's save.
   const [expectedVersion] = useState(current.version ?? 0);
   const [expectedCentralVersion] = useState(central?.version ?? 0);
-  const [vat, setVat] = useState(current.vatRateBasisPoints !== undefined ? String(current.vatRateBasisPoints / 100) : "");
+  const [vat, setVat] = useState(current.vatRateBasisPoints != null ? String(current.vatRateBasisPoints / 100) : "");
   const below = (retail !== "" && (!central || Number(retail) * 100 < central.basePriceMinor)) ||
     (wholesale !== "" && (!central?.wholesalePriceMinor || Number(wholesale) * 100 < central.wholesalePriceMinor)) ||
-    (!central && vat.trim() !== "" && Number(vat) * 100 !== current.vatRateBasisPoints);
+    (!central && (vat.trim() === "" ? null : Number(vat) * 100) !== (current.vatRateBasisPoints ?? null));
   let effective: ReturnType<typeof resolveCatalogPrice> | undefined;
   try { effective = resolveCatalogPrice(central, current); } catch { /* Retail is not configured yet. */ }
   async function save(event: FormEvent) {
@@ -34,9 +34,8 @@ export function BranchPriceEditor({ branchId, branchName, productId, productName
       const sellingPriceMinor = retail.trim() ? nairaToKobo(Number(retail)) : null;
       const wholesalePriceMinor = wholesale.trim() ? nairaToKobo(Number(wholesale)) : null;
       if ((sellingPriceMinor !== null && sellingPriceMinor <= 0) || (wholesalePriceMinor !== null && wholesalePriceMinor <= 0)) throw new Error("Enter positive prices, or leave a level blank to use the central default.");
-      if (!central && !vat.trim()) throw new Error("Choose an explicit branch VAT rate, including 0% where applicable.");
-      const vatRateBasisPoints = central ? undefined : nairaToKobo(Number(vat));
-      if (vatRateBasisPoints !== undefined && vatRateBasisPoints > 10000) throw new Error("VAT must be from 0% through 100%.");
+      const vatRateBasisPoints = central ? undefined : vat.trim() ? nairaToKobo(Number(vat)) : null;
+      if (vatRateBasisPoints != null && vatRateBasisPoints > 10000) throw new Error("VAT must be from 0% through 100%.");
       setBusy(true);
       await callAdministration("saveBranchSalesPrice", { branchId, productId, sellingPriceMinor, wholesalePriceMinor,
         expectedVersion, expectedCentralVersion, vatRateBasisPoints, active: true, reason: reason.trim() || undefined, idempotencyKey: crypto.randomUUID() });
@@ -48,12 +47,12 @@ export function BranchPriceEditor({ branchId, branchName, productId, productName
     <form ref={ref} onSubmit={save} className="app-dialog-panel w-full max-w-lg rounded-2xl bg-white p-5 shadow-2xl sm:p-6">
       <h2 className="text-xl font-semibold">Branch selling prices</h2>
       <p className="mt-2 text-sm"><FinancialText>{productName}</FinancialText> · {branchName}</p>
-      <p className="mt-2 text-sm text-[var(--muted)]">Applies to future sales and quotations at this branch. Leave either level blank to use its central default where configured; otherwise that level is unavailable. Prices are before VAT.</p>
+      <p className="mt-2 text-sm text-[var(--muted)]">Applies to future sales and quotations at this branch. Leave either level blank to use its central default where configured; otherwise that level is unavailable. VAT is added only when a rate is provided.</p>
       {([ ["Retail", retail, setRetail, central?.basePriceMinor], ["Wholesale", wholesale, setWholesale, central?.wholesalePriceMinor] ] as const).map(([label, value, setter, base]) => <div key={label} className="mt-4">
         <label className="block text-sm font-medium">{label} branch price (₦)<FinancialInput><input aria-label={`${label} branch price (₦)`} type="number" min="0.01" step="0.01" inputMode="decimal" value={value} onChange={event => setter(event.target.value)} className="mt-1 w-full rounded-lg border p-3" disabled={busy} /></FinancialInput></label>
         <p className="mt-1 text-xs text-[var(--muted)]">Central {label.toLowerCase()}: <FinancialValue>{base ? formatNaira(base) : "Not configured"}</FinancialValue>. Blank = {base ? "use central" : "unavailable"}.</p>
       </div>)}
-      {!central && <label className="mt-4 block text-sm font-medium">Branch VAT (%)<FinancialInput><input aria-label="Branch VAT (%)" type="number" required min="0" max="100" step="0.01" inputMode="decimal" value={vat} onChange={event => setVat(event.target.value)} disabled={busy} className="mt-1 w-full rounded-lg border p-3" /></FinancialInput><span className="mt-1 block text-xs text-[var(--muted)]">No central price exists. Choose the applicable VAT rate explicitly, including 0% where applicable. No central record will be created.</span></label>}
+      {!central && <label className="mt-4 block text-sm font-medium">Branch VAT (%) — optional<FinancialInput><input aria-label="Branch VAT (%) — optional" type="number" min="0" max="100" step="0.01" inputMode="decimal" value={vat} onChange={event => setVat(event.target.value)} disabled={busy} className="mt-1 w-full rounded-lg border p-3" /></FinancialInput><span className="mt-1 block text-xs text-[var(--muted)]">No central price exists. Leave blank for VAT not provided; no VAT will be added. This is distinct from a configured 0% rate. No central record will be created.</span></label>}
       <p className="mt-3 text-xs text-[var(--muted)]">Current effective retail: <FinancialValue>{effective ? formatNaira(effective.unitPriceMinor) : "Not configured"}</FinancialValue>{effective ? ` · ${effective.priceSource}` : ""}. {central ? "VAT follows the central configuration. " : ""}Inventory cost and Head Office transfer prices are managed separately.</p>
       {below && <p role="status" className="mt-3 rounded-lg bg-amber-50 p-3 text-sm">A price below its central level, or a branch-only level without a central default, requires a system administrator and an approval reason. Approval is reviewed again when central pricing changes.</p>}
       <label className="mt-4 block text-sm font-medium">Approval reason {below ? "(required)" : "(optional)"}<textarea minLength={3} maxLength={500} required={below} value={reason} onChange={event => setReason(event.target.value)} className="mt-1 w-full rounded-lg border p-3" disabled={busy} /></label>

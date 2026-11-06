@@ -56,7 +56,7 @@ interface ReturnWorkspace {
     reversedNetAmountMinor?: number | null;
     reversedVatAmountMinor?: number | null;
     unitPriceMinor: number;
-    vatRateBasisPoints: number;
+    vatRateBasisPoints: number | null;
     netAmountMinor: number;
     vatAmountMinor: number;
     grossAmountMinor: number;

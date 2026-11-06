@@ -31,12 +31,21 @@ it("supports first branch-only prices with an explicit zero VAT choice and no ce
   api.mockResolvedValue({ saved: true });
   render(<BranchPriceEditor branchId="civic" branchName="Civic Center" productId="new" productName="Imported panel" central={null} current={{}} onClose={() => {}} onSaved={() => {}} />);
   expect(screen.getByRole("dialog").textContent).toContain("No central price exists");
-  expect((screen.getByLabelText("Branch VAT (%)") as HTMLInputElement).value).toBe("");
+  expect((screen.getByLabelText("Branch VAT (%) — optional") as HTMLInputElement).value).toBe("");
   fireEvent.change(screen.getByLabelText("Retail branch price (₦)"), { target: { value: "120" } });
   fireEvent.change(screen.getByLabelText("Wholesale branch price (₦)"), { target: { value: "100" } });
-  fireEvent.change(screen.getByLabelText("Branch VAT (%)"), { target: { value: "0" } });
+  fireEvent.change(screen.getByLabelText("Branch VAT (%) — optional"), { target: { value: "0" } });
   fireEvent.change(screen.getByLabelText("Approval reason (required)"), { target: { value: "Initial branch prices and reviewed VAT" } });
   fireEvent.click(screen.getByRole("button", { name: "Save branch prices" }));
   await waitFor(() => expect(api).toHaveBeenCalledWith("saveBranchSalesPrice", expect.objectContaining({ productId: "new", sellingPriceMinor: 12000, wholesalePriceMinor: 10000, vatRateBasisPoints: 0, expectedCentralVersion: 0 })));
   expect(api.mock.calls.every(call => call[0] === "saveBranchSalesPrice")).toBe(true);
+});
+
+it("saves branch-only prices with VAT explicitly not provided instead of zero", async () => {
+  api.mockResolvedValue({ saved: true });
+  render(<BranchPriceEditor branchId="civic" branchName="Civic Center" productId="new" productName="Panel" central={null} current={{}} onClose={() => {}} onSaved={() => {}} />);
+  fireEvent.change(screen.getByLabelText("Retail branch price (₦)"), { target: { value: "120" } });
+  fireEvent.change(screen.getByLabelText("Approval reason (required)"), { target: { value: "Initial branch prices, VAT not provided" } });
+  fireEvent.click(screen.getByRole("button", { name: "Save branch prices" }));
+  await waitFor(() => expect(api).toHaveBeenCalledWith("saveBranchSalesPrice", expect.objectContaining({ sellingPriceMinor: 12000, vatRateBasisPoints: null })));
 });

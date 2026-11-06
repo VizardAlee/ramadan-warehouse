@@ -5,9 +5,11 @@ review retail and wholesale overrides. POS → Store-wide price opens the same
 editor for the current branch. No stock location, central selling-price record or inventory posting is needed
 to configure pricing. Blank means inherit that level's central default; clearing
 both restores central pricing. A missing central default leaves its level unavailable unless an administrator
-explicitly approves a branch-only price. Without a central record, a VAT rate
-must be chosen explicitly (including 0% where applicable); branch-only VAT
-changes require administrator approval and a reason. No central record is
+explicitly approves a branch-only price. VAT is optional. Blank means explicitly not provided (stored as null), so no VAT
+is added; it is distinct from an explicitly configured 0% rate. Without a central
+record, branch VAT may be provided or left blank; changes to existing branch VAT
+require administrator approval and a reason. Omitted VAT fields preserve existing
+settings. No central record is
 created as a side effect. Wholesale-only products are labelled and cannot be
 sold as unconfigured retail. Inactive central records retain their block.
 
@@ -36,3 +38,11 @@ also values imported opening stock, and must not be replaced by a selling price.
 Company acquisition/average/serial costs and HQ internal transfer agreements are
 separate. Branch selling price edits never update productCosts, stock ledger
 values, stock quantities, existing HQ agreements or company accounting balances.
+
+POS, quotations, offline payloads and posted sale snapshots preserve null VAT.
+Mixed carts apply only the rates actually provided. Documents mark unprovided
+lines and explain that no VAT was added, without declaring a zero-rate treatment.
+Existing numeric rates and historical snapshots are unchanged; a later tax change
+invalidates stale queued price snapshots for review. New catalogue CSV prices also
+retain unprovided VAT when the VAT column is blank. No deployment migration fills
+or clears VAT.

@@ -122,7 +122,7 @@ function ProductCatalogue() {
     basePriceMinor: number;
     version: number;
     wholesalePriceMinor?: number | null;
-    vatRateBasisPoints: number;
+    vatRateBasisPoints: number | null;
     active: boolean;
   }>("productSalesPrices");
   const canReadInventory = Boolean(profile && hasPermission(profile, "inventory.read"));
@@ -201,7 +201,7 @@ function ProductCatalogue() {
             baseSellingPriceNaira: koboToNaira(configuredPrice?.basePriceMinor),
             wholesalePriceNaira: configuredPrice?.wholesalePriceMinor ? koboToNaira(configuredPrice.wholesalePriceMinor) : undefined,
             vatPercent:
-              configuredPrice === undefined
+              configuredPrice?.vatRateBasisPoints == null
                 ? undefined
                 : configuredPrice.vatRateBasisPoints / 100,
             active: product.active,
@@ -256,7 +256,7 @@ function ProductCatalogue() {
           productId: saved.productId,
           basePriceMinor: nairaToKobo(baseSellingPriceNaira),
           wholesalePriceMinor: wholesalePriceNaira === undefined ? null : nairaToKobo(wholesalePriceNaira),
-          vatRateBasisPoints: Math.round((vatPercent ?? 0) * 100),
+          vatRateBasisPoints: vatPercent === undefined ? null : Math.round(vatPercent * 100),
           active: true,
           idempotencyKey: crypto.randomUUID(),
         });
@@ -406,13 +406,10 @@ function ProductCatalogue() {
                     )}</FinancialValue>
                   </td>
                   <td data-label="Central retail" className="px-4">
-                    <FinancialValue>{formatNaira(
-                      productSalesPrices.data.find(
-                        (price) =>
-                          price.productId === product.id ||
-                          price.id === product.id,
-                      )?.basePriceMinor,
-                    )}</FinancialValue>
+                    <FinancialValue>{productSalesPrices.loading ? "Loading…" : productSalesPrices.error ? "Unable to load" : (() => {
+                      const price = productSalesPrices.data.find(price => price.productId === product.id || price.id === product.id);
+                      return price ? formatNaira(price.basePriceMinor) : "Not configured";
+                    })()}</FinancialValue>
                   </td>
                   <td data-label="Central VAT" className="px-4">
                     <FinancialValue>{(() => {
@@ -421,12 +418,12 @@ function ProductCatalogue() {
                           price.productId === product.id ||
                           price.id === product.id,
                       )?.vatRateBasisPoints;
-                      return rate === undefined ? "Not set" : `${rate / 100}%`;
+                      return productSalesPrices.loading ? "Loading…" : productSalesPrices.error ? "Unable to load" : rate == null ? "Not provided" : `${rate / 100}%`;
                     })()}</FinancialValue>
                   </td>
                   <td data-label="Status" className="px-4">
                     <StatusBadge tone={product.active ? "success" : "warning"}>
-                      <FinancialText>{product.active ? "active" : "inactive"}</FinancialText>
+                      {product.active ? "active" : "inactive"}
                     </StatusBadge>
                   </td>
                   <td data-label="Actions" data-actions="true" className="px-4">
@@ -547,7 +544,7 @@ function ProductCatalogue() {
                   min="0"
                   step="0.01"
                   inputMode="decimal"
-                  placeholder="0.00"
+                  placeholder="Not provided"
                   aria-label="Default unit cost (₦)"
                   {...form.register("defaultUnitCostNaira", {
                     setValueAs: (value) =>
@@ -567,7 +564,7 @@ function ProductCatalogue() {
                       min="0.01"
                       step="0.01"
                       inputMode="decimal"
-                      placeholder="0.00"
+                      placeholder="Not provided"
                       {...form.register("baseSellingPriceNaira", {
                         setValueAs: (value) =>
                           value === "" ? undefined : Number(value),
@@ -587,14 +584,14 @@ function ProductCatalogue() {
                     <span className="mt-1 block text-xs text-[var(--muted)]">An approved catalogue price. Leave empty to disable wholesale pricing.</span>
                   </label>
                   <label className="text-sm">
-                    VAT rate (%)
+                    VAT rate (%, optional)
                     <FinancialInput><input
                       type="number"
                       min="0"
                       max="100"
                       step="0.01"
                       inputMode="decimal"
-                      placeholder="0.00"
+                      placeholder="Not provided"
                       {...form.register("vatPercent", {
                         setValueAs: (value) =>
                           value === "" ? undefined : Number(value),
@@ -602,7 +599,7 @@ function ProductCatalogue() {
                       className="mt-1 w-full rounded-lg border p-2.5"
                     /></FinancialInput>
                     <span className="mt-1 block text-xs text-[var(--muted)]">
-                      VAT is added and displayed separately at checkout.
+                      Leave blank for VAT not provided; no VAT will be added. Enter 0 only for an explicitly configured zero rate.
                     </span>
                   </label>
                 </>

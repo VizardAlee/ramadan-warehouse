@@ -176,6 +176,7 @@ export const saveProductSalesPrice = onCall(
         throw new HttpsError("not-found", "Product not found.");
       const now = FieldValue.serverTimestamp();
       const version = Number(current!.get("version") ?? 0) + 1;
+      const vatRateBasisPoints = input.vatRateBasisPoints === undefined ? current!.get("vatRateBasisPoints") ?? null : input.vatRateBasisPoints;
       // Omitted fields from older clients preserve existing wholesale configuration.
       const wholesalePriceMinor = input.wholesalePriceMinor === undefined
         ? current!.get("wholesalePriceMinor") ?? null : input.wholesalePriceMinor;
@@ -184,7 +185,7 @@ export const saveProductSalesPrice = onCall(
           organizationId: actor.organizationId, productId: input.productId,
           version: current!.get("version"), basePriceMinor: current!.get("basePriceMinor"),
           wholesalePriceMinor: current!.get("wholesalePriceMinor") ?? null,
-          vatRateBasisPoints: current!.get("vatRateBasisPoints"), active: current!.get("active"),
+          vatRateBasisPoints: current!.get("vatRateBasisPoints") ?? null, active: current!.get("active"),
           effectiveFrom: current!.get("updatedAt") ?? now, capturedAt: now,
           migratedFromLegacy: true, createdBy: current!.get("updatedBy") ?? actor.userId,
         });
@@ -192,7 +193,7 @@ export const saveProductSalesPrice = onCall(
       transaction.create(price.collection("versions").doc(String(version)), {
         organizationId: actor.organizationId, productId: input.productId, version,
         basePriceMinor: input.basePriceMinor, wholesalePriceMinor,
-        vatRateBasisPoints: input.vatRateBasisPoints, active: input.active,
+        vatRateBasisPoints, active: input.active,
         effectiveFrom: now, createdAt: now, createdBy: actor.userId,
       });
       transaction.set(price, {
@@ -203,7 +204,7 @@ export const saveProductSalesPrice = onCall(
         basePriceMinor: input.basePriceMinor,
         wholesalePriceMinor,
         effectiveFrom: now,
-        vatRateBasisPoints: input.vatRateBasisPoints,
+        vatRateBasisPoints,
         currency: "NGN",
         active: input.active,
         version,
@@ -230,14 +231,14 @@ export const saveProductSalesPrice = onCall(
           ? {
               basePriceMinor: current!.get("basePriceMinor"),
               wholesalePriceMinor: current!.get("wholesalePriceMinor") ?? null,
-              vatRateBasisPoints: current!.get("vatRateBasisPoints"),
+              vatRateBasisPoints: current!.get("vatRateBasisPoints") ?? null,
               version: current!.get("version"),
             }
           : undefined,
         after: {
           basePriceMinor: input.basePriceMinor,
           wholesalePriceMinor,
-          vatRateBasisPoints: input.vatRateBasisPoints,
+          vatRateBasisPoints,
           active: input.active,
           version,
         },
@@ -289,9 +290,9 @@ export const saveBranchSalesPrice = onCall(
       const centralVersion = central!.exists ? Number(central!.get("version")) : 0;
       if (input.expectedCentralVersion !== undefined && input.expectedCentralVersion !== centralVersion)
         throw new HttpsError("failed-precondition", "Central prices changed. Refresh and review before saving branch prices.");
-      const vatRateBasisPoints = central!.exists ? Number(central!.get("vatRateBasisPoints")) : input.vatRateBasisPoints ?? current!.get("vatRateBasisPoints");
-      if (!Number.isInteger(vatRateBasisPoints) || vatRateBasisPoints < 0 || vatRateBasisPoints > 10000)
-        throw new HttpsError("invalid-argument", "Choose an explicit VAT rate for branch-only pricing.");
+      const vatRateBasisPoints = central!.exists ? central!.get("vatRateBasisPoints") ?? null : input.vatRateBasisPoints === undefined ? current!.get("vatRateBasisPoints") ?? null : input.vatRateBasisPoints;
+      if (vatRateBasisPoints !== null && (!Number.isInteger(vatRateBasisPoints) || vatRateBasisPoints < 0 || vatRateBasisPoints > 10000))
+        throw new HttpsError("invalid-argument", "VAT must be not provided or a valid rate from 0% through 100%.");
       if (central!.exists && input.vatRateBasisPoints !== undefined && input.vatRateBasisPoints !== vatRateBasisPoints)
         throw new HttpsError("invalid-argument", "VAT follows the central configuration when a central price exists.");
       if (input.expectedVersion !== undefined && input.expectedVersion !== Number(current!.get("version") ?? 0))
@@ -303,7 +304,7 @@ export const saveBranchSalesPrice = onCall(
       const belowWholesale = wholesalePriceMinor !== null && (!Number.isSafeInteger(centralWholesale) || centralWholesale <= 0 || wholesalePriceMinor < centralWholesale);
       const sameApproval = (field: string, value: number | null, approval: string) => current!.get("active") === true &&
         current!.get(field) === value && current!.get(approval) === true && current!.get("basePriceVersion") === centralVersion;
-      const changesBranchVat = !central!.exists && input.vatRateBasisPoints !== undefined && input.vatRateBasisPoints !== current!.get("vatRateBasisPoints");
+      const changesBranchVat = !central!.exists && input.vatRateBasisPoints !== undefined && input.vatRateBasisPoints !== (current!.get("vatRateBasisPoints") ?? null);
       if (changesBranchVat && !hasRole(actor, "system_administrator"))
         throw new HttpsError("permission-denied", "Branch-only VAT configuration requires administrator approval.");
       const needsApproval = changesBranchVat || (belowBase && !sameApproval("sellingPriceMinor", sellingPriceMinor, "belowBaseApproved")) ||
@@ -519,7 +520,7 @@ export const getPosWorkspace = onCall(
           try { wholesale = resolveCatalogPrice(base, local, "wholesale"); } catch { /* This level is unavailable. */ }
           const displayed = retail ?? wholesale;
           if (!displayed) return [];
-          let vatRateBasisPoints: number;
+          let vatRateBasisPoints: number | null;
           try { vatRateBasisPoints = resolveCatalogVatRate(base, local); } catch { return []; }
           const unitPriceMinor = displayed.unitPriceMinor;
           const priceVersion = displayed.priceVersion;
@@ -773,7 +774,7 @@ export const getSaleDocument = onCall(
           item.get("subtotalAmountMinor") ?? item.get("netAmountMinor") ?? 0,
         ),
         discountAmountMinor: Number(item.get("discountAmountMinor") ?? 0),
-        vatRateBasisPoints: Number(item.get("vatRateBasisPoints") ?? 0),
+        vatRateBasisPoints: item.get("vatRateBasisPoints") === null ? null : Number(item.get("vatRateBasisPoints") ?? 0),
         netAmountMinor: Number(item.get("netAmountMinor") ?? 0),
         vatAmountMinor: Number(item.get("vatAmountMinor") ?? 0),
         grossAmountMinor: Number(item.get("grossAmountMinor") ?? 0),
@@ -1725,7 +1726,9 @@ async function postPosSale(
           product,
           balance,
           unitPriceMinor: line.sellingPriceMinor ?? unitPriceMinor,
-          vatRateBasisPoints,
+          // Linked cases retain their approved charge's VAT snapshot even when catalogue tax changes later.
+          vatRateBasisPoints: mixedContext.cases.get(index)?.get("serviceCatalog.vatRateBasisPoints") !== undefined
+            ? mixedContext.cases.get(index)!.get("serviceCatalog.vatRateBasisPoints") as number | null : vatRateBasisPoints,
           priceVersion,
           priceSource: line.sellingPriceMinor !== undefined ? "pos_override" : selected.priceSource,
           catalogUnitPriceMinor: unitPriceMinor,

@@ -1753,8 +1753,8 @@ export default function PosPage() {
                 <dd><FinancialValue>{formatNaira(totals.netAmountMinor)}</FinancialValue></dd>
               </div>
               <div className="flex justify-between">
-                <dt>VAT</dt>
-                <dd><FinancialValue>{formatNaira(totals.vatAmountMinor)}</FinancialValue></dd>
+                <dt>VAT{cart.some(line => (line.serviceCase?.vatRateBasisPoints !== undefined ? line.serviceCase.vatRateBasisPoints : line.product.vatRateBasisPoints) === null && !line.serviceCase?.vatMinor) ? " (provided rates only)" : ""}</dt>
+                <dd><FinancialValue>{formatNaira(totals.vatAmountMinor)}</FinancialValue>{cart.some(line => (line.serviceCase?.vatRateBasisPoints !== undefined ? line.serviceCase.vatRateBasisPoints : line.product.vatRateBasisPoints) === null && !line.serviceCase?.vatMinor) && <p className="text-xs">VAT not provided on some items; no VAT added for those items.</p>}</dd>
               </div>
               <div className="flex justify-between border-t border-white/20 pt-3 text-xl font-semibold">
                 <dt>Total</dt>
@@ -2364,7 +2364,7 @@ export default function PosPage() {
         const product = workspace.products.find(item => item.id === priceProductId);
         return product ? <BranchPriceEditor branchId={workspace.branch.id} branchName={workspace.branch.name} productId={product.id} productName={product.name}
           central={product.hasCentralPrice === false ? null : { basePriceMinor: product.basePriceMinor, wholesalePriceMinor: product.centralWholesalePriceMinor, version: product.centralPriceVersion!, vatRateBasisPoints: product.vatRateBasisPoints }}
-          current={{ vatRateBasisPoints: product.branchVatRateBasisPoints ?? undefined, active: product.branchPriceActive, sellingPriceMinor: product.branchRetailPriceMinor, wholesalePriceMinor: product.branchWholesalePriceMinor, version: product.branchPriceVersion, basePriceVersion: product.branchBasePriceVersion ?? undefined, belowBaseApproved: product.branchBelowBaseApproved, belowWholesaleApproved: product.branchBelowWholesaleApproved }}
+          current={{ vatRateBasisPoints: product.branchVatRateBasisPoints ?? null, active: product.branchPriceActive, sellingPriceMinor: product.branchRetailPriceMinor, wholesalePriceMinor: product.branchWholesalePriceMinor, version: product.branchPriceVersion, basePriceVersion: product.branchBasePriceVersion ?? undefined, belowBaseApproved: product.branchBelowBaseApproved, belowWholesaleApproved: product.branchBelowWholesaleApproved }}
           onClose={() => setPriceProductId(null)} onSaved={async () => { await loadWorkspace(); setMessage(`Branch prices updated for ${product.name}. Review the current basket before confirming.`); }} /> : null;
       })()}
     </div>

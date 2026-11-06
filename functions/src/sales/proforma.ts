@@ -59,7 +59,7 @@ export async function proformaRequest(actor: AccessProfile, data: unknown) {
       const product = records[index * 3]!, central = records[index * 3 + 1]!, branchPrice = records[index * 3 + 2]!;
       if (!product.exists || product.get("organizationId") !== actor.organizationId || product.get("active") !== true || (central.exists && (central.get("organizationId") !== actor.organizationId || central.get("active") !== true)) || (branchPrice.exists && (branchPrice.get("organizationId") !== actor.organizationId || branchPrice.get("branchId") !== input.branchId))) fail("A quoted product or price is unavailable.");
       const base = centralSalesPrice(central.data()), local = branchPrice.data() ?? {};
-      let vatRateBasisPoints: number;
+      let vatRateBasisPoints: number | null;
       try { vatRateBasisPoints = resolveCatalogVatRate(base, local); }
       catch (cause) { throw new HttpsError("failed-precondition", (cause as Error).message); }
       // Custom prices are quote content, never catalogue or POS price changes.

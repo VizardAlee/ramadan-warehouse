@@ -1,7 +1,8 @@
 export interface SaleCalculationLine {
   readonly quantity: number;
   readonly unitPriceMinor: number;
-  readonly vatRateBasisPoints: number;
+  /** null records VAT not provided; it adds no VAT and is never rewritten as an approved 0% rate. */
+  readonly vatRateBasisPoints: number | null;
   readonly unitCostMinor: number;
   readonly fixedGrossMinor?: number;
   readonly fixedVatMinor?: number;
@@ -42,16 +43,16 @@ export function calculateSaleLine(
   if (!Number.isSafeInteger(line.quantity) || line.quantity <= 0)
     throw new Error("Quantity must be a positive safe integer.");
   safeNonNegativeInteger(line.unitPriceMinor, "Unit price");
-  safeNonNegativeInteger(line.vatRateBasisPoints, "VAT rate");
+  if (line.vatRateBasisPoints !== null) safeNonNegativeInteger(line.vatRateBasisPoints, "VAT rate");
   safeNonNegativeInteger(line.unitCostMinor, "Unit cost");
-  if (line.vatRateBasisPoints > 10_000)
+  if (line.vatRateBasisPoints !== null && line.vatRateBasisPoints > 10_000)
     throw new Error("VAT rate cannot exceed 100 percent.");
   if (line.fixedVatMinor !== undefined && line.fixedGrossMinor === undefined) throw new Error("Fixed VAT requires a confirmed service charge.");
   if (line.fixedGrossMinor !== undefined && (line.quantity !== 1 || line.fixedVatMinor === undefined || line.fixedVatMinor > line.fixedGrossMinor)) throw new Error("Invalid confirmed service charge.");
   if (line.fixedGrossMinor !== undefined) { safeNonNegativeInteger(line.fixedGrossMinor, "Fixed charge"); safeNonNegativeInteger(line.fixedVatMinor!, "Fixed VAT"); }
   const netAmountMinor = line.fixedGrossMinor === undefined ? line.quantity * line.unitPriceMinor : line.fixedGrossMinor - line.fixedVatMinor!;
   safeNonNegativeInteger(netAmountMinor, "Net amount");
-  const vatAmountMinor = line.fixedVatMinor ?? roundedVat(netAmountMinor, line.vatRateBasisPoints);
+  const vatAmountMinor = line.fixedVatMinor ?? roundedVat(netAmountMinor, line.vatRateBasisPoints ?? 0);
   const grossAmountMinor = netAmountMinor + vatAmountMinor;
   const costAmountMinor = line.quantity * line.unitCostMinor;
   for (const [name, value] of [
@@ -106,8 +107,8 @@ export function calculateSale(
     const netAmountMinor = line.subtotalAmountMinor - lineDiscountMinor;
     safeNonNegativeInteger(netAmountMinor, "Discounted line amount");
     const vatAmountMinor = line.fixedVatMinor ?? (calculationVersion === 1
-      ? Math.round((netAmountMinor * line.vatRateBasisPoints) / 10_000)
-      : roundedVat(netAmountMinor, line.vatRateBasisPoints));
+      ? Math.round((netAmountMinor * (line.vatRateBasisPoints ?? 0)) / 10_000)
+      : roundedVat(netAmountMinor, line.vatRateBasisPoints ?? 0));
     return {
       ...line,
       discountAmountMinor: lineDiscountMinor,
