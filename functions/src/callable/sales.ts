@@ -741,6 +741,7 @@ export const getSaleDocument = onCall(
         invoiceNumber: sale.get("saleNumber"),
         receiptNumber: officialReceipt.get("receiptNumber"),
         paymentStatus: sale.get("paymentStatus"),
+        errorCancellation: sale.get("errorCancellation") ? { correctionId: sale.get("errorCancellation.correctionId"), completedAt: iso(sale.get("errorCancellation.completedAt")) } : null,
         collectionStatus: sale.get("collectionStatus") ?? "collected",
         cancelledQuantity: Number(sale.get("cancelledQuantity") ?? 0),
         customerNumber: sale.get("customerNumber") ?? null,

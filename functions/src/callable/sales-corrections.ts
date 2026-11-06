@@ -27,6 +27,8 @@ export const correctionProposal = z.object({
 const inputSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("list"), branchId: id, status: z.enum(["submitted", "approved", "rejected", "completed"]), limit: z.number().int().min(1).max(100).default(25), cursor: id.optional() }),
   z.object({ action: z.literal("request"), branchId: id, receiptNumber: id, reason: z.string().trim().min(5).max(1000), proposedValues: correctionProposal, idempotencyKey: z.string().uuid() }),
+  z.object({ action: z.literal("request_cancellation"), branchId: id, receiptNumber: id, reason: z.string().trim().min(5).max(1000), idempotencyKey: z.string().uuid() }),
+  z.object({ action: z.literal("complete_cancellation"), correctionId: id, returnNumbers: z.array(id).min(1).max(20), reason: z.string().trim().min(5).max(1000), idempotencyKey: z.string().uuid() }),
   z.object({ action: z.literal("review"), correctionId: id, decision: z.enum(["approved", "rejected"]), reason: z.string().trim().min(5).max(1000), idempotencyKey: z.string().uuid() }),
   z.object({ action: z.literal("complete"), correctionId: id, returnNumbers: z.array(id).min(1).max(20), replacementNumber: id, reason: z.string().trim().min(5).max(1000), idempotencyKey: z.string().uuid() }),
 ]);
@@ -41,7 +43,7 @@ async function assertUnreversedItems(tx: FirebaseFirestore.Transaction, organiza
 export const salesCorrections = onCall({ enforceAppCheck, timeoutSeconds: 60 }, async request => {
   try {
   const actor = await requireAccess(request), input = parseInput(inputSchema, request.data);
-  requirePermission(actor, input.action === "list" ? "sales.returns.read" : input.action === "request" ? "sales.returns.create" : "sales.returns.approve");
+  requirePermission(actor, input.action === "list" ? "sales.returns.read" : ["request", "request_cancellation"].includes(input.action) ? "sales.returns.create" : "sales.returns.approve");
   if (input.action !== "list") requireSaleErrorAdministrator(actor);
   if (input.action === "list") {
     requireBranchScope(actor, input.branchId);
@@ -65,16 +67,18 @@ export const salesCorrections = onCall({ enforceAppCheck, timeoutSeconds: 60 }, 
       return previous.get("result");
     }
     const now = FieldValue.serverTimestamp();
-    if (input.action === "request") {
+    if (input.action === "request" || input.action === "request_cancellation") {
       requireBranchScope(actor, input.branchId);
       let saleQuery = await tx.get(db.collection("sales").where("organizationId", "==", actor.organizationId).where("branchId", "==", input.branchId).where("receiptNumber", "==", input.receiptNumber).limit(1));
       if (saleQuery.empty) saleQuery = await tx.get(db.collection("sales").where("organizationId", "==", actor.organizationId).where("branchId", "==", input.branchId).where("saleNumber", "==", input.receiptNumber).limit(1));
       const sale = saleQuery.docs[0];
       if (!sale || sale.get("status") !== "completed") throw new HttpsError("failed-precondition", "Select an original completed sale.");
       const originalLock = db.doc(`saleCorrectionEvidence/${actor.organizationId}_original_${sale.id}`), lock = await tx.get(originalLock);
-      if (lock.exists && lock.get("status") !== "released") throw new HttpsError("failed-precondition", "This sale already has an active or completed full-reissue correction. Continue that request instead.");
+      if (lock.exists && lock.get("status") !== "released") throw new HttpsError("failed-precondition", "This sale already has an active or completed correction. Continue that request instead.");
       const items = await tx.get(db.collection("saleItems").where("saleId", "==", sale.id).limit(51));
       await assertUnreversedItems(tx, actor.organizationId, items.docs);
+      let proposedValues: Record<string, unknown> | null = null;
+      if (input.action === "request") {
       const products = await tx.getAll(...input.proposedValues.lines.map(line => db.doc(`products/${line.productId}`)));
       if (products.some(product => !product.exists || product.get("organizationId") !== actor.organizationId || product.get("active") !== true)) throw new HttpsError("failed-precondition", "Choose active products from this organization.");
       let customerName: string | null = null;
@@ -84,12 +88,13 @@ export const salesCorrections = onCall({ enforceAppCheck, timeoutSeconds: 60 }, 
         requireCustomerBranch(customer.data()!, input.branchId);
         customerName = String(customer.get("name"));
       }
-      const proposedValues = { ...input.proposedValues, customerName, lines: input.proposedValues.lines.map((line, index) => ({ ...line, productName: String(products[index]!.get("name")) })) };
+      proposedValues = { ...input.proposedValues, customerName, lines: input.proposedValues.lines.map((line, index) => ({ ...line, productName: String(products[index]!.get("name")) })) };
+      }
       const result = { correctionId: generated.id, status: "submitted" };
       tx.set(originalLock, { organizationId: actor.organizationId, branchId: input.branchId, correctionId: generated.id, status: "active", createdAt: now });
-      tx.create(generated, { organizationId: actor.organizationId, branchId: input.branchId, correctionNumber: `COR-${generated.id.slice(0, 10).toUpperCase()}`, saleId: sale.id, saleNumber: sale.get("saleNumber"), receiptNumber: sale.get("receiptNumber"), status: "submitted", kind: "return_and_reissue", reason: input.reason, originalValues: { customerId: sale.get("customerId") ?? null, customerName: sale.get("customerName") ?? null, grossAmountMinor: sale.get("grossAmountMinor"), journalEntryId: sale.get("journalEntryId") ?? null, lines: items.docs.map(item => ({ saleItemId: item.id, productId: item.get("productId"), productName: item.get("productName"), quantity: item.get("quantity"), unitPriceMinor: item.get("unitPriceMinor") })) }, proposedValues, requestedBy: actor.userId, requestedAt: now, createdAt: now, updatedAt: now });
+      tx.create(generated, { organizationId: actor.organizationId, branchId: input.branchId, correctionNumber: `COR-${generated.id.slice(0, 10).toUpperCase()}`, saleId: sale.id, saleNumber: sale.get("saleNumber"), receiptNumber: sale.get("receiptNumber"), status: "submitted", kind: input.action === "request_cancellation" ? "cancel_without_replacement" : "return_and_reissue", reason: input.reason, originalValues: { customerId: sale.get("customerId") ?? null, customerName: sale.get("customerName") ?? null, grossAmountMinor: sale.get("grossAmountMinor"), journalEntryId: sale.get("journalEntryId") ?? null, lines: items.docs.map(item => ({ saleItemId: item.id, productId: item.get("productId"), productName: item.get("productName"), quantity: item.get("quantity"), unitPriceMinor: item.get("unitPriceMinor") })) }, proposedValues, requestedBy: actor.userId, requestedAt: now, createdAt: now, updatedAt: now });
       tx.create(op, { organizationId: actor.organizationId, branchId: input.branchId, fingerprint, result, createdAt: now });
-      writeAuditLog(tx, actor, { action: "sale_correction.requested", entityType: "saleCorrection", entityId: generated.id, sourceFunction: "salesCorrections", correlationId: cid, reason: input.reason, after: { saleId: sale.id, proposedValues: input.proposedValues } });
+      writeAuditLog(tx, actor, { action: "sale_correction.requested", entityType: "saleCorrection", entityId: generated.id, sourceFunction: "salesCorrections", correlationId: cid, reason: input.reason, after: { saleId: sale.id, kind: input.action === "request_cancellation" ? "cancel_without_replacement" : "return_and_reissue", proposedValues } });
       return result;
     }
     const reference = db.doc(`saleCorrectionRequests/${input.correctionId}`), correction = await tx.get(reference);
@@ -121,33 +126,41 @@ export const salesCorrections = onCall({ enforceAppCheck, timeoutSeconds: 60 }, 
         quantities.set(String(item.get("saleItemId")), (quantities.get(String(item.get("saleItemId"))) ?? 0) + Number(item.get("quantity")));
       }
       const original = correction.get("originalValues") as { grossAmountMinor: number; lines: Array<{ saleItemId: string; quantity: number }> };
-      if (quantities.size !== original.lines.length || original.lines.some(line => quantities.get(line.saleItemId) !== line.quantity) || returns.reduce((sum, record) => sum + Number(record.get("grossAmountMinor")), 0) !== original.grossAmountMinor) throw new HttpsError("failed-precondition", "Reverse the complete original order through the existing controlled return/cancellation workflow before linking a full reissue.");
+      if (quantities.size !== original.lines.length || original.lines.some(line => quantities.get(line.saleItemId) !== line.quantity) || returns.reduce((sum, record) => sum + Number(record.get("grossAmountMinor")), 0) !== original.grossAmountMinor) throw new HttpsError("failed-precondition", "Reverse the complete original order through the existing controlled return/cancellation workflow before completing the correction.");
+      const cancellation = correction.get("kind") === "cancel_without_replacement";
+      if (cancellation !== (input.action === "complete_cancellation")) throw new HttpsError("failed-precondition", "Use the completion action matching the approved correction plan.");
+      let replacement: FirebaseFirestore.QueryDocumentSnapshot | undefined;
+      let replacementJournal: FirebaseFirestore.QueryDocumentSnapshot | undefined;
+      if (input.action === "complete") {
       const replacementQuery = await tx.get(db.collection("sales").where("organizationId", "==", actor.organizationId).where("branchId", "==", correction.get("branchId")).where("saleNumber", "==", input.replacementNumber).limit(1));
-      const replacement = replacementQuery.docs[0];
+      replacement = replacementQuery.docs[0];
       if (!replacement || replacement.id === correction.get("saleId") || replacement.get("status") !== "completed" || (replacement.get("createdAt")?.toMillis() ?? 0) < approvedAt) throw new HttpsError("failed-precondition", "Select a completed replacement sale created after approval.");
       const replacementItems = await tx.get(db.collection("saleItems").where("saleId", "==", replacement.id).limit(51));
       const proposed = correction.get("proposedValues") as z.infer<typeof correctionProposal>;
       if ((replacement.get("customerId") ?? null) !== proposed.customerId || Number(replacement.get("discountAmountMinor") ?? 0) !== proposed.discountAmountMinor || canonicalCorrectionLines(replacementItems.docs.map(item => ({ productId: String(item.get("productId")), quantity: Number(item.get("quantity")), unitPriceMinor: Number(item.get("unitPriceMinor")) }))) !== canonicalCorrectionLines(proposed.lines)) throw new HttpsError("failed-precondition", "Replacement customer, products, quantities, unit prices and discount must match the approved proposal.");
       const replacementJournals = await tx.get(db.collection("journalEntries").where("organizationId", "==", actor.organizationId).where("referenceId", "==", replacement.id).limit(10));
-      const replacementJournal = replacementJournals.docs.find(journal => journal.get("referenceType") === "sale");
-      const journalIds = [...returns.map(record => record.get("journalEntryId")), replacementJournal?.id];
+      replacementJournal = replacementJournals.docs.find(journal => journal.get("referenceType") === "sale");
+      }
+      if (input.action === "complete" && !replacementJournal) throw new HttpsError("failed-precondition", "The replacement accounting journal is unavailable.");
+      const journalIds = [...returns.map(record => record.get("journalEntryId")), ...(replacementJournal ? [replacementJournal.id] : [])];
       if (journalIds.some(id => typeof id !== "string" || !id)) throw new HttpsError("failed-precondition", "Posted accounting evidence is incomplete.");
       const journals = await tx.getAll(...journalIds.map(id => db.doc(`journalEntries/${id}`)));
       if (journals.some(journal => !journal.exists || journal.get("organizationId") !== actor.organizationId || journal.get("branchId") !== correction.get("branchId") || journal.get("status") !== "posted" || journal.get("totalDebitMinor") !== journal.get("totalCreditMinor"))) throw new HttpsError("failed-precondition", "Every linked journal must be posted, balanced and in the correction's store.");
-      if (journals.some((journal, index) => journal.get("referenceId") !== (index < returns.length ? returns[index]!.id : replacement.id) || journal.get("referenceType") !== (index < returns.length ? "saleReturn" : "sale"))) throw new HttpsError("failed-precondition", "Accounting evidence must reference the linked return or replacement itself.");
+      if (journals.some((journal, index) => journal.get("referenceId") !== (index < returns.length ? returns[index]!.id : replacement!.id) || journal.get("referenceType") !== (index < returns.length ? "saleReturn" : "sale"))) throw new HttpsError("failed-precondition", "Accounting evidence must reference the linked return or replacement itself.");
       const inventoryIds = returns.map(record => record.get("inventoryTransactionId")).filter((id): id is string => typeof id === "string" && Boolean(id));
       const movements = inventoryIds.length ? await tx.getAll(...inventoryIds.map(id => db.doc(`inventoryTransactions/${id}`))) : [];
       if (movements.some(movement => !movement.exists || movement.get("organizationId") !== actor.organizationId || movement.get("status") !== "posted" || !returns.some(record => record.id === movement.get("referenceId") && record.get("inventoryTransactionId") === movement.id))) throw new HttpsError("failed-precondition", "Linked stock movements must be posted for these returns.");
-      const evidenceRefs = [...returns.map(record => `return_${record.id}`), `sale_${replacement.id}`].map(key => db.doc(`saleCorrectionEvidence/${actor.organizationId}_${key}`));
+      const evidenceRefs = [...returns.map(record => `return_${record.id}`), ...(replacement ? [`sale_${replacement.id}`] : [])].map(key => db.doc(`saleCorrectionEvidence/${actor.organizationId}_${key}`));
       const evidence = await tx.getAll(...evidenceRefs);
       if (evidence.some(record => record.exists)) throw new HttpsError("already-exists", "A linked transaction is already assigned to another correction.");
       evidenceRefs.forEach(ref => tx.create(ref, { organizationId: actor.organizationId, branchId: correction.get("branchId"), correctionId: correction.id, createdAt: now }));
       tx.update(originalLock, { status: "completed", updatedAt: now });
-      tx.update(reference, { status: "completed", returnIds: returns.map(record => record.id), returnNumbers: input.returnNumbers, replacementSaleId: replacement.id, replacementSaleNumber: replacement.get("saleNumber"), journalEntryIds: journalIds, inventoryTransactionIds: returns.map(record => record.get("inventoryTransactionId")).filter(Boolean), completionReason: input.reason, completedBy: actor.userId, completedAt: now, updatedAt: now });
+      if (cancellation) tx.update(db.doc(`sales/${correction.get("saleId")}`), { errorCancellation: { correctionId: correction.id, returnIds: returns.map(record => record.id), completedBy: actor.userId, completedAt: now }, updatedAt: now });
+      tx.update(reference, { status: "completed", returnIds: returns.map(record => record.id), returnNumbers: input.returnNumbers, replacementSaleId: replacement?.id ?? null, replacementSaleNumber: replacement?.get("saleNumber") ?? null, journalEntryIds: journalIds, inventoryTransactionIds: returns.map(record => record.get("inventoryTransactionId")).filter(Boolean), completionReason: input.reason, completedBy: actor.userId, completedAt: now, updatedAt: now });
     }
     const status = input.action === "review" ? input.decision : "completed", result = { correctionId: correction.id, status };
     tx.create(op, { organizationId: actor.organizationId, branchId: correction.get("branchId"), fingerprint, result, createdAt: now });
-    writeAuditLog(tx, actor, { action: `sale_correction.${status}`, entityType: "saleCorrection", entityId: correction.id, sourceFunction: "salesCorrections", correlationId: cid, reason: input.reason, before: { status: correction.get("status") }, after: { status, ...(input.action === "complete" ? { returnNumbers: input.returnNumbers, replacementNumber: input.replacementNumber } : {}) } });
+    writeAuditLog(tx, actor, { action: `sale_correction.${status}`, entityType: "saleCorrection", entityId: correction.id, sourceFunction: "salesCorrections", correlationId: cid, reason: input.reason, before: { status: correction.get("status") }, after: { status, ...(input.action !== "review" ? { returnNumbers: input.returnNumbers, replacementNumber: input.action === "complete" ? input.replacementNumber : null } : {}) } });
     return result;
   });
   } catch (error) {

@@ -1,3 +1,4 @@
+import { customerOwnership, ownershipActions } from "../sales/customer-ownership.js";
 import { customerInView, requireCustomerView, requireCustomerBranch } from "../sales/customer-scope.js";
 import { assignedBranchQuery } from "../auth/view-scope.js";
 import { scopedAccess, requirePermissionScope } from "../auth/permission-scope.js";
@@ -44,6 +45,7 @@ function statementInstant(value: Timestamp) {
 
 export const getCustomerHistory = onCall({ enforceAppCheck, timeoutSeconds: 300 }, async (request) => {
   const actor = await scopedAccess(await requireAccess(request));
+  if (ownershipActions.includes(request.data?.action)) return customerOwnership(actor, request.data);
   requirePermission(actor, "customers.read");
   if (request.data?.action === "list_customers") {
     const input = parseInput(customerRegisterInput, request.data);

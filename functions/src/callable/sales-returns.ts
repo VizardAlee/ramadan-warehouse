@@ -1,3 +1,4 @@
+import { requireSaleErrorAdministrator } from "../sales/error-correction-authority.js";
 import { creditBilling, type MixedBilling, type BillingJournalLine } from "../billing/allocations.js";
 import { prepareBillingTransition, writeBillingTransition } from "../billing/transitions.js";
 import { FieldValue, Timestamp } from "firebase-admin/firestore";
@@ -218,6 +219,17 @@ export const listSaleReturns = onCall({ enforceAppCheck }, async (request) => {
   };
 });
 
+async function guardErrorCancellation(actor: import("../auth/authorize.js").AccessProfile, saleId: string, transaction?: FirebaseFirestore.Transaction) {
+  const reference = db.doc(`saleCorrectionEvidence/${actor.organizationId}_original_${saleId}`);
+  const lock = transaction ? await transaction.get(reference) : await reference.get();
+  if (!lock.exists || lock.get("status") === "released") return;
+  const planRef = db.doc(`saleCorrectionRequests/${lock.get("correctionId")}`);
+  const plan = transaction ? await transaction.get(planRef) : await planRef.get();
+  if (plan.get("kind") !== "cancel_without_replacement") return;
+  requireSaleErrorAdministrator(actor);
+  if (plan.get("organizationId") !== actor.organizationId || !["approved", "completed"].includes(plan.get("status"))) throw new HttpsError("failed-precondition", "The mistaken-sale cancellation plan must be approved before processing its reversal.");
+}
+
 export const createSaleReturn = onCall({ enforceAppCheck }, async (request) => {
   const actor = await requireAccess(request);
   requirePermission(actor, "sales.returns.create");
@@ -235,6 +247,7 @@ export const createSaleReturn = onCall({ enforceAppCheck }, async (request) => {
       "failed-precondition",
       "The original completed sale is unavailable.",
     );
+  await guardErrorCancellation(actor, input.saleId);
   const serviceCredit = input.kind === "service_credit";
   const refundMethod = input.resolution === "split" ? input.refundMethod! : input.resolution;
   if ((serviceCredit || input.resolution === "split") && !sale.get("billing")) throw new HttpsError("failed-precondition", "Service credits and split resolution require a tracked mixed invoice.");
@@ -270,6 +283,7 @@ export const createSaleReturn = onCall({ enforceAppCheck }, async (request) => {
   );
   let result = { returnId: returnRecord.id, returnNumber: "", created: true };
   await db.runTransaction(async (transaction) => {
+    await guardErrorCancellation(actor, input.saleId, transaction);
     const bankAccountSnapshot = await transaction.get(db.doc(`bankAccounts/${input.bankAccountId ?? "no-bank-account"}`));
     const snapshots = await transaction.getAll(
       operation,
@@ -443,6 +457,9 @@ export const approveSaleReturn = onCall(
     const actor = await requireAccess(request);
     requirePermission(actor, "sales.returns.approve");
     const input = parseInput(approveSaleReturnInput, request.data);
+    const guardedReturn = await db.doc(`saleReturns/${input.returnId}`).get();
+    if (!guardedReturn.exists || guardedReturn.get("organizationId") !== actor.organizationId) throw new HttpsError("not-found", "Return not found.");
+    await guardErrorCancellation(actor, String(guardedReturn.get("saleId")));
     if (input.action !== "approve") {
       try { return await followUpSaleReturn(actor, input); }
       catch (cause) {
@@ -526,6 +543,7 @@ export const approveSaleReturn = onCall(
       creditId: null as string | null,
     };
     await db.runTransaction(async (transaction) => {
+      await guardErrorCancellation(actor, String(initial.get("saleId")), transaction);
       const bankAccountSnapshot = await transaction.get(refundBankAccount);
       const snapshots = await transaction.getAll(
         operation,

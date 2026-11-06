@@ -1,6 +1,6 @@
 # Sales voucher, receipt and store release
 
-Status: implemented in the feature candidate and covered by callable regressions. The full production release gate and deployment remain pending.
+Status: the voucher, cashier confirmation, pending waybill and separately authorized collection flow was deployed in `c9ffcee35ddcb46a658b4974e36c45b078ccfbb7` (PR #16), App Hosting build `build-2026-11-06-004`, with 182 ACTIVE Functions and the full 25-stage production gate. Live verification was read-only; production financial and stock posting paths were not exercised for testing. The follow-up cancellation and customer ownership workflows described below require their own exact-commit release evidence; their live deployment status must be taken from the associated pull request and verified runtime/build, not inferred from the earlier PR #16 release.
 
 The user approved this workflow on 2026-11-06. Cashier and store officer may be the same person or different people. Each action must independently pass its existing permission and branch checks and record its own actor. Existing approved-credit and part-payment eligibility remains in force. This does not grant any new permissions.
 
@@ -26,3 +26,16 @@ Test same-person and different-person workflows, each missing permission, select
 Requesting, approving/rejecting, and completing a posted-sale correction requires an actual System Administrator assignment in addition to the existing action permission and branch checks. Operations Administrator and custom roles based on System Administrator do not qualify. The server checks this before idempotent replay; hiding controls in the browser is additional guidance.
 
 This restriction applies to the dedicated mistaken-sale correction workflow. Ordinary customer goods returns, eligible uncollected-goods cancellations, payment receipt corrections, draft order rejection, and store collections retain their existing independent permissions. No historical invoice is rewritten, and this release does not reverse any live sale automatically.
+
+
+## Standalone mistaken-sale cancellation
+
+A System Administrator can request `cancel_without_replacement`, review the plan, process the genuine controlled returns/reservation cancellations/service credits and refund or debt reversal, then verify completion using all posted reversal numbers. No replacement invoice is required. Every original line and its full gross amount must be reversed with balanced posted journals and valid inventory evidence before completion. Original invoice amounts remain recorded; the document shows the linked mistaken-sale cancellation. Same-request retries retain their result without duplicating postings. An approved cancellation plan also restricts associated return processing to an actual System Administrator, including replay; ordinary returns outside this exceptional plan retain their existing permissions. Cash shifts remain owned by their original users/devices.
+
+## Customer ownership review
+
+Customers → All locations → Customer branch ownership review is restricted to actual System Administrators with customer management permission. It shows missing/invalid ownership, historical branches, tracked unpaid invoices, advances and account arrangements. No destination is preselected. The administrator confirms the customer number, reason and preservation of posted history. Changed evidence forces a refresh, and successful assignments retain a review record and audit log. Cross-branch history, unattributed activity, inconsistent or legacy unresolved balances and truncated evidence block reassignment; an accountant and business owner must resolve the facts before choosing an ownership or account-splitting policy. No automatic migration or historical rewrite is performed.
+
+## Adjustment incident evidence limits
+
+The reported rejection at 2026-11-06 13:49:06 UTC did not include an error message or submitted values. A read-only search of `postStockAdjustment` logs from 13:35–14:05 UTC returned no matching entries. This does not establish the original cause. The previously deployed form/server reason-length alignment is a confirmed defect fix, not conclusive proof of that incident. Invalid quantities, reserved stock, serial evidence, permissions and accounting-period controls must continue rejecting invalid adjustments.

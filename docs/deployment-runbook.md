@@ -1,3 +1,5 @@
+> Current released baseline (2026-11-06): PR #16, commit `c9ffcee35ddcb46a658b4974e36c45b078ccfbb7`, App Hosting `build-2026-11-06-004`, 182 ACTIVE Node 22 Functions. The full 25-stage production gate and exact-main CI passed. Runtime/rules/hosting verification and UI smoke were read-only; no real financial, stock or ownership transactions were posted for tests. The older 98/125/135-function checkpoints below are historical records, not the current deployment target. Verify the function count and source from the final current commit before each release. See [sales workflow and follow-up scope](sales-voucher-release-workflow.md).
+
 # Deployment runbook
 
 ## Simplified transfer production release (2026-09-06)
@@ -15,8 +17,7 @@ Phase 2 adds three callable Functions for customer records, administrator credit
 decisions, and receivable payments, plus credit checkout in the existing sale
 callable. Phase 3 adds four callable Functions for receipt lookup, return queue,
 return submission, and independent return approval, plus exchange-credit
-redemption in the existing sale callable. This source checkpoint is not yet deployed. Production therefore
-correctly remains on the validated 98-function release described below. Phase 4
+redemption in the existing sale callable. At that historical checkpoint the sales expansion was not deployed; the 98-function production baseline described below applied then. Phase 4
 adds nine callable Functions for suppliers, purchase orders, controlled goods
 receipts, supplier-invoice matching and approval, and supplier payments.
 Phase 5 adds five callable Functions for the expense workspace, draft creation,
@@ -94,7 +95,7 @@ The enabled email notification channel for `servicegurunigeria@gmail.com` is att
 2. Work only from `main`, require a clean worktree for routine deployment, and confirm ignored `.env.production` and `functions/.env.production` contain no debug token.
 3. Run `npm run validate:production` and `npm run predeploy:production`.
 4. Deploy through the scoped production scripts in `package.json`. Do not bypass their environment and project guards.
-5. Verify 98 ACTIVE Node 22 Functions, three enabled Scheduler jobs, production runtime flags, rules/indexes, Monitoring policies, uptime, and backup schedule.
+5. Verify the current commit’s expected exported Functions are ACTIVE on Node 22, three enabled Scheduler jobs, production runtime flags, rules/indexes, Monitoring policies, uptime, and backup schedule.
 6. Verify the generated Hosting URL and callable App Check behavior. Service-level App Check remains metrics-first unless a separately approved enforcement change is made.
 7. Verify all three scheduled Functions retain three retries within ten minutes, 30-120 second bounded backoff, a 120-second timeout, and `minInstances: 0`. Verify the incident-oriented alert thresholds documented in `monitoring-and-alerting.md`; do not weaken the App Check or warehouse-operation policies.
 

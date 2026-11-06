@@ -1,4 +1,7 @@
 const messages: Record<string, string> = {
+  CUSTOMER_OWNERSHIP_STALE: "Customer or financial activity changed. Refresh the ownership review before assigning a branch.",
+  CUSTOMER_OWNERSHIP_REVIEW_REQUIRED: "Recorded history or balances require accounting review. No ownership or posted record was changed.",
+  CUSTOMER_OWNERSHIP_ADMIN_REQUIRED: "Only a System Administrator may review or assign customer ownership.",
   SALE_ERROR_ADMIN_REQUIRED: "Only a System Administrator can correct a sale entered in error. Ask an administrator to review the original receipt.",
   SAVED_ACTION_NOT_COMMITTED: "The saved action was not recorded, and the record has since changed. Refresh and review the latest details before submitting a corrected action.",
   PURCHASE_RECEIPT_RECONCILIATION_REQUIRED: "An older receipt has unresolved stock evidence. Check receiving history and ask authorized inventory/accounting staff to reconcile its goods-received note. Do not receive the same goods again.",

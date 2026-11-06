@@ -148,6 +148,7 @@ function SaleDocumentContent({ document, onClose }: { document: SaleDocument; on
           </div>
         )}
 
+        {document.sale.errorCancellation && <div className="border-b bg-amber-50 px-5 py-3 text-sm text-amber-950 sm:px-7"><strong>Cancelled as a mistaken sale</strong><p>The original posted invoice is preserved. Its full reversal is recorded separately under correction <FinancialText>{document.sale.errorCancellation.correctionId}</FinancialText>.</p></div>}
         <div className="space-y-6 p-5 sm:p-7">
           <section className="rounded-xl border p-4 text-sm" data-no-print>
             {["awaiting_collection", "partially_collected"].includes(document.sale.collectionStatus ?? "") && <section className="mb-4 rounded border p-3" aria-label="Pending waybill"><h2 className="font-semibold">Pending waybill · awaiting store confirmation</h2><p>This is not proof of collection. Store staff must confirm each actual handover.</p><ul>{document.items.filter(item => item.itemKind !== "service").map(item => { const remaining = item.quantity - (item.collectedQuantity ?? 0) - (item.cancelledQuantity ?? 0); return remaining > 0 ? <li key={item.id}>{item.productName} · {remaining} {item.unitOfMeasure} awaiting handover</li> : null; })}</ul></section>}

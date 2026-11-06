@@ -47,3 +47,26 @@ it("keeps erroneous-sale correction controls admin-only even when broader return
   expect(screen.queryByText("Request correction to SAL-001")).toBeNull();
   await screen.findByText("No corrections in this view.");
 });
+
+it("requests cancellation without replacement fields and retains its retry instructions", async () => {
+  api.call.mockImplementation((_name: string, input: { action: string }) => input.action === "request_cancellation" ? Promise.resolve({ status: "submitted" }) : Promise.resolve({ records: [], nextCursor: null }));
+  render(<SaleCorrections branchId="branch-1" source={source} canCreate canApprove />);
+  await screen.findByText("No corrections in this view.");
+  fireEvent.click(screen.getByText("Cancel mistaken sale SAL-001"));
+  fireEvent.change(screen.getByLabelText("Why must this mistaken sale be cancelled?"), { target: { value: "Training order entered by mistake" } });
+  fireEvent.click(screen.getByRole("button", { name: "Request cancellation without replacement" }));
+  await waitFor(() => expect(api.call).toHaveBeenCalledWith("salesCorrections", expect.objectContaining({ action: "request_cancellation", receiptNumber: "RCP-001" })));
+  const request = api.call.mock.calls.find(([, input]) => input.action === "request_cancellation")![1];
+  expect(request).not.toHaveProperty("proposedValues");
+});
+
+it("completes approved cancellation without a replacement number", async () => {
+  api.call.mockImplementation((_name: string, input: { action: string }) => Promise.resolve(input.action === "list" ? { records: [{ id: "cancel-1", kind: "cancel_without_replacement", correctionNumber: "COR-CANCEL", saleNumber: "SAL-001", reason: "Training mistake", status: "approved", originalValues: { customerName: null, grossAmountMinor: 100, lines: [] }, proposedValues: null }], nextCursor: null } : { status: "completed" }));
+  render(<SaleCorrections branchId="branch-1" source={null} canCreate canApprove />);
+  await screen.findByText("COR-CANCEL · SAL-001 · Approved — processing required");
+  expect(screen.queryByLabelText("Replacement sale number")).toBeNull();
+  fireEvent.change(screen.getByLabelText("Posted return/cancellation numbers (comma separated)"), { target: { value: "RTN-001" } });
+  fireEvent.change(screen.getByLabelText("Review / completion reason"), { target: { value: "Verified original completely reversed" } });
+  fireEvent.click(screen.getByRole("button", { name: "Verify linked transactions and complete" }));
+  await waitFor(() => expect(api.call).toHaveBeenCalledWith("salesCorrections", expect.objectContaining({ action: "complete_cancellation", returnNumbers: ["RTN-001"] })));
+});

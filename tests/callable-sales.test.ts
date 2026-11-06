@@ -2907,3 +2907,95 @@ describe("sales report permission scope", () => {
     expect(selected.summary).toEqual(expected.summary);
   });
 });
+
+describe("reviewed customer ownership", () => {
+  const all = { operatingContext: { type: "all" } };
+  it("requires actual system administration and explicit All, rejects stale evidence, and audits a replay-safe assignment without rewriting history", async () => {
+    const customerId = `ownership-${crypto.randomUUID()}`, customerNumber = `OWN-${crypto.randomUUID()}`;
+    const customerRef = adminDb.doc(`customers/${customerId}`);
+    await customerRef.set({ organizationId, customerNumber, name: "Ownership fixture", active: true, outstandingBalanceMinor: 0, advanceBalances: {} });
+    const input = { action: "ownership_detail", customerId, ...all };
+    await expect(call(branchManager, "getCustomerHistory", input)).rejects.toMatchObject({ code: "functions/permission-denied" });
+    await expect(call(administrator, "getCustomerHistory", { ...input, operatingContext: { type: "branch", id: branchId } })).rejects.toMatchObject({ code: "functions/failed-precondition" });
+    const detail = await call<{ fingerprint: string; allowedTargetBranchIds: string[] }>(administrator, "getCustomerHistory", input);
+    expect(detail.allowedTargetBranchIds).toContain(branchId);
+    const assignment = { action: "ownership_assign", customerId, branchId, expectedFingerprint: detail.fingerprint, confirmedCustomerNumber: customerNumber, acknowledgeHistoryUnchanged: true, reason: "Reviewed branch ownership from original records", idempotencyKey: crypto.randomUUID(), ...all };
+    await customerRef.update({ name: "Evidence changed" });
+    await expect(call(administrator, "getCustomerHistory", assignment)).rejects.toMatchObject({ code: "functions/failed-precondition", details: { code: "CUSTOMER_OWNERSHIP_STALE" } });
+    const refreshed = await call<{ fingerprint: string }>(administrator, "getCustomerHistory", input);
+    const payload = { ...assignment, expectedFingerprint: refreshed.fingerprint };
+    const result = await call<{ reviewId: string }>(administrator, "getCustomerHistory", payload);
+    expect(await call(administrator, "getCustomerHistory", payload)).toEqual(result);
+    expect((await customerRef.get()).data()).toMatchObject({ branchId, outstandingBalanceMinor: 0, advanceBalances: {}, ownershipVersion: 1 });
+    expect((await adminDb.doc(`customerOwnershipReviews/${result.reviewId}`).get()).data()).toMatchObject({ fromBranchId: null, toBranchId: branchId, postedHistoryChanged: false, reviewedBy: administrator.auth.currentUser!.uid });
+    await expect(call(administrator, "getCustomerHistory", { ...payload, reason: "Different instructions with same reference" })).rejects.toMatchObject({ code: "functions/already-exists" });
+  });
+  it("reconciles a conflicting master owner to its sole recorded branch without editing posted invoices", async () => {
+    const customerId = `ownership-history-${crypto.randomUUID()}`, other = `ownership-old-${crypto.randomUUID()}`;
+    await adminDb.doc(`branches/${other}`).set({ organizationId, name: "Previous master owner", status: "active" });
+    const customer = adminDb.doc(`customers/${customerId}`), invoice = adminDb.doc(`sales/${customerId}`);
+    await customer.set({ organizationId, customerNumber: customerId, name: "Historical ownership fixture", branchId: other, outstandingBalanceMinor: 0 });
+    const posted = { organizationId, customerId, branchId, saleNumber: "OWN-HISTORY", status: "completed", grossAmountMinor: 500, receivableVersion: 1, receivableOutstandingMinor: 0 };
+    await invoice.set(posted);
+    const detail = await call<{ fingerprint: string; allowedTargetBranchIds: string[] }>(administrator, "getCustomerHistory", { action: "ownership_detail", customerId, ...all });
+    expect(detail.allowedTargetBranchIds).toEqual([branchId]);
+    await call(administrator, "getCustomerHistory", { action: "ownership_assign", customerId, branchId, expectedFingerprint: detail.fingerprint, confirmedCustomerNumber: customerId, acknowledgeHistoryUnchanged: true, reason: "Confirmed sole historical branch from posted invoice", idempotencyKey: crypto.randomUUID(), ...all });
+    expect((await customer.get()).get("branchId")).toBe(branchId); expect((await invoice.get()).data()).toEqual(posted);
+    await expect(call(administrator, "getCustomerHistory", { action: "ownership_detail", customerId: "customer-outside-organization", ...all })).rejects.toMatchObject({ code: "functions/not-found" });
+  });
+  it("blocks ambiguous cross-branch history and exposes invoices and balances for review", async () => {
+    const customerId = `ownership-conflict-${crypto.randomUUID()}`, other = `ownership-branch-${crypto.randomUUID()}`;
+    await adminDb.doc(`branches/${other}`).set({ organizationId, name: "Other owner", status: "active" });
+    await adminDb.doc(`customers/${customerId}`).set({ organizationId, customerNumber: customerId, name: "Conflicting fixture", branchId, active: true, outstandingBalanceMinor: 100, advanceBalances: { general: 25 } });
+    for (const [index, owner] of [branchId, other].entries()) await adminDb.doc(`sales/${customerId}-${index}`).set({ organizationId, branchId: owner, customerId, status: "completed", receivableVersion: 1, receivableOutstandingMinor: index ? 100 : 0, saleNumber: `OWN-INVOICE-${index}` });
+    const detail = await call<{ fingerprint: string; blockers: string[]; allowedTargetBranchIds: string[]; openInvoices: unknown[]; advanceMinor: number }>(administrator, "getCustomerHistory", { action: "ownership_detail", customerId, ...all });
+    expect(detail.blockers).toContain("cross_branch_history"); expect(detail.allowedTargetBranchIds).toEqual([]); expect(detail.openInvoices).toHaveLength(1); expect(detail.advanceMinor).toBe(25);
+    await expect(call(administrator, "getCustomerHistory", { action: "ownership_assign", customerId, branchId: other, expectedFingerprint: detail.fingerprint, confirmedCustomerNumber: customerId, acknowledgeHistoryUnchanged: true, reason: "Must not guess ownership for this conflict", idempotencyKey: crypto.randomUUID(), ...all })).rejects.toMatchObject({ code: "functions/failed-precondition" });
+    expect((await adminDb.doc(`customers/${customerId}`).get()).get("branchId")).toBe(branchId);
+  });
+});
+
+describe("standalone mistaken-sale cancellation", () => {
+  it("fully reverses an uncollected paid sale without replacement, preserves original money fields and limits exceptional controls to System Administrator", async () => {
+    const context = { type: "branch", id: branchId }, id = `cancel-error-${crypto.randomUUID()}`, deviceId = crypto.randomUUID();
+    await adminDb.doc(`products/${id}`).set({ organizationId, name: "Cancellation fixture", sku: id, active: true, itemKind: "goods", trackingType: "quantity", unitOfMeasure: "piece" });
+    await adminDb.doc(`productSalesPrices/${id}`).set({ organizationId, productId: id, active: true, basePriceMinor: 1000, vatRateBasisPoints: null, version: 1 });
+    const balance = adminDb.doc(`inventoryBalances/${balanceDocumentId(organizationId, id, locationId)}`);
+    await balance.set({ organizationId, branchId, locationId, productId: id, onHandQuantity: 2, reservedQuantity: 0, availableQuantity: 2, totalValueMinor: 1000, averageUnitCostMinor: 500, version: 1 });
+    const shift = await call<{ shiftId: string }>(administrator, "openPosShift", { branchId, deviceId, deviceName: "Cancellation test", openingCashMinor: 0, idempotencyKey: crypto.randomUUID() });
+    const order = await call<{ orderId: string }>(administrator, "createPosSaleOrder", { branchId, shiftId: shift.shiftId, deviceId, recordedAt: new Date().toISOString(), lines: [{ productId: id, quantity: 1 }], payments: [{ method: "cash", amountMinor: 1000 }], idempotencyKey: crypto.randomUUID() });
+    await call(administrator, "acceptPosSaleOrderPayment", { orderId: order.orderId, shiftId: shift.shiftId, deviceId, idempotencyKey: crypto.randomUUID() });
+    const sale = await call<{ saleId: string }>(administrator, "confirmPosSaleOrder", { orderId: order.orderId, deferCollection: true, idempotencyKey: crypto.randomUUID() });
+    const original = await adminDb.doc(`sales/${sale.saleId}`).get(), item = (await adminDb.collection("saleItems").where("saleId", "==", sale.saleId).get()).docs[0]!;
+    const request = { action: "request_cancellation", branchId, receiptNumber: original.get("receiptNumber"), reason: "Training sale was mistakenly posted", idempotencyKey: crypto.randomUUID(), operatingContext: context };
+    await expect(call(branchManager, "salesCorrections", request)).rejects.toMatchObject({ code: "functions/permission-denied" });
+    const operations = await createActor(`cancel-ops-${crypto.randomUUID()}@example.test`, "operations_administrator");
+    const custom = await createActor(`cancel-custom-${crypto.randomUUID()}@example.test`, "branch_manager");
+    const { buildRoleAssignment } = await import("../functions/src/auth/custom-roles");
+    const role = { id: `cancel-role-${crypto.randomUUID()}`, organizationId, name: "Custom administrator base", baseRoleId: "system_administrator" as const, permissionIds: ["sales.returns.read" as const, "sales.returns.create" as const, "sales.returns.approve" as const, "customers.manage" as const, "customers.read" as const], status: "active" as const };
+    await adminDb.doc(`roles/${role.id}`).set(role);
+    await adminDb.doc(`users/${custom.auth.currentUser!.uid}`).update(buildRoleAssignment([], [role]));
+    for (const user of [operations, custom]) {
+      await expect(call(user, "salesCorrections", request)).rejects.toMatchObject({ code: "functions/permission-denied", details: { code: "SALE_ERROR_ADMIN_REQUIRED" } });
+      await expect(call(user, "getCustomerHistory", { action: "ownership_list", operatingContext: { type: "all" } })).rejects.toMatchObject({ code: "functions/permission-denied" });
+    }
+    const plan = await call<{ correctionId: string }>(administrator, "salesCorrections", request);
+    expect(await call(administrator, "salesCorrections", request)).toEqual(plan);
+    await call(administrator, "salesCorrections", { action: "review", correctionId: plan.correctionId, decision: "approved", reason: "Verified mistake and complete reservation reversal", idempotencyKey: crypto.randomUUID(), operatingContext: context });
+    const refund = { kind: "reservation_cancellation", branchId, saleId: sale.saleId, lines: [{ saleItemId: item.id, quantity: 1, condition: "non_restockable" }], resolution: "cash", refundShiftId: shift.shiftId, reason: "Refund original mistaken sale payment", idempotencyKey: crypto.randomUUID(), operatingContext: context };
+    await expect(call(branchManager, "createSaleReturn", refund)).rejects.toMatchObject({ code: "functions/permission-denied" });
+    const returned = await call<{ returnId: string; returnNumber: string }>(administrator, "createSaleReturn", refund);
+    await expect(call(branchManager, "approveSaleReturn", { returnId: returned.returnId, idempotencyKey: crypto.randomUUID() })).rejects.toMatchObject({ code: "functions/permission-denied" });
+    await call(administrator, "approveSaleReturn", { returnId: returned.returnId, idempotencyKey: crypto.randomUUID() });
+    const completion = { action: "complete_cancellation", correctionId: plan.correctionId, returnNumbers: [returned.returnNumber], reason: "Complete posted reversal without replacement", idempotencyKey: crypto.randomUUID(), operatingContext: context };
+    expect(await call(administrator, "salesCorrections", completion)).toMatchObject({ status: "completed" });
+    expect(await call(administrator, "salesCorrections", completion)).toMatchObject({ status: "completed" });
+    const final = await adminDb.doc(`sales/${sale.saleId}`).get();
+    for (const field of ["grossAmountMinor", "amountPaidMinor", "journalEntryId", "receiptNumber"]) expect(final.get(field)).toEqual(original.get(field));
+    expect(final.get("errorCancellation.correctionId")).toBe(plan.correctionId);
+    expect((await balance.get()).data()).toMatchObject({ onHandQuantity: 2, reservedQuantity: 0, availableQuantity: 2, totalValueMinor: 1000 });
+    const proof = await adminDb.doc(`saleCorrectionRequests/${plan.correctionId}`).get();
+    expect(proof.data()).toMatchObject({ kind: "cancel_without_replacement", status: "completed", replacementSaleId: null, returnIds: [returned.returnId] });
+    for (const journalId of proof.get("journalEntryIds")) { const journal = await adminDb.doc(`journalEntries/${journalId}`).get(); expect(journal.get("totalDebitMinor")).toBe(journal.get("totalCreditMinor")); }
+  }, 120000);
+});
