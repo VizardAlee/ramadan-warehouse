@@ -553,7 +553,8 @@ describe.sequential("procurement callables", () => {
     const beforeCorrection = (await adminDb.getAll(invoiceRef, supplierRef, ...stockRefs)).map(snapshot => snapshot.data());
     await expect(call(headOfficeManager, "postSupplierReturn", { ...correction, goodsBackInStore: false })).rejects.toMatchObject({ code: "functions/invalid-argument" });
     await expect(call(headOfficeManager, "postSupplierReturn", { ...correction, confirmedResellable: false })).rejects.toMatchObject({ code: "functions/invalid-argument" });
-    await expect(call(warehouseManager, "postSupplierReturn", correction)).rejects.toMatchObject({ code: "functions/permission-denied" });
+    await expect(call(warehouseManager, "postSupplierReturn", correction)).rejects.toMatchObject({ code: "functions/failed-precondition", details: { code: "OPERATING_CONTEXT_MISMATCH" } });
+    await expect(call(warehouseManager, "postSupplierReturn", { ...correction, operatingContext: { type: "all" } })).rejects.toMatchObject({ code: "functions/permission-denied" });
     const periodKey = correction.reversedAt.slice(0, 7), periodRef = adminDb.doc(`accountingPeriods/${uniquenessDocumentId(organizationId, periodKey)}`);
     await periodRef.set({ organizationId, periodKey, status: "closed" });
     try { await expect(call(headOfficeManager, "postSupplierReturn", correction)).rejects.toMatchObject({ code: "functions/failed-precondition" }); }

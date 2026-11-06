@@ -1,3 +1,5 @@
+import { requireCustomerBranch } from "../sales/customer-scope.js";
+import { requireSaleErrorAdministrator } from "../sales/error-correction-authority.js";
 import { createHash } from "node:crypto";
 import { FieldValue } from "firebase-admin/firestore";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
@@ -40,6 +42,7 @@ export const salesCorrections = onCall({ enforceAppCheck, timeoutSeconds: 60 }, 
   try {
   const actor = await requireAccess(request), input = parseInput(inputSchema, request.data);
   requirePermission(actor, input.action === "list" ? "sales.returns.read" : input.action === "request" ? "sales.returns.create" : "sales.returns.approve");
+  if (input.action !== "list") requireSaleErrorAdministrator(actor);
   if (input.action === "list") {
     requireBranchScope(actor, input.branchId);
     let query = db.collection("saleCorrectionRequests").where("organizationId", "==", actor.organizationId).where("branchId", "==", input.branchId).where("status", "==", input.status);
@@ -78,6 +81,7 @@ export const salesCorrections = onCall({ enforceAppCheck, timeoutSeconds: 60 }, 
       if (input.proposedValues.customerId) {
         const customer = await tx.get(db.doc(`customers/${input.proposedValues.customerId}`));
         if (!customer.exists || customer.get("organizationId") !== actor.organizationId || !customer.get("active")) throw new HttpsError("failed-precondition", "Choose an active customer from this organization.");
+        requireCustomerBranch(customer.data()!, input.branchId);
         customerName = String(customer.get("name"));
       }
       const proposedValues = { ...input.proposedValues, customerName, lines: input.proposedValues.lines.map((line, index) => ({ ...line, productName: String(products[index]!.get("name")) })) };

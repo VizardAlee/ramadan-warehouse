@@ -1,6 +1,8 @@
 "use client";
 import { FinancialAction, FinancialActionScope, FinancialAttributes, FinancialDetails, FinancialInput, FinancialMessage, FinancialText, FinancialValue  } from "@/features/finance/financial-privacy";
 
+import { useAuth } from "@/features/auth/auth-context";
+import { canCorrectSaleErrors } from "@/lib/permissions/roles";
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { CursorTablePagination } from "@/components/ui/table-pagination";
@@ -67,15 +69,17 @@ function CorrectionReview({ record, canApprove, onComplete }: { record: Correcti
   </details></FinancialActionScope>;
 }
 export function SaleCorrections({ branchId, source, canCreate, canApprove }: { branchId: string; source: Source | null; canCreate: boolean; canApprove: boolean }) {
+  const { profile } = useAuth();
+  const administrator = Boolean(profile && canCorrectSaleErrors(profile));
   const [status, setStatus] = useState("submitted"), [limit, setLimit] = useState(25), [pages, setPages] = useState<Array<string | null>>([null]), [pageBranch, setPageBranch] = useState(branchId), [version, setVersion] = useState(0);
   const [result, setResult] = useState<{ scope: string; records: Correction[]; nextCursor: string | null }>({ scope: "", records: [], nextCursor: null }), [error, setError] = useState(""), [loading, setLoading] = useState(false);
   const scope = `${branchId}:${status}:${limit}`, scopedPages = pageBranch === branchId ? pages : [null], cursor = scopedPages.at(-1);
   useEffect(() => { let active = true; const timer = window.setTimeout(() => { if (!branchId) return; setLoading(true); setError(""); void callAdministration<object, { records: Correction[]; nextCursor: string | null }>("salesCorrections", { action: "list", branchId, status, limit, cursor: cursor || undefined }).then(data => { if (active) setResult({ scope, ...data }); }).catch(cause => { if (active) setError(cause instanceof Error ? cause.message : "Corrections could not be loaded."); }).finally(() => { if (active) setLoading(false); }); }, 0); return () => { active = false; window.clearTimeout(timer); }; }, [branchId, status, limit, cursor, scope, version]);
   const reload = () => setVersion(value => value + 1), records = result.scope === scope ? result.records : [];
   return <section className="space-y-3 rounded-2xl border bg-white p-4 sm:p-5"><h2 className="text-xl font-semibold">Posted-order correction requests</h2><p className="text-sm text-[var(--muted)]">Original invoices stay unchanged. This supports a controlled full return/cancellation and replacement, with accounting and stock evidence linked. Approval is not completion.</p>
-    {source && canCreate ? <CorrectionRequest key={source.sale.saleNumber} branchId={branchId} source={source} onComplete={reload} /> : <p className="text-sm">Load the original receipt above to request a correction.</p>}
+    {source && canCreate && administrator ? <CorrectionRequest key={source.sale.saleNumber} branchId={branchId} source={source} onComplete={reload} /> : <p className="text-sm">{administrator ? "Load the original receipt above to request a correction." : "Only a System Administrator can correct a sale entered in error."}</p>}
     <label className="block text-sm">Correction status<select className="ml-2 rounded-lg border p-2" value={status} onChange={event => { setStatus(event.target.value); setPages([null]); }}>{["submitted", "approved", "rejected", "completed"].map(value => <option key={value} value={value}><FinancialText>{value === "approved" ? "Approved — awaiting processing" : value}</FinancialText></option>)}</select></label>
-    {error && <p role="alert" className="text-sm text-red-700"><FinancialMessage>{error}</FinancialMessage></p>}{loading && <p className="text-sm">Loading corrections…</p>}{records.map(record => <CorrectionReview key={record.id} record={record} canApprove={canApprove} onComplete={reload} />)}{!loading && !error && !records.length && <p className="text-sm text-[var(--muted)]">No corrections in this view.</p>}
+    {error && <p role="alert" className="text-sm text-red-700"><FinancialMessage>{error}</FinancialMessage></p>}{loading && <p className="text-sm">Loading corrections…</p>}{records.map(record => <CorrectionReview key={record.id} record={record} canApprove={canApprove && administrator} onComplete={reload} />)}{!loading && !error && !records.length && <p className="text-sm text-[var(--muted)]">No corrections in this view.</p>}
     <CursorTablePagination page={scopedPages.length} pageSize={limit} rowCount={records.length} hasNextPage={result.scope === scope && Boolean(result.nextCursor)} loading={loading} onPrevious={() => setPages(scopedPages.slice(0, -1))} onNext={() => { if (result.nextCursor) { setPageBranch(branchId); setPages([...scopedPages, result.nextCursor]); } }} onPageSizeChange={size => { setLimit(size); setPages([null]); }} itemLabel="correction requests" />
   </section>;
 }

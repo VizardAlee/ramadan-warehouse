@@ -393,3 +393,9 @@ export function isAssignedToBranch(
 ): boolean {
   return profile.branchIds.includes(branchId);
 }
+
+/** Only the actual System Administrator assignment can correct an erroneous sale. */
+export function canCorrectSaleErrors(profile: Pick<UserProfile, "status" | "roleId" | "roleIds" | "directRoleIds" | "customRoleIds">): boolean {
+  const direct = profile.directRoleIds ?? (profile.customRoleIds?.length ? [] : roleIdsForProfile(profile));
+  return profile.status === "active" && direct.includes("system_administrator");
+}

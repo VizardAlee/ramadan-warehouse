@@ -2,9 +2,10 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { SaleCorrections } from "@/features/returns/sale-corrections";
-const api = vi.hoisted(() => ({ call: vi.fn() }));
+const api = vi.hoisted(() => ({ call: vi.fn(), administrator: true }));
+vi.mock("@/features/auth/auth-context", () => ({ useAuth: () => ({ profile: { status: "active", roleId: api.administrator ? "system_administrator" : "branch_manager", roleIds: [api.administrator ? "system_administrator" : "branch_manager"] } }) }));
 vi.mock("@/features/administration/api", () => ({ callAdministration: api.call }));
-afterEach(() => { cleanup(); vi.resetAllMocks(); });
+afterEach(() => { cleanup(); vi.resetAllMocks(); api.administrator = true; });
 const source = { sale: { saleNumber: "SAL-001", receiptNumber: "RCP-001", customerId: null }, items: [{ productId: "panel", productName: "Solar panel", soldQuantity: 2, unitPriceMinor: 10000 }] };
 describe("posted-order corrections", () => {
   it("retains exactly the same correction request after uncertain confirmation", async () => {
@@ -36,4 +37,13 @@ describe("posted-order corrections", () => {
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
     await waitFor(() => expect(api.call).toHaveBeenCalledWith("salesCorrections", expect.objectContaining({ action: "list", limit: 25, cursor: "correction-1" })));
   });
+});
+
+it("keeps erroneous-sale correction controls admin-only even when broader return props are allowed", async () => {
+  api.administrator = false;
+  api.call.mockResolvedValue({ records: [], nextCursor: null });
+  render(<SaleCorrections branchId="branch-1" source={source} canCreate canApprove />);
+  expect(screen.getByText("Only a System Administrator can correct a sale entered in error.")).toBeTruthy();
+  expect(screen.queryByText("Request correction to SAL-001")).toBeNull();
+  await screen.findByText("No corrections in this view.");
 });
