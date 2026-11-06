@@ -1,3 +1,4 @@
+import { requireAllLocations } from "../auth/view-scope.js";
 import { createHash } from "node:crypto";
 import { FieldValue } from "firebase-admin/firestore";
 import { logger } from "firebase-functions";
@@ -34,6 +35,7 @@ async function refreshClaims(userIds: readonly string[], organizationId: string)
 
 export const saveOrganizationRole = onCall({ enforceAppCheck }, async (request) => {
   const actor = await requireAccess(request);
+  requireAllLocations(actor);
   requirePermission(actor, "role.manage");
   const input = parseInput(inputSchema, request.data);
   const allowed = permissionsForServerRole(input.baseRoleId);

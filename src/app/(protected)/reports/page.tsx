@@ -137,7 +137,7 @@ function salesCsvRows(rows: SalesReportRow[]): Record<string, unknown>[] {
 }
 
 export default function ReportsPage() {
-  const { profile } = useAuth();
+  const { profile, operatingContext } = useAuth();
   const products = useOrganizationCollection<Product>("products");
   const locations =
     useOrganizationCollection<InventoryLocation>("inventoryLocations");
@@ -169,7 +169,8 @@ export default function ReportsPage() {
   );
   const [inventoryCursor, setInventoryCursor] = useState<string | null>(null);
   const [inventorySummary, setInventorySummary] = useState<InventoryReportResult["summary"]>(null);
-  const [branchId, setBranchId] = useState("");
+  const [selectedBranchId, setBranchId] = useState("");
+  const branchId = operatingContext?.type === "branch" ? operatingContext.id : selectedBranchId;
   const [period, setPeriod] = useState<ReportPeriod>("monthly");
   const [creditOnly, setCreditOnly] = useState(false);
   const [fromDate, setFromDate] = useState(() => reportDateRange("monthly").fromDate);

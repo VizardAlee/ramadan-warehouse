@@ -1,3 +1,4 @@
+import { matchesView, requireView } from "../auth/view-scope.js";
 import { HttpsError } from "firebase-functions/v2/https";
 import { hasServerPermission, requirePermission, type AccessProfile, type Permission } from "../auth/authorize.js";
 import { scopedAccess } from "../auth/permission-scope.js";
@@ -15,6 +16,7 @@ export function hasOrganizationProcurementPermission(actor: ProcurementAccess, p
 
 /** Read projections must use the provenance of the data's own permission. */
 export function hasProcurementScope(actor: ProcurementAccess, scope: { branchId?: string; warehouseId?: string }, permission: Permission) {
+  if (!matchesView(actor, scope)) return false;
   if (!hasServerPermission(actor, permission)) return false;
   if (hasOrganizationProcurementPermission(actor, permission)) return true;
   return Boolean(scope.branchId || scope.warehouseId) &&
@@ -24,6 +26,7 @@ export function hasProcurementScope(actor: ProcurementAccess, scope: { branchId?
 
 /** Every required action needs its own global grant or an assigned recording store. */
 export function requireProcurementScope(actor: ProcurementAccess, scope: { branchId?: string; warehouseId?: string }, permissions: Permission | readonly Permission[]) {
+  requireView(actor, scope);
   const required = typeof permissions === "string" ? [permissions] : permissions;
   for (const permission of required) {
     requirePermission(actor, permission);

@@ -1,0 +1,32 @@
+// @vitest-environment jsdom
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, expect, it, vi } from "vitest";
+import { OpeningStockCorrection } from "@/features/inventory/opening-stock-correction";
+import type { InventoryEntry } from "@/types/domain";
+const api = vi.hoisted(() => ({ call: vi.fn() }));
+vi.mock("@/features/administration/api", () => ({ callAdministration: api.call }));
+vi.mock("@/features/finance/financial-privacy", () => ({ FinancialText: ({children}: {children: React.ReactNode}) => <>{children}</>, FinancialValue: ({children}: {children: React.ReactNode}) => <>{children}</>, FinancialMessage: ({children}: {children: React.ReactNode}) => <>{children}</> }));
+afterEach(() => { cleanup(); api.call.mockReset(); });
+it("requires a reason, preserves an uncertain reversal retry, and offers an explicit replacement step", async () => {
+  const entry = { productId: "panel", transactionId: "opening-1", transactionNumber: "INV-2026-1", locationId: "civic-stock", quantityDelta: 2, unitCostMinor: 50000 } as InventoryEntry;
+  const reversed = vi.fn();
+  api.call.mockRejectedValueOnce(new Error("Response interrupted; review or retry"));
+  api.call.mockResolvedValueOnce({ reversed: true });
+  render(<OpeningStockCorrection entry={entry} productName="620W Solar Panel" onClose={vi.fn()} onReversed={reversed} />);
+  expect(api.call).not.toHaveBeenCalled();
+  expect(screen.getByRole("button", {name:"Reverse opening entry"}).hasAttribute("disabled")).toBe(true);
+  fireEvent.change(screen.getByLabelText("Correction reason"), {target:{value:"Correct opening quantity from verified count"}});
+  fireEvent.click(screen.getByRole("button", {name:"Reverse opening entry"}));
+  await screen.findByRole("alert");
+  expect(screen.getByLabelText("Correction reason").hasAttribute("disabled")).toBe(true);
+  const original = api.call.mock.calls[0];
+  fireEvent.click(screen.getByRole("button", {name:"Retry same reversal"}));
+  await waitFor(() => expect(reversed).toHaveBeenCalledTimes(1));
+  expect(api.call.mock.calls[1]).toEqual(original);
+  expect(original?.[0]).toBe("reverseInventoryTransaction");
+  const link = screen.getByRole("link", {name:"Enter replacement opening stock"});
+  expect(link.getAttribute("href")).toContain("productId=panel&locationId=civic-stock");
+  expect(link.getAttribute("href")).not.toContain("50000");
+  expect(api.call).toHaveBeenCalledTimes(2);
+  expect(screen.getByRole("status").textContent).toContain("original and its reversal remain in history");
+});

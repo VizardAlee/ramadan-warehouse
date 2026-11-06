@@ -89,7 +89,7 @@ export default function AssetsPage() {
           <thead>
             <tr>
               {[
-                "SKU",
+                "Product / SKU",
                 "Serial",
                 "Status",
                 "Location",
@@ -112,7 +112,7 @@ export default function AssetsPage() {
             ) : (
               rows.map((row) => (
                 <tr key={row.id} className="border-t">
-                  <td data-label="SKU" data-primary="true" className="px-4 py-3 font-mono"><FinancialText>{row.sku}</FinancialText></td>
+                  <td data-label="Product / SKU" data-primary="true" className="px-4 py-3"><p className="font-semibold"><FinancialText>{row.productName ?? "Product name unavailable"}</FinancialText></p><p className="mt-1 font-mono text-xs text-[var(--muted)]"><FinancialText>{row.sku}</FinancialText></p></td>
                   <td data-label="Serial / lot" className="px-4 font-mono"><FinancialText>{row.serialNumber}</FinancialText></td>
                   <td data-label="Status" className="px-4"><StatusBadge status={row.status}/></td>
                   <td data-label="Location" className="px-4 record-id"><FinancialText>{row.currentLocationId}</FinancialText></td>

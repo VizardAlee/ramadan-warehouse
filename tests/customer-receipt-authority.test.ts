@@ -17,7 +17,7 @@ function request(branchId: string) { return { data: { view: "payment_receipt", c
 beforeEach(() => {
   state.actor = actor(false); state.docs.clear();
   state.docs.set(`roles/${reader.id}`, { ...reader });
-  state.docs.set("customers/customer", { organizationId: "org", name: "Customer" });
+  state.docs.set("customers/customer", { organizationId: "org", branchId: "a", name: "Customer" });
   state.docs.set("organizations/org", { tradingName: "Company" });
   state.docs.set("customerPayments/payment", { organizationId: "org", customerId: "customer", branchId: "b", status: "recorded", method: "cash", amountMinor: 100, outstandingAfterMinor: 5000, advanceBalancesAfter: { general: 1200 } });
 });

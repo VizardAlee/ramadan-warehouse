@@ -264,7 +264,8 @@ describe.sequential("branch request callables", () => {
   it("isolates reads while allowing administrators to complete their own audited request", async () => {
     await expect(
       call(otherBranch, "getBranchRequest", { requestId, limit: 20 }),
-    ).rejects.toMatchObject({ code: "functions/permission-denied" });
+    ).rejects.toMatchObject({ code: "functions/failed-precondition", details: { code: "OPERATING_CONTEXT_MISMATCH" } });
+    await expect(call(otherBranch, "getBranchRequest", { requestId, limit: 20, operatingContext: { type: "all" } })).rejects.toMatchObject({ code: "functions/permission-denied" });
     await adminDb.doc("organizations/foreign-org").set({ name: "Foreign test organization", status: "active" });
     const foreign = await actor(
       "foreign-reviewer@example.test",
@@ -420,10 +421,11 @@ describe.sequential("branch request callables", () => {
     const visible = await call<{
       includeCosts: boolean;
       rows: Record<string, unknown>[];
-    }>(warehouse, "getBranchRequestAvailability", {
+     }>(warehouse, "getBranchRequestAvailability", {
       requestId,
       includeCosts: true,
       limit: 20,
+      operatingContext: { type: "all" },
     });
     expect(hidden.includeCosts).toBe(false);
     expect(hidden.rows[0]).not.toHaveProperty("estimatedValueMinor");

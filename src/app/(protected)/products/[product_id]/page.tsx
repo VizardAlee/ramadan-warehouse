@@ -4,6 +4,7 @@ import { FinancialMessage, FinancialText, FinancialValue } from "@/features/fina
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
+import { OpeningStockCorrection } from "@/features/inventory/opening-stock-correction";
 import { CursorTablePagination } from "@/components/ui/table-pagination";
 import { callAdministration } from "@/features/administration/api";
 import { useOrganizationCollection } from "@/features/administration/use-organization-collection";
@@ -46,6 +47,8 @@ export default function ProductDetailPage() {
   const [pageStarts, setPageStarts] = useState<(string | null)[]>([null]);
   const [pageSize, setPageSize] = useState(25);
   const [error, setError] = useState<string | null>(null);
+  const [correctionRefreshError, setCorrectionRefreshError] = useState<string | null>(null);
+  const [correctingOpening, setCorrectingOpening] = useState<InventoryEntry | null>(null);
   const locationNames = Object.fromEntries(locations.data.map((location) => [location.id, location.name]));
   const events = summarizeInventoryMovements(history, locationNames);
   async function loadHistory(startCursor: string | null = null, size = pageSize) {
@@ -82,12 +85,16 @@ export default function ProductDetailPage() {
         setHistory(movement.rows);
         setCursor(movement.nextCursor);
       })
-      .catch(() => setError("Unable to load SKU history."));
+      .catch(() => setError("Unable to load product history."));
   }, [pageSize, productId]);
   useEffect(() => {
     if (summary && window.location.hash === "#movement-history")
       document.getElementById("movement-history")?.scrollIntoView({ block: "start" });
   }, [summary]);
+  async function refreshAfterCorrection() {
+    const result = await callAdministration<object, Summary>("getProductStockSummary", { productId, limit: 100, includeCosts: true });
+    setSummary(result); setPageStarts([null]); await loadHistory(null);
+  }
   function nextHistoryPage() {
     if (!cursor) return;
     setPageStarts((current) => [...current, cursor]);
@@ -105,6 +112,8 @@ export default function ProductDetailPage() {
     return <p className="p-8 text-center">Loading product history…</p>;
   return (
     <div className="space-y-6">
+      {correctionRefreshError && <p role="alert" className="rounded-lg border bg-amber-50 p-3">{correctionRefreshError}</p>}
+      {correctingOpening && <OpeningStockCorrection entry={correctingOpening} productName={summary.product.name} onClose={() => setCorrectingOpening(null)} onReversed={() => { void refreshAfterCorrection().catch(() => setCorrectionRefreshError("Stock reversal was recorded. Refresh product history to see the latest balances.")); }} />}
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <h1 className="text-3xl font-semibold"><FinancialText>{summary.product.name}</FinancialText></h1>
@@ -218,7 +227,7 @@ export default function ProductDetailPage() {
                   <td data-label="Date" data-primary="true" className="py-2 pr-4">
                     <FinancialText>{formatDateTime(entry.effectiveAt)}</FinancialText>
                   </td>
-                  <td data-label="Transaction" className="pr-4 font-mono"><FinancialText>{entry.transactionNumber}</FinancialText></td>
+                  <td data-label="Transaction" className="pr-4 font-mono"><FinancialText>{entry.transactionNumber}</FinancialText>{entry.transactionType === "opening_balance" && entry.locationId && entry.quantityDelta > 0 && profile && hasPermission(profile, "inventory.reverse") && hasPermission(profile, "inventory.opening_stock") && <div className="mt-1"><button type="button" className="min-h-10 font-sans text-[var(--brand)] underline disabled:text-[var(--muted)]" disabled={!summary.balances.some(balance => balance.locationId === entry.locationId && balance.lastTransactionId === entry.transactionId)} onClick={() => setCorrectingOpening(entry)}>Correct opening entry</button></div>}</td>
                   <td data-label="Entry" className="pr-4"><FinancialText>{inventoryLocationLabel(entry, locationNames)}</FinancialText><FinancialText>{!entry.locationId ? " (balancing entry)" : ""}</FinancialText></td>
                   <td data-label="Change" className="pr-4"><FinancialText>{entry.quantityDelta > 0 ? "+" : ""}</FinancialText><FinancialText>{formatQuantity(entry.quantityDelta)}</FinancialText></td>
                   <td data-label="Unit cost" className="pr-4"><FinancialValue>{formatNaira(entry.unitCostMinor)}</FinancialValue></td>

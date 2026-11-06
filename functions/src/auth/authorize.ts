@@ -567,6 +567,8 @@ const assignableRoles: Readonly<Partial<Record<RoleId, readonly RoleId[]>>> = {
 };
 
 export interface AccessProfile {
+  /** Selected view, independent of the roles that authorize an operation. */
+  readonly operatingContext?: OperatingContext;
   readonly displayName?: string;
   readonly storedAuditReadAllowed?: boolean;
   readonly userId: string;
@@ -654,11 +656,14 @@ export function canSelfAuthorize(
   );
 }
 
-function requestedOperatingContext(data: unknown): OperatingContext | null {
+function requestedOperatingContext(data: unknown): OperatingContext | { type: "all" } | null {
   if (typeof data !== "object" || data === null) return null;
   const value = (data as Record<string, unknown>).operatingContext;
   if (typeof value !== "object" || value === null) return null;
   const { type, id } = value as Record<string, unknown>;
+  if (type === "all" && Object.keys(value).length === 1) return { type: "all" };
+  if (Object.keys(value).some(key => key !== "type" && key !== "id") || (type !== "branch" && type !== "warehouse") || typeof id !== "string" || !id || id.length > 160)
+    throw new HttpsError("invalid-argument", "The operating context is invalid.");
   return (type === "warehouse" || type === "branch") &&
     typeof id === "string" &&
     id.length > 0
@@ -668,11 +673,12 @@ function requestedOperatingContext(data: unknown): OperatingContext | null {
 
 export function applyOperatingContext(
   actor: AccessProfile,
-  context: OperatingContext | null,
+  context: OperatingContext | { type: "all" } | null,
 ): AccessProfile {
+  if (context?.type === "all") return actor;
   const assignedRoles = accessRoleIds(actor);
   if (assignedRoles.some((role) => organizationWideRoles.includes(role)))
-    return actor;
+    return context ? { ...actor, operatingContext: context } : actor;
   const availableContexts: OperatingContext[] = [
     ...(assignedRoles.some((role) => warehouseOperatingRoles.includes(role))
       ? actor.warehouseIds.map((id) => ({ type: "warehouse" as const, id }))
@@ -707,6 +713,7 @@ export function applyOperatingContext(
   }
   return {
     ...actor,
+    operatingContext: selectedContext,
     // The selected location narrows data scope, not the user's assigned-role
     // permission union. roleId remains context-relevant for legacy consumers.
     roleId: matchingRoles[0] ?? assignedRoles[0]!,
@@ -936,4 +943,11 @@ export function requireOrganizationAccess(
       "permission-denied",
       "Cross-organization access is not permitted.",
     );
+}
+
+/** For a single-branch workflow; transfer counterparties use authority checks separately. */
+export function requireBranchViewScope(actor: AccessProfile, branchId: string): void {
+  requireBranchScope(actor, branchId);
+  if (actor.operatingContext && (actor.operatingContext.type !== "branch" || actor.operatingContext.id !== branchId))
+    throw new HttpsError("failed-precondition", "Select this record's branch before continuing.", { code: "OPERATING_CONTEXT_MISMATCH", retryable: false });
 }

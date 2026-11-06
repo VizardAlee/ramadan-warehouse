@@ -148,6 +148,10 @@ function ExpensesWorkspace() {
         ...(filters.status !== "all" ? { status: filters.status } : {}), ...(filters.search ? { search: filters.search } : {}),
         ...(filters.fromDate ? { fromDate: filters.fromDate } : {}), ...(filters.toDate ? { toDate: filters.toDate } : {}), ...(cursor ? { cursor } : {}) });
       if (sequence !== loadSequence.current) return;
+      result.expenses = result.expenses.filter(expense => Boolean(access &&
+        (access.organizationPermissions.includes("expenses.read") || expense.branchId || expense.warehouseId) &&
+        hasExpenseScope(access, expense, "expenses.read") &&
+        (!scopeBranchId || expense.branchId === scopeBranchId) && (!scopeWarehouseId || expense.warehouseId === scopeWarehouseId)));
       setWorkspace(previous => {
         if (!previous || previous.scope !== scopeIdentity || resetChoices) return { key: requestIdentity, scope: scopeIdentity, data: result };
         const merged = { ...result };
@@ -304,7 +308,7 @@ function ExpensesWorkspace() {
       {access && !readScope && <p role="alert">Choose an assigned store or ask an administrator to review your expense access.</p>}
       {access && <label className="block text-sm">Expense register scope<select aria-label="Expense register scope" value={scopeValue} disabled={Boolean(forcedScope) || busy || Boolean(pending)} onChange={event => setSelectedScope(event.target.value)} className="mt-1 block w-full rounded-lg border p-2 sm:max-w-md">
         {!readScope && <option value="">Choose assigned store</option>}
-        {hasExpenseScope(access, {}, "expenses.read") && <option value="organization">Entire organization</option>}
+        {hasExpenseScope(access, {}, "expenses.read") && <option value="organization">All authorized locations</option>}
         {readBranches.map(location => <option key={`branch:${location.id}`} value={`branch:${location.id}`}><FinancialText>{location.name}</FinancialText></option>)}
         {readWarehouses.map(location => <option key={`warehouse:${location.id}`} value={`warehouse:${location.id}`}><FinancialText>{location.name}</FinancialText> · warehouse</option>)}
       </select></label>}

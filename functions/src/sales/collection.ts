@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { HttpsError } from "firebase-functions/v2/https";
 import type { z } from "zod";
 import { db } from "../admin.js";
-import { requireAccess, requireBranchScope, requirePermission } from "../auth/authorize.js";
+import { requireAccess, requireBranchViewScope as requireBranchScope, requirePermission } from "../auth/authorize.js";
 import { accountingPeriodReference, assertAccountingPeriodOpen } from "../accounting/period-lock.js";
 import { writeAuditLog } from "../audit/write-audit-log.js";
 import { balanceDocumentId, issueCost, uniquenessDocumentId } from "../inventory/calculations.js";

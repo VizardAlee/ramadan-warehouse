@@ -217,5 +217,24 @@ export function queryCatalog() {
   }
   for (const actor of [[], [["actorUserId", "=="]]])
     add("bounded user activity audit pages", "auditLogs", [org, ...actor, ["createdAt", ">="], ["createdAt", "<"]], dateOrder("createdAt"));
+  for (const owner of ["branchId", "warehouseId"]) {
+    add("selected stock count register", "stockCounts", [org, [owner, "=="]]);
+    add("selected HR staff", "employees", [org, [owner, "=="]], [["staffId", "ASCENDING"]]);
+    for (const [collection, date, end] of [["attendanceEvents", "occurredAt", "<"], ["employeeActivityEvents", "occurredOn", "<="]]) {
+      add("selected HR recent events", collection, [org, [owner, "=="]], [[date, "DESCENDING"]]);
+      add("selected HR history", collection, [org, [owner, "=="], [date, ">="], [date, end]], dateOrder(date));
+    }
+  }
+  for (const field of ["branchId", "sourceBranchId", "destinationBranchId", "warehouseId"]) add("scoped notification inbox/clear all OR arms", "notifications", [org, [field, "in"]], [["occurredAt", "DESCENDING"]], null, "users/index-audit-probe");
+  add("selected staff membership", "users", [org, ["branchIds", "array-contains"]]);
+  for (const field of ["deviceId", "openedBy"]) add("POS device or owner session", "posShifts", eq(["organizationId", "branchId", "status", field]));
+  for (const op of ["==", "in"]) {
+    for (const field of ["customerNumber", "normalizedName", "phone", "email"]) add("branch customer register/search", "customers", [org, ["branchId", op]], [[field, "ASCENDING"]]);
+    add("branch POS customer scan", "customers", [org, ["branchId", op]], [["__name__", "ASCENDING"]]);
+  }
+  for (const collection of ["transfers", "stockTransfers"]) for (const field of ["sourceBranchId", "destinationBranchId"]) for (const optional of subsets(["status", "sourceType"])) add("selected transfer register OR arms", collection, [org, [field, "=="], ...eq(optional)], [["__name__", "ASCENDING"]]);
+  for (const original of [...shapes.values()]) {
+    if (original.filters.some(([field, op]) => field === "branchId" && op === "==")) add("All assigned branches before paging/aggregation", original.collection, original.filters.map(([field, op]) => [field, field === "branchId" && op === "==" ? "in" : op]), original.order, original.sums, original.parent);
+  }
   return [...shapes.values()];
 }

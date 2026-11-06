@@ -1,3 +1,4 @@
+import { viewQuery, matchesView } from "../auth/view-scope.js";
 import { FieldPath, Timestamp } from "firebase-admin/firestore";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
 import { z } from "zod";
@@ -26,7 +27,7 @@ export const getHrHistory = onCall({ enforceAppCheck }, async request => {
   const collection = input.kind === "attendance" ? "attendanceEvents" : "employeeActivityEvents";
   const field = input.kind === "attendance" ? "occurredAt" : "occurredOn";
   const bounds = hrHistoryBounds(input.kind, input.fromDate, input.toDate);
-  let query = db.collection(collection).where("organizationId", "==", actor.organizationId)
+  let query = viewQuery(actor, db.collection(collection).where("organizationId", "==", actor.organizationId))
     .where(field, ">=", bounds.start).where(field, bounds.endOperator, bounds.end)
     .orderBy(field, "desc").orderBy(FieldPath.documentId(), "desc");
   if (input.cursorId) {
@@ -35,7 +36,7 @@ export const getHrHistory = onCall({ enforceAppCheck }, async request => {
     const comparable = value instanceof Timestamp ? value.valueOf() : value;
     const start = bounds.start instanceof Timestamp ? bounds.start.valueOf() : bounds.start;
     const end = bounds.end instanceof Timestamp ? bounds.end.valueOf() : bounds.end;
-    if (!cursor.exists || (input.kind === "attendance" ? !(value instanceof Timestamp) : typeof value !== "string") || cursor.get("organizationId") !== actor.organizationId || comparable < start || (bounds.endOperator === "<" ? comparable >= end : comparable > end))
+    if (!matchesView(actor, cursor.data() ?? {}) || !cursor.exists || (input.kind === "attendance" ? !(value instanceof Timestamp) : typeof value !== "string") || cursor.get("organizationId") !== actor.organizationId || comparable < start || (bounds.endOperator === "<" ? comparable >= end : comparable > end))
       throw new HttpsError("invalid-argument", "This history cursor does not belong to the selected report.");
     query = query.startAfter(cursor);
   }

@@ -1,3 +1,4 @@
+import { requireAllLocations, requireView } from "../auth/view-scope.js";
 import { FieldValue } from "firebase-admin/firestore";
 import { logger } from "firebase-functions";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
@@ -70,6 +71,9 @@ async function validateLocationOwner(kind: MasterKind, input: Record<string, unk
 
 async function saveMaster(kind: MasterKind, input: Record<string, unknown>, actor: Awaited<ReturnType<typeof requireAccess>>) {
   const config = configuration[kind]; requirePermission(actor, config.permission);
+  if (kind === "inventoryLocation") requireView(actor, input);
+  else if (!input.id) requireAllLocations(actor);
+  else requireView(actor, kind === "branch" ? { branchId: input.id } : { warehouseId: input.id });
   const operation = db.collection("idempotencyKeys").doc(`${actor.organizationId}_save${kind}_${String(input.idempotencyKey)}`);
   const prior = await operation.get();
   if (prior.exists && prior.get("status") === "completed") {
@@ -213,7 +217,7 @@ export const saveWarehouse = onCall({ enforceAppCheck }, async (request) => save
 export const saveInventoryLocation = onCall({ enforceAppCheck }, async (request) => saveMaster("inventoryLocation", parseInput(locationInput, request.data), await requireAccess(request)));
 
 export const updateOrganization = onCall({ enforceAppCheck }, async (request) => {
-  const actor = await requireAccess(request); requirePermission(actor, "organization.manage"); const input = parseInput(updateOrganizationInput, request.data);
+  const actor = await requireAccess(request); requireAllLocations(actor); requirePermission(actor, "organization.manage"); const input = parseInput(updateOrganizationInput, request.data);
   const reference = db.collection("organizations").doc(actor.organizationId); const requestId = correlationId();
   await db.runTransaction(async (transaction) => {
     const current = await transaction.get(reference); if (!current.exists) throw new HttpsError("not-found", "Organization not found.");

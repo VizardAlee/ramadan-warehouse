@@ -31,7 +31,7 @@ function query(filters: Filter[] = [], maximum = Infinity, cursor?: string, proj
     },
   };
 }
-vi.mock("../functions/src/admin.js", () => ({ db: { collection: () => query(), runTransaction: state.writes } }));
+vi.mock("../functions/src/admin.js", () => ({ db: { collection: () => query(), runTransaction: state.writes, doc: (path: string) => path, getAll: async (...paths: string[]) => paths.map(path => ({ id: path.split("/").at(-1), get: (key: string) => key === "organizationId" ? "org" : key === "name" ? `Product ${path.split("/").at(-1)}` : undefined })) } }));
 vi.mock("../functions/src/auth/authorize.js", async (original) => ({ ...await original<typeof import("../functions/src/auth/authorize")>(), requireAccess: async () => state.actor }));
 vi.mock("../functions/src/config.js", () => ({ enforceAppCheck: false }));
 import { generateStockPositionReport } from "../functions/src/callable/inventory-queries";

@@ -135,3 +135,27 @@ describe("paged HR history", () => {
     await expect(call(cashier, "getHrHistory", input)).rejects.toMatchObject({ code: "functions/permission-denied" });
   });
 });
+
+
+describe("HR selected branch view", () => {
+  it("filters global readers before pagination and prevents cross-branch staff changes", async () => {
+    for (const id of ["scope-a", "scope-b"]) {
+      await db.doc(`branches/${id}`).set({ organizationId, name: id, status: "active" });
+      await db.doc(`employees/${id}`).set({ organizationId, staffId: `SCOPE-${id}`, fullName: id, branchId: id, status: "active" });
+      await db.doc(`attendanceEvents/${id}`).set({ organizationId, employeeId: id, branchId: id, occurredAt: Timestamp.fromDate(new Date("2026-10-02T10:00:00Z")), kind: "clock_in" });
+      await db.doc(`employeeActivityEvents/${id}`).set({ organizationId, employeeId: id, branchId: id, occurredOn: "2026-10-02", kind: "note" });
+    }
+    const operatingContext = { type: "branch", id: "scope-a" };
+    for (const target of [system, operations]) {
+      const result = await call<{ employees: Array<{ id: string }>; attendance: Array<{ id: string }>; activities: Array<{ id: string }> }>(target, "getHrWorkspace", { operatingContext });
+      expect(result.employees.map(item => item.id)).toEqual(["scope-a"]);
+      expect(result.attendance.map(item => item.id)).toEqual(["scope-a"]);
+      expect(result.activities.map(item => item.id)).toEqual(["scope-a"]);
+      const history = await call<{ rows: Array<{ id: string }> }>(target, "getHrHistory", { kind: "attendance", fromDate: "2026-10-01", toDate: "2026-10-03", operatingContext });
+      expect(history.rows.map(item => item.id)).toEqual(["scope-a"]);
+    }
+    await expect(call(system, "saveEmployeeCompensation", { employeeId: "scope-b", monthlySalaryMinor: 50000, effectiveFrom: "2026-10-01", reason: "Scope regression", operatingContext })).rejects.toMatchObject({ code: "functions/failed-precondition" });
+    const all = await call<{ employees: Array<{ id: string }> }>(system, "getHrWorkspace", { operatingContext: { type: "all" } });
+    expect(all.employees.map(item => item.id)).toEqual(expect.arrayContaining(["scope-a", "scope-b"]));
+  });
+});

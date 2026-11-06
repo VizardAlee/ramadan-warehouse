@@ -44,11 +44,11 @@ beforeAll(async () => {
   foreign = await actor("foreign", { organizationId: other, branchIds: [foreignBranch] });
   let batch = db.batch(), count = 0;
   for (let n = 0; n < 1106; n++) {
-    batch.set(db.doc(`customers/${id(n)}`), { organizationId: org, active: n !== 20, name: n === 750 || n === 1005 ? "Alhaji Aliyu Ventures" : n === 1105 ? "Beyond limit buyer" : n === 40 || n === 1040 ? "Duplicate Buyer" : n === 20 ? "Inactive target" : "Other customer", customerNumber: `CUS-${n}`, creditStatus: "pending", outstandingBalanceMinor: 0, email: "private@example.invalid", password: "never-return-this" });
+    batch.set(db.doc(`customers/${id(n)}`), { organizationId: org, branchId: branch, active: n !== 20, name: n === 750 || n === 1005 ? "Alhaji Aliyu Ventures" : n === 1105 ? "Beyond limit buyer" : n === 40 || n === 1040 ? "Duplicate Buyer" : n === 20 ? "Inactive target" : "Other customer", customerNumber: `CUS-${n}`, creditStatus: "pending", outstandingBalanceMinor: 0, email: "private@example.invalid", password: "never-return-this" });
     if (++count === 400) { await batch.commit(); batch = db.batch(); count = 0; }
   }
   if (count) await batch.commit();
-  await db.doc("customers/pos-search-foreign-customer").set({ organizationId: other, active: true, name: "Foreign target", customerNumber: "FOREIGN", outstandingBalanceMinor: 0 });
+  await db.doc("customers/pos-search-foreign-customer").set({ organizationId: other, branchId: foreignBranch, active: true, name: "Foreign target", customerNumber: "FOREIGN", outstandingBalanceMinor: 0 });
   beforeHash = await customerHash();
 }, 120000);
 afterAll(async () => { await Promise.all(apps.map(deleteApp)); });
@@ -99,4 +99,20 @@ describe("real SDK POS customer-name search", () => {
     expect(workspace.customers.some(row => row.id === id(20))).toBe(false);
     expect(await customerHash()).toBe(beforeHash);
   });
+});
+
+it("excludes same-organization customers without this branch's ownership from search and direct selection", async () => {
+  for (const [key, ownership] of [["unassigned-target", {}], ["other-branch-target", { branchId: "outside-store" }]] as const) await db.doc(`customers/${key}`).set({ organizationId: org, ...ownership, active: true, name: "Unassigned target", customerNumber: key });
+  let cursor: string | null | undefined;
+  for (let page = 0; page < 10; page++) {
+    const result = await search(cashier, { query: "Unassigned target", ...(cursor ? { cursor } : {}) });
+    expect(result.items).toEqual([]);
+    cursor = result.nextCursor;
+    if (!cursor) break;
+    if (page === 9) throw Error("Customer search did not finish within its expected scan pages");
+  }
+  for (const key of ["unassigned-target", "other-branch-target"]) {
+    const workspace = (await httpsCallable<object, { customers: PosCustomer[] }>(cashier.f, "getPosWorkspace")({ branchId: branch, customerId: key })).data;
+    expect(workspace.customers.some(customer => customer.id === key)).toBe(false);
+  }
 });

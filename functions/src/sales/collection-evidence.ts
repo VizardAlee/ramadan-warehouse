@@ -4,7 +4,7 @@ import { getStorage } from "firebase-admin/storage";
 import { HttpsError } from "firebase-functions/v2/https";
 import { z } from "zod";
 import { db } from "../admin.js";
-import { requireBranchScope, requirePermission, type AccessProfile } from "../auth/authorize.js";
+import { requireBranchViewScope as requireBranchScope, requirePermission, type AccessProfile } from "../auth/authorize.js";
 import { writeAuditLog } from "../audit/write-audit-log.js";
 import { uniquenessDocumentId } from "../inventory/calculations.js";
 import { correlationId } from "../utils/callable.js";

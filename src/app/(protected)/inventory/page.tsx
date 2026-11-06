@@ -61,7 +61,7 @@ function InventoryPosition() {
           <thead className="bg-slate-50">
             <tr>
               {[
-                "SKU",
+                "Product / SKU",
                 "Location",
                 "On hand",
                 "Reserved",
@@ -86,8 +86,8 @@ function InventoryPosition() {
             ) : (
               rows.map((row) => (
                 <tr key={row.id} className="border-t">
-                  <td data-label="SKU" data-primary="true" className="px-4 py-3 font-mono">
-                    <Link href={`/products/${row.productId}#movement-history`} className="font-semibold text-[var(--brand)] underline underline-offset-2" title="Open product stock history"><FinancialText>{row.sku}</FinancialText></Link>
+                  <td data-label="Product / SKU" data-primary="true" className="px-4 py-3">
+                    <Link href={`/products/${row.productId}#movement-history`} className="font-semibold text-[var(--brand)] underline underline-offset-2" title="Open product stock history"><FinancialText>{row.productName ?? "Product name unavailable"}</FinancialText></Link><p className="mt-1 font-mono text-xs text-[var(--muted)]"><FinancialText>{row.sku}</FinancialText></p>
                   </td>
                   <td data-label="Location" className="px-4 text-sm"><FinancialText>{locations.data.find((location) => location.id === row.locationId)?.name ?? row.locationId}</FinancialText></td>
                   <td data-label="On hand" className="px-4"><FinancialText>{row.onHandQuantity}</FinancialText></td>

@@ -9,6 +9,8 @@ import { detachBrowserPush } from "@/features/notifications/push-subscription";
 import type { UserProfile } from "@/types/domain";
 import {
   availableOperatingContexts,
+  bindOperatingContextStorage,
+  hasExplicitAllSelection,
   hasOrganizationWideOperatingAccess,
   isAvailableOperatingContext,
   narrowProfileToOperatingContext,
@@ -16,6 +18,8 @@ import {
   storeOperatingContext,
   type OperatingContext,
 } from "./operating-context";
+
+import { loadOperatingBranches } from "./operating-context-metadata";
 
 interface AuthContextValue {
   user: User | null;
@@ -54,6 +58,18 @@ function readCachedAccessProfile(uid: string): UserProfile | null {
   } catch {
     return null;
   }
+}
+
+async function initialOperatingContext(profile: UserProfile): Promise<OperatingContext | null> {
+  bindOperatingContextStorage(profile);
+  const stored = readStoredOperatingContext();
+  const contexts = availableOperatingContexts(profile);
+  if (hasExplicitAllSelection() && (hasOrganizationWideOperatingAccess(profile) || contexts.length > 1 || contexts.some(context => context.type === "warehouse"))) return null;
+  if (!navigator.onLine) return isAvailableOperatingContext(stored, profile) ? stored : contexts[0] ?? null;
+  const branches = await loadOperatingBranches(profile);
+  if (stored && branches.some(branch => branch.id === stored.id && (branch.type ?? "branch") === stored.type)) return stored;
+  if (branches.length) return { type: branches[0]!.type ?? "branch", id: branches[0]!.id };
+  return null;
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -119,11 +135,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               void httpsCallable(getFirebaseServices().functions, "getMyAccessContext")({}).catch(() => undefined);
             }
           }
-          const contexts = availableOperatingContexts(nextProfile);
-          const stored = readStoredOperatingContext();
-          const nextContext = isAvailableOperatingContext(stored, nextProfile)
-            ? stored
-            : (contexts[0] ?? null);
+          const nextContext = await initialOperatingContext(nextProfile);
           storeOperatingContext(nextContext);
           setOperatingContextState(nextContext);
           setAccessProfile(nextProfile);
@@ -175,17 +187,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return;
     }
     cacheAccessProfile(nextProfile);
-    const contexts = availableOperatingContexts(nextProfile);
-    const nextContext = isAvailableOperatingContext(
-      operatingContext,
-      nextProfile,
-    )
-      ? operatingContext
-      : (contexts[0] ?? null);
+    const nextContext = await initialOperatingContext(nextProfile);
     storeOperatingContext(nextContext);
     setOperatingContextState(nextContext);
     setAccessProfile(nextProfile);
-  }, [operatingContext]);
+  }, []);
   const profile = useMemo(
     () =>
       accessProfile
@@ -197,7 +203,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     (context: OperatingContext | null) => {
       if (!accessProfile) return;
       if (!context) {
-        if (!hasOrganizationWideOperatingAccess(accessProfile)) return;
+        if (!hasOrganizationWideOperatingAccess(accessProfile) && availableOperatingContexts(accessProfile).length < 2 && !availableOperatingContexts(accessProfile).some(context => context.type === "warehouse")) return;
         storeOperatingContext(null);
         setOperatingContextState(null);
         return;

@@ -88,10 +88,10 @@ const statusProgress: Record<string, number> = {
 export function TransferDetail({ transferId }: { transferId: string }) {
   const { profile } = useAuth();
   const { online } = useConnectivity();
-  const branches = useOrganizationCollection<Branch>("branches");
-  const warehouses = useOrganizationCollection<Warehouse>("warehouses");
+  const branches = useOrganizationCollection<Branch>("branches", true, undefined, "authority");
+  const warehouses = useOrganizationCollection<Warehouse>("warehouses", true, undefined, "authority");
   const locations =
-    useOrganizationCollection<InventoryLocation>("inventoryLocations");
+    useOrganizationCollection<InventoryLocation>("inventoryLocations", true, undefined, "authority");
   const requests = useOrganizationCollection<BranchRequest>("branchRequests");
   const [result, setResult] = useState<TransferDetailResult | null>(null);
   const [loading, setLoading] = useState(true);

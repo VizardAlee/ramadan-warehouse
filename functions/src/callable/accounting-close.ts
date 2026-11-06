@@ -1,3 +1,4 @@
+import { requireAllLocations } from "../auth/view-scope.js";
 import { createHash } from "node:crypto";
 import { FieldValue, Timestamp } from "firebase-admin/firestore";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
@@ -300,6 +301,7 @@ export const getAccountingCloseWorkspace = onCall(
   { enforceAppCheck, timeoutSeconds: 120 },
   async (request) => {
     const actor = await scopedAccess(await requireAccess(request));
+    requireAllLocations(actor);
     requirePermissionScope(actor, {}, "accounting.close.read");
     const input = parseInput(accountingCloseWorkspaceInput, request.data),
       evidence = await buildCloseEvidence(
@@ -329,6 +331,7 @@ export const prepareAccountingPeriodClose = onCall(
   { enforceAppCheck, timeoutSeconds: 120 },
   async (request) => {
     const actor = await scopedAccess(await requireAccess(request));
+    requireAllLocations(actor);
     requirePermissionScope(actor, {}, "accounting.close.prepare");
     const input = parseInput(prepareAccountingCloseInput, request.data),
       period = accountingPeriodReference(
@@ -492,6 +495,7 @@ export const completeAccountingPeriodClose = onCall(
   { enforceAppCheck, timeoutSeconds: 120 },
   async (request) => {
     const actor = await scopedAccess(await requireAccess(request));
+    requireAllLocations(actor);
     requirePermissionScope(actor, {}, "accounting.close.approve");
     const input = parseInput(completeAccountingCloseInput, request.data),
       period = db.doc(`accountingPeriods/${input.accountingPeriodId}`),

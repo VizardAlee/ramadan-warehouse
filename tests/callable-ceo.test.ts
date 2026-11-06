@@ -20,7 +20,7 @@ async function actor(roleId: string, extra = {}) {
   const target = client(email); await signInWithEmailAndPassword(target.auth, email, "Password!234567"); return target;
 }
 let owner: Awaited<ReturnType<typeof actor>>, ops: typeof owner, finance: typeof owner, auditor: typeof owner, branch: typeof owner, limited: typeof owner;
-const input = { section: "ceo", fromDate: "2026-10-01", toDate: "2026-10-10", operatingContext: { type: "branch", id: "branch-a" } };
+const input = { section: "ceo", fromDate: "2026-10-01", toDate: "2026-10-10", operatingContext: { type: "all" } };
 async function call(change = {}, target = owner) { return (await httpsCallable(target.functions, "getDashboardWorkspace")({ ...input, ...change })).data as CeoDashboard; }
 const value = (data: CeoDashboard, id: string) => data.metrics.find(item => item.id === id)?.value;
 beforeAll(async () => {
@@ -78,6 +78,16 @@ describe("CEO callable preserves authority and reconciles real sources", () => {
     expect(value(result, "reserved")).toBe(1.5); expect(result.metrics.some(row => row.id === "debt")).toBe(false);
     expect(value(result, "payables")).toBe(1000); expect(value(result, "expenses")).toBe(1000);
     await expect(call({ branchId: "foreign" })).rejects.toMatchObject({ code: "functions/not-found" });
+  });
+  it("uses the app selection for global roles when no report filter is supplied", async () => {
+    for (const target of [owner, ops, finance, auditor]) {
+      const result = await call({ operatingContext: { type: "branch", id: "branch-a" } }, target);
+      expect(value(result, "invoiced")).toBe(10000);
+      expect(value(result, "checkout")).toBe(6000);
+      expect(result.branchId).toBe("branch-a");
+      expect(result.branches.map(branch => branch.id)).toEqual(["branch-a"]);
+      await expect(call({ branchId: "branch-b", operatingContext: { type: "branch", id: "branch-a" } }, target)).rejects.toMatchObject({ code: "functions/failed-precondition" });
+    }
   });
   it("denies extra read-all permissions on a branch-scoped actor before any overview is returned", async () => {
     await expect(call({}, branch)).rejects.toMatchObject({ code: "functions/permission-denied" });

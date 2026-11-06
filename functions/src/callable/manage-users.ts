@@ -1,3 +1,4 @@
+import { requireAllLocations } from "../auth/view-scope.js";
 import { randomBytes } from "node:crypto";
 import { FieldValue, Timestamp } from "firebase-admin/firestore";
 import { logger } from "firebase-functions";
@@ -24,7 +25,7 @@ function hasUsedInvitation(authUser: Awaited<ReturnType<typeof adminAuth.getUser
 }
 
 export const createOrganizationUser = onCall({ enforceAppCheck }, async (request) => {
-  const actor = await requireAccess(request); requirePermission(actor, "user.manage");
+  const actor = await requireAccess(request); requireAllLocations(actor); requirePermission(actor, "user.manage");
   const input = parseInput(userInput, request.data);
   const selectedCustomRoles = await loadCustomRoles(actor.organizationId, input.customRoleIds ?? []);
   const assignment = buildRoleAssignment(
@@ -74,7 +75,7 @@ export const createOrganizationUser = onCall({ enforceAppCheck }, async (request
 });
 
 export const reissueOrganizationUserInvitation = onCall({ enforceAppCheck }, async (request) => {
-  const actor = await requireAccess(request); requirePermission(actor, "user.manage");
+  const actor = await requireAccess(request); requireAllLocations(actor); requirePermission(actor, "user.manage");
   const input = parseInput(reissueInvitationInput, request.data);
   if (input.userId === actor.userId) throw new HttpsError("failed-precondition", "You cannot re-issue an invitation for your own active account.", { code: "INVITATION_ALREADY_ACCEPTED" });
   const targetRef = db.collection("users").doc(input.userId);
@@ -113,7 +114,7 @@ export const reissueOrganizationUserInvitation = onCall({ enforceAppCheck }, asy
 });
 
 export const updateOrganizationUser = onCall({ enforceAppCheck }, async (request) => {
-  const actor = await requireAccess(request); requirePermission(actor, "user.manage");
+  const actor = await requireAccess(request); requireAllLocations(actor); requirePermission(actor, "user.manage");
   const input = parseInput(updateUserInput, request.data);
   const targetRef = db.collection("users").doc(input.userId); const targetSnapshot = await targetRef.get();
   if (!targetSnapshot.exists) throw new HttpsError("not-found", "User profile not found.");
@@ -167,7 +168,7 @@ export const updateOrganizationUser = onCall({ enforceAppCheck }, async (request
 });
 
 export const revokeUserSessions = onCall({ enforceAppCheck }, async (request) => {
-  const actor = await requireAccess(request); requirePermission(actor, "user.manage"); const input = parseInput(revokeSessionsInput, request.data);
+  const actor = await requireAccess(request); requireAllLocations(actor); requirePermission(actor, "user.manage"); const input = parseInput(revokeSessionsInput, request.data);
   const target = await db.collection("users").doc(input.userId).get(); if (!target.exists) throw new HttpsError("not-found", "User profile not found."); requireOrganizationAccess(actor, String(target.get("organizationId")));
   await adminAuth.revokeRefreshTokens(input.userId); const requestId = correlationId();
   await db.runTransaction(async (transaction) => writeAuditLog(transaction, actor, { action: "user.sessions_revoked", entityType: "user", entityId: input.userId, correlationId: requestId, sourceFunction: "revokeUserSessions", reason: input.reason }));

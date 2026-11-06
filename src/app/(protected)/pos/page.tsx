@@ -1,4 +1,6 @@
 "use client";
+import { PosActiveShift, PosShiftAccess } from "@/features/pos/shift-controls";
+import { SalesVoucher } from "@/features/pos/sales-voucher";
 import { BranchPriceEditor } from "@/features/products/branch-price-editor";
 import { FastMovingControls, usePosFastMoving } from "@/features/pos/fast-moving";
 import { RecordAttribution } from "@/features/audit/record-attribution";
@@ -13,7 +15,6 @@ import styles from "@/features/pos/pos-layout.module.css";
 import { parseSaleSerials, validSaleSerials } from "@/features/pos/serial-selection";
 
 import {
-  Banknote,
   CheckCircle2,
   CircleAlert,
   Minus,
@@ -123,6 +124,7 @@ export default function PosPage() {
   const { online } = useConnectivity();
   const branches = useOrganizationCollection<Branch>("branches");
   const receivedOrder = usePosOrderReceive(`${profile?.organizationId ?? "loading"}:${user?.uid ?? "loading"}`);
+  const [voucherOrderId, setVoucherOrderId] = useState<string | null>(null);
   const [manualBranchId, setManualBranchId] = useState("");
   const [workspace, setWorkspace] = useState<PosWorkspace | null>(null);
   const [proformaId, setProformaId] = useState<string>();
@@ -185,13 +187,13 @@ export default function PosPage() {
     accessProfile?.branchIds.length === 1
       ? accessProfile.branchIds[0]
       : undefined;
-  const firstActiveBranchId = branches.data.find(
-    (branch) => branch.status === "active",
-  )?.id;
   const selectedBranchId =
     branchContextId ??
     assignedBranchId ??
-    (manualBranchId || firstActiveBranchId || "");
+    (manualBranchId || "");
+  const liveBranchPrices = useOrganizationCollection<{ id: string; version: number }>("branchSalesPrices", online && Boolean(selectedBranchId), { field: "branchId", id: selectedBranchId });
+  const liveCentralPrices = useOrganizationCollection<{ id: string; version: number }>("productSalesPrices", online && Boolean(selectedBranchId));
+  const priceRevision = JSON.stringify([selectedBranchId, liveBranchPrices.data.map(price => [price.id, price.version]), liveCentralPrices.data.map(price => [price.id, price.version])]);
   const checkoutScope = JSON.stringify([profile?.organizationId, user?.uid, selectedBranchId]);
   const fastMoving = usePosFastMoving(JSON.stringify([checkoutScope, profile?.authorizationVersion]), selectedBranchId, online, workspace?.branch.id === selectedBranchId ? workspace.refreshedAt : undefined);
   const fastMovingIds = useMemo(() => new Set(fastMoving?.status === "ready" ? fastMoving.productIds : []), [fastMoving]);
@@ -206,6 +208,8 @@ export default function PosPage() {
   const canConfirmPayment = Boolean(
     profile && hasPermission(profile, "sales.payment.confirm"),
   );
+  const canManageShifts = Boolean(profile && hasPermission(profile, "sales.shift.manage"));
+  const signedInAccount = profile?.email ?? user?.email ?? profile?.displayName ?? "Account unavailable";
   const canReleaseStock = Boolean(profile && hasPermission(profile, "sales.stock.release"));
   const canUsePos = canReceiveOrder || canAcceptPayment || canConfirmPayment || canReleaseStock;
   const canRejectOrder = canReceiveOrder || canAcceptPayment || canConfirmPayment;
@@ -311,9 +315,9 @@ export default function PosPage() {
     try {
       if (online) {
         const result = await callAdministration<
-          { branchId: string; customerId?: string },
+          { branchId: string; customerId?: string; deviceId?: string },
           PosWorkspace
-        >("getPosWorkspace", { branchId: selectedBranchId, customerId: customerIdRef.current || undefined });
+        >("getPosWorkspace", { branchId: selectedBranchId, deviceId: deviceIdentity(), customerId: customerIdRef.current || undefined });
         setWorkspace(result);
         await saveCachedWorkspace(user.uid, result);
         if ("serviceWorker" in navigator)
@@ -343,6 +347,12 @@ export default function PosPage() {
       setBusy(false);
     }
   }, [online, refreshHeldSales, refreshQueue, selectedBranchId, user]);
+
+  useEffect(() => {
+    if (!online || !selectedBranchId || liveBranchPrices.loading || liveCentralPrices.loading || liveBranchPrices.error || liveCentralPrices.error) return;
+    const timeout = window.setTimeout(() => void loadWorkspace(), 500);
+    return () => window.clearTimeout(timeout);
+  }, [online, selectedBranchId, priceRevision, liveBranchPrices.loading, liveCentralPrices.loading, liveBranchPrices.error, liveCentralPrices.error, loadWorkspace]);
 
   useEffect(() => {
     if (!selectedBranchId) return;
@@ -693,7 +703,7 @@ export default function PosPage() {
     setError(null);
     try {
       const deviceId = deviceIdentity();
-      await callAdministration("openPosShift", {
+      const result = await callAdministration<object, { opened: boolean; resumed?: boolean }>("openPosShift", {
         branchId: workspace.branch.id,
         deviceId,
         deviceName: `${navigator.platform || "Browser"} POS`,
@@ -702,7 +712,7 @@ export default function PosPage() {
       });
       await loadWorkspace();
       setMessage(
-        "Shift opened. This device is ready to sell online or offline.",
+        result.resumed ? "Existing shift resumed. Its original opening cash and totals are preserved." : result.opened ? "Shift opened. This device is ready to sell online or offline." : "The earlier shift request was already recorded. The workspace has been refreshed.",
       );
     } catch (cause) {
       setError(
@@ -716,7 +726,7 @@ export default function PosPage() {
   }
 
   async function closeShift() {
-    if (!workspace?.openShift || !online) return;
+    if (!workspace?.openShift || !online || !canManageShifts || receivedOrder.pending || !receivedOrder.ready) return;
     setBusy(true);
     setError(null);
     try {
@@ -1026,7 +1036,7 @@ export default function PosPage() {
     }
   }
 
-  async function confirmOrderPayment(orderId: string, deferCollection = false) {
+  async function confirmOrderPayment(orderId: string, deferCollection = true) {
     setBusy(true);
     setError(null);
     try {
@@ -1186,7 +1196,8 @@ export default function PosPage() {
     );
 
   return (
-    <div className={`${styles.workspace} space-y-5`}>
+    <div data-unsaved-work={cart.length > 0 || receivedOrder.pending ? "true" : undefined} className={`${styles.workspace} space-y-5`}>
+      {voucherOrderId && <SalesVoucher key={voucherOrderId} orderId={voucherOrderId} onClose={() => setVoucherOrderId(null)} />}
       <header className="brand-hero flex flex-col gap-5 rounded-2xl p-5 sm:flex-row sm:items-end sm:justify-between sm:p-7">
         <div>
           <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[.16em] text-emerald-100">
@@ -1241,6 +1252,7 @@ export default function PosPage() {
         <a href="#pos-orders" className="inline-flex min-h-10 items-center rounded-lg border px-4 text-sm font-semibold text-slate-700">
           Awaiting action<FinancialText>{workspace?.pendingOrders.length ? ` (${workspace.pendingOrders.length})` : ""}</FinancialText>
         </a>
+        {workspace?.openShift && <a href="#pos-shift-controls" className="inline-flex min-h-10 items-center rounded-lg border px-4 text-sm font-semibold text-slate-700">Shift / cash close</a>}
         {workspace?.openShift && <a href="#pos-cart" className="hidden min-h-10 items-center rounded-lg border px-4 text-sm font-semibold text-slate-700 lg:inline-flex">Current sale / checkout</a>}
         <button type="button" disabled={!workspace?.openShift} onClick={() => {
           if (window.matchMedia("(max-width: 1023px)").matches) setCartOpen(true);
@@ -1311,6 +1323,8 @@ export default function PosPage() {
         </section>
       )}
 
+      {workspace?.openShift && workspace.shiftRecovery?.status === "ready" && <p role="status" className="rounded-lg bg-emerald-50 p-3 text-sm">{workspace.shiftRecovery.message}</p>}
+      {workspace?.openShift && <PosActiveShift shift={workspace.openShift} account={signedInAccount} canManage={canManageShifts} online={online} busy={busy} pendingOrder={Boolean(receivedOrder.pending) || !receivedOrder.ready} closingCash={closingCash} onClosingCash={setClosingCash} onClose={() => void closeShift()} />}
       {workspace && (
         <FinancialActionScope><section id="pos-orders" className="scroll-mt-40 rounded-2xl border bg-white p-4 shadow-sm sm:p-5">
           <div className="flex flex-wrap items-start justify-between gap-3">
@@ -1343,8 +1357,8 @@ export default function PosPage() {
               <span className="mt-1 block">Acknowledge the payment details.</span>
             </div>
             <div className="rounded-xl bg-emerald-50 p-3 text-sm text-emerald-950">
-              <strong>3. Confirm &amp; release</strong>
-              <span className="mt-1 block">Post receipt, accounts and stock.</span>
+              <strong>3. Confirm payment, then store handover</strong>
+              <span className="mt-1 block">Issue the receipt and reserve goods. Authorized store staff confirm the actual handover separately.</span>
             </div>
           </div>
           {workspace.pendingOrders.length > 0 ? (
@@ -1399,20 +1413,13 @@ export default function PosPage() {
                         </p>
                       )
                     ) : canConfirmPayment ? (
-                      <div className="mt-3 space-y-2"><FinancialAction><Button type="button" className="w-full" disabled={!online || busy} onClick={() => void confirmOrderPayment(order.id, true)}>Confirm payment &amp; reserve for later</Button></FinancialAction><FinancialAction><Button
-                        type="button"
-                        className="mt-3 w-full"
-                        variant="outline"
-                        disabled={!online || busy || !canReleaseStock}
-                        onClick={() => void confirmOrderPayment(order.id)}
-                      >
-                        Confirm payment &amp; collect now
-                      </Button></FinancialAction></div>
+                      <FinancialAction><Button type="button" className="mt-3 w-full" disabled={!online || busy} onClick={() => void confirmOrderPayment(order.id)}>Issue receipt · await store handover</Button></FinancialAction>
                     ) : (
                       <p className="mt-3 text-xs text-[var(--muted)]">
                         Waiting for a branch manager or administrator.
                       </p>
                     )}
+                    <Button type="button" variant="outline" className="mt-2" onClick={() => setVoucherOrderId(order.id)}>Print sales voucher</Button>
                     {awaitingPayment && canAcceptPayment && !workspace.openShift && (
                       <p className="mt-2 text-xs text-amber-800">
                         Open your shift below before accepting payment.
@@ -1444,44 +1451,13 @@ export default function PosPage() {
             <p>
               <FinancialText>{busy
                 ? "Loading branch POS…"
-                : "Choose an active selling branch."}</FinancialText>
+                : selectedBranchId ? "POS could not be loaded. Check your connection and retry this workspace." : "Choose an active selling branch."}</FinancialText>
             </p>
+            {selectedBranchId && <Button className="mt-3" variant="outline" disabled={!online || busy} onClick={() => void loadWorkspace()}>Retry POS workspace</Button>}
           </div>
         </div>
       ) : !workspace.openShift ? (
-        <FinancialActionScope><section id="pos-shift" className="mx-auto max-w-xl scroll-mt-40 rounded-2xl border bg-white p-6 shadow-sm">
-          <Banknote className="mb-4 size-9 text-[var(--brand)]" />
-          <h2 className="text-2xl font-semibold">Open the sales shift</h2>
-          <p className="mt-2 text-sm text-[var(--muted)]">
-            Count the cash physically in this till before the first sale. This
-            opening figure is used only for cash reconciliation.
-          </p>
-          <label className="mt-5 block text-sm font-medium">
-            Opening cash (₦)
-            <FinancialInput><input
-              type="number"
-              min="0"
-              step="0.01"
-              inputMode="decimal"
-              value={openingCash}
-              onChange={(event) => setOpeningCash(event.target.value)}
-              className="mt-1 w-full rounded-lg border p-3 text-lg"
-            /></FinancialInput>
-          </label>
-          <FinancialAction><Button
-            className="mt-5 w-full"
-            disabled={!online || busy}
-            onClick={() => void openShift()}
-          >
-            Open shift and start selling
-          </Button></FinancialAction>
-          {!online && (
-            <p className="mt-2 text-center text-xs text-amber-800">
-              A new shift must be opened online. An already-open cached shift
-              continues offline.
-            </p>
-          )}
-        </section></FinancialActionScope>
+        <PosShiftAccess recovery={workspace.shiftRecovery} account={signedInAccount} online={online} busy={busy} canManage={canManageShifts} openingCash={openingCash} onOpeningCash={setOpeningCash} onOpen={() => void openShift()} onRetry={() => void loadWorkspace()} />
       ) : (
         <div className={styles.saleLayout}>
           <section id="pos-catalogue" className={`${styles.catalogue} scroll-mt-40 space-y-4`}>
@@ -2137,30 +2113,7 @@ export default function PosPage() {
                 ? "This records the order only. Payment acceptance and final confirmation happen in the workflow queue above."
                 : "The order is kept on this device and joins the payment queue after synchronization."}</FinancialText>
             </p>
-            <FinancialActionScope><details className="mt-5 border-t pt-4">
-              <summary className="cursor-pointer text-sm font-semibold">
-                Close shift
-              </summary>
-              <label className="mt-3 block text-sm">
-                Counted closing cash (₦)
-                <FinancialInput><input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={closingCash}
-                  onChange={(event) => setClosingCash(event.target.value)}
-                  className="mt-1 w-full rounded-lg border p-2.5"
-                /></FinancialInput>
-              </label>
-              <FinancialAction><Button
-                className="mt-3 w-full"
-                variant="outline"
-                disabled={!online || !closingCash || busy}
-                onClick={() => void closeShift()}
-              >
-                Close and reconcile shift
-              </Button></FinancialAction>
-            </details></FinancialActionScope>
+
             </fieldset></FinancialActionScope>
           </aside></FinancialAttributes>
           </PosCartSurface>

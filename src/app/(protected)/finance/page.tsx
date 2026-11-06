@@ -10,7 +10,7 @@ import { useAuth } from "@/features/auth/auth-context";
 import { hasPermission } from "@/lib/permissions/roles";
 import { BillingControls } from "@/features/accounting/billing-controls";
 import { JournalWorkspace } from "@/features/accounting/journal-workspace";
-import { BudgetWorkspace } from "@/features/accounting/budget-workspace";
+import { BudgetOverview } from "@/features/accounting/budget-overview";
 
 const destinations = [
   { href: "/reports", title: "Financial statements", description: "Income statement, balance sheet, trial balance, and cash-flow draft reports from posted journals.", icon: FileBarChart, permission: "finance.journal.read" as const },
@@ -25,9 +25,9 @@ export default function FinancePage() {
   const branches = useFinancialBranches(access, identity);
   const [selectedBranch, setSelectedBranch] = useState<string | null>(null);
   const globalRead = Boolean(access?.organizationPermissions.includes("finance.journal.read"));
-  const preferred = selectedBranch ?? (operatingContext?.type === "branch" ? operatingContext.id : undefined);
-  const branchId = (preferred && (globalRead || access?.branchIds.includes(preferred)) ? preferred : !globalRead ? access?.branchIds[0] : undefined) || undefined;
-  const ready = Boolean(access && (globalRead || branchId && access.branchIds.includes(branchId)));
+  const preferred = operatingContext?.type === "branch" ? operatingContext.id : selectedBranch;
+  const branchId = (preferred && (globalRead || access?.branchIds.includes(preferred)) ? preferred : undefined) || undefined;
+  const ready = Boolean(access && (globalRead || (branchId ? access.branchIds.includes(branchId) : access.branchIds.length > 0)));
   const can = (permission: "finance.journal.create" | "finance.journal.reverse" | "finance.accounts.manage" | "finance.budget.manage") => Boolean(access?.permissions.includes(permission));
   const visible = destinations.filter((item) => profile && hasPermission(profile, item.permission) &&
     (item.href !== "/tax" || globalRead));
@@ -50,7 +50,7 @@ export default function FinancePage() {
       {branches.loading && <p role="status">Loading authorized store names…</p>}
       {branches.error && <p role="alert">Store names are unavailable: {branches.error} Selected stores remain identified by their ID.</p>}
       {access && <label className="block text-sm">Accounting scope<select aria-label="Accounting scope" value={branchId ?? ""} onChange={event => setSelectedBranch(event.target.value)} className="ml-3 rounded-lg border p-2">
-        {globalRead && <option value="">Entire organization</option>}
+        <option value="">All authorized locations</option>
         {branchId && !branches.data.some(branch => branch.id === branchId) && <option value={branchId}>{financialScopeLabel(branchId, branches.data)}</option>}
         {branches.data.map(branch => <option key={branch.id} value={branch.id}>{branch.name}</option>)}
       </select></label>}
@@ -59,7 +59,7 @@ export default function FinancePage() {
         ownerKey={`${profile.organizationId}:${user.uid}`} branchId={branchId}
         canCreate={can("finance.journal.create")} canReverse={can("finance.journal.reverse")} canManageAccounts={can("finance.accounts.manage")} />}
       {profile && user && can("finance.accounts.manage") && <BillingControls key={`billing:${profile.organizationId}:${user.uid}`} ownerKey={`${profile.organizationId}:${user.uid}`} />}
-      {profile && user && ready && <BudgetWorkspace key={`budget:${profile.organizationId}:${user.uid}:${branchId ?? "all"}`} ownerKey={`${profile.organizationId}:${user.uid}`} branchId={branchId} canManage={can("finance.budget.manage")} />}
+      {profile && user && ready && <BudgetOverview organizationRead={globalRead} branches={branches.data} key={`budget:${profile.organizationId}:${user.uid}:${branchId ?? "all"}`} ownerKey={`${profile.organizationId}:${user.uid}`} branchId={branchId} canManage={can("finance.budget.manage")} />}
     </div>
   );
 }

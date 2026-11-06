@@ -1,3 +1,4 @@
+import { assignedBranchQuery, viewQuery } from "../auth/view-scope.js";
 import { FieldPath, Timestamp } from "firebase-admin/firestore";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
 import { db } from "../admin.js";
@@ -62,14 +63,13 @@ export const generateFinancialStatement = onCall(
     const input = parseInput(financialReportInput, request.data);
     const canReadOrganization = hasOrganizationPermission(actor, "finance.journal.read");
     const branchId = input.branchId ?? (!canReadOrganization && actor.branchIds.length === 1 ? actor.branchIds[0] : undefined);
-    if (!canReadOrganization && !branchId)
-      throw new HttpsError("invalid-argument", "Select one assigned store for this statement.");
-    requirePermissionScope(actor, { branchId }, "finance.journal.read");
+    if (branchId || canReadOrganization) requirePermissionScope(actor, { branchId }, "finance.journal.read");
+    else for (const id of actor.branchIds) requirePermissionScope(actor, { branchId: id }, "finance.journal.read");
     let query: FirebaseFirestore.Query = db
       .collection("journalLines")
       .where("organizationId", "==", actor.organizationId)
       .where("effectiveAt", "<", endTimestamp(input.toDate));
-    if (branchId) query = query.where("branchId", "==", branchId);
+    query = assignedBranchQuery(actor, query, canReadOrganization, branchId);
     if (input.reportType !== "balance_sheet" && input.reportType !== "trial_balance")
       query = query.where("effectiveAt", ">=", startTimestamp(input.fromDate));
     const ledgerTotals = new Map<string, LedgerTotal>();
@@ -208,8 +208,8 @@ export const getTaxWorkspace = onCall(
     }
     const [rulePage] = await Promise.all([
       ruleQuery.limit(input.rulePageSize + 1).get(),
-      visitQueryPages(db.collection("journalLines")
-        .where("organizationId", "==", actor.organizationId)
+      visitQueryPages(viewQuery(actor, db.collection("journalLines")
+        .where("organizationId", "==", actor.organizationId))
         .where("effectiveAt", ">=", startTimestamp(input.fromDate))
         .where("effectiveAt", "<", endTimestamp(input.toDate)),
         (lines) => aggregateLines(lines, totals), { orderField: "effectiveAt" }),

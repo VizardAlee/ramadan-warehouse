@@ -51,14 +51,14 @@ function isUnauthenticated(error: unknown) {
 }
 
 export async function callAdministration<TInput extends object, TResult>(name: string, input: TInput): Promise<TResult> {
-  const callable = httpsCallable<TInput & { operatingContext?: ReturnType<typeof readStoredOperatingContext> }, TResult>(getFirebaseServices().functions, name, {
+  const callable = httpsCallable<TInput & { operatingContext?: ReturnType<typeof readStoredOperatingContext> | { type: "all" } }, TResult>(getFirebaseServices().functions, name, {
     // Full-ledger reports and resumable count/close operations need their server timeout.
     timeout: ["getProcurementWorkspace", "providerFunds", "billingReceiptCorrections", "getProductMargins", "getProductMovement", "generateFinancialStatement", "getTaxWorkspace", "budgetWorkspace", "getDailyCloseWorkspace", "prepareDailyClose", "signDailyClose", "postStockCount"].includes(name) ? 300_000 : name === "startStockCount" ? 180_000 : 70_000,
   });
   const operatingContext = readStoredOperatingContext();
   const sanitizedInput = sanitizeCallableInput({
     ...input,
-    operatingContext: operatingContext ?? undefined,
+    operatingContext: operatingContext ?? { type: "all" as const },
   });
   try { return (await callable(sanitizedInput)).data; }
   catch (error) {

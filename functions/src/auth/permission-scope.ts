@@ -24,6 +24,8 @@ export function hasOrganizationPermission(actor: ScopedAccess, permission: Permi
   return actor.organizationPermissions.includes(permission);
 }
 export function hasPermissionScope(actor: ScopedAccess, scope: { branchId?: string; warehouseId?: string }, permission: Permission) {
+  const selected = actor.operatingContext;
+  if (selected && (scope.branchId || scope.warehouseId) && (selected.type === "branch" ? scope.branchId !== selected.id : scope.warehouseId !== selected.id)) return false;
   return Boolean(actor.effectivePermissions?.includes(permission)) && (hasOrganizationPermission(actor, permission) ||
     Boolean(scope.branchId || scope.warehouseId) && (!scope.branchId || actor.branchIds.includes(scope.branchId)) &&
     (!scope.warehouseId || actor.warehouseIds.includes(scope.warehouseId)));

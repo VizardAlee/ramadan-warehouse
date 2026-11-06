@@ -47,7 +47,7 @@ beforeAll(async () => {
   const now = FieldValue.serverTimestamp();
   await Promise.all([
     adminDb.doc(`branches/${branchId}`).set({ organizationId, name: "Head Office", code: "HO", status: "active", createdAt: now }),
-    adminDb.doc(`customers/${customerId}`).set({ organizationId, name: "Test Customer", customerNumber: "CUST-001", active: true, createdAt: now }),
+    adminDb.doc(`customers/${customerId}`).set({ organizationId, branchId, name: "Test Customer", customerNumber: "CUST-001", active: true, createdAt: now }),
     adminDb.doc(`products/${productId}`).set({ organizationId, name: "Test Product", sku: "TEST-001", active: true, createdAt: now }),
     adminDb.doc(`bankAccounts/${bankAccountId}`).set({ organizationId, bankName: "Test Bank", accountName: "Services", accountNumberLast4: "4567", ledgerAccountCode: "1043", active: true, createdAt: now }),
   ]);

@@ -26,9 +26,9 @@ export function posCustomerSummary(customer: DocumentSnapshot) {
   };
 }
 
-export async function readPosCustomer(organizationId: string, customerId: string) {
+export async function readPosCustomer(organizationId: string, customerId: string, branchId: string) {
   const customer = await db.doc(`customers/${customerId}`).get();
-  return customer.exists && customer.get("organizationId") === organizationId && customer.get("active") === true ? posCustomerSummary(customer) : null;
+  return customer.exists && customer.get("organizationId") === organizationId && customer.get("active") === true && customer.get("branchId") === branchId ? posCustomerSummary(customer) : null;
 }
 
 export async function searchPosCustomers(
@@ -39,7 +39,7 @@ export async function searchPosCustomers(
   const fingerprint = createHash("sha256").update(JSON.stringify([scope.organizationId, scope.userId, scope.branchId, term, input.limit])).digest("hex");
   // Substring search includes legacy names without requiring a migration or a new index.
   // Bound each scan and expose continuation rather than silently stopping at the workspace cap.
-  let query: Query = db.collection("customers").where("organizationId", "==", scope.organizationId)
+  let query: Query = db.collection("customers").where("organizationId", "==", scope.organizationId).where("branchId", "==", scope.branchId)
     .orderBy(FieldPath.documentId(), "asc");
   if (input.cursor) {
     let cursor: { id: string; fingerprint: string };
@@ -48,7 +48,7 @@ export async function searchPosCustomers(
       if (!cursor || cursor.fingerprint !== fingerprint || typeof cursor.id !== "string" || !cursor.id || cursor.id.length > 128 || cursor.id.includes("/") || [".", ".."].includes(cursor.id) || /[\u0000-\u001f\u007f]/u.test(cursor.id)) throw Error("Invalid cursor");
     } catch { throw new HttpsError("invalid-argument", "Restart this customer search; its page is no longer available."); }
     const anchor = await db.doc(`customers/${cursor.id}`).get();
-    if (!anchor.exists || anchor.get("organizationId") !== scope.organizationId) throw new HttpsError("invalid-argument", "Restart this customer search; its page is no longer available.");
+    if (!anchor.exists || anchor.get("organizationId") !== scope.organizationId || anchor.get("branchId") !== scope.branchId) throw new HttpsError("invalid-argument", "Restart this customer search; its page is no longer available.");
     query = query.startAfter(anchor);
   }
   const matches: QueryDocumentSnapshot[] = [];

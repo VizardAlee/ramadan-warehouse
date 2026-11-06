@@ -3,7 +3,7 @@ import { FieldValue } from "firebase-admin/firestore";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
 import { z } from "zod";
 import { db } from "../admin.js";
-import { canSelfAuthorize, requireAccess, requireBranchScope, requirePermission } from "../auth/authorize.js";
+import { canSelfAuthorize, requireAccess, requireBranchViewScope as requireBranchScope, requirePermission } from "../auth/authorize.js";
 import { writeAuditLog } from "../audit/write-audit-log.js";
 import { enforceAppCheck } from "../config.js";
 import { uniquenessDocumentId } from "../inventory/calculations.js";

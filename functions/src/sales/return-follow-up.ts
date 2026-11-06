@@ -6,7 +6,7 @@ import { db } from "../admin.js";
 import { accountingPeriodReference, assertAccountingPeriodOpen } from "../accounting/period-lock.js";
 import { resolveSettlementAccount } from "../accounting/settlement-account.js";
 import { writeAuditLog } from "../audit/write-audit-log.js";
-import { requireAccess, requireBranchScope, requirePermission } from "../auth/authorize.js";
+import { requireAccess, requireBranchViewScope as requireBranchScope, requirePermission } from "../auth/authorize.js";
 import { normalizeInventoryIdentifier, uniquenessDocumentId } from "../inventory/calculations.js";
 import { assertBalancedJournal } from "./calculations.js";
 import { correlationId } from "../utils/callable.js";

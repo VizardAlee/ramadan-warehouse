@@ -1,3 +1,5 @@
+import { requireCustomerBranch } from "./customer-scope.js";
+import { assignedBranchQuery } from "../auth/view-scope.js";
 import { randomUUID } from "node:crypto";
 import { FieldPath, FieldValue, Timestamp } from "firebase-admin/firestore";
 import { HttpsError } from "firebase-functions/v2/https";
@@ -15,7 +17,7 @@ const id = z.string().regex(/^[A-Za-z0-9_-]{1,128}$/);
 export const proformaInput = z.discriminatedUnion("action", [
   z.object({ action: z.literal("create_proforma"), branchId: id, customerId: id.optional(), customerName: z.string().trim().min(2).max(160).optional(), validUntil: z.string().date(), notes: z.string().trim().max(500).optional(), discountAmountMinor: z.number().int().nonnegative().safe().default(0), discountReason: z.string().trim().max(500).optional(), lines: z.array(z.object({ productId: id, quantity: z.number().int().positive().max(100000), priceTier: z.enum(["retail", "wholesale"]).default("retail"), unitPriceMinor: z.number().int().nonnegative().safe().optional() }).strict()).min(1).max(50), idempotencyKey: z.string().uuid() }).strict(),
   z.object({ action: z.literal("get_proforma"), proformaId: id }).strict(),
-  z.object({ action: z.literal("list_proformas"), branchId: id, cursorId: id.optional(), limit: z.number().int().min(1).max(100).default(25) }).strict(),
+  z.object({ action: z.literal("list_proformas"), branchId: id.optional(), cursorId: id.optional(), limit: z.number().int().min(1).max(100).default(25) }).strict(),
 ]);
 const fail = (message: string): never => { throw new HttpsError("failed-precondition", message); };
 function view(record: FirebaseFirestore.DocumentSnapshot) {
@@ -23,8 +25,7 @@ function view(record: FirebaseFirestore.DocumentSnapshot) {
 }
 export async function proformaRequest(actor: AccessProfile, data: unknown) {
   // Transport operatingContext is authorization metadata, never quote content.
-  const raw = { ...(data as Record<string, unknown>) }; delete raw.operatingContext;
-  const input = parseInput(proformaInput, raw);
+  const input = parseInput(proformaInput, data);
   const access = await scopedAccess(actor), readPermissions = ["sales.order.create", "sales.create", "sales.read.own_branch", "sales.read.all", "reports.sales.read"] as const;
   if (!readPermissions.some(permission => hasServerPermission(access, permission))) throw new HttpsError("permission-denied", "Proforma access requires your existing sales authority.");
   const requireReadScope = (branchId: string) => { if (!readPermissions.some(permission => hasPermissionScope(access, { branchId }, permission))) throw new HttpsError("permission-denied", "This proforma is outside your sales-reading authority for the store."); };
@@ -33,13 +34,16 @@ export async function proformaRequest(actor: AccessProfile, data: unknown) {
     if (!quote.exists || quote.get("organizationId") !== actor.organizationId) throw new HttpsError("not-found", "Proforma not found.");
     requireReadScope(String(quote.get("branchId"))); return view(quote);
   }
-  requireReadScope(input.branchId);
   if (input.action === "list_proformas") {
-    let query = db.collection("proformaQuotes").where("organizationId", "==", actor.organizationId).where("branchId", "==", input.branchId).orderBy(FieldPath.documentId(), "desc");
-    if (input.cursorId) { const cursor = await db.doc(`proformaQuotes/${input.cursorId}`).get(); if (!cursor.exists || cursor.get("organizationId") !== actor.organizationId || cursor.get("branchId") !== input.branchId) throw new HttpsError("invalid-argument", "Restart proforma history for this store."); query = query.startAfter(cursor); }
+    const organizationWide = readPermissions.some(permission => access.organizationPermissions.includes(permission));
+    if (input.branchId) requireReadScope(input.branchId);
+    else if (!organizationWide) for (const id of actor.branchIds) requireReadScope(id);
+    let query = assignedBranchQuery(actor, db.collection("proformaQuotes").where("organizationId", "==", actor.organizationId), organizationWide, input.branchId).orderBy(FieldPath.documentId(), "desc");
+    if (input.cursorId) { const cursor = await db.doc(`proformaQuotes/${input.cursorId}`).get(); if (!cursor.exists || cursor.get("organizationId") !== actor.organizationId || (input.branchId && cursor.get("branchId") !== input.branchId)) throw new HttpsError("invalid-argument", "Restart proforma history for this store."); requireReadScope(String(cursor.get("branchId"))); query = query.startAfter(cursor); }
     const records = await query.limit(input.limit + 1).get(), rows = records.docs.slice(0,input.limit);
     return { rows: rows.map(view), nextCursorId: records.size > input.limit ? rows.at(-1)!.id : null };
   }
+  requireReadScope(input.branchId);
   requirePermission(actor, "sales.order.create");
   // A separate global read grant must not broaden local quote-creation authority.
   requirePermissionScope(access, { branchId: input.branchId }, "sales.order.create");
@@ -53,6 +57,7 @@ export async function proformaRequest(actor: AccessProfile, data: unknown) {
     if (expiresAt.toMillis() < Date.now() || expiresAt.toMillis() > Date.now() + 366 * 86400000) throw new HttpsError("invalid-argument", "Choose a quote expiry from today through the next year.");
     const [branch, organization, customer] = await tx.getAll(db.doc(`branches/${input.branchId}`), db.doc(`organizations/${actor.organizationId}`), db.doc(`customers/${input.customerId ?? "no-quoted-customer"}`));
     if (!branch!.exists || branch!.get("organizationId") !== actor.organizationId || branch!.get("status") !== "active") fail("Quote store is unavailable.");
+    if (input.customerId && customer!.exists) requireCustomerBranch(customer!.data()!, input.branchId);
     if (input.customerId && (!customer!.exists || customer!.get("organizationId") !== actor.organizationId || customer!.get("active") !== true)) fail("Choose an active customer in this organization.");
     const records = await tx.getAll(...input.lines.flatMap(line => [db.doc(`products/${line.productId}`), db.doc(`productSalesPrices/${line.productId}`), db.doc(`branchSalesPrices/${uniquenessDocumentId(actor.organizationId, "branchSalesPrice", input.branchId, line.productId)}`)]));
     const lines = input.lines.map((line, index) => {

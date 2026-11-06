@@ -1,3 +1,4 @@
+import { requireAllLocations } from "../auth/view-scope.js";
 import { createHash } from "node:crypto";
 import { FieldValue } from "firebase-admin/firestore";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
@@ -17,7 +18,9 @@ const fail = (message: string): never => { throw new HttpsError("failed-precondi
 export const billingControls = onCall({ enforceAppCheck }, async request => {
   const actor = await scopedAccess(await requireAccess(request)); requirePermission(actor, "finance.accounts.manage");
   requirePermissionScope(actor, {}, "finance.accounts.manage");
-  const input = parseInput(schema, request.data), ref = db.doc(`billingConfigurations/${actor.organizationId}`);
+  const input = parseInput(schema, request.data);
+  if (input.action === "save") requireAllLocations(actor);
+  const ref = db.doc(`billingConfigurations/${actor.organizationId}`);
   if (input.action === "workspace") {
     const [config, accounts] = await Promise.all([ref.get(), db.collection("chartOfAccounts").where("organizationId", "==", actor.organizationId).limit(501).get()]);
     if (accounts.size > 500) fail("A paged account selector is required. No accounts were silently omitted.");

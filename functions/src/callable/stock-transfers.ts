@@ -1,3 +1,4 @@
+import { matchesView, viewQuery } from "../auth/view-scope.js";
 import { createHash, randomUUID } from "node:crypto";
 import {
   FieldPath,
@@ -200,6 +201,7 @@ function owns(
   );
 }
 function canRead(actor: AccessProfile, transfer: StockTransfer) {
+  if (!matchesView(actor, transfer as unknown as Record<string, unknown>, { branch: ["sourceBranchId", "destinationBranchId"], warehouse: ["sourceWarehouseId"] })) return false;
   return (
     (permitted(actor, "transfers.read.all") &&
       (admin(actor) || hasRole(actor, "operations_administrator") || hasRole(actor, "auditor") || hasRole(actor, "finance_officer"))) ||
@@ -322,7 +324,7 @@ export const stockTransfers = onCall({ enforceAppCheck }, async (request) => {
   // scoped stock actions below; global financial authority is checked separately.
   const payload = request.data && typeof request.data === "object" && !Array.isArray(request.data)
     ? Object.fromEntries(Object.entries(request.data).filter(([field])=>field!=="operatingContext")) : request.data;
-  const input = parseInput(inputSchema, payload);
+  const input = parseInput(inputSchema, { ...payload, operatingContext: request.data?.operatingContext });
   if (input.action === "review_damage") return reviewInternalTradeDamage(actor,input);
   if (input.action === "record_payment") return recordInternalTradePayment(actor, input);
   if (input.action === "return_goods") return returnInternalTradeGoods(actor, input);
@@ -470,7 +472,8 @@ export const stockTransfers = onCall({ enforceAppCheck }, async (request) => {
     // Scan bounded pages; only authorized rows leave the server, even on an empty page.
     let query = db
       .collection("stockTransfers")
-      .where("organizationId", "==", actor.organizationId)
+      .where("organizationId", "==", actor.organizationId);
+    query = viewQuery(actor, query, { branch: ["sourceBranchId", "destinationBranchId"], warehouse: ["sourceWarehouseId"] })
       .orderBy(FieldPath.documentId())
       .limit(100);
     if (input.cursor) query = query.startAfter(input.cursor);

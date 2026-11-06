@@ -1,100 +1,35 @@
 "use client";
-
-import {
-  collection,
-  endAt,
-  limit,
-  onSnapshot,
-  orderBy,
-  query,
-  startAfter,
-  startAt,
-  where,
-  type DocumentData,
-  type QueryDocumentSnapshot,
-  type QueryConstraint,
-} from "firebase/firestore";
 import { useEffect, useState } from "react";
 import { useAuth } from "@/features/auth/auth-context";
-import { getFirebaseServices } from "@/lib/firebase/client";
+import { callAdministration } from "@/features/administration/api";
 import type { Customer } from "@/types/domain";
-
 export type CustomerSearchField = "name" | "number" | "phone" | "email";
-
-const searchFields: Record<CustomerSearchField, string> = {
-  name: "normalizedName",
-  number: "customerNumber",
-  phone: "phone",
-  email: "email",
-};
-
+interface Page { rows: Customer[]; nextCursor: string | null }
 export function useCustomerRegister() {
-  const { profile } = useAuth();
-  const organizationId = profile?.organizationId;
-  const [data, setData] = useState<Customer[]>([]);
-  const [pageSize, setPageSize] = useState(25);
-  const [pageStarts, setPageStarts] = useState<(QueryDocumentSnapshot<DocumentData> | null)[]>([null]);
-  const [nextCursor, setNextCursor] = useState<QueryDocumentSnapshot<DocumentData> | null>(null);
-  const [searchField, setSearchField] = useState<CustomerSearchField>("name");
-  const [search, setSearch] = useState("");
-  const [loadedKey, setLoadedKey] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const start = pageStarts.at(-1) ?? null;
-  const queryKey = JSON.stringify([organizationId, pageSize, searchField, search, start?.id]);
-  const loading = loadedKey !== queryKey;
-
+  const { profile, operatingContext } = useAuth();
+  const scope = JSON.stringify([profile?.uid, profile?.organizationId, profile?.authorizationVersion, profile?.branchIds, profile?.effectivePermissions, operatingContext]);
+  const [pageSize, setPageSize] = useState(25), [searchField, setSearchField] = useState<CustomerSearchField>("name"), [search, setSearch] = useState("");
+  const [navigation, setNavigation] = useState<{ scope: string; starts: Array<string | null> }>({ scope, starts: [null] });
+  const starts = navigation.scope === scope ? navigation.starts : [null], cursor = starts.at(-1);
+  const key = JSON.stringify([scope, pageSize, searchField, search, cursor]);
+  const [response, setResponse] = useState<{ key: string; data?: Page; error?: string }>();
   useEffect(() => {
-    if (!organizationId) return;
-    const field = search ? searchFields[searchField] : "customerNumber";
-    const term = searchField === "name" || searchField === "email" ? search.toLowerCase() : search;
-    const constraints: QueryConstraint[] = [
-      where("organizationId", "==", organizationId),
-      orderBy(field),
-      ...(start ? [startAfter(start)] : term ? [startAt(term)] : []),
-      ...(term ? [endAt(`${term}\uf8ff`)] : []),
-      limit(pageSize + 1),
-    ];
-    return onSnapshot(query(collection(getFirebaseServices().db, "customers"), ...constraints), (snapshot) => {
-      const page = snapshot.docs.slice(0, pageSize);
-      setData(page.map((document) => ({ id: document.id, ...document.data() } as Customer)));
-      setNextCursor(snapshot.docs.length > pageSize ? page.at(-1) ?? null : null);
-      setError(null);
-      setLoadedKey(queryKey);
-    }, () => {
-      setData([]);
-      setNextCursor(null);
-      setError("Unable to load customers. Check your connection and try again.");
-      setLoadedKey(queryKey);
-    });
-  }, [organizationId, pageSize, queryKey, search, searchField, start]);
-
-  function updateSearch(value: string, field = searchField) {
-    setSearch(value.trim());
-    setSearchField(field);
-    setPageStarts([null]);
-  }
-  function updatePageSize(value: number) {
-    setPageSize(value);
-    setPageStarts([null]);
-  }
-  function nextPage() {
-    if (nextCursor) setPageStarts((current) => [...current, nextCursor]);
-  }
-  function previousPage() {
-    setPageStarts((current) => current.length > 1 ? current.slice(0, -1) : current);
-  }
-
+    if (!profile) return;
+    let active = true;
+    void callAdministration<object, Page>("getCustomerHistory", { action: "list_customers", searchField, search, limit: pageSize, cursor: cursor || undefined })
+      .then(data => { if (active) setResponse({ key, data }); }).catch(error => { if (active) setResponse({ key, error: error instanceof Error ? error.message : "Customers could not be loaded." }); });
+    return () => { active = false; };
+  // key binds the request to current identity, grants, scope and page controls.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key]);
+  const current = response?.key === key ? response : undefined;
+  const reset = () => setNavigation({ scope, starts: [null] });
   return {
-    data: loading ? [] : data,
-    loading,
-    error: loading ? null : error,
-    page: pageStarts.length,
-    pageSize,
-    hasNextPage: !loading && Boolean(nextCursor),
-    searchField,
-    updateSearch,
-    updatePageSize,
-    nextPage,
-    previousPage,
+    data: current?.data?.rows ?? [], loading: Boolean(profile && !current), error: current?.error ?? null,
+    page: starts.length, pageSize, searchField, hasNextPage: Boolean(current?.data?.nextCursor),
+    updateSearch(value: string, field = searchField) { setSearch(value.trim()); setSearchField(field); reset(); },
+    updatePageSize(value: number) { setPageSize(value); reset(); },
+    nextPage() { if (current?.data?.nextCursor) setNavigation({ scope, starts: [...starts, current.data.nextCursor] }); },
+    previousPage() { setNavigation({ scope, starts: starts.length > 1 ? starts.slice(0, -1) : starts }); },
   };
 }

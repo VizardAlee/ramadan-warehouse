@@ -19,7 +19,7 @@ function select(id: string | null, type = "branch", profile = administrator) {
   mocks.auth = { profile, accessProfile: profile, operatingContext: id ? { type, id } : null };
 }
 function balance(id: string, productId: string, locationId: string, quantity = 1, value = 100): InventoryBalance {
-  return { id, productId, sku: productId.toUpperCase(), locationId, onHandQuantity: quantity, reservedQuantity: 0, availableQuantity: quantity, totalValueMinor: value, averageUnitCostMinor: quantity ? value / quantity : 0 } as InventoryBalance;
+  return { id, productId, sku: productId.toUpperCase(), productName: productId === "panel" ? "Solar panel" : "Battery", locationId, onHandQuantity: quantity, reservedQuantity: 0, availableQuantity: quantity, totalValueMinor: value, averageUnitCostMinor: quantity ? value / quantity : 0 } as InventoryBalance;
 }
 const stockA = balance("a", "panel", "stock-a", 5, 500);
 const stockB = balance("b", "battery", "stock-b", 2, 900);

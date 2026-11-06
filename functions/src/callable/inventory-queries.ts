@@ -1,3 +1,5 @@
+import { inventoryProductLabels } from "../inventory/product-labels.js";
+import { viewQuery, matchesView } from "../auth/view-scope.js";
 import {
   AggregateField,
   FieldPath,
@@ -35,6 +37,7 @@ function organizationWide(actor: AccessProfile) {
 }
 
 function scopedQuery(query: Query, actor: AccessProfile, readOnly = false): Query {
+  query = viewQuery(actor, query);
   if (organizationWide(actor)) return query;
   // requireAccess has already validated and narrowed the selected context.
   // A branch manager keeps that existing branch authority when also assigned a
@@ -69,6 +72,7 @@ function recordInScope(
   snapshot: FirebaseFirestore.DocumentSnapshot,
   readOnly = false,
 ) {
+  if (!matchesView(actor, snapshot.data() ?? {})) return false;
   if (organizationWide(actor)) return true;
   const selectedBranchRead = readOnly && hasRole(actor, "branch_manager") &&
     actor.branchIds.length > 0 && actor.warehouseIds.length === 0;
@@ -211,7 +215,7 @@ export const getSerialItemHistory = onCall(
     const snapshot = await query.limit(input.limit).get();
     return {
       item: serialize(item, includeCosts),
-      rows: snapshot.docs.map((document) => serialize(document, includeCosts)),
+      rows: await inventoryProductLabels(actor.organizationId, snapshot.docs.map((document) => serialize(document, includeCosts))),
       nextCursor:
         snapshot.size === input.limit
           ? (snapshot.docs.at(-1)?.id ?? null)
@@ -349,8 +353,8 @@ async function stockPositionReport(request: CallableRequest<unknown>) {
     reportType: "stock",
     summary,
     rows: membership
-      ? visible.map((document) => ({ id: document.id, productId: document.get("productId") }))
-      : visible.map((document) => serialize(document, includeCosts)),
+      ? visible.map((document): Record<string, unknown> => ({ id: document.id, productId: document.get("productId") }))
+      : await inventoryProductLabels(actor.organizationId, visible.map((document) => serialize(document, includeCosts))),
     nextCursor: documents.length > input.limit ? visible.at(-1)?.id ?? null : null,
     includeCosts,
   };
@@ -417,7 +421,7 @@ async function report(
     summary: summarySnapshot ? Object.fromEntries(Object.entries(summarySnapshot.data())
       .filter(([key]) => includeCosts || key !== "valueMinor")
       .map(([key, value]) => [key, Number(value ?? 0)])) : null,
-    rows: snapshot.docs.map((document) => serialize(document, includeCosts)),
+    rows: await inventoryProductLabels(actor.organizationId, snapshot.docs.map((document) => serialize(document, includeCosts))),
     nextCursor:
       snapshot.size === input.limit ? (snapshot.docs.at(-1)?.id ?? null) : null,
     includeCosts,
@@ -465,7 +469,7 @@ export const generateStockAdjustmentReport = onCall(
     const snapshot = await query.get();
     return {
       reportType: "adjustment",
-      rows: snapshot.docs.map((document) => serialize(document, includeCosts)),
+      rows: await inventoryProductLabels(actor.organizationId, snapshot.docs.map((document) => serialize(document, includeCosts))),
       nextCursor:
         snapshot.size === input.limit
           ? (snapshot.docs.at(-1)?.id ?? null)

@@ -2,24 +2,24 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { FinancialStatements } from "@/features/reports/financial-statements";
-const state = vi.hoisted(() => ({ global: false, ready: true, metadataError: false, call: vi.fn() }));
+const state = vi.hoisted(() => ({ global: false, ready: true, metadataError: false, context: { type: "branch", id: "own" } as { type: "branch"; id: string } | null, call: vi.fn() }));
 vi.mock("@/features/accounting/use-financial-access", () => ({ useFinancialAccess: () => ({ access: state.ready ? { branchIds: ["own"], permissions: ["finance.journal.read"], organizationPermissions: state.global ? ["finance.journal.read"] : [] } : undefined }) }));
-vi.mock("@/features/auth/auth-context", () => ({ useAuth: () => ({ profile: { roleIds: ["branch_manager", "auditor"], effectivePermissions: ["finance.journal.read", "sales.read.all"] }, operatingContext: null }) }));
+vi.mock("@/features/auth/auth-context", () => ({ useAuth: () => ({ profile: { roleIds: ["branch_manager", "auditor"], effectivePermissions: ["finance.journal.read", "sales.read.all"] }, operatingContext: state.context }) }));
 vi.mock("@/features/accounting/use-financial-branches", () => ({ useFinancialBranches: () => ({ data: state.metadataError ? [] : [{ id: "own", name: "Own store" }, ...(state.global ? [{ id: "remote", name: "Remote store" }] : [])], error: state.metadataError ? "Synthetic metadata failure" : undefined }) }));
 vi.mock("@/features/administration/api", () => ({ callAdministration: state.call }));
-beforeEach(() => { state.global = false; state.ready = true; state.metadataError = false; state.call.mockReset(); state.call.mockImplementation(async (_name, input) => ({ ...input, rows: [], profitMinor: 0 })); });
+beforeEach(() => { state.global = false; state.ready = true; state.metadataError = false; state.context = { type: "branch", id: "own" }; state.call.mockReset(); state.call.mockImplementation(async (_name, input) => ({ ...input, rows: [], profitMinor: 0 })); });
 afterEach(cleanup);
 describe("financial scope presentation", () => {
   it("offers and requests only the assigned store despite global sales/base roles", async () => {
     render(<FinancialStatements />);
     expect(screen.getByRole("option", { name: "Own store" })).toBeTruthy();
     expect(screen.queryByRole("option", { name: "Remote store" })).toBeNull();
-    expect(screen.queryByRole("option", { name: "Entire organization" })).toBeNull();
+    expect(screen.queryByRole("option", { name: "All locations" })).toBeNull();
     await waitFor(() => expect(state.call).toHaveBeenCalledWith("generateFinancialStatement", expect.objectContaining({ branchId: "own" })));
   });
   it("retains consolidated and remote branch choices for explicit financial authority", async () => {
-    state.global = true; render(<FinancialStatements />);
-    expect(screen.getByRole("option", { name: "Entire organization" })).toBeTruthy();
+    state.global = true; state.context = null; render(<FinancialStatements />);
+    expect(screen.getByRole("option", { name: "All locations" })).toBeTruthy();
     expect(screen.getByRole("option", { name: "Remote store" })).toBeTruthy();
     await waitFor(() => expect(state.call).toHaveBeenCalledWith("generateFinancialStatement", expect.objectContaining({ branchId: undefined })));
   });
@@ -30,7 +30,7 @@ describe("financial scope presentation", () => {
     expect(screen.getByRole("alert").textContent).toContain("Store names are unavailable");
   });
   it("uses the selected authorized store for statement requests and its label", async () => {
-    state.global = true; render(<FinancialStatements />);
+    state.global = true; state.context = null; render(<FinancialStatements />);
     fireEvent.change(screen.getByLabelText("Scope"), { target: { value: "remote" } });
     await screen.findByRole("article", { name: "Income statement for Remote store" });
     expect(state.call).toHaveBeenLastCalledWith("generateFinancialStatement", expect.objectContaining({ branchId: "remote" }));
@@ -39,5 +39,17 @@ describe("financial scope presentation", () => {
     state.ready = false; render(<FinancialStatements />);
     await new Promise(resolve => setTimeout(resolve, 300));
     expect(state.call).not.toHaveBeenCalled();
+  });
+  it("keeps global financial readers in the working branch until All is chosen", async () => {
+    state.global = true;
+    render(<FinancialStatements />);
+    await waitFor(() => expect(state.call).toHaveBeenCalledWith("generateFinancialStatement", expect.objectContaining({ branchId: "own" })));
+  });
+  it("requests the assigned union in an explicit All view without pretending it is organization authority", async () => {
+    state.context = null;
+    render(<FinancialStatements />);
+    await waitFor(() => expect(state.call).toHaveBeenCalledWith("generateFinancialStatement", expect.objectContaining({ branchId: undefined })));
+    expect(screen.getByRole("option", { name: "All assigned branches" })).toBeTruthy();
+    expect(screen.queryByRole("option", { name: "All locations" })).toBeNull();
   });
 });

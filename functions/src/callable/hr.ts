@@ -1,3 +1,4 @@
+import { viewQuery, requireView } from "../auth/view-scope.js";
 import { createHash } from "node:crypto";
 import { FieldValue, Timestamp } from "firebase-admin/firestore";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
@@ -39,7 +40,7 @@ const attendanceSchema = z.object({
   idempotencyKey: z.string().min(8).max(128),
 });
 const activitySchema = z.object({ employeeId: z.string().min(1).max(128), kind: z.enum(["leave", "training", "performance", "incident", "note"]), occurredOn: date, summary: z.string().trim().min(3).max(1000), idempotencyKey: z.string().min(8).max(128) });
-const workspaceSchema = z.object({ limit: z.number().int().min(1).max(100).default(25), afterStaffId: z.string().min(1).max(40).optional() });
+const workspaceSchema = z.object({ branchId: z.string().min(1).max(128).optional(), limit: z.number().int().min(1).max(100).default(25), afterStaffId: z.string().min(1).max(40).optional() });
 const codeId = (organizationId: string, code: string) => `${organizationId}_${encodeURIComponent(code.toUpperCase())}`;
 const checkOccurredAt = (value: string) => {
   const time = Date.parse(value);
@@ -51,12 +52,12 @@ const checkOccurredAt = (value: string) => {
 export const getHrWorkspace = onCall({ enforceAppCheck }, async (request) => {
   const actor = await requireAccess(request); requirePermission(actor, "hr.read");
   const input = parseInput(workspaceSchema, request.data ?? {});
-  let employeeQuery = db.collection("employees").where("organizationId", "==", actor.organizationId).orderBy("staffId", "asc");
+  let employeeQuery = viewQuery(actor, db.collection("employees").where("organizationId", "==", actor.organizationId)).orderBy("staffId", "asc");
   if (input.afterStaffId) employeeQuery = employeeQuery.startAfter(input.afterStaffId);
   const [employees, attendance, activities] = await Promise.all([
     employeeQuery.limit(input.limit + 1).get(),
-    db.collection("attendanceEvents").where("organizationId", "==", actor.organizationId).orderBy("occurredAt", "desc").limit(25).get(),
-    db.collection("employeeActivityEvents").where("organizationId", "==", actor.organizationId).orderBy("occurredOn", "desc").limit(25).get(),
+    viewQuery(actor, db.collection("attendanceEvents").where("organizationId", "==", actor.organizationId)).orderBy("occurredAt", "desc").limit(25).get(),
+    viewQuery(actor, db.collection("employeeActivityEvents").where("organizationId", "==", actor.organizationId)).orderBy("occurredOn", "desc").limit(25).get(),
   ]);
   const page = employees.docs.slice(0, input.limit);
   const nextCursor = employees.docs.length > input.limit ? String(page.at(-1)?.get("staffId")) : null;
@@ -95,6 +96,7 @@ export const saveEmployee = onCall({ enforceAppCheck }, async (request) => {
     const [existing, staff, externalMapping, userLink] = await Promise.all([
       transaction.get(employeeRef), transaction.get(staffRef), externalRef ? transaction.get(externalRef) : Promise.resolve(null), linkRef ? transaction.get(linkRef) : Promise.resolve(null),
     ]);
+    if (existing.exists) requireView(actor, existing.data() ?? {});
     if (existing.exists && existing.get("organizationId") !== actor.organizationId) throw new HttpsError("permission-denied", "Employee is outside your organization.");
     if (existing.exists && existing.get("staffId") !== normalizedStaffId) throw new HttpsError("failed-precondition", "Staff ID cannot be changed after creation.");
     if (staff.exists && staff.get("employeeId") !== employeeRef.id) throw new HttpsError("already-exists", "Staff ID is already in use.");
@@ -128,6 +130,7 @@ export const saveEmployeeCompensation = onCall({ enforceAppCheck }, async (reque
   const currentRef = db.doc(`employeeCompensation/${input.employeeId}`);
   await db.runTransaction(async (transaction) => {
     const [employee, current] = await Promise.all([transaction.get(employeeRef), transaction.get(currentRef)]);
+    if (employee.exists) requireView(actor, employee.data() ?? {});
     if (!employee.exists || employee.get("organizationId") !== actor.organizationId) throw new HttpsError("not-found", "Employee not found.");
     const now = FieldValue.serverTimestamp();
     const versionRef = db.collection("employeeCompensationVersions").doc();
@@ -146,6 +149,7 @@ export const recordAttendanceEvent = onCall({ enforceAppCheck }, async (request)
   const eventRef = db.doc(`attendanceEvents/${actor.organizationId}_${input.idempotencyKey}`);
   await db.runTransaction(async (transaction) => {
     const [employee, existing] = await Promise.all([transaction.get(employeeRef), transaction.get(eventRef)]);
+    if (employee.exists) requireView(actor, employee.data() ?? {});
     if (!employee.exists || employee.get("organizationId") !== actor.organizationId) throw new HttpsError("not-found", "Employee not found.");
     if (existing.exists) return;
     transaction.create(eventRef, { organizationId: actor.organizationId, employeeId: input.employeeId, staffId: employee.get("staffId"), branchId: employee.get("branchId") ?? null, kind: input.kind, occurredAt, source: "manual", reason: input.reason, actorUserId: actor.userId, createdAt: FieldValue.serverTimestamp() });
@@ -160,10 +164,11 @@ export const recordEmployeeActivity = onCall({ enforceAppCheck }, async (request
   const ref = db.doc(`employeeActivityEvents/${actor.organizationId}_${input.idempotencyKey}`);
   await db.runTransaction(async (transaction) => {
     const [employee, existing] = await Promise.all([transaction.get(db.doc(`employees/${input.employeeId}`)), transaction.get(ref)]);
+    if (employee.exists) requireView(actor, employee.data() ?? {});
     if (!employee.exists || employee.get("organizationId") !== actor.organizationId) throw new HttpsError("not-found", "Employee not found.");
     if (existing.exists) return;
-    transaction.create(ref, { organizationId: actor.organizationId, employeeId: input.employeeId, kind: input.kind, occurredOn: input.occurredOn, summary: input.summary, actorUserId: actor.userId, createdAt: FieldValue.serverTimestamp() });
-    writeAuditLog(transaction, actor, { action: "employee.activity_recorded", entityType: "employeeActivityEvent", entityId: ref.id, correlationId: correlationId(), sourceFunction: "recordEmployeeActivity", after: { employeeId: input.employeeId, kind: input.kind, occurredOn: input.occurredOn } });
+    transaction.create(ref, { organizationId: actor.organizationId, employeeId: input.employeeId, branchId: employee.get("branchId") ?? null, kind: input.kind, occurredOn: input.occurredOn, summary: input.summary, actorUserId: actor.userId, createdAt: FieldValue.serverTimestamp() });
+    writeAuditLog(transaction, actor, { action: "employee.activity_recorded", entityType: "employeeActivityEvent", entityId: ref.id, correlationId: correlationId(), sourceFunction: "recordEmployeeActivity", after: { employeeId: input.employeeId, branchId: employee.get("branchId") ?? null, kind: input.kind, occurredOn: input.occurredOn } });
   });
   return { eventId: ref.id };
 });

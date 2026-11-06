@@ -1,3 +1,4 @@
+import { requireAllLocations } from "../auth/view-scope.js";
 import { createHash } from "node:crypto";
 import { FieldValue } from "firebase-admin/firestore";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
@@ -16,6 +17,7 @@ export const taxRuleAdministration = onCall({ enforceAppCheck }, async request =
   const input = parseInput(taxRuleAdministrationInput, request.data);
   requirePermission(actor, input.action === "preview" ? "finance.journal.read" : "finance.tax.manage");
   if (!hasOrganizationPermission(actor, input.action === "preview" ? "finance.journal.read" : "finance.tax.manage")) throw new HttpsError("permission-denied", "Tax configuration requires organization-wide finance access.");
+  if (input.action !== "preview") requireAllLocations(actor);
   if (input.action === "preview") {
     const record = await db.doc(`taxRules/${input.ruleId}`).get();
     if (!record.exists || record.get("organizationId") !== actor.organizationId) throw new HttpsError("not-found", "Tax rule not found.");

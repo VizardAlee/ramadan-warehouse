@@ -2,7 +2,6 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/features/auth/auth-context";
-import { hasOrganizationWideOperatingAccess } from "@/features/auth/operating-context";
 import { useOperatingContextOptions } from "@/features/auth/use-operating-context-options";
 import { useOrganizationCollection } from "@/features/administration/use-organization-collection";
 import { BranchPriceEditor, type BranchPriceRecord } from "./branch-price-editor";
@@ -13,7 +12,7 @@ export function BranchPrices({ productId, productName, central, onClose }: { pro
   const [branchId, setBranchId] = useState(operatingContext?.type === "branch" ? operatingContext.id : "");
   const records = useOrganizationCollection<BranchPriceRecord>("branchSalesPrices", Boolean(branchId), { field: "branchId", id: branchId });
   const [editing, setEditing] = useState(false);
-  const options = contexts.filter(context => context.type === "branch" && profile && (hasOrganizationWideOperatingAccess(profile) || (operatingContext?.type === "branch" && context.id === operatingContext.id)));
+  const options = contexts.filter(context => context.type === "branch" && profile && (!operatingContext || (operatingContext.type === "branch" && context.id === operatingContext.id)));
   return <section className="surface mb-4 p-4" aria-label="Manage branch prices">
     <h2 className="font-semibold">Branch selling prices · {productName}</h2>
     <p className="mt-1 text-sm text-[var(--muted)]">Choose the branch whose future retail and wholesale prices you want to manage. A stock location is not required. Assigned staff can switch their branch using the app’s operating context.</p>

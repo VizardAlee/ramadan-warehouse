@@ -140,8 +140,8 @@ export function FinancialStatements() {
   const branches = useFinancialBranches(access, identity);
   const canReadOrganization = Boolean(access?.organizationPermissions.includes("finance.journal.read"));
   const [selectedBranchId, setSelectedBranchId] = useState("");
-  const preferredBranch = selectedBranchId || (!canReadOrganization && operatingContext?.type === "branch" ? operatingContext.id : "");
-  const branchId = preferredBranch && (canReadOrganization || access?.branchIds.includes(preferredBranch)) ? preferredBranch : !canReadOrganization ? access?.branchIds[0] ?? "" : "";
+  const preferredBranch = (operatingContext?.type === "branch" ? operatingContext.id : selectedBranchId);
+  const branchId = preferredBranch && (canReadOrganization || access?.branchIds.includes(preferredBranch)) ? preferredBranch : "";
   const [reportType, setReportType] = useState<StatementType>("income_statement");
   const [period, setPeriod] = useState<ReportPeriod>("monthly");
   const [fromDate, setFromDate] = useState(() => reportDateRange("monthly").fromDate);
@@ -154,7 +154,7 @@ export function FinancialStatements() {
   const requestVersion = useRef(0);
   const reportKey = JSON.stringify([identity, access?.organizationPermissions, reportType, fromDate, toDate, branchId]);
   const currentResult = access && loadedReportKey === reportKey && result?.reportType === reportType && result.fromDate === fromDate && result.toDate === toDate && (result.branchId ?? "") === branchId ? result : null;
-  const validDates = Boolean(access && fromDate && toDate && fromDate <= toDate && (canReadOrganization || (branchId && access.branchIds.includes(branchId))));
+  const validDates = Boolean(access && fromDate && toDate && fromDate <= toDate && (canReadOrganization || (branchId ? access.branchIds.includes(branchId) : access.branchIds.length > 0)));
 
   useEffect(() => {
     const version = ++requestVersion.current;
@@ -241,8 +241,8 @@ export function FinancialStatements() {
           <input type="date" value={toDate} onChange={(event) => { setPeriod("custom"); setToDate(event.target.value); }} className="mt-1 w-full rounded-lg border p-2.5" />
         </label>
         <label className="text-sm font-medium">Scope
-          <select value={branchId} onChange={(event) => setSelectedBranchId(event.target.value)} className="mt-1 w-full rounded-lg border p-2.5">
-            {canReadOrganization && <option value="">Entire organization</option>}
+          <select disabled={Boolean(operatingContext)} value={branchId} onChange={(event) => setSelectedBranchId(event.target.value)} className="mt-1 w-full rounded-lg border p-2.5">
+            <option value="">{canReadOrganization ? "All locations" : "All assigned branches"}</option>
             {branchId && !branches.data.some(branch => branch.id === branchId) && <option value={branchId}><FinancialText>{financialScopeLabel(branchId, branches.data)}</FinancialText></option>}
             {branches.data.map((branch) => <option key={branch.id} value={branch.id}><FinancialText>{branch.name}</FinancialText></option>)}
           </select>
@@ -258,11 +258,11 @@ export function FinancialStatements() {
           <div className="flex flex-wrap items-center justify-between gap-3" data-no-print>
             <div>
               <h2 className="text-xl font-semibold"><FinancialText>{labels[currentResult.reportType]}</FinancialText></h2>
-              <p className="text-sm text-[var(--muted)]"><FinancialText>{currentResult.fromDate}</FinancialText> to <FinancialText>{currentResult.toDate}</FinancialText> · <FinancialText>{branches.data.find((branch) => branch.id === branchId)?.name ?? "Entire organization"}</FinancialText> · NGN</p>
+              <p className="text-sm text-[var(--muted)]"><FinancialText>{currentResult.fromDate}</FinancialText> to <FinancialText>{currentResult.toDate}</FinancialText> · <FinancialText>{branches.data.find((branch) => branch.id === branchId)?.name ?? (canReadOrganization ? "All locations" : "All assigned branches")}</FinancialText> · NGN</p>
             </div>
             <div className="flex flex-wrap gap-2"><Button variant="secondary" disabled={busy} onClick={printActual}><Printer className="mr-2 size-4" /> Print / Save PDF</Button><Button variant="secondary" disabled={busy} onClick={download}><Download className="mr-2 size-4" /> Download CSV</Button></div>
           </div>
-          <p className="text-xs text-[var(--muted)]" data-no-print>Print and CSV contain actual financial values, regardless of the screen preference.</p><FinancialDisplayScope actual={printing}><StatementDocument statement={currentResult} scope={financialScopeLabel(branchId, branches.data)} /></FinancialDisplayScope>
+          <p className="text-xs text-[var(--muted)]" data-no-print>Print and CSV contain actual financial values, regardless of the screen preference.</p><FinancialDisplayScope actual={printing}><StatementDocument statement={currentResult} scope={branchId ? financialScopeLabel(branchId, branches.data) : canReadOrganization ? "All locations" : "All assigned branches"} /></FinancialDisplayScope>
           <p className="rounded-lg bg-amber-50 p-3 text-sm text-amber-900" data-no-print>
             These are ledger-derived draft statements. The balance sheet includes cumulative unclosed earnings; the cash-flow grouping follows posted journal types. Review classifications, opening balances, adjustments, and any unmatched entries before external use.
             <FinancialText>{currentResult.reportType === "balance_sheet" && currentResult.balanced === false && " The balance sheet does not balance; investigate the ledger before relying on it."}</FinancialText>

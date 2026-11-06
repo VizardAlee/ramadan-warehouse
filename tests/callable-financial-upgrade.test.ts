@@ -136,7 +136,7 @@ describe.sequential("financial upgrade isolated callables", () => {
     await expect(call(scoped, "createPosSaleOrder", { ...input, branchId: "a", idempotencyKey: crypto.randomUUID() })).resolves.toMatchObject({ saved: true });
   });
   it("conserves customer deposits, split repayments and concurrent final repayments without silently offsetting credit", async () => {
-    await db.doc("customers/customer").set({ organizationId, active: true, name: "Synthetic customer", customerNumber: "CUS-SYN", creditStatus: "approved", creditLimitMinor: 50000, outstandingBalanceMinor: 30000, availableCreditMinor: 20000, arrangements: [], invoiceDebtByAccount: { general: 30000 }, advanceBalances: {} });
+    await db.doc("customers/customer").set({ organizationId, branchId: "a", active: true, name: "Synthetic customer", customerNumber: "CUS-SYN", creditStatus: "approved", creditLimitMinor: 50000, outstandingBalanceMinor: 30000, availableCreditMinor: 20000, arrangements: [], invoiceDebtByAccount: { general: 30000 }, advanceBalances: {} });
     await db.doc("sales/customer-invoice").set({ organizationId, branchId: "a", customerId: "customer", customerAccountId: "general", receivableVersion: 1, receivableOutstandingMinor: 30000, receivablePaidMinor: 0, receivableStatus: "open", saleNumber: "SAL-SYN", recordedAt: Timestamp.now() });
     const base = { customerId: "customer", branchId: "a", method: "cash" };
     const deposit = { ...base, purpose: "advance", amountMinor: 10001, tenders: [{ method: "cash", amountMinor: 3333 }, { method: "card", bankAccountId: "bank-a", reference: "SYN-DEP", amountMinor: 6668 }], idempotencyKey: crypto.randomUUID() };
@@ -208,7 +208,7 @@ describe.sequential("financial upgrade isolated callables", () => {
     const reportRole: StoredRole = { id: "receipt-report-reader", organizationId, name: "Reports only", baseRoleId: "finance_officer", permissionIds: ["reports.sales.read"], status: "active" };
     await db.doc(`roles/${reportRole.id}`).set(reportRole);
     await db.doc(`users/${scoped.auth.currentUser!.uid}`).update(buildRoleAssignment(["branch_manager"], [reportRole]));
-    await db.doc("customers/scope-receipt-customer").set({ organizationId, name: "Scope receipt customer", active: true });
+    await db.doc("customers/scope-receipt-customer").set({ organizationId, branchId: "a", name: "Scope receipt customer", active: true });
     for (const branchId of ["a", "b"]) await db.doc(`customerPayments/scope-receipt-${branchId}`).set({ organizationId, customerId: "scope-receipt-customer", branchId, status: "recorded", method: "cash", amountMinor: 100, outstandingAfterMinor: 5000, advanceBalancesAfter: { general: 1200 } });
     const input = { view: "payment_receipt", customerId: "scope-receipt-customer", paymentId: "scope-receipt-b", branchId: "b" };
     await expect(call(scoped, "getCustomerHistory", input)).rejects.toMatchObject({ code: "functions/permission-denied" });
@@ -252,7 +252,8 @@ describe.sequential("financial upgrade isolated callables", () => {
     expect(full.entries).toHaveLength(120); expect(full.entries[0]!.runningPayableMinor).toBe(101); expect(full.entries.at(-1)!.runningPayableMinor).toBe(12120);
     expect(first.statementVersion).toBe(full.statementVersion); expect(first.entries[0]!.id).toBe("tied-119");
     expect(JSON.stringify(full)).not.toContain("foreign-store"); expect(JSON.stringify(full)).not.toContain("balanceAfterMinor");
-    await expect(call(manager, "getProcurementWorkspace", { ...input, branchId: "b" })).rejects.toMatchObject({ code: "functions/permission-denied" });
+    await expect(call(manager, "getProcurementWorkspace", { ...input, branchId: "b" })).rejects.toMatchObject({ code: "functions/failed-precondition", details: { code: "OPERATING_CONTEXT_MISMATCH" } });
+    await expect(call(manager, "getProcurementWorkspace", { ...input, branchId: "b", operatingContext: { type: "all" } })).rejects.toMatchObject({ code: "functions/permission-denied" });
     await expect(call(manager, "getProcurementWorkspace", { view: "supplier_account", supplierId: "supplier" })).rejects.toMatchObject({ code: "functions/permission-denied" });
     const next = await call<{ entries: Array<{ id: string }> }>(manager, "getProcurementWorkspace", { ...input, cursor: first.nextCursor });
     expect(new Set([...first.entries, ...next.entries].map(row => row.id)).size).toBe(50);

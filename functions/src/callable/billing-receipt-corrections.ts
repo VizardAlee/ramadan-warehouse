@@ -5,7 +5,7 @@ import { FieldValue, Timestamp } from "firebase-admin/firestore";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
 import { z } from "zod";
 import { db } from "../admin.js";
-import { requireAccess, requireBranchScope, requirePermission } from "../auth/authorize.js";
+import { requireAccess, requireBranchViewScope as requireBranchScope, requirePermission } from "../auth/authorize.js";
 import { accountingPeriodReference, assertAccountingPeriodOpen } from "../accounting/period-lock.js";
 import { resolveSettlementAccount } from "../accounting/settlement-account.js";
 import { writeJournal } from "../accounting/write-journal.js";

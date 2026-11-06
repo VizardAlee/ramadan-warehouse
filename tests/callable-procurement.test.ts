@@ -337,7 +337,8 @@ describe.sequential("procurement callables", () => {
     await expect(call(headOfficeManager, "receivePurchaseOrderItem", { ...payload, quantity: 3 })).rejects.toMatchObject({ code: "functions/failed-precondition" });
     await expect(call(headOfficeManager, "receivePurchaseOrderItem", { ...payload, supplierReference: "CHANGED" })).rejects.toMatchObject({ code: "functions/failed-precondition" });
     await expect(call(administrator, "receivePurchaseOrderItem", payload)).rejects.toMatchObject({ code: "functions/failed-precondition" });
-    await expect(call(warehouseManager, "receivePurchaseOrderItem", payload)).rejects.toMatchObject({ code: "functions/permission-denied" });
+    await expect(call(warehouseManager, "receivePurchaseOrderItem", payload)).rejects.toMatchObject({ code: "functions/failed-precondition", details: { code: "OPERATING_CONTEXT_MISMATCH" } });
+    await expect(call(warehouseManager, "receivePurchaseOrderItem", { ...payload, operatingContext: { type: "all" } })).rejects.toMatchObject({ code: "functions/permission-denied" });
     const oldKey = crypto.randomUUID();
     await item.ref.update({ receiptInProgressKey: oldKey });
     const oldStockOp = adminDb.doc(`idempotencyKeys/${organizationId}_inventoryPost_purchase-${oldKey}`);
@@ -356,7 +357,8 @@ describe.sequential("procurement callables", () => {
     for (const change of [{ amountMinor: 3000 }, { supplierId: "different-supplier" }, { notes: "Changed instruction" }])
       await expect(call(headOfficeManager, "recordSupplierPayment", { ...payload, ...change })).rejects.toMatchObject({ code: "functions/failed-precondition" });
     await expect(call(administrator, "recordSupplierPayment", payload)).rejects.toMatchObject({ code: "functions/failed-precondition" });
-    await expect(call(warehouseManager, "recordSupplierPayment", payload)).rejects.toMatchObject({ code: "functions/permission-denied" });
+    await expect(call(warehouseManager, "recordSupplierPayment", payload)).rejects.toMatchObject({ code: "functions/failed-precondition", details: { code: "OPERATING_CONTEXT_MISMATCH" } });
+    await expect(call(warehouseManager, "recordSupplierPayment", { ...payload, operatingContext: { type: "all" } })).rejects.toMatchObject({ code: "functions/permission-denied" });
     expect((await adminDb.doc(`suppliers/${supplier.supplierId}`).get()).get("advanceBalanceMinor")).toBe(2000);
   });
 
@@ -522,7 +524,8 @@ describe.sequential("procurement callables", () => {
     expect((await invoiceRef.get()).data()).toEqual(invoiceBefore);
     expect((await supplierRef.get()).data()).toEqual(supplierBefore);
     expect((await adminDb.collection("supplierReturns").where("supplierInvoiceId", "==", invoice.supplierInvoiceId).get()).empty).toBe(true);
-    await expect(call(warehouseManager, "postSupplierReturn", payload)).rejects.toMatchObject({ code: "functions/permission-denied" });
+    await expect(call(warehouseManager, "postSupplierReturn", payload)).rejects.toMatchObject({ code: "functions/failed-precondition", details: { code: "OPERATING_CONTEXT_MISMATCH" } });
+    await expect(call(warehouseManager, "postSupplierReturn", { ...payload, operatingContext: { type: "all" } })).rejects.toMatchObject({ code: "functions/permission-denied" });
     await expect(call(headOfficeManager, "postSupplierReturn", { ...payload, heldHandoverId: "already-issued-goods" })).rejects.toMatchObject({ code: "functions/invalid-argument" });
     type Result = { documentId: string; posted: boolean; returns: Array<{ returnId: string; journalEntryId: string; inventoryTransactionId: string }> };
     const results = await Promise.all([call<Result>(headOfficeManager, "postSupplierReturn", payload), call<Result>(headOfficeManager, "postSupplierReturn", payload)]);
@@ -595,7 +598,8 @@ describe.sequential("procurement callables", () => {
     const line = (await adminDb.collection("supplierInvoiceItems").where("supplierInvoiceId", "==", invoice.supplierInvoiceId).get()).docs[0]!;
     await call(headOfficeManager, "recordSupplierPayment", { supplierId: supplier.supplierId, branchId: headOfficeId, method: "cash", allocations: [{ ...invoice, amountMinor: 25_000 }], paidAt: new Date().toISOString(), idempotencyKey: crypto.randomUUID() });
     const payload = { ...invoice, supplierInvoiceItemId: line.id, receiptId: receipt.receiptId, quantity: 1, serialNumbers: [], creditNoteReference: "CN-RETURN-001", reason: "Goods damaged on arrival", returnedAt: new Date().toISOString(), idempotencyKey: crypto.randomUUID() };
-    await expect(call(warehouseManager, "postSupplierReturn", payload)).rejects.toMatchObject({ code: "functions/permission-denied" });
+    await expect(call(warehouseManager, "postSupplierReturn", payload)).rejects.toMatchObject({ code: "functions/failed-precondition", details: { code: "OPERATING_CONTEXT_MISMATCH" } });
+    await expect(call(warehouseManager, "postSupplierReturn", { ...payload, operatingContext: { type: "all" } })).rejects.toMatchObject({ code: "functions/permission-denied" });
     const financeOnly = await createActor("return-finance-only@example.test", "finance_officer");
     await expect(call(financeOnly, "postSupplierReturn", payload)).rejects.toMatchObject({ code: "functions/permission-denied" });
     const periodKey = payload.returnedAt.slice(0, 7), period = adminDb.doc(`accountingPeriods/${uniquenessDocumentId(organizationId, periodKey)}`);
@@ -1024,7 +1028,8 @@ describe.sequential("procurement callables", () => {
     await expect(call(headOfficeManager, "recordSupplierPayment", { ...refund, amountMinor: 40_000, idempotencyKey: crypto.randomUUID() })).rejects.toMatchObject({ code: "functions/failed-precondition" });
     const otherStoreRefund = Object.fromEntries(Object.entries(refund).filter(([key]) => key !== "branchId"));
     await expect(call(administrator, "recordSupplierPayment", { ...otherStoreRefund, warehouseId, idempotencyKey: crypto.randomUUID() })).rejects.toMatchObject({ code: "functions/failed-precondition" });
-    await expect(call(warehouseManager, "recordSupplierPayment", { ...refund, idempotencyKey: crypto.randomUUID() })).rejects.toMatchObject({ code: "functions/permission-denied" });
+    await expect(call(warehouseManager, "recordSupplierPayment", { ...refund, idempotencyKey: crypto.randomUUID() })).rejects.toMatchObject({ code: "functions/failed-precondition", details: { code: "OPERATING_CONTEXT_MISMATCH" } });
+    await expect(call(warehouseManager, "recordSupplierPayment", { ...refund, idempotencyKey: crypto.randomUUID(), operatingContext: { type: "all" } })).rejects.toMatchObject({ code: "functions/permission-denied" });
     const competing = await Promise.allSettled([1, 2].map(() => call(headOfficeManager, "recordSupplierPayment", { ...refund, amountMinor: 25_000, idempotencyKey: crypto.randomUUID() })));
     expect(competing.filter((result) => result.status === "fulfilled")).toHaveLength(1);
     const statement = await call<{ closingAdvanceMinor: number; closingPayableMinor: number }>(headOfficeManager, "getProcurementWorkspace", { view: "supplier_account", supplierId, branchId: headOfficeId, limit: 25 });

@@ -1,3 +1,4 @@
+import { requireView } from "../auth/view-scope.js";
 import { createHash } from "node:crypto";
 import { FieldPath, FieldValue, Timestamp, type Transaction } from "firebase-admin/firestore";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
@@ -40,6 +41,7 @@ function closeReference(actor: AccessProfile, branchId: string, date: string) {
   return db.doc(`dailyCloses/${uniquenessDocumentId(actor.organizationId, branchId, date)}`);
 }
 async function checkBranch(transaction: Transaction, actor: AccessProfile, global: ReadonlySet<DailyPermission>, branchId: string, permission: DailyPermission) {
+  requireView(actor, { branchId });
   if (!inScope(actor, global, branchId, permission))
     throw new HttpsError("permission-denied", "This daily-close action is outside your assigned store authority.");
   const branch = await transaction.get(db.doc(`branches/${branchId}`));

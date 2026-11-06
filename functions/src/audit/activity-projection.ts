@@ -28,7 +28,7 @@ export function projectActivity(id: string, record: Record<string, unknown>, cur
     actorNameEvidence: snapshot ? "recorded_snapshot" : safeActorName(currentName) ? "current_name" : "uid_only",
     reference: auditReference(record), reason: text(record.reason, 1000) || null,
     correlationId: text(record.correlationId, 128), sourceFunction: text(record.sourceFunction, 160),
-    location: auditLocation(record.locationEvidence),
+    location: auditLocation(record.locationEvidence) ?? auditLocation(record.after) ?? auditLocation(record.before),
     createdAt: timestamp?.toDate?.().toISOString() ?? null,
   };
 }
