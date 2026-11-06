@@ -191,6 +191,8 @@ export function queryCatalog() {
     add("CEO recorded clock-ins", "attendanceEvents", [...base, ["kind", "=="], ["occurredAt", ">="], ["occurredAt", "<"]], [], []);
     for (const field of ["creditMinor", "debitMinor"]) add("CEO mapped provider liability", "journalLines", [...base, ["accountId", "=="]], [], [field]);
   }
+  add("administrator customer ownership review pages", "customers", [org], [["__name__", "ASCENDING"]]);
+  for (const collection of ["sales", "salesOrders", "customerPayments", "customerAccountEntries", "saleReturns", "salesCredits", "aftersalesCases", "proformaQuotes"]) add("administrator customer ownership evidence", collection, [org, ["customerId", "=="]]);
   add("CEO current organization customer balances", "customers", [org], [], ["outstandingBalanceMinor"]);
   add("CEO bounded branch directory", "branches", [org], [["__name__", "ASCENDING"]]);
   add("CEO protected provider controls including historical/inactive", "chartOfAccounts", [org, ["billingControlPurpose", "=="]]);

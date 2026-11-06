@@ -19,6 +19,8 @@ import { AppDialog } from "@/components/ui/app-dialog";
 import { CursorTablePagination } from "@/components/ui/table-pagination";
 import { callAdministration } from "@/features/administration/api";
 import { useOrganizationCollection } from "@/features/administration/use-organization-collection";
+import { CustomerOwnershipReview } from "@/features/customers/ownership-review";
+import { canCorrectSaleErrors } from "@/lib/permissions/roles";
 import { useAuth } from "@/features/auth/auth-context";
 import { formatNaira, nairaToKobo } from "@/features/inventory/format";
 import { FinancialAmount } from "@/components/ui/financial-amount";
@@ -414,6 +416,7 @@ export default function CustomersPage() {
           </Button>
         )}
       </header>
+      {canManage && profile && canCorrectSaleErrors(profile) && <CustomerOwnershipReview allLocations={!operatingContext} />}
       {error && (
         <div
           role="alert"

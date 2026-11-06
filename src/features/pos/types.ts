@@ -237,6 +237,7 @@ export interface SaleDocument {
     invoiceNumber: string;
     receiptNumber: string;
     paymentStatus: string;
+    errorCancellation?: { correctionId: string; completedAt: string | null } | null;
     collectionStatus?: string;
     customerNumber: string | null;
     customerName: string | null;
