@@ -21,7 +21,7 @@ It does not introduce a second catalogue, customer identity or sales ledger.
 ## Trusted validation and history
 
 Order intake and posting resolve the selected price on the server. Wholesale
-snapshots must match the effective branch/central price, central VAT and effective version. Unconfigured wholesale,
+snapshots must match the effective branch/central price, effective VAT (including explicit not-provided/null) and effective version. Unconfigured wholesale,
 invalid money and stale snapshots fail rather than silently switching levels.
 Price configuration, level selection and manual overrides are audited.
 

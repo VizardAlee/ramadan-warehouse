@@ -20,3 +20,13 @@ it("allows historic printing while withholding expired or unauthorized conversio
   view.rerender(<ProformaDocument quote={quote} canConvert={false} onClose={() => {}} />);
   expect(screen.queryByRole("link", { name: "Review as new POS sale" })).toBeNull();
 });
+
+it("distinguishes unprovided VAT from explicit zero in printed quotation content", () => {
+  const missing = { ...quote, lines: [{ ...quote.lines[0]!, vatRateBasisPoints: null, vatAmountMinor: 0, grossAmountMinor: 10001 }], vatAmountMinor: 0, grossAmountMinor: 10001 };
+  const view = render(<ProformaDocument quote={missing} canConvert={false} onClose={() => {}} />);
+  expect(screen.getByText("Not provided")).toBeTruthy();
+  expect(screen.getByText(/VAT not provided on marked items/)).toBeTruthy();
+  view.rerender(<ProformaDocument quote={{ ...missing, lines: [{ ...missing.lines[0]!, vatRateBasisPoints: 0 }] }} canConvert={false} onClose={() => {}} />);
+  expect(screen.queryByText("Not provided")).toBeNull();
+  expect(screen.queryByText(/VAT not provided on marked items/)).toBeNull();
+});

@@ -47,4 +47,13 @@ describe("invoice printing", () => {
       writeFileSync(`${process.env.INVOICE_PRINT_FIXTURE_DIR}/invoice-${count}.html`, `<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="invoice.css"></head><body><main style="height:2000px">Background app content must not print</main>${document.querySelector("[data-sale-document-overlay]")!.outerHTML}<script>window.addEventListener('beforeprint', () => (${fitInvoiceToPage.toString()})(document.querySelector('[data-invoice-document]')))</script></body></html>`);
     }
   });
+  it("prints unprovided VAT distinctly and preserves explicit zero-rate history", () => {
+    const missing = invoice(1); missing.items[0]!.vatRateBasisPoints = null; missing.items[0]!.vatAmountMinor = 0; missing.items[0]!.grossAmountMinor = 100000; missing.sale.vatAmountMinor = 0; missing.sale.grossAmountMinor = 100000; missing.sale.creditAmountMinor = 0;
+    const view = render(<SaleDocumentDialog document={missing} onClose={() => {}} />);
+    expect(document.querySelector("tbody")!.textContent).toContain("Not provided");
+    expect(document.body.textContent).toContain("VAT not provided on marked items");
+    view.rerender(<SaleDocumentDialog document={{ ...missing, items: [{ ...missing.items[0]!, vatRateBasisPoints: 0 }] }} onClose={() => {}} />);
+    expect(document.querySelector("tbody")!.textContent).not.toContain("Not provided");
+  });
+
 });

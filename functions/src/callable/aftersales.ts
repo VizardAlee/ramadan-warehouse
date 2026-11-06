@@ -104,7 +104,7 @@ export const getAftersalesWorkspace = onCall(
       serviceItems: products.docs.filter(item => item.get("active") === true && item.get("itemKind") === "service").flatMap(item => {
         const price = servicePrices.docs.find(price => price.id === item.id || price.get("productId") === item.id);
         const base = centralSalesPrice(price?.data()), local = branchPrices?.docs.find(override => override.get("productId") === item.id)?.data() ?? {};
-        let selected: ReturnType<typeof resolveCatalogPrice>, vatRateBasisPoints: number;
+        let selected: ReturnType<typeof resolveCatalogPrice>, vatRateBasisPoints: number | null;
         try { selected = resolveCatalogPrice(base, local); vatRateBasisPoints = resolveCatalogVatRate(base, local); } catch { return []; }
         const calculation = calculateSaleLine({ quantity: 1, unitPriceMinor: selected.unitPriceMinor, vatRateBasisPoints, unitCostMinor: 0 });
         return [{ id: item.id, name: item.get("name"), sku: item.get("sku"), grossAmountMinor: calculation.grossAmountMinor }];
@@ -164,7 +164,7 @@ export const createAftersalesCase = onCall(
         if (serviceBranchSnapshot!.exists && (serviceBranchSnapshot!.get("organizationId") !== actor.organizationId || serviceBranchSnapshot!.get("branchId") !== input.branchId || serviceBranchSnapshot!.get("productId") !== input.serviceItemId))
           throw new HttpsError("failed-precondition", "Service branch pricing does not match this item.");
         const base = centralSalesPrice(servicePriceSnapshot!.data()), local = serviceBranchSnapshot!.data() ?? {};
-        let selected: ReturnType<typeof resolveCatalogPrice>, vatRateBasisPoints: number;
+        let selected: ReturnType<typeof resolveCatalogPrice>, vatRateBasisPoints: number | null;
         try { selected = resolveCatalogPrice(base, local); vatRateBasisPoints = resolveCatalogVatRate(base, local); }
         catch (cause) { throw new HttpsError("failed-precondition", (cause as Error).message); }
         const basePriceMinor = selected.unitPriceMinor;

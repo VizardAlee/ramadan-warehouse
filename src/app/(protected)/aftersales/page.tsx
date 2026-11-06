@@ -37,7 +37,7 @@ interface Case extends HeldReturnCase {
   outstandingAmountMinor?: number;
   assignedStaff?: { employeeId: string; staffId: string; name: string } | null;
   assignmentReason?: string;
-  serviceCatalog?: { name: string; grossAmountMinor: number; vatRateBasisPoints: number; priceVersion: number } | null;
+  serviceCatalog?: { name: string; grossAmountMinor: number; vatRateBasisPoints: number | null; priceVersion: number } | null;
   chargeVatMinor?: number;
 }
 interface Workspace {

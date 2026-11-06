@@ -333,7 +333,7 @@ export interface PurchaseOrderItem {
   receivedQuantity: number;
   invoicedQuantity?: number;
   unitCostMinor: number;
-  vatRateBasisPoints: number;
+  vatRateBasisPoints: number | null;
 }
 
 export interface SupplierInvoice {

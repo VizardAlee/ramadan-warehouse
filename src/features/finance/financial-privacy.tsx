@@ -51,7 +51,7 @@ function IdentityPrivacy({ storageKey, identified, children }: { storageKey: str
     if (closed) { event.preventDefault(); event.stopPropagation(); closed.focus(); setSubmissionBlocked(true); } else setSubmissionBlocked(false);
   }}>{children}{submissionBlocked && <div id={notice} role="status" className="financial-form-notice" data-no-print>Review the actual amount fields before submitting this form. Your entered values are retained. <button type="button" onClick={() => setSubmissionBlocked(false)}>Dismiss</button></div>}</div></PrivacyContext.Provider>;
 }
-const safeStates = new Set(["Unknown", "Needs review", "Unavailable", "Not configured", "Not meaningful", "Restricted", "Not established", "Not recorded", "Not recorded at payment", "—", ""]);
+const safeStates = new Set(["Unknown", "Needs review", "Unavailable", "Not configured", "Not provided", "Loading…", "Unable to load", "Not meaningful", "Restricted", "Not established", "Not recorded", "Not recorded at payment", "—", ""]);
 export function FinancialValue({ children, className = "", textOnly = false, financial = true }: { children: ReactNode; className?: string; textOnly?: boolean; financial?: boolean }) {
   const { hidden } = useFinancialPrivacy();
   const masked = financial && hidden && !(typeof children === "string" && safeStates.has(children));

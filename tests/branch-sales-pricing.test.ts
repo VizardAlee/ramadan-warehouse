@@ -53,10 +53,21 @@ describe("branch-only prices without central records", () => {
     expect(() => resolveCatalogPrice(null, {})).toThrow("not configured");
     expect(() => resolveCatalogPrice(null, { ...local, belowBaseApproved: false })).toThrow("not configured");
     expect(() => resolveCatalogPrice(null, { ...local, basePriceVersion: 1 })).toThrow("not configured");
-    expect(() => resolveCatalogVatRate(null, { active: true })).toThrow("explicit VAT");
+    expect(resolveCatalogVatRate(null, { active: true })).toBeNull();
+    expect(resolveCatalogVatRate(null, { active: true, vatRateBasisPoints: null })).toBeNull();
+    expect(() => resolveCatalogVatRate(null, { active: true, vatRateBasisPoints: -1 })).toThrow("invalid");
     expect(() => resolveCatalogPrice({ basePriceMinor: 9000, version: 1, active: false }, local)).toThrow("inactive");
     const central = { basePriceMinor: 15000, wholesalePriceMinor: 13000, version: 1, vatRateBasisPoints: 0 };
     expect(resolveCatalogPrice(central, local).unitPriceMinor).toBe(15000);
     expect(resolveCatalogVatRate(central, local)).toBe(0);
   });
+});
+
+import { calculateSale } from "../functions/src/sales/calculations";
+it("calculates mixed provided, explicit-zero and unprovided VAT without changing the rate snapshots", () => {
+  const result = calculateSale([null, 0, 750].map(vatRateBasisPoints => ({ quantity: 1, unitPriceMinor: 10000, unitCostMinor: 0, vatRateBasisPoints })), 300);
+  expect(result.lines.map(line => line.vatRateBasisPoints)).toEqual([null, 0, 750]);
+  expect(result.lines.map(line => line.vatAmountMinor)).toEqual([0, 0, 743]);
+  expect(result.vatAmountMinor).toBe(743);
+  expect(result.grossAmountMinor).toBe(30443);
 });

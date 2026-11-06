@@ -73,6 +73,7 @@ function SaleDocumentContent({ document, onClose }: { document: SaleDocument; on
   const selectedCollection = document.official ? page.collections?.find((collection) => collection.id === waybillId) : undefined;
   if (waybillSelector) return <SaleWaybills document={page} onClose={() => setWaybillSelector(false)} onUpdated={(id, details) => setPage(previous => ({ ...previous, collections: previous.collections?.map(row => row.id === id ? { ...row, ...details } : row) }))} />;
   if (selectedCollection) return <CollectionWaybill document={document} collection={selectedCollection} onBack={() => setWaybillId(null)} onClose={onClose} onUpdated={details => setPage(previous => ({ ...previous, collections: previous.collections?.map(row => row.id === selectedCollection.id ? { ...row, ...details } : row) }))} />;
+  const vatNotProvided = document.items.some(item => item.vatRateBasisPoints === null && item.vatAmountMinor === 0);
   const issuedAt = document.sale.recordedAt
     ? new Date(document.sale.recordedAt).toLocaleString("en-NG", {
         dateStyle: "medium",
@@ -261,7 +262,7 @@ function SaleDocumentContent({ document, onClose }: { document: SaleDocument; on
                       <FinancialValue>{formatNaira(item.discountAmountMinor)}</FinancialValue>
                     </td>
                     <td className="p-3 text-right">
-                      <FinancialValue>{formatNaira(item.vatAmountMinor)}</FinancialValue>
+                      <FinancialValue>{item.vatRateBasisPoints === null && item.vatAmountMinor === 0 ? "Not provided" : formatNaira(item.vatAmountMinor)}</FinancialValue>
                     </td>
                     <td className="p-3 text-right font-medium">
                       <FinancialValue>{formatNaira(item.grossAmountMinor)}</FinancialValue>
@@ -293,7 +294,7 @@ function SaleDocumentContent({ document, onClose }: { document: SaleDocument; on
               <span><FinancialValue>{formatNaira(document.sale.netAmountMinor)}</FinancialValue></span>
             </div>
             <div className="flex justify-between">
-              <span>VAT</span>
+              <span>VAT{vatNotProvided ? " (provided rates only)" : ""}</span>
               <span><FinancialValue>{formatNaira(document.sale.vatAmountMinor)}</FinancialValue></span>
             </div>
             {!!document.sale.providerFundsMinor && <div className="flex justify-between"><span>Provider funds (pass-through)</span><span><FinancialValue>{formatNaira(document.sale.providerFundsMinor)}</FinancialValue></span></div>}
@@ -329,7 +330,7 @@ function SaleDocumentContent({ document, onClose }: { document: SaleDocument; on
 
           <p className="border-t pt-4 text-xs text-[var(--muted)]">
             This document is generated from immutable server-posted sale, item,
-            payment and receipt evidence. VAT is stated separately. Returns and
+            {vatNotProvided && "VAT not provided on marked items; no VAT added for those items. This is not a configured 0% rate. "}payment and receipt evidence. VAT is stated separately when provided. Returns and
             corrections are issued as linked records and do not rewrite this
             document.
           </p>

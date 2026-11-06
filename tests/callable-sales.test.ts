@@ -2450,8 +2450,12 @@ describe.sequential("mixed billing controls and recognition", () => {
   });
   it("links existing paid service evidence without collecting or recognizing it twice", async () => {
     const customerId = await mixedCustomer(), caseId = `mixed-case-${crypto.randomUUID()}`;
-    await adminDb.doc(`aftersalesCases/${caseId}`).set({ organizationId, branchId, customerId, caseNumber: "AF-MIXED-CARRY", status: "open", serviceCatalog: { itemId: serviceId }, serviceBillingVersion: 2, chargeAmountMinor: 1075, chargeVatMinor: 75, amountPaidMinor: 1075, recognizedVatMinor: 75, outstandingAmountMinor: 0, chargeStatus: "paid" });
+    await adminDb.doc(`aftersalesCases/${caseId}`).set({ organizationId, branchId, customerId, caseNumber: "AF-MIXED-CARRY", status: "open", serviceCatalog: { itemId: serviceId, vatRateBasisPoints: 750 }, serviceBillingVersion: 2, chargeAmountMinor: 1075, chargeVatMinor: 75, amountPaidMinor: 1075, recognizedVatMinor: 75, outstandingAmountMinor: 0, chargeStatus: "paid" });
+    await adminDb.doc(`productSalesPrices/${serviceId}`).update({ vatRateBasisPoints: null });
+    expect(await call(administrator, "getServiceBillingCase", { caseId, branchId, serviceItemId: serviceId, customerId })).toMatchObject({ vatRateBasisPoints: 750 });
     const result = await checkout([{ productId: serviceId, itemKind: "service", quantity: 1, aftersalesCaseId: caseId }], [], { customerId });
+    expect((await adminDb.collection("saleItems").where("saleId", "==", result.saleId).get()).docs[0]!.data()).toMatchObject({ vatRateBasisPoints: 750, vatAmountMinor: 75 });
+    await adminDb.doc(`productSalesPrices/${serviceId}`).update({ vatRateBasisPoints: 750 });
     const sale = await adminDb.doc(`sales/${result.saleId}`).get(); expect(sale.data()).toMatchObject({ journalEntryId: null, priorServicePaidMinor: 1075, receivablePaidMinor: 1075, receivableOutstandingMinor: 0 });
     expect((await adminDb.collection("salePayments").where("saleId", "==", result.saleId).get()).empty).toBe(true);
     await expect(checkout([{ productId: serviceId, itemKind: "service", quantity: 1, aftersalesCaseId: caseId }], [], { customerId })).rejects.toMatchObject({ code: "functions/failed-precondition" });
@@ -2653,7 +2657,7 @@ describe("custom operating sales roles", () => {
     await adminDb.doc(`inventoryBalances/${balanceDocumentId(organizationId, item, locationId)}`).set({ organizationId, branchId, productId: item, locationId, onHandQuantity: 20, availableQuantity: 20, reservedQuantity: 0, totalValueMinor: 100000, averageUnitCostMinor: 5000 });
     const centralRef = adminDb.doc(`productSalesPrices/${item}`);
     const instruction = { branchId, productId: item, sellingPriceMinor: 12000, wholesalePriceMinor: 10000, expectedVersion: 0, expectedCentralVersion: 0, reason: "Approved initial branch-only prices", idempotencyKey: crypto.randomUUID(), operatingContext: context };
-    await expect(call(administrator, "saveBranchSalesPrice", instruction)).rejects.toMatchObject({ code: "functions/invalid-argument" });
+    await expect(call(administrator, "saveBranchSalesPrice", { ...instruction, vatRateBasisPoints: 10001 })).rejects.toMatchObject({ code: "functions/invalid-argument" });
     await expect(call(branchManager, "saveBranchSalesPrice", { ...instruction, vatRateBasisPoints: 750 })).rejects.toMatchObject({ code: "functions/permission-denied" });
     await call(administrator, "saveBranchSalesPrice", { ...instruction, vatRateBasisPoints: 750 });
     expect((await centralRef.get()).exists).toBe(false);
@@ -2685,5 +2689,36 @@ describe("custom operating sales roles", () => {
     expect((await centralRef.get()).exists).toBe(false);
     expect((await adminDb.doc(`productCosts/${item}`).get()).get("defaultUnitCostMinor")).toBe(5000);
   }, 120000);
+
+  it("keeps unprovided VAT distinct through branch prices, quotations, order confirmation, offline sales and documents", async () => {
+    const productId = "optional-vat-panel", context = { type: "branch", id: branchId };
+    await adminDb.doc(`products/${productId}`).set({ organizationId, name: "VAT optional panel", sku: productId, unitOfMeasure: "unit", trackingType: "quantity", active: true });
+    await adminDb.doc(`inventoryBalances/${balanceDocumentId(organizationId, productId, locationId)}`).set({ organizationId, branchId, productId, locationId, onHandQuantity: 10, availableQuantity: 10, reservedQuantity: 0, totalValueMinor: 50000, averageUnitCostMinor: 5000 });
+    const instruction = { branchId, productId, sellingPriceMinor: 12000, wholesalePriceMinor: 10000, expectedVersion: 0, expectedCentralVersion: 0, reason: "Initial branch prices, VAT not provided", idempotencyKey: crypto.randomUUID(), operatingContext: context };
+    await call(administrator, "saveBranchSalesPrice", instruction);
+    const local = (await adminDb.collection("branchSalesPrices").where("productId", "==", productId).get()).docs[0]!;
+    expect(local.get("vatRateBasisPoints")).toBeNull();
+    expect((await adminDb.doc(`productSalesPrices/${productId}`).get()).exists).toBe(false);
+    const workspace = await call<{products:Array<Record<string,unknown>>}>(branchManager,"getPosWorkspace",{branchId,operatingContext:context});
+    expect(workspace.products.find(p=>p.id===productId)).toMatchObject({unitPriceMinor:12000,vatRateBasisPoints:null});
+    const q = await call<{proformaId:string}>(branchManager,"createPosSaleOrder",{action:"create_proforma",branchId,validUntil:new Date(Date.now()+86400000).toISOString().slice(0,10),lines:[{productId,quantity:1,priceTier:"wholesale"}],idempotencyKey:crypto.randomUUID(),operatingContext:context});
+    expect((await adminDb.doc(`proformaQuotes/${q.proformaId}`).get()).get("lines")[0]).toMatchObject({vatRateBasisPoints:null,vatAmountMinor:0,grossAmountMinor:10000});
+    const deviceId=crypto.randomUUID();
+    const shift=await call<{shiftId:string}>(branchManager,"openPosShift",{branchId,deviceId,deviceName:"Optional VAT",openingCashMinor:0,idempotencyKey:crypto.randomUUID(),operatingContext:context});
+    const payload={branchId,deviceId,shiftId:shift.shiftId,recordedAt:new Date().toISOString(),lines:[{productId,quantity:1,unitPriceMinor:12000,priceVersion:1,vatRateBasisPoints:null}],payments:[{method:"cash",amountMinor:12000}],idempotencyKey:crypto.randomUUID(),operatingContext:context};
+    const order=await call<{orderId:string}>(branchManager,"createPosSaleOrder",payload);
+    await call(branchManager,"acceptPosSaleOrderPayment",{orderId:order.orderId,deviceId,shiftId:shift.shiftId,idempotencyKey:crypto.randomUUID(),operatingContext:context});
+    const sale=await call<{saleId:string}>(branchManager,"confirmPosSaleOrder",{orderId:order.orderId,idempotencyKey:crypto.randomUUID(),operatingContext:context});
+    expect((await call<{items:Array<Record<string,unknown>>}>(branchManager,"getSaleDocument",{saleId:sale.saleId})).items[0]).toMatchObject({vatRateBasisPoints:null,vatAmountMinor:0,grossAmountMinor:12000});
+    await call(branchManager,"commitPosSale",{...payload,offline:true,provisionalReceiptReference:"OFF-VAT-NOT-PROVIDED",idempotencyKey:crypto.randomUUID()});
+    await call(administrator,"saveBranchSalesPrice",{...instruction,expectedVersion:1,vatRateBasisPoints:750,idempotencyKey:crypto.randomUUID()});
+    await expect(call(branchManager,"commitPosSale",{...payload,offline:true,provisionalReceiptReference:"OFF-VAT-NOT-PROVIDED-STALE",idempotencyKey:crypto.randomUUID()})).rejects.toMatchObject({code:"functions/failed-precondition"});
+    await call(administrator,"saveBranchSalesPrice",{...instruction,expectedVersion:2,idempotencyKey:crypto.randomUUID()});
+    expect((await local.ref.get()).get("vatRateBasisPoints")).toBe(750);
+    expect((await adminDb.collection("saleItems").where("saleId","==",sale.saleId).get()).docs[0]!.get("vatRateBasisPoints")).toBeNull();
+    await call(administrator,"saveProductSalesPrice",{productId,basePriceMinor:15000,vatRateBasisPoints:750,idempotencyKey:crypto.randomUUID()});
+    await call(administrator,"saveProductSalesPrice",{productId,basePriceMinor:16000,idempotencyKey:crypto.randomUUID()});
+    expect((await adminDb.doc(`productSalesPrices/${productId}`).get()).get("vatRateBasisPoints")).toBe(750);
+  },120000);
 
 });

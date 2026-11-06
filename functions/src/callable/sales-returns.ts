@@ -169,7 +169,7 @@ export const getSaleReturnWorkspace = onCall(
           Number(item.get("collectedQuantity") ?? item.get("quantity")) -
           Number(counters[index]!.get("returnedQuantity") ?? 0),
         unitPriceMinor: Number(item.get("unitPriceMinor")),
-        vatRateBasisPoints: Number(item.get("vatRateBasisPoints")),
+        vatRateBasisPoints: item.get("vatRateBasisPoints") === null ? null : Number(item.get("vatRateBasisPoints")),
         netAmountMinor: Number(item.get("netAmountMinor") ?? Number(item.get("quantity")) * Number(item.get("unitPriceMinor"))),
         vatAmountMinor: Number(item.get("vatAmountMinor") ?? Math.round(Number(item.get("quantity")) * Number(item.get("unitPriceMinor")) * Number(item.get("vatRateBasisPoints")) / 10_000)),
         grossAmountMinor: Number(item.get("grossAmountMinor") ?? Number(item.get("quantity")) * Number(item.get("unitPriceMinor")) + Math.round(Number(item.get("quantity")) * Number(item.get("unitPriceMinor")) * Number(item.get("vatRateBasisPoints")) / 10_000)),
