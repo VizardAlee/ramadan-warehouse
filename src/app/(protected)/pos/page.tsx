@@ -311,9 +311,9 @@ export default function PosPage() {
     try {
       if (online) {
         const result = await callAdministration<
-          { branchId: string; customerId?: string },
+          { branchId: string; customerId?: string; deviceId?: string },
           PosWorkspace
-        >("getPosWorkspace", { branchId: selectedBranchId, customerId: customerIdRef.current || undefined });
+        >("getPosWorkspace", { branchId: selectedBranchId, deviceId: deviceIdentity(), customerId: customerIdRef.current || undefined });
         setWorkspace(result);
         await saveCachedWorkspace(user.uid, result);
         if ("serviceWorker" in navigator)
@@ -693,7 +693,7 @@ export default function PosPage() {
     setError(null);
     try {
       const deviceId = deviceIdentity();
-      await callAdministration("openPosShift", {
+      const result = await callAdministration<object, { opened: boolean; resumed?: boolean }>("openPosShift", {
         branchId: workspace.branch.id,
         deviceId,
         deviceName: `${navigator.platform || "Browser"} POS`,
@@ -702,7 +702,7 @@ export default function PosPage() {
       });
       await loadWorkspace();
       setMessage(
-        "Shift opened. This device is ready to sell online or offline.",
+        result.resumed ? "Existing shift resumed. Its original opening cash and totals are preserved." : result.opened ? "Shift opened. This device is ready to sell online or offline." : "The earlier shift request was already recorded. The workspace has been refreshed.",
       );
     } catch (cause) {
       setError(
@@ -1444,8 +1444,9 @@ export default function PosPage() {
             <p>
               <FinancialText>{busy
                 ? "Loading branch POS…"
-                : "Choose an active selling branch."}</FinancialText>
+                : selectedBranchId ? "POS could not be loaded. Check your connection and retry this workspace." : "Choose an active selling branch."}</FinancialText>
             </p>
+            {selectedBranchId && <Button className="mt-3" variant="outline" disabled={!online || busy} onClick={() => void loadWorkspace()}>Retry POS workspace</Button>}
           </div>
         </div>
       ) : !workspace.openShift ? (
@@ -1456,6 +1457,7 @@ export default function PosPage() {
             Count the cash physically in this till before the first sale. This
             opening figure is used only for cash reconciliation.
           </p>
+          {workspace.shiftRecovery && ["other_user", "needs_review"].includes(workspace.shiftRecovery.status) && <p role="alert" className="mt-3 rounded-lg bg-amber-50 p-3 text-sm">{workspace.shiftRecovery.message}</p>}
           <label className="mt-5 block text-sm font-medium">
             Opening cash (₦)
             <FinancialInput><input
@@ -1470,7 +1472,7 @@ export default function PosPage() {
           </label>
           <FinancialAction><Button
             className="mt-5 w-full"
-            disabled={!online || busy}
+            disabled={!online || busy || workspace.shiftRecovery?.status === "other_user" || workspace.shiftRecovery?.status === "needs_review"}
             onClick={() => void openShift()}
           >
             Open shift and start selling

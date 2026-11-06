@@ -1,3 +1,4 @@
+import { resolveDeviceShift } from "../sales/shift-session.js";
 import { requirePermissionScope, scopedAccess } from "../auth/permission-scope.js";
 import { readWaybillRegister } from "../sales/waybill-register.js";
 import { readPosFastMoving } from "../sales/pos-fast-moving-store.js";
@@ -429,6 +430,7 @@ export const getPosWorkspace = onCall(
       salesCredits,
       pendingOrders,
       bankAccounts,
+      shiftLock,
     ] =
       await Promise.all([
         db.doc(`branches/${input.branchId}`).get(),
@@ -459,7 +461,8 @@ export const getPosWorkspace = onCall(
           .where("organizationId", "==", actor.organizationId)
           .where("branchId", "==", input.branchId)
           .where("status", "==", "open")
-          .limit(20)
+          .where(input.deviceId ? "deviceId" : "openedBy", "==", input.deviceId ?? actor.userId)
+          .limit(input.deviceId ? 2 : 20)
           .get(),
         db
           .collection("customers")
@@ -478,6 +481,7 @@ export const getPosWorkspace = onCall(
           .where("active", "==", true)
           .limit(100)
           .get(),
+        input.deviceId ? db.doc(`posShiftLocks/${uniquenessDocumentId(actor.organizationId, input.branchId, input.deviceId)}`).get() : Promise.resolve(null),
       ]);
     if (
       !branch.exists ||
@@ -485,6 +489,9 @@ export const getPosWorkspace = onCall(
       branch.get("status") !== "active"
     )
       throw new HttpsError("failed-precondition", "Branch is unavailable.");
+    const lockShiftId = shiftLock?.get("shiftId");
+    const linkedShift = input.deviceId && typeof lockShiftId === "string" && /^[A-Za-z0-9_-]{1,160}$/.test(lockShiftId) ? await db.doc(`posShifts/${lockShiftId}`).get() : null;
+    const deviceSession = input.deviceId ? resolveDeviceShift({ organizationId: actor.organizationId, branchId: input.branchId, deviceId: input.deviceId, userId: actor.userId }, shiftLock?.exists ? shiftLock.data()! : null, linkedShift?.exists ? { id: linkedShift.id, ...linkedShift.data() } : null, shifts.docs.map(shift => ({ id: shift.id, ...shift.data() }))) : null;
     const centralByProduct = new Map(
       prices.docs.map((document) => [document.get("productId"), document]),
     );
@@ -557,7 +564,8 @@ export const getPosWorkspace = onCall(
             },
           ];
         }),
-      openShift:
+      shiftRecovery: deviceSession?.recovery,
+      openShift: deviceSession ? deviceSession.openShift :
         shifts.docs
           .filter((shift) => shift.get("openedBy") === actor.userId)
           .map((shift) => ({ id: shift.id, ...shift.data() }))[0] ?? null,
@@ -906,7 +914,7 @@ export const openPosShift = onCall(
     const operation = db.doc(
       `idempotencyKeys/${actor.organizationId}_openPosShift_${input.idempotencyKey}`,
     );
-    let result = { shiftId: shift.id, opened: true };
+    let result: { shiftId: string; opened: boolean; resumed?: boolean } = { shiftId: shift.id, opened: true };
     await db.runTransaction(async (transaction) => {
       const [branchSnapshot, existingLock, previousOperation] =
         await transaction.getAll(branch, lock, operation);
@@ -923,11 +931,14 @@ export const openPosShift = onCall(
         branchSnapshot!.get("status") !== "active"
       )
         throw new HttpsError("failed-precondition", "Branch is unavailable.");
-      if (existingLock!.exists)
-        throw new HttpsError(
-          "already-exists",
-          "This POS device already has an open shift.",
-        );
+      const deviceShifts = await transaction.get(db.collection("posShifts").where("organizationId", "==", actor.organizationId).where("branchId", "==", input.branchId).where("deviceId", "==", input.deviceId).where("status", "==", "open").limit(2));
+      if (existingLock!.exists || !deviceShifts.empty) {
+        const id = existingLock!.get("shiftId");
+        const linked = typeof id === "string" && /^[A-Za-z0-9_-]{1,160}$/.test(id) ? await transaction.get(db.doc(`posShifts/${id}`)) : null;
+        const resolved = resolveDeviceShift({ organizationId: actor.organizationId, branchId: input.branchId, deviceId: input.deviceId, userId: actor.userId }, existingLock!.exists ? existingLock!.data()! : null, linked?.exists ? { id: linked.id, ...linked.data() } : null, deviceShifts.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+        if (resolved.openShift) { result = { shiftId: resolved.openShift.id, opened: false, resumed: true }; return; }
+        throw new HttpsError("failed-precondition", resolved.recovery.message, { code: resolved.recovery.status === "other_user" ? "POS_DEVICE_IN_USE" : "POS_SHIFT_REVIEW_REQUIRED", retryable: false });
+      }
       const now = FieldValue.serverTimestamp();
       transaction.create(shift, {
         organizationId: actor.organizationId,
