@@ -1,13 +1,13 @@
 {
   "lastLiveAudit": {
     "project": "ramadan-warehouse-staging",
-    "verifiedAt": "2026-11-06T15:53:10.666Z",
+    "verifiedAt": "2026-11-06T17:17:13.896Z",
     "queryShapes": 727,
     "unsupportedQueries": 0,
     "readyIndexes": 272,
     "indexInventoryVerifiedAt": "2026-11-06T15:53:31.086Z",
     "probeMethod": "planner-only (analyze=false), with sentinel-scope missing-index diagnostics; no mutations",
-    "plannerEvidenceSha256": "8a832693980796fc51269359e5e67256cc9cf21bc6b770b623433806733b4953",
+    "plannerEvidenceSha256": "6abceb7e283bb3895ee7a1d96eab7b3ff6f4431d735871e9b86655d1bfd3daf4",
     "priorSingleFieldOverrideEvidence": 0
   },
   "catalogSha256": "586132b67cbd2f8f1cb16375000463c632ce40bd17c91e78597583b310285be4",
@@ -55,7 +55,7 @@
     "functions/src/callable/reset-organization.ts": "ef008e650d39213d23c35d3d801015dccad8ad7ea78edf9d62b6b5c230d53a5c",
     "functions/src/callable/sales-corrections.ts": "bbde90d69e5164d4846397016a22d7ab48a2d91a1d39e179b86442d993d684cc",
     "functions/src/callable/sales-returns.ts": "30f5d06f2fd4a836ebababe1fb7534e30b0583d3f7c89e4d4c2aba559c680971",
-    "functions/src/callable/sales.ts": "b1492ff1600f3995a166e6139dfc8db1d4892fa1e89a755de3f4495364a76623",
+    "functions/src/callable/sales.ts": "055819defd71941c8599186b781d3d222d5a238b7bcc3d8a5bb0f46765bdd139",
     "functions/src/callable/service-billing-case.ts": "d60574eac1572f593c1f3ea44c44419821e83ad0ea34712aac4ca0376fa27f3a",
     "functions/src/callable/stock-counts.ts": "cc25ae2108bc606d887224765c55246e92904a5455260ee94803aed76b7516d3",
     "functions/src/callable/stock-transfers.ts": "e41d4c21166e35f3a201b411f230d366cb36c5771fb5af612e4d36aabfa0fafb",

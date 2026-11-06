@@ -1,6 +1,6 @@
 # Sales voucher, receipt and store release
 
-Status: implemented in the feature candidate; integration validation is incomplete and this workflow is not deployed.
+Status: implemented in the feature candidate and covered by callable regressions. The full production release gate and deployment remain pending.
 
 The user approved this workflow on 2026-11-06. Cashier and store officer may be the same person or different people. Each action must independently pass its existing permission and branch checks and record its own actor. Existing approved-credit and part-payment eligibility remains in force. This does not grant any new permissions.
 
@@ -20,3 +20,9 @@ The user approved this workflow on 2026-11-06. Cashier and store officer may be 
 ## Required verification
 
 Test same-person and different-person workflows, each missing permission, selected and unauthorized branches, client attempts to force immediate issue, the direct posting endpoint, offline replay and interrupted confirmations, approved credit and part payment, rejected credit, service-only bills and included parts, partial collections, serial ownership, reservation cancellations, returns and financial balancing. Confirm printing a voucher or pending waybill has no posting side effect. Verify that the pending document is visibly different from a recorded handover waybill.
+
+## Sales entered in error
+
+Requesting, approving/rejecting, and completing a posted-sale correction requires an actual System Administrator assignment in addition to the existing action permission and branch checks. Operations Administrator and custom roles based on System Administrator do not qualify. The server checks this before idempotent replay; hiding controls in the browser is additional guidance.
+
+This restriction applies to the dedicated mistaken-sale correction workflow. Ordinary customer goods returns, eligible uncollected-goods cancellations, payment receipt corrections, draft order rejection, and store collections retain their existing independent permissions. No historical invoice is rewritten, and this release does not reverse any live sale automatically.

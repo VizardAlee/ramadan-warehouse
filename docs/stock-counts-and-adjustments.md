@@ -9,3 +9,12 @@ Review remains a distinct, auditable transition. An assigned manager or administ
 Direct stock adjustments are available to system administrators and branch or warehouse managers within their selected assigned location. Every adjustment needs a reason and posts immediately through the ledger. There is no draft/approval record in this option, so adjustment creation and approval audit events are not applicable; `inventory.stock_adjustment` records the posting. Large-value thresholds, drafts, and a distinct approver are required before expanding adjustment authority beyond managers.
 
 Corrections to any posted movement use reversal and reposting, never editing.
+
+
+## Opening stock corrections
+
+The opening-stock ledger entry offers a correction action only when the selected product/location balance still points to that opening movement and the user has both reversal and opening-stock permissions. The server independently checks reversal eligibility and rejects later inventory activity or an ineligible accounting period.
+
+Correction has two explicit steps: reverse the eligible original entry with a reason, then review and post its replacement. Reversal immediately removes the old entry's stock and valuation; the replacement is not posted until the user confirms its quantity, location, date, and cost. Both movements and their linked accounting evidence remain in history. A reviewed replacement cost does not change the global product cost default.
+
+If the opening stock has subsequently moved, use an authorized ledger adjustment for a quantity correction and accounting review for valuation. Posted opening stock is never edited in place.

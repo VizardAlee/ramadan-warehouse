@@ -2877,3 +2877,33 @@ describe("concurrent independent cashier devices", () => {
     expect((await balance.get()).get("reservedQuantity")).toBe(1);
   }, 60_000);
 });
+
+
+describe("sales report permission scope", () => {
+  it("does not lend an unrelated global custom role to local sales reporting", async () => {
+    const { buildRoleAssignment } = await import("../functions/src/auth/custom-roles");
+    const user = await createActor("scoped-report-reader@example.test", "branch_manager");
+    const userRef = adminDb.doc(`users/${user.auth.currentUser!.uid}`), roleId = "report-unrelated-finance";
+    const role = { id: roleId, organizationId, name: "Journal reader", baseRoleId: "finance_officer" as const, permissionIds: ["finance.journal.read" as const], status: "active" as const };
+    await adminDb.doc(`roles/${roleId}`).set(role);
+    await userRef.update(buildRoleAssignment(["branch_manager"], [role]));
+    const other = "report-unassigned-branch";
+    await adminDb.doc(`branches/${other}`).set({ organizationId, status: "active", name: "Unassigned store" });
+    const foreignSaleId = "report-other-store-sale", now = Timestamp.fromDate(new Date("2098-01-01T00:00:00Z"));
+    await adminDb.doc(`sales/${foreignSaleId}`).set({ organizationId, branchId: other, recordedAt: now, grossAmountMinor: 999, amountPaidMinor: 999, creditAmountMinor: 0, netAmountMinor: 999, vatAmountMinor: 0, subtotalAmountMinor: 999, discountAmountMinor: 0 });
+    type Report = { rows: Array<{ id: string; branchId: string }>; summary: { count: number; grossAmountMinor: number } };
+    const all = { operatingContext: { type: "all" }, limit: 100 };
+    const local = await call<Report>(user, "generateSalesReport", all);
+    const expected = await call<Report>(administrator, "generateSalesReport", { ...all, branchId });
+    expect(local.summary).toEqual(expected.summary);
+    expect(local.rows.every(row => row.branchId === branchId)).toBe(true);
+    await expect(call(user, "generateSalesReport", { ...all, branchId: other })).rejects.toMatchObject({ code: "functions/permission-denied" });
+    const reportingRole = { ...role, permissionIds: ["reports.sales.read" as const] };
+    await adminDb.doc(`roles/${roleId}`).set(reportingRole);
+    await userRef.update(buildRoleAssignment(["branch_manager"], [reportingRole]));
+    const global = await call<Report>(user, "generateSalesReport", all);
+    expect(global.rows.some(row => row.id === foreignSaleId)).toBe(true);
+    const selected = await call<Report>(user, "generateSalesReport", { ...all, operatingContext: { type: "branch", id: branchId } });
+    expect(selected.summary).toEqual(expected.summary);
+  });
+});

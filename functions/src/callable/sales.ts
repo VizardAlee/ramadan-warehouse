@@ -1,7 +1,7 @@
 import { requireCustomerBranch } from "../sales/customer-scope.js";
 import { resolveDeviceShift } from "../sales/shift-session.js";
 import { assignedBranchQuery } from "../auth/view-scope.js";
-import { requirePermissionScope, scopedAccess } from "../auth/permission-scope.js";
+import { hasOrganizationPermission, requirePermissionScope, scopedAccess } from "../auth/permission-scope.js";
 import { readWaybillRegister } from "../sales/waybill-register.js";
 import { readPosFastMoving } from "../sales/pos-fast-moving-store.js";
 import { withRecordActors } from "../audit/record-actors.js";
@@ -96,15 +96,6 @@ function clean(values: Record<string, unknown>) {
 
 function iso(value: unknown): string | null {
   return value instanceof Timestamp ? value.toDate().toISOString() : null;
-}
-
-function canReadAllSales(actor: Awaited<ReturnType<typeof requireAccess>>) {
-  return ([
-    "system_administrator",
-    "operations_administrator",
-    "finance_officer",
-    "auditor",
-  ] as const).some((role) => hasRole(actor, role));
 }
 
 function branchPriceId(
@@ -812,18 +803,19 @@ export const getSaleDocument = onCall(
 export const generateSalesReport = onCall(
   { enforceAppCheck, timeoutSeconds: 120 },
   async (request) => {
-    const actor = await requireAccess(request);
+    const actor = await scopedAccess(await requireAccess(request));
     requirePermission(actor, "reports.sales.read");
     const input = parseInput(salesReportInput, request.data);
+    const organizationWide = hasOrganizationPermission(actor, "reports.sales.read");
     let branchId = input.branchId;
-    if (!canReadAllSales(actor)) {
-      branchId ??= actor.branchIds.length === 1 ? actor.branchIds[0] : undefined;
-
+    if (!organizationWide) branchId ??= actor.branchIds.length === 1 ? actor.branchIds[0] : undefined;
+    if (branchId) {
+      requirePermissionScope(actor, { branchId }, "reports.sales.read");
+      requireBranchScope(actor, branchId);
     }
-    if (branchId) requireBranchScope(actor, branchId);
     let query = db.collection("sales")
       .where("organizationId", "==", actor.organizationId);
-    query = assignedBranchQuery(actor, query, canReadAllSales(actor), branchId);
+    query = assignedBranchQuery(actor, query, organizationWide, branchId);
     if (input.fromDate)
       query = query.where("recordedAt", ">=", Timestamp.fromDate(new Date(`${input.fromDate}T00:00:00.000+01:00`)));
     if (input.toDate) {
