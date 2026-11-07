@@ -42,6 +42,46 @@ beforeEach(() => {
   state.reads = []; state.aggregates = 0; state.writes.mockReset();
 });
 describe("bounded location inventory reads", () => {
+  it("searches beyond the loaded page by name, never SKU, and returns matching totals and cursors", async () => {
+    state.rows = state.rows.map((row, index) => ({ ...row, productName: index >= 990 ? "Solar Panel" : "Battery", sku: "Solar Panel" }));
+    const first = await invoke({ locationIds: ["stock-a"], search: "  sOLar  ", limit: 5, includeCosts: true });
+    expect(first.rows.map(row => row.id)).toEqual(["b-0990", "b-0991", "b-0992", "b-0993", "b-0994"]);
+    expect(first.summary).toMatchObject({ count: 11, onHandQuantity: 11, valueMinor: 1100 });
+    expect(state.reads.every(read => read.count <= 250)).toBe(true);
+    const second = await invoke({ locationIds: ["stock-a"], search: "solar", limit: 5, cursor: first.nextCursor, withSummary: false });
+    expect(second.rows.map(row => row.id)).toEqual(["b-0995", "b-0996", "b-0997", "b-0998", "b-0999"]);
+    const last = await invoke({ locationIds: ["stock-a"], search: "solar", limit: 5, cursor: second.nextCursor, withSummary: false });
+    expect(last.rows.map(row => row.id)).toEqual(["b-1000"]); expect(last.nextCursor).toBeNull();
+    expect((await invoke({ search: "missing" })).summary).toMatchObject({ count: 0, onHandQuantity: 0 });
+    expect(state.aggregates).toBe(0); expect(state.writes).not.toHaveBeenCalled();
+  });
+  it("normalizes Unicode width, repeated whitespace and case for names and queries", async () => {
+    state.rows = [{ ...state.rows[0]!, productName: "ＳＯＬＡＲ   Panel" }, { ...state.rows[1]!, productName: "Battery", sku: "solar panel" }];
+    const result = await invoke({ search: "  Solar\tＰＡＮＥＬ  " });
+    expect(result.rows.map(row => row.id)).toEqual(["b-0000"]);
+    expect(result.summary?.count).toBe(1);
+  });
+  it("searches resolved names while retaining location authority and cost redaction", async () => {
+    state.actor = { ...state.actor, roleId: "warehouse_officer", roleIds: ["warehouse_officer"], warehouseIds: ["warehouse-a"] };
+    state.rows = [
+      { ...state.rows[0]!, warehouseId: "warehouse-a" },
+      { ...state.rows[0]!, id: "foreign", organizationId: "foreign-org", warehouseId: "warehouse-a" },
+      { ...state.rows[0]!, id: "other", warehouseId: "warehouse-b" },
+      { ...state.rows[0]!, id: "elsewhere", locationId: "stock-b", warehouseId: "warehouse-a" },
+    ];
+    const result = await invoke({ locationIds: ["stock-a"], search: "Product p-0", includeCosts: true });
+    expect(result.rows).toHaveLength(1); expect(result.rows[0]!.id).toBe("b-0000");
+    expect(result.rows[0]).not.toHaveProperty("totalValueMinor"); expect(result.summary).not.toHaveProperty("valueMinor");
+    expect(result.summary?.count).toBe(1);
+  });
+  it("merges searched location groups with exact totals and no duplicate cursor rows", async () => {
+    const ids = Array.from({ length: 35 }, (_, i) => `area-${i}`);
+    state.rows = ids.map((locationId, i) => ({ ...state.rows[i]!, locationId, productName: "Panel" }));
+    const first = await invoke({ locationIds: ids, search: "panel", limit: 25 });
+    const next = await invoke({ locationIds: ids, search: "panel", limit: 25, cursor: first.nextCursor, withSummary: false });
+    expect(first.summary?.count).toBe(35); expect(next.rows).toHaveLength(10); expect(next.nextCursor).toBeNull();
+    expect(new Set([...first.rows, ...next.rows].map(row => row.id)).size).toBe(35);
+  });
   it("reads only one lookahead page, totals the full scope once, and never writes", async () => {
     const first = await invoke({ locationIds: ["stock-a"], limit: 25, includeCosts: true });
     expect(first.rows).toHaveLength(25); expect(first.summary).toMatchObject({ count: 1001, onHandQuantity: 1000, valueMinor: 100000 });
@@ -63,7 +103,7 @@ describe("bounded location inventory reads", () => {
   });
   it("merges more than 30 areas in global cursor order without duplicate rows", async () => {
     const ids = Array.from({ length: 35 }, (_, i) => `area-${i}`);
-    state.rows = ids.map((locationId, i) => ({ ...state.rows[i], id: `b-${String(i).padStart(4, "0")}`, locationId }));
+    state.rows = ids.map((locationId, i) => ({ ...state.rows[i]!, id: `b-${String(i).padStart(4, "0")}`, locationId }));
     const first = await invoke({ locationIds: [...ids, ids[0]], limit: 25 });
     const second = await invoke({ locationIds: ids, limit: 25, cursor: first.nextCursor, withSummary: false });
     expect(first.summary?.count).toBe(35); expect(first.rows).toHaveLength(25); expect(second.rows).toHaveLength(10); expect(second.nextCursor).toBeNull();
@@ -72,7 +112,7 @@ describe("bounded location inventory reads", () => {
   });
   it("uses only an already assigned branch for a branch-context mixed-role reader", async () => {
     state.actor = { ...state.actor, roleId: "branch_manager", roleIds: ["warehouse_manager", "branch_manager"], branchIds: ["branch-a"], warehouseIds: [] };
-    state.rows.push({ ...state.rows[0], id: "foreign", organizationId: "foreign-org" }, { ...state.rows[0], id: "other", branchId: "branch-b", warehouseId: "warehouse-b" });
+    state.rows.push({ ...state.rows[0]!, id: "foreign", organizationId: "foreign-org" }, { ...state.rows[0]!, id: "other", branchId: "branch-b", warehouseId: "warehouse-b" });
     const result = await invoke({ locationIds: ["stock-a"], limit: 100, includeCosts: true });
     expect(result.rows.every((r) => r.branchId === "branch-a" && r.organizationId === "org")).toBe(true);
     expect(state.reads[0]!.filters).toContainEqual(["branchId", "in", ["branch-a"]]);
@@ -89,7 +129,7 @@ describe("bounded location inventory reads", () => {
     await expect(invoke({ locationIds: ["stock-a"] })).rejects.toMatchObject({ code: "permission-denied" });
     expect(state.reads).toHaveLength(0);
   });
-  it.each([{ locationIds: [] }, { locationIds: ["a"], locationId: "b" }, { view: "positions", limit: 101 }, { locationIds: Array.from({ length: 301 }, (_, i) => `a-${i}`) }, { cursor: "bad/path" }])("rejects invalid bounds before querying: %j", async (input) => {
+  it.each([{ search: "x".repeat(161) }, { search: "panel", view: "membership" }, { locationIds: [] }, { locationIds: ["a"], locationId: "b" }, { view: "positions", limit: 101 }, { locationIds: Array.from({ length: 301 }, (_, i) => `a-${i}`) }, { cursor: "bad/path" }])("rejects invalid bounds before querying: %j", async (input) => {
     await expect(invoke(input)).rejects.toMatchObject({ code: "invalid-argument" }); expect(state.reads).toHaveLength(0); expect(state.writes).not.toHaveBeenCalled();
   });
 });

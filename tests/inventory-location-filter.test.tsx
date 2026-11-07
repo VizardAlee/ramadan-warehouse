@@ -23,9 +23,9 @@ function balance(id: string, productId: string, locationId: string, quantity = 1
 }
 const stockA = balance("a", "panel", "stock-a", 5, 500);
 const stockB = balance("b", "battery", "stock-b", 2, 900);
-interface Input { locationIds?: string[]; locationId?: string; cursor?: string; limit?: number; view?: string; withSummary?: boolean }
+interface Input { search?: string; locationIds?: string[]; locationId?: string; cursor?: string; limit?: number; view?: string; withSummary?: boolean }
 function positionResponse(input: Input) {
-  const all = mocks.balances.filter((row) => !input.locationIds || input.locationIds.includes(row.locationId)).sort((a, b) => a.id < b.id ? -1 : 1);
+  const all = mocks.balances.filter((row) => (!input.locationIds || input.locationIds.includes(row.locationId)) && (!input.search || row.productName?.toLowerCase().includes(input.search.toLowerCase()))).sort((a, b) => a.id < b.id ? -1 : 1);
   const offset = input.cursor ? all.findIndex((row) => row.id === input.cursor) + 1 : 0;
   const limit = input.limit ?? 25;
   const rows = all.slice(offset, offset + limit);
@@ -47,6 +47,32 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("selected Store/Warehouse inventory", () => {
+  it("searches all pages by name, resets pagination and clears search", async () => {
+    mocks.balances = Array.from({ length: 26 }, (_, i) => ({ ...balance(`a-${String(i).padStart(2, "0")}`, `panel-${i}`, "stock-a"), productName: i === 25 ? "Rare solar panel" : "Battery", sku: "RARE" }));
+    render(<InventoryPage />); expect(await screen.findByText("1–25 of 26 inventory positions")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    expect(await screen.findByText("26–26 of 26 inventory positions")).toBeTruthy();
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search inventory by item name" }), { target: { value: "  ＲＡＲＥ  " } });
+    expect(screen.queryByRole("link", { name: "Rare solar panel" })).toBeNull();
+    expect(await screen.findByText("1–1 of 1 inventory positions")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Rare solar panel" })).toBeTruthy();
+    expect(mocks.call).toHaveBeenLastCalledWith("generateStockPositionReport", expect.objectContaining({ search: "rare", cursor: undefined, withSummary: true }));
+    fireEvent.click(screen.getByRole("button", { name: "Clear search" }));
+    expect(await screen.findByText("1–25 of 26 inventory positions")).toBeTruthy();
+  });
+  it("hides old search rows immediately and discards delayed search responses", async () => {
+    render(<InventoryPage />); expect(await screen.findByText("PANEL")).toBeTruthy();
+    const old = deferred(); mocks.call.mockReturnValueOnce(old.promise);
+    const search = screen.getByRole("searchbox", { name: "Search inventory by item name" });
+    fireEvent.change(search, { target: { value: "Solar" } });
+    expect(screen.queryByText("PANEL")).toBeNull();
+    await waitFor(() => expect(mocks.call).toHaveBeenLastCalledWith("generateStockPositionReport", expect.objectContaining({ search: "solar" })));
+    fireEvent.change(search, { target: { value: "Missing" } });
+    expect(await screen.findByText("No inventory items match this name.")).toBeTruthy();
+    await act(async () => old.resolve(positionResponse({ search: "Solar" })));
+    expect(screen.queryByText("PANEL")).toBeNull();
+    expect(screen.getByText("No inventory items match this name.")).toBeTruthy();
+  });
   it("requests metadata by the selected entity field without merging same-ID Store/warehouse identities", async () => {
     const view = render(<InventoryPage />); expect(await screen.findByText("PANEL")).toBeTruthy();
     expect(mocks.metadata).toHaveBeenCalledWith("inventoryLocations", true, { field: "branchId", id: "a" });

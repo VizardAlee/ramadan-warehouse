@@ -29,9 +29,10 @@ function InventoryPosition() {
   const canReadCosts = Boolean(profile && hasPermission(profile, "inventory.cost.read"));
   const locations = useOrganizationCollection<InventoryLocation>("inventoryLocations", true,
     operatingContext ? { field: operatingContext.type === "branch" ? "branchId" : "warehouseId", id: operatingContext.id } : undefined);
+  const [search, setSearch] = useState("");
   const [pageStarts, setPageStarts] = useState<(string | null)[]>([null]);
   const [pageSize, setPageSize] = useState(25);
-  const { rows, nextCursor, summary, loading, error, refresh } = useLocationInventory(locations, pageStarts.at(-1) ?? undefined, pageSize);
+  const { rows, nextCursor, summary, loading, error, refresh } = useLocationInventory(locations, pageStarts.at(-1) ?? undefined, pageSize, search);
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -40,6 +41,15 @@ function InventoryPosition() {
           Inventory for <FinancialText>{operatingContext ? "the selected Store/Warehouse" : canSelectAll ? "All locations" : "a selected Store/Warehouse"}</FinancialText>. Includes products with local inventory history, even at zero stock.
         </p></div>
         <Button variant="secondary" onClick={() => { setPageStarts([null]); refresh(); }}>Refresh inventory</Button>
+      </div>
+      <div className="space-y-2">
+        <label htmlFor="inventory-name-search" className="text-sm font-medium">Search inventory by item name</label>
+        <div className="flex items-center gap-2">
+          <input className="w-full rounded-lg border bg-white p-2.5" id="inventory-name-search" type="search" placeholder="Type an item name…" maxLength={160}
+            value={search} onChange={(event) => { setSearch(event.target.value); setPageStarts([null]); }} />
+          {search && <Button variant="secondary" onClick={() => { setSearch(""); setPageStarts([null]); }}>Clear search</Button>}
+        </div>
+        <p className="text-sm text-[var(--muted)]">{search.trim() ? "Totals below reflect items matching this name in the selected location scope." : "Search all inventory in the selected location scope by name."}</p>
       </div>
       <section className="grid gap-4 md:grid-cols-3">
         {[
@@ -80,7 +90,7 @@ function InventoryPosition() {
             {rows.length === 0 ? (
               <tr>
                 <td colSpan={8} className="p-8 text-center text-[var(--muted)]">
-                  <FinancialText>{loading ? "Loading inventory…" : error ? "Inventory could not be loaded." : "No inventory history at this location."}</FinancialText>
+                  <FinancialText>{loading ? "Loading inventory…" : error ? "Inventory could not be loaded." : search.trim() ? "No inventory items match this name." : "No inventory history at this location."}</FinancialText>
                 </td>
               </tr>
             ) : (

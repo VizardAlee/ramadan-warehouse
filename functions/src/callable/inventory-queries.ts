@@ -27,6 +27,11 @@ import { correlationId, parseInput } from "../utils/callable.js";
 import { pageInput, reconciliationInput, stockPositionInput } from "../validation/inventory.js";
 import { uniquenessDocumentId } from "../inventory/calculations.js";
 
+// Keep item-name matching consistent with the web catalogue and POS search.
+function normalizeProductName(value: string): string {
+  return value.normalize("NFKC").trim().replace(/\s+/gu, " ").toLocaleLowerCase();
+}
+
 function organizationWide(actor: AccessProfile) {
   return [
     "system_administrator",
@@ -324,6 +329,37 @@ async function stockPositionReport(request: CallableRequest<unknown>) {
       if (input.productId) query = query.where("productId", "==", input.productId);
       if (input.locationId) query = query.where("locationId", "==", input.locationId);
       if (locationIds) query = query.where("locationId", "in", locationIds);
+      // Names are resolved from authorized balances rather than a capped catalogue.
+      // Scan bounded batches so substring matches and totals cover the entire scope.
+      if (input.search) {
+        const search = normalizeProductName(input.search);
+        const documents: FirebaseFirestore.QueryDocumentSnapshot[] = [];
+        const summary: Record<string, number> | null = input.withSummary
+          ? { count: 0, onHandQuantity: 0, reservedQuantity: 0, availableQuantity: 0, ...(includeCosts ? { valueMinor: 0 } : {}) } : null;
+        const ordered = query.orderBy(FieldPath.documentId());
+        let scanCursor = input.withSummary ? undefined : input.cursor;
+        while (true) {
+          const snapshot = await (scanCursor ? ordered.startAfter(scanCursor) : ordered).limit(250).get();
+          const labeled = await inventoryProductLabels(actor.organizationId,
+            snapshot.docs.map((document) => serialize(document, includeCosts)));
+          for (let index = 0; index < snapshot.docs.length; index++) {
+            const row = labeled[index]!;
+            if (!normalizeProductName(row.productName).includes(search)) continue;
+            const document = snapshot.docs[index]!;
+            if (summary) {
+              summary.count!++;
+              for (const field of ["onHandQuantity", "reservedQuantity", "availableQuantity"])
+                summary[field] = summary[field]! + Number(document.get(field) ?? 0);
+              if (includeCosts) summary.valueMinor! += Number(document.get("totalValueMinor") ?? 0);
+            }
+            if ((!input.cursor || Buffer.compare(Buffer.from(document.id), Buffer.from(input.cursor)) > 0)
+              && documents.length < input.limit + 1) documents.push(document);
+          }
+          if (snapshot.docs.length < 250 || (!summary && documents.length > input.limit)) break;
+          scanCursor = snapshot.docs.at(-1)!.id;
+        }
+        return { documents, summary };
+      }
       const summaryQuery = !membership && input.withSummary ? query.aggregate({
         count: AggregateField.count(),
         onHandQuantity: AggregateField.sum("onHandQuantity"),
