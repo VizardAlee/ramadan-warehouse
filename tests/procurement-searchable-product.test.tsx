@@ -26,6 +26,8 @@ it("lets an existing branch-only manager search and create purchases with real r
   const previousScroll = Element.prototype.scrollIntoView;
   Element.prototype.scrollIntoView = vi.fn();
   render(<ProcurementPage />);
+  await waitFor(() => expect(state.call).toHaveBeenCalledWith("getProcurementWorkspace", expect.objectContaining({ view: "options" })));
+  fireEvent.click(screen.getByRole("button", { name: "New order", exact: true }));
   const summary = await screen.findByText("Create purchase order", { selector: "summary" });
   expect(screen.queryByRole("button", { name: "Add supplier" })).toBeNull();
   fireEvent.click(summary);
@@ -38,7 +40,7 @@ it("lets an existing branch-only manager search and create purchases with real r
   fireEvent.click(product);
   const search = screen.getByRole("combobox", { name: "Search Product by item name" });
   fireEvent.change(search, { target: { value: "SKU-ONLY-620" } });
-  expect(screen.getByRole("status").textContent).toBe("No items match this name.");
+  expect(screen.getByText("No items match this name.").getAttribute("role")).toBe("status");
   expect(product.value).toBe("");
   fireEvent.change(search, { target: { value: "panel" } });
   const list = screen.getByRole("listbox");

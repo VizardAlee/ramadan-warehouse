@@ -1127,4 +1127,40 @@ describe.sequential("procurement callables", () => {
     expect(workspace.suppliers).toContainEqual(expect.objectContaining({ id: supplierId, active: false }));
     await expect(call(headOfficeManager, "recordSupplierPayment", { ...advance, idempotencyKey: crypto.randomUUID() })).rejects.toMatchObject({ code: "functions/failed-precondition" });
   });
+  it("pages purchasing beyond historical caps with scoped detail and bound cursors", async () => {
+    const supplierId = "pagination-fixture-supplier", orderId = "pagination-order-000";
+    const writes: Array<[string, Record<string, unknown>]> = [];
+    for (let i = 0; i < 127; i++) writes.push([`purchaseOrders/pagination-order-${String(i).padStart(3, "0")}`, {
+      organizationId, branchId: headOfficeId, supplierId, supplierName: "Pagination supplier", purchaseOrderNumber: `PAGE-${i}`,
+      status: i === 126 ? "received" : "draft", receivedNetAmountMinor: i === 126 ? 100 : 0, invoicedNetAmountMinor: i === 126 ? 100 : 0, createdAt: Timestamp.fromDate(new Date("2026-11-06T23:30:00Z")),
+    }]);
+    for (let i = 0; i < 620; i++) writes.push([`purchaseOrderItems/pagination-item-${String(i).padStart(3, "0")}`, { organizationId, branchId: headOfficeId, purchaseOrderId: orderId, orderedQuantity: 1, receivedQuantity: 0 }]);
+    for (let i = 0; i < 121; i++) writes.push([`supplierInvoices/pagination-invoice-${String(i).padStart(3, "0")}`, { organizationId, branchId: headOfficeId, supplierId, supplierInvoiceNumber: `PAGE-INV-${i}`, status: i === 120 ? "paid" : "submitted", createdAt: Timestamp.now() }]);
+    writes.push(["purchaseOrders/pagination-other-location", {organizationId, warehouseId, supplierId, status:"draft"}]);
+    for (let offset = 0; offset < writes.length; offset += 400) {
+      const batch = adminDb.batch(); for (const [path, data] of writes.slice(offset, offset + 400)) batch.set(adminDb.doc(path), data); await batch.commit();
+    }
+    type Page = { orders: Array<{id:string;nextAction:string}>; invoices: Array<{id:string}>; nextCursor: string|null };
+    const request = {view:"orders_page",workflow:"all",branchId:headOfficeId,supplierId,pageSize:25};
+    const first = await call<Page>(headOfficeManager,"getProcurementWorkspace",request);
+    const allAssigned = await call<Page>(headOfficeManager,"getProcurementWorkspace",{...request,branchId:undefined});
+    expect(allAssigned.orders.every(row=>row.id !== "pagination-other-location")).toBe(true);
+    const contextual = await call<Page>(administrator,"getProcurementWorkspace",{...request,branchId:undefined,operatingContext:{type:"branch",id:headOfficeId}});
+    expect(contextual.orders.every(row=>row.id !== "pagination-other-location")).toBe(true);
+    const ids = first.orders.map(row=>row.id); let cursor = first.nextCursor;
+    while(cursor) { const page = await call<Page>(headOfficeManager,"getProcurementWorkspace",{...request,cursor}); ids.push(...page.orders.map(row=>row.id)); cursor=page.nextCursor; }
+    expect(ids).toHaveLength(127); expect(new Set(ids).size).toBe(127);
+    const filtered = await call<Page>(headOfficeManager,"getProcurementWorkspace",{...request,search:"page-126",startDate:"2026-11-07",endDate:"2026-11-07"});
+    expect(filtered.orders).toEqual([expect.objectContaining({id:"pagination-order-126",nextAction:"Review invoices"})]);
+    const history = await call<Page>(headOfficeManager,"getProcurementWorkspace",{...request,workflow:"history"}); expect(history.orders).toHaveLength(1);
+    const invoiceIds: string[] = []; cursor=null;
+    do { const page: Page = await call<Page>(headOfficeManager,"getProcurementWorkspace",{...request,view:"invoices_page",cursor:cursor??undefined}); invoiceIds.push(...page.invoices.map(row=>row.id)); cursor=page.nextCursor; } while(cursor);
+    expect(invoiceIds).toHaveLength(121);
+    const detail = await call<{items:unknown[]}>(headOfficeManager,"getProcurementWorkspace",{view:"order_detail",purchaseOrderId:orderId,branchId:headOfficeId}); expect(detail.items).toHaveLength(620);
+    await expect(call(headOfficeManager,"getProcurementWorkspace",{...request,cursor:first.nextCursor,search:"changed"})).rejects.toMatchObject({code:"functions/invalid-argument"});
+    await expect(call(headOfficeManager,"getProcurementWorkspace",{view:"order_detail",purchaseOrderId:"pagination-other-location"})).rejects.toMatchObject({code:"functions/permission-denied"});
+    const options = await call<{purchaseOrders:unknown[];purchaseOrderItems:unknown[];supplierInvoices:unknown[]}>(headOfficeManager,"getProcurementWorkspace",{view:"options",branchId:headOfficeId});
+    expect(options.purchaseOrders).toEqual([]); expect(options.purchaseOrderItems).toEqual([]); expect(options.supplierInvoices).toEqual([]);
+  }, 120000);
+
 });

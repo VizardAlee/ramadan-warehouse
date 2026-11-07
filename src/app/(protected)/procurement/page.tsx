@@ -1,4 +1,5 @@
 "use client";
+import { PurchasingList } from "@/features/procurement/purchasing-list";
 import { SearchableItemSelect } from "@/components/ui/searchable-item-select";
 import { RecordAttribution } from "@/features/audit/record-attribution";
 import { FinancialAction, FinancialActionScope, FinancialInput, FinancialMessage, FinancialText, FinancialValue  } from "@/features/finance/financial-privacy";
@@ -52,9 +53,6 @@ interface Workspace {
     trackingType: "quantity" | "serial" | "batch";
     unitOfMeasure: string;
   }>;
-  purchaseOrders: PurchaseOrder[];
-  purchaseOrderItems: PurchaseOrderItem[];
-  supplierInvoices: SupplierInvoice[];
   bankAccounts: Array<{
     id: string;
     bankName: string;
@@ -83,9 +81,55 @@ function procurementScopeFromKey(key: string) {
 
 export default function ProcurementPage() {
   const { user, profile, operatingContext } = useAuth();
+  // A scope change discards open records/forms and invalidates all previous requests.
+  return <ProcurementWorkspace key={`${profile?.organizationId}:${user?.uid}:${operatingContext?.type}:${operatingContext?.id}`} />;
+}
+
+function ProcurementWorkspace() {
+  const { user, profile, operatingContext } = useAuth();
+  const contextKey = operatingContext
+    ? `${operatingContext.type}:${operatingContext.id}`
+    : "";
+  const contextScope = useMemo(
+    () => procurementScopeFromKey(contextKey),
+    [contextKey],
+  );
   const receiptRecovery = usePurchaseReceipt(`${profile?.organizationId ?? ""}:${user?.uid ?? ""}`);
   const newOrderRef = useRef<HTMLDetailsElement>(null);
   const newSupplierRef = useRef<HTMLDetailsElement>(null);
+  const [tab, setTab] = useState<"orders" | "invoices" | "accounts">(profile && hasPermission(profile, "procurement.read") ? "orders" : "invoices");
+  const [showOrderForm, setShowOrderForm] = useState(false);
+  const [showSupplierForm, setShowSupplierForm] = useState(false);
+  const [revision, setRevision] = useState(0);
+  const [invoiceSearch, setInvoiceSearch] = useState("");
+  const [detail, setDetail] = useState<{ order: PurchaseOrder; items: PurchaseOrderItem[] } | null>(null);
+  const [selectedInvoice, setSelectedInvoice] = useState<SupplierInvoice | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const detailSequence = useRef(0);
+  const detailStart = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (detail || selectedInvoice || detailLoading) {
+      detailStart.current?.scrollIntoView?.({ behavior: "smooth", block: "start" });
+      detailStart.current?.focus({ preventScroll: true });
+    }
+  }, [detail, selectedInvoice, detailLoading]);
+  const mounted = useRef(true);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
+  function dismissDetail() {
+    detailSequence.current++;
+    setDetail(null); setSelectedInvoice(null); setDetailLoading(false); setReceiptOrderId(null); setReturnInvoiceId(null); setPaymentInvoice(null);
+  }
+  async function openOrder(purchaseOrderId: string) {
+    setReceiptOrderId(null); setReturnInvoiceId(null); setPaymentInvoice(null);
+    const sequence = ++detailSequence.current;
+    setDetail(null); setSelectedInvoice(null); setDetailLoading(true); setError(null);
+    try {
+      const result = await callAdministration<object, { order: PurchaseOrder; items: PurchaseOrderItem[] }>("getProcurementWorkspace", { view: "order_detail", purchaseOrderId, ...contextScope });
+      if (mounted.current && sequence === detailSequence.current) setDetail(result);
+    } catch (cause) {
+      if (mounted.current && sequence === detailSequence.current) setError(cause instanceof Error ? cause.message : "Order could not be loaded.");
+    } finally { if (mounted.current && sequence === detailSequence.current) setDetailLoading(false); }
+  }
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -116,13 +160,7 @@ export default function ProcurementPage() {
   const can = (permission: Parameters<typeof hasPermission>[1]) =>
     Boolean(profile && hasPermission(profile, permission));
   const canApproveOwnWork = Boolean(profile && canSelfAuthorize(profile));
-  const contextKey = operatingContext
-    ? `${operatingContext.type}:${operatingContext.id}`
-    : "";
-  const contextScope = useMemo(
-    () => procurementScopeFromKey(contextKey),
-    [contextKey],
-  );
+
 
   async function load() {
     if (!profile) return;
@@ -130,9 +168,10 @@ export default function ProcurementPage() {
     setError(null);
     try {
       const result = await callAdministration<
-        { warehouseId?: string; branchId?: string },
+        { warehouseId?: string; branchId?: string; view: string },
         Workspace
-      >("getProcurementWorkspace", contextScope);
+      >("getProcurementWorkspace", { ...contextScope, view: "options" });
+      if (!mounted.current) return;
       setWorkspace(result);
       const selectedDestination =
         contextKey ||
@@ -160,15 +199,17 @@ export default function ProcurementPage() {
     }
   }
   useEffect(() => {
+    let active = true;
     const timeout = window.setTimeout(() => {
       if (!profile) return;
       setBusy(true);
       setError(null);
-      void callAdministration<{ warehouseId?: string; branchId?: string }, Workspace>(
+      void callAdministration<{ warehouseId?: string; branchId?: string; view: string }, Workspace>(
         "getProcurementWorkspace",
-        contextScope,
+        { ...contextScope, view: "options" },
       )
         .then((result) => {
+          if (!active) return;
           setWorkspace(result);
           const selectedDestination =
             contextKey ||
@@ -183,24 +224,30 @@ export default function ProcurementPage() {
           setSupplierId(result.suppliers[0]?.id || "");
         })
         .catch((cause) =>
-          setError(
+          active && setError(
             cause instanceof Error
               ? cause.message
               : "Purchasing data could not be loaded.",
           ),
         )
-        .finally(() => setBusy(false));
+        .finally(() => { if (active) setBusy(false); });
     }, 0);
-    return () => window.clearTimeout(timeout);
+    return () => { active = false; window.clearTimeout(timeout); };
   }, [profile, contextKey, contextScope]);
 
   async function run(action: () => Promise<unknown>, success: string) {
+    const selectionAtStart = detailSequence.current;
     setBusy(true);
     setError(null);
     setMessage(null);
     try {
       await action();
+      if (!mounted.current) return false;
       setMessage(success);
+      setRevision(value => value + 1);
+      // Keep the current page and filters, but reload its rows and selected order.
+      if (detail && selectionAtStart === detailSequence.current) await openOrder(detail.order.id);
+      if (selectedInvoice && selectionAtStart === detailSequence.current) setSelectedInvoice(null);
       await load();
       return true;
     } catch (cause) {
@@ -236,7 +283,7 @@ export default function ProcurementPage() {
     );
     if (created) {
       setSupplier({ name: "", phone: "", email: "", supplierType: "goods", paymentTermsDays: "0" });
-      if (newSupplierRef.current) newSupplierRef.current.open = false;
+      setShowSupplierForm(false);
     }
   }
   async function createOrder() {
@@ -260,7 +307,7 @@ export default function ProcurementPage() {
     );
     if (created) {
       setLines([blankLine()]);
-      if (newOrderRef.current) newOrderRef.current.open = false;
+      setShowOrderForm(false);
       document.getElementById("purchase-orders")?.scrollIntoView({ behavior: "smooth" });
     }
   }
@@ -271,18 +318,7 @@ export default function ProcurementPage() {
         return location[`${ownerType}Id` as "branchId" | "warehouseId"] === ownerId;
       },
     ) ?? [];
-  const itemsByOrder = useMemo(
-    () =>
-      new Map(
-        (workspace?.purchaseOrders ?? []).map((order) => [
-          order.id,
-          workspace?.purchaseOrderItems.filter(
-            (item) => item.purchaseOrderId === order.id,
-          ) ?? [],
-        ]),
-      ),
-    [workspace],
-  );
+  const itemsByOrder = new Map(detail ? [[detail.order.id, detail.items]] : []);
   if (!profile || (!can("procurement.read") && !can("payables.read")))
     return (
       <div className="rounded-xl border bg-white p-6">
@@ -301,12 +337,10 @@ export default function ProcurementPage() {
             Purchasing &amp; supplier accounts
           </h1>
           <p className="text-[var(--muted)]">
-            Create the supplier once, record the order, receive real goods, then
-            match and pay the supplier invoice. Managers can complete every step
-            within their assigned Head Office or store.
+            Review the next purchasing action, find older records, and manage supplier balances.
           </p>
         </div>
-        <Button variant="outline" disabled={busy} onClick={() => void load()}>
+        <Button variant="outline" disabled={busy} onClick={() => { setRevision(value => value + 1); if (detail) void openOrder(detail.order.id); void load(); }}>
           <RefreshCw className="mr-2 size-4" /> Refresh
         </Button>
       </header>
@@ -333,14 +367,18 @@ export default function ProcurementPage() {
         <FinancialAction retry={Boolean(receiptRecovery.pending)}><Button disabled={busy || !receiptRecovery.ready} onClick={() => void run(() => receiveGoods(), "The original saved receipt is confirmed. Receiving history contains its goods-received note.")}>Retry same receipt</Button></FinancialAction>
       </section>}
 
-      <nav aria-label="Purchasing workspace" className="sticky top-16 z-20 flex flex-wrap gap-2 rounded-xl border bg-white/95 p-2 shadow-sm backdrop-blur">
-        <a href="#purchase-orders" className="inline-flex min-h-10 items-center rounded-lg bg-[var(--brand)] px-4 text-sm font-semibold text-white">Orders<FinancialText>{workspace?.purchaseOrders.length ? ` (${workspace.purchaseOrders.length})` : ""}</FinancialText></a>
-        {can("procurement.create") && <button type="button" onClick={() => { if (newOrderRef.current) { newOrderRef.current.open = true; newOrderRef.current.scrollIntoView({ behavior: "smooth" }); } }} className="inline-flex min-h-10 items-center rounded-lg border px-4 text-sm font-semibold">New order</button>}
-        {can("suppliers.manage") && <button type="button" onClick={() => { if (newSupplierRef.current) { newSupplierRef.current.open = true; newSupplierRef.current.scrollIntoView({ behavior: "smooth" }); } }} className="inline-flex min-h-10 items-center rounded-lg border px-4 text-sm font-semibold">Add supplier</button>}
+      <nav aria-label="Purchasing workspace" className="flex flex-wrap gap-2 rounded-xl border bg-white p-2">
+        {([["orders", "Orders"], ["invoices", "Invoices & payments"], ["accounts", "Supplier accounts"]] as const).filter(([value]) => value === "orders" ? can("procurement.read") : can("payables.read")).map(([value, label]) => <Button key={value} variant={tab === value ? "primary" : "outline"} aria-pressed={tab === value} onClick={() => { dismissDetail(); setPaymentInvoice(null); setShowOrderForm(false); setShowSupplierForm(false); setTab(value); }}>{label}</Button>)}
+        {can("procurement.create") && <Button variant="outline" onClick={() => { dismissDetail(); setTab("orders"); setShowOrderForm(value => !value); }}>New order</Button>}
+        {can("suppliers.manage") && <Button variant="outline" onClick={() => setShowSupplierForm(value => !value)}>Add supplier</Button>}
       </nav>
+      {workspace && tab !== "accounts" && <PurchasingList key={`${tab}:${invoiceSearch}`} kind={tab} scope={contextScope} suppliers={workspace.suppliers} branches={workspace.branches} warehouses={workspace.warehouses} revision={revision} initialSearch={tab === "invoices" ? invoiceSearch : ""} onOrder={id => { void openOrder(id); }} onInvoice={invoice => { dismissDetail(); setSelectedInvoice(invoice); }} onDismiss={dismissDetail} />}
+      <div ref={detailStart} tabIndex={-1} className="scroll-mt-24" aria-label="Selected purchasing record" />
+      {detailLoading && <p role="status">Loading order details…</p>}
+      {(detail || selectedInvoice || detailLoading) && <Button variant="outline" onClick={dismissDetail}>Close details</Button>}
 
-      {can("suppliers.manage") && (
-        <details ref={newSupplierRef} id="new-supplier" className="scroll-mt-40 rounded-xl border bg-white p-5">
+      {can("suppliers.manage") && showSupplierForm && (
+        <details open ref={newSupplierRef} id="new-supplier" className="scroll-mt-40 rounded-xl border bg-white p-5">
           <summary className="cursor-pointer text-lg font-semibold">
             Add supplier when needed
           </summary>
@@ -413,8 +451,8 @@ export default function ProcurementPage() {
         </details>
       )}
 
-      {can("procurement.create") && workspace && (
-        <FinancialActionScope><details ref={newOrderRef} id="new-purchase-order" className="scroll-mt-40 rounded-xl border bg-white p-5">
+      {can("procurement.create") && workspace && showOrderForm && (
+        <FinancialActionScope><details open ref={newOrderRef} id="new-purchase-order" className="scroll-mt-40 rounded-xl border bg-white p-5">
           <summary className="cursor-pointer text-lg font-semibold">
             Create purchase order
           </summary>
@@ -627,7 +665,7 @@ export default function ProcurementPage() {
         </details></FinancialActionScope>
       )}
 
-      <section id="purchase-orders" className="scroll-mt-40 rounded-xl border bg-white p-5">
+      {detail && <section id="purchase-orders" className="scroll-mt-40 rounded-xl border bg-white p-5">
         {receiptOrderId && <GoodsReceivedNotes key={receiptOrderId} purchaseOrderId={receiptOrderId} canUpload={Boolean(profile && hasPermission(profile, "procurement.receive"))} onClose={() => setReceiptOrderId(null)} />}
         <h2 className="text-xl font-semibold">Purchase orders</h2>
         <p className="text-sm text-[var(--muted)]">
@@ -638,7 +676,7 @@ export default function ProcurementPage() {
           Follow each order here: create → approve → receive goods → match invoice → pay. Only the next available actions appear on each order.
         </p>
         <div className="mt-4 space-y-4">
-          {workspace?.purchaseOrders.map((order) => (
+          {[detail.order].map((order) => (
             <FinancialActionScope key={order.id}><article key={order.id} className="rounded-xl border p-4">
               <div className="flex flex-col justify-between gap-3 sm:flex-row">
                 <div>
@@ -822,7 +860,7 @@ export default function ProcurementPage() {
                 })}
               </div>
               {can("payables.create") &&
-                ["partially_received", "received"].includes(order.status) && (
+                ["partially_received", "received"].includes(order.status) && (itemsByOrder.get(order.id) ?? []).some(item => item.receivedQuantity > (item.invoicedQuantity ?? 0)) && (
                   <div className="mt-4 grid items-end gap-3 border-t pt-4 md:grid-cols-2 xl:grid-cols-[minmax(0,1fr)_10rem_12rem_auto]">
                     <label className="min-w-0 flex-1 text-sm">Supplier invoice number
                     <input
@@ -887,21 +925,17 @@ export default function ProcurementPage() {
                     </Button></FinancialAction>
                   </div>
                 )}
+              {["partially_received", "received"].includes(order.status) && !(itemsByOrder.get(order.id) ?? []).some(item => item.receivedQuantity > (item.invoicedQuantity ?? 0)) && <div className="mt-4 rounded-lg bg-emerald-50 p-3 text-sm">All received goods are already matched to invoices. No new invoice is needed for these goods. {can("payables.read") && <Button variant="outline" className="ml-2" onClick={() => { setInvoiceSearch(order.purchaseOrderNumber); dismissDetail(); setTab("invoices"); }}>View recorded invoices</Button>}</div>}
             </article></FinancialActionScope>
           ))}
-          {!workspace?.purchaseOrders.length && (
-            <p className="rounded-lg bg-slate-50 p-6 text-center text-sm text-[var(--muted)]">
-              No purchase orders yet.
-            </p>
-          )}
         </div>
-      </section>
+      </section>}
 
-      {can("payables.read") && workspace && <SupplierAccounts suppliers={workspace.suppliers} banks={workspace.bankAccounts} branches={workspace.branches} scope={contextScope} canPay={can("payables.pay")} invoice={paymentInvoice} closeInvoice={() => setPaymentInvoice(null)} onComplete={() => { setMessage("Supplier transaction recorded with its accounting and audit entries."); void load(); }} />}
+      {can("payables.read") && workspace && (tab === "accounts" || paymentInvoice) && <SupplierAccounts suppliers={workspace.suppliers} banks={workspace.bankAccounts} branches={workspace.branches} scope={contextScope} canPay={can("payables.pay")} invoice={paymentInvoice} closeInvoice={() => setPaymentInvoice(null)} onComplete={() => { setMessage("Supplier transaction recorded with its accounting and audit entries."); setPaymentInvoice(null); setSelectedInvoice(null); setRevision(value => value + 1); void load(); }} />}
 
-      {returnInvoiceId && <SupplierReturns invoiceId={returnInvoiceId} canPost={can("procurement.receive") && can("payables.approve")} canReverse={can("procurement.receive") && can("payables.approve") && can("inventory.reverse")} onClose={() => setReturnInvoiceId(null)} onComplete={() => { void load(); }} />}
+      {returnInvoiceId && <SupplierReturns invoiceId={returnInvoiceId} canPost={can("procurement.receive") && can("payables.approve")} canReverse={can("procurement.receive") && can("payables.approve") && can("inventory.reverse")} onClose={() => setReturnInvoiceId(null)} onComplete={() => { dismissDetail(); setRevision(value => value + 1); void load(); }} />}
 
-      {can("payables.read") && (
+      {can("payables.read") && selectedInvoice && (
         <section className="rounded-xl border bg-white p-5">
           <h2 className="flex items-center gap-2 text-xl font-semibold">
             <WalletCards className="size-5" /> Accounts Payable
@@ -911,7 +945,7 @@ export default function ProcurementPage() {
             may approve their own matched invoice; every action is audited.
           </p>
           <div className="mt-4 space-y-3">
-            {workspace?.supplierInvoices.map((invoice) => {
+            {[selectedInvoice].map((invoice) => {
               return (
               <FinancialActionScope key={invoice.id}><article
                 key={invoice.id}
@@ -966,11 +1000,6 @@ export default function ProcurementPage() {
               </article></FinancialActionScope>
               );
             })}
-            {!workspace?.supplierInvoices.length && (
-              <p className="rounded-lg bg-slate-50 p-6 text-center text-sm text-[var(--muted)]">
-                No supplier invoices recorded.
-              </p>
-            )}
           </div>
         </section>
       )}

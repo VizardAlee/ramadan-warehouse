@@ -132,6 +132,15 @@ export function queryCatalog() {
   add("supplier return history", "supplierReturns", [org, ["supplierInvoiceId", "=="]], dateOrder("createdAt"));
   add("supplier return invoice products", "supplierInvoiceItems", [org, ["supplierInvoiceId", "=="]]);
   add("supplier return receipt ledger", "inventoryEntries", [["transactionId", "=="], ["locationId", "=="]]);
+  // Purchasing register: OR assignment scopes use the same branch/warehouse component indexes.
+  for (const collection of ["purchaseOrders", "supplierInvoices"]) for (const scope of [[], [["branchId", "=="]], [["warehouseId", "=="]], [["branchId", "in"]], [["warehouseId", "in"]]]) {
+    for (const optional of subsets(["supplierId", "status"])) {
+      const filters = [org, ...scope, ...eq(optional)];
+      add("purchasing cursor pages with indexed filters", collection, filters, [["__name__", "ASCENDING"]]);
+      add("purchasing date filtered cursor pages", collection, [...filters, ["createdAt", ">="], ["createdAt", "<"]], [["createdAt", "DESCENDING"], ["__name__", "ASCENDING"]]);
+    }
+  }
+  add("selected purchase order complete line detail", "purchaseOrderItems", [org, ["purchaseOrderId", "=="]], [["__name__", "ASCENDING"]]);
   add("supplier directory legacy-aware search pages", "suppliers", [org], [["__name__", "ASCENDING"]]);
   for (const collection of ["purchaseOrders", "purchaseReceipts", "supplierAccountEntries", "providerFundPayments"])
     add("supplier profile complete scoped history", collection, [org, ["supplierId", "=="]], [["__name__", "ASCENDING"]]);

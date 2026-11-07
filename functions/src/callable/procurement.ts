@@ -1,3 +1,4 @@
+import { purchasingPage, purchasingOrderDetail, purchasingPageInput, purchasingDetailInput } from "../procurement/purchasing-pages.js";
 import { withRecordActors } from "../audit/record-actors.js";
 import { changeCreditSources, type SupplierCreditSourceMap } from "../procurement/credit-sources.js";
 import { supplierDirectory, supplierProfile, supplierActivity, supplierStatement, supplierSummary } from "../procurement/supplier-workspace.js";
@@ -335,6 +336,9 @@ export const getProcurementWorkspace = onCall(
   async (request) => {
     const actor = await procurementAccess(await requireAccess(request));
     requirePermission(actor, "procurement.read");
+    if (["orders_page", "invoices_page"].includes(request.data?.view))
+      return purchasingPage(actor, parseInput(purchasingPageInput, { ...request.data, view: request.data.workflow ?? "needs_action" }), request.data.view === "orders_page" ? "orders" : "invoices");
+    if (request.data?.view === "order_detail") return purchasingOrderDetail(actor, parseInput(purchasingDetailInput, request.data));
     if (["list_evidence", "read_evidence", "upload_evidence"].includes(request.data?.action))
       return operationalEvidence(actor, request.data?.evidenceKind === "purchase_receipt" ? "purchase_receipt" : request.data?.evidenceKind === "supplier_replacement" ? "supplier_replacement" : "supplier_return", parseInput(operationalEvidenceInput, request.data));
     const input = parseInput(procurementWorkspaceInput, request.data);
@@ -479,9 +483,9 @@ export const getProcurementWorkspace = onCall(
         .where("active", "==", true)
         .limit(500)
         .get(),
-      purchaseOrdersQuery.get(),
-      purchaseItemsQuery.get(),
-      invoicesQuery.get(),
+      input.view === "options" ? Promise.resolve({ docs: [] }) : purchaseOrdersQuery.get(),
+      input.view === "options" ? Promise.resolve({ docs: [] }) : purchaseItemsQuery.get(),
+      input.view === "options" ? Promise.resolve({ docs: [] }) : invoicesQuery.get(),
       db.collection("bankAccounts")
         .where("organizationId", "==", actor.organizationId)
         .where("active", "==", true)
