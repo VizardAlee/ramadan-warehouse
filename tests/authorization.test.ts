@@ -49,6 +49,27 @@ describe("server authorization controls", () => {
     expect(hasServerPermission({ ...actor("branch_manager"), directRoleIds: ["branch_manager"], effectivePermissions: ["sales.payment.confirm"] }, "sales.stock.release")).toBe(true);
     expect(hasServerPermission({ ...actor("branch_manager"), directRoleIds: [], effectivePermissions: ["sales.payment.confirm"] }, "sales.stock.release")).toBe(false);
   });
+  it("adds purchasing to existing direct branch managers without promoting custom bases", () => {
+    const permissions = ["suppliers.read", "procurement.read", "procurement.create", "procurement.approve", "procurement.receive", "payables.read", "payables.create", "payables.approve", "payables.pay"] as const;
+    for (const permission of permissions) {
+      for (const directRoleIds of [["branch_manager"] as const, [] as const]) {
+        const direct = [...directRoleIds];
+        expect(hasServerPermission({ ...actor("branch_manager"), directRoleIds: direct, effectivePermissions: [] }, permission)).toBe(direct.length > 0);
+        expect(hasPermission({ status: "active", roleId: "branch_manager", directRoleIds: direct, effectivePermissions: [] }, permission)).toBe(direct.length > 0);
+      }
+      expect(hasServerPermission(actor("branch_manager"), permission)).toBe(true);
+      const legacy = accessProfileFromRecord("legacy-branch", { organizationId: "org", status: "active", roleId: "branch_manager", roleIds: ["branch_manager"], effectivePermissions: [], branchIds: ["b1"], warehouseIds: [] });
+      expect(hasServerPermission(legacy, permission)).toBe(true);
+      expect(hasPermission({ status: "active", roleId: "branch_manager", effectivePermissions: [] }, permission)).toBe(true);
+      expect(hasPermission({ status: "inactive", roleId: "branch_manager" }, permission)).toBe(false);
+      expect(hasPermission({ status: "active", roleId: "branch_manager", customRoleIds: ["limited"], effectivePermissions: [] }, permission)).toBe(false);
+      expect(hasServerPermission(actor("sales_cashier"), permission)).toBe(false);
+    }
+    for (const permission of ["suppliers.manage", "banking.manage", "banking.transfer", "finance.accounts.manage"] as const) {
+      expect(hasServerPermission(actor("branch_manager"), permission)).toBe(false);
+      expect(hasPermission({ status: "active", roleId: "branch_manager" }, permission)).toBe(false);
+    }
+  });
   it("allows a system administrator to assign an allowed role", () => expect(canAssignRole("system_administrator", "finance_officer")).toBe(true));
   it("limits a custom role to its selected permissions while retaining branch scope", () => {
     const assignment = buildRoleAssignment([], [{ id: "sales-helper", organizationId: "org", name: "Sales helper", baseRoleId: "branch_manager", permissionIds: ["sales.order.create"], status: "active" }]);

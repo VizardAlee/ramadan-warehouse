@@ -68,10 +68,8 @@ async function createActor(email: string, roleId: string) {
     email,
     displayName: roleId,
     roleId,
-    roleIds:
-      roleId === "branch_manager"
-        ? ["warehouse_manager", "branch_manager"]
-        : [roleId],
+    // Exercise the actual built-in role, not a hidden warehouse-manager grant.
+    roleIds: [roleId],
     branchIds: roleId === "branch_manager" ? [headOfficeId] : [],
     warehouseIds: roleId === "warehouse_manager" ? [warehouseId] : [],
     status: "active",
@@ -182,6 +180,29 @@ beforeAll(async () => {
 afterAll(async () => Promise.all(apps.map((app) => deleteApp(app))));
 
 describe.sequential("procurement callables", () => {
+  it("keeps a branch-only purchaser out of another branch and warehouse", async () => {
+    const managerProfile = (await adminDb.doc(`users/${headOfficeManager.auth.currentUser!.uid}`).get()).data()!;
+    expect(managerProfile.roleIds).toEqual(["branch_manager"]);
+    expect(managerProfile.warehouseIds).toEqual([]);
+    const supplier = await call<{ supplierId: string }>(administrator, "saveSupplier", { name: "Branch-only scope fixture", phone: "07011118888", idempotencyKey: crypto.randomUUID() });
+    const remoteBranchId = "procurement-unassigned-branch", remoteLocationId = "procurement-unassigned-location";
+    await adminDb.doc(`branches/${remoteBranchId}`).set({ organizationId, name: "Other Store", code: "OTHER", branchType: "store", status: "active" });
+    await adminDb.doc(`inventoryLocations/${remoteLocationId}`).set({ organizationId, branchId: remoteBranchId, name: "Other Stock", code: "OTHER-STOCK", type: "branch", status: "active" });
+    const input = { supplierId: supplier.supplierId, branchId: remoteBranchId, receivingLocationId: remoteLocationId,
+      lines: [{ productId, quantity: 1, unitCostMinor: 10000 }], idempotencyKey: crypto.randomUUID(), operatingContext: { type: "all" } };
+    await expect(call(headOfficeManager, "createPurchaseOrder", input)).rejects.toMatchObject({ code: "functions/permission-denied" });
+    await expect(call(headOfficeManager, "getProcurementWorkspace", { branchId: remoteBranchId, operatingContext: { type: "all" } })).rejects.toMatchObject({ code: "functions/permission-denied" });
+    await expect(call(headOfficeManager, "getProcurementWorkspace", { warehouseId, operatingContext: { type: "all" } })).rejects.toMatchObject({ code: "functions/permission-denied" });
+    const remoteOrder = await call<{ purchaseOrderId: string }>(administrator, "createPurchaseOrder", input);
+    for (const action of ["submitPurchaseOrder", "approvePurchaseOrder"])
+      await expect(call(headOfficeManager, action, { ...remoteOrder, idempotencyKey: crypto.randomUUID(), operatingContext: { type: "all" } })).rejects.toMatchObject({ code: "functions/permission-denied" });
+    await expect(call(headOfficeManager, "getProcurementWorkspace", { view: "purchase_receipts", ...remoteOrder, operatingContext: { type: "all" } })).rejects.toMatchObject({ code: "functions/permission-denied" });
+    const workspace = await call<{ branches: { id: string }[]; warehouses: { id: string }[]; purchaseOrders: { id: string }[] }>(headOfficeManager, "getProcurementWorkspace", { branchId: headOfficeId });
+    expect(workspace.branches.map(branch => branch.id)).toEqual([headOfficeId]);
+    expect(workspace.warehouses).toEqual([]);
+    expect(workspace.purchaseOrders.some(order => order.id === remoteOrder.purchaseOrderId)).toBe(false);
+    await expect(call(headOfficeManager, "saveSupplier", { name: "Not authorized to edit suppliers", idempotencyKey: crypto.randomUUID() })).rejects.toMatchObject({ code: "functions/permission-denied" });
+  });
   it.each(["operations_administrator", "auditor", "finance_officer"] as const)("keeps a manager plus custom %s reader scoped across procurement writes and retries", async base => {
     // Fresh isolated test identities; no existing user or role is altered.
     const mixed = await createActor(`procurement-scope-${base}@example.test`, "warehouse_manager");
@@ -292,12 +313,12 @@ describe.sequential("procurement callables", () => {
     }
   });
 
-  it("rejects each write for an assigned custom manager whose effective grants are read-only", async () => {
-    const reader = await createActor("procurement-scoped-reader@example.test", "warehouse_manager");
-    const role: StoredRole = { id: "procurement-scoped-reader-fixture", organizationId, name: "Read-only manager fixture", baseRoleId: "warehouse_manager", permissionIds: ["procurement.read"], status: "active" };
+  it.each(["warehouse_manager", "branch_manager"] as const)("rejects each write for an assigned custom %s whose effective grants are read-only", async baseRoleId => {
+    const reader = await createActor(`procurement-scoped-reader-${baseRoleId}@example.test`, baseRoleId);
+    const role: StoredRole = { id: `procurement-scoped-reader-fixture-${baseRoleId}`, organizationId, name: "Read-only manager fixture", baseRoleId, permissionIds: ["procurement.read"], status: "active" };
     await adminDb.doc(`roles/${role.id}`).create(role);
     await adminDb.doc(`users/${reader.auth.currentUser!.uid}`).update({ ...buildRoleAssignment([], [role]) });
-    await expect(call(reader, "getProcurementWorkspace", { warehouseId })).resolves.toHaveProperty("purchaseOrders");
+    await expect(call(reader, "getProcurementWorkspace", baseRoleId === "branch_manager" ? { branchId: headOfficeId } : { warehouseId })).resolves.toHaveProperty("purchaseOrders");
     for (const action of ["createPurchaseOrder", "submitPurchaseOrder", "approvePurchaseOrder", "receivePurchaseOrderItem", "submitSupplierInvoice", "approveSupplierInvoice", "recordSupplierPayment", "postSupplierReturn"])
       await expect(call(reader, action, {})).rejects.toMatchObject({ code: "functions/permission-denied" });
   });
