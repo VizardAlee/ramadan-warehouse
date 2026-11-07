@@ -1143,9 +1143,10 @@ describe.sequential("procurement callables", () => {
     type Page = { orders: Array<{id:string;nextAction:string}>; invoices: Array<{id:string}>; nextCursor: string|null };
     const request = {view:"orders_page",workflow:"all",branchId:headOfficeId,supplierId,pageSize:25};
     const first = await call<Page>(headOfficeManager,"getProcurementWorkspace",request);
-    const allAssigned = await call<Page>(headOfficeManager,"getProcurementWorkspace",{...request,branchId:undefined});
+    const unscopedRequest = {view:"orders_page",workflow:"all",supplierId,pageSize:25};
+    const allAssigned = await call<Page>(headOfficeManager,"getProcurementWorkspace",unscopedRequest);
     expect(allAssigned.orders.every(row=>row.id !== "pagination-other-location")).toBe(true);
-    const contextual = await call<Page>(administrator,"getProcurementWorkspace",{...request,branchId:undefined,operatingContext:{type:"branch",id:headOfficeId}});
+    const contextual = await call<Page>(administrator,"getProcurementWorkspace",{...unscopedRequest,operatingContext:{type:"branch",id:headOfficeId}});
     expect(contextual.orders.every(row=>row.id !== "pagination-other-location")).toBe(true);
     const ids = first.orders.map(row=>row.id); let cursor = first.nextCursor;
     while(cursor) { const page = await call<Page>(headOfficeManager,"getProcurementWorkspace",{...request,cursor}); ids.push(...page.orders.map(row=>row.id)); cursor=page.nextCursor; }
@@ -1154,11 +1155,12 @@ describe.sequential("procurement callables", () => {
     expect(filtered.orders).toEqual([expect.objectContaining({id:"pagination-order-126",nextAction:"Review invoices"})]);
     const history = await call<Page>(headOfficeManager,"getProcurementWorkspace",{...request,workflow:"history"}); expect(history.orders).toHaveLength(1);
     const invoiceIds: string[] = []; cursor=null;
-    do { const page: Page = await call<Page>(headOfficeManager,"getProcurementWorkspace",{...request,view:"invoices_page",cursor:cursor??undefined}); invoiceIds.push(...page.invoices.map(row=>row.id)); cursor=page.nextCursor; } while(cursor);
+    do { const page: Page = await call<Page>(headOfficeManager,"getProcurementWorkspace",{...request,view:"invoices_page",...(cursor ? {cursor} : {})}); invoiceIds.push(...page.invoices.map(row=>row.id)); cursor=page.nextCursor; } while(cursor);
     expect(invoiceIds).toHaveLength(121);
     const detail = await call<{items:unknown[]}>(headOfficeManager,"getProcurementWorkspace",{view:"order_detail",purchaseOrderId:orderId,branchId:headOfficeId}); expect(detail.items).toHaveLength(620);
     await expect(call(headOfficeManager,"getProcurementWorkspace",{...request,cursor:first.nextCursor,search:"changed"})).rejects.toMatchObject({code:"functions/invalid-argument"});
-    await expect(call(headOfficeManager,"getProcurementWorkspace",{view:"order_detail",purchaseOrderId:"pagination-other-location"})).rejects.toMatchObject({code:"functions/permission-denied"});
+    await expect(call(headOfficeManager,"getProcurementWorkspace",{view:"order_detail",purchaseOrderId:"pagination-other-location",operatingContext:{type:"all"}})).rejects.toMatchObject({code:"functions/permission-denied"});
+    await expect(call(headOfficeManager,"getProcurementWorkspace",{view:"order_detail",purchaseOrderId:"pagination-other-location",operatingContext:{type:"branch",id:headOfficeId}})).rejects.toMatchObject({code:"functions/failed-precondition",details:{code:"OPERATING_CONTEXT_MISMATCH"}});
     const options = await call<{purchaseOrders:unknown[];purchaseOrderItems:unknown[];supplierInvoices:unknown[]}>(headOfficeManager,"getProcurementWorkspace",{view:"options",branchId:headOfficeId});
     expect(options.purchaseOrders).toEqual([]); expect(options.purchaseOrderItems).toEqual([]); expect(options.supplierInvoices).toEqual([]);
   }, 120000);
