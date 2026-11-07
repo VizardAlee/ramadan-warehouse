@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { savePrintFixture } from "./helpers/print-fixture";
 import { afterEach, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { ProformaDocument, type Proforma } from "@/features/pos/proforma-document";
@@ -12,6 +13,7 @@ it("reprints a clearly nonposting quotation without calling a financial operatio
   fireEvent.click(screen.getByRole("button", { name: "Print proforma / save PDF" }));
   fireEvent.click(screen.getByRole("button", { name: "Print proforma / save PDF" }));
   expect(print).toHaveBeenCalledTimes(2);
+    savePrintFixture("proforma");
 });
 it("allows historic printing while withholding expired or unauthorized conversion", () => {
   const view = render(<ProformaDocument quote={{ ...quote, expiresAt: "2000-01-01T00:00:00Z" }} canConvert onClose={() => {}} />);

@@ -18,7 +18,7 @@
 }
 
 @media print {
-  @page { size: A4; margin: 12mm; }
+  @page { size: auto; margin: 12mm; }
   body:has([data-financial-statement]) * { visibility: hidden !important; }
   body:has([data-financial-statement]) [data-financial-statement],
   body:has([data-financial-statement]) [data-financial-statement] * { visibility: visible !important; }
@@ -101,7 +101,7 @@
 .financial-statement-trial th:not(:first-child), .financial-statement-trial td:not(:first-child) { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .financial-statement-trial small { display: block; color: var(--muted); font-size: .7rem; }
 @media (max-width: 520px) { .financial-statement-document { padding: 1rem; } .financial-statement-meta { flex-direction: column; gap: .2rem; text-align: center; } .financial-statement-line { font-size: .78rem; } }
-@media print { @page { size: A4; margin: 16mm; } .financial-statement-document { font-size: 10pt; } }
+@media print { @page { size: auto; margin: 12mm; } .financial-statement-document { font-size: 10pt; } }
 
 * { border-color: var(--border); box-sizing: border-box; }
 html { min-width: 320px; min-height: 100%; background: var(--background); overscroll-behavior-y: none; -webkit-text-size-adjust: 100%; }
@@ -402,30 +402,64 @@ textarea { min-height: 96px; }
 .finance-balance { color: #2447a4; }
 .finance-neutral { color: #334155; }
 
-/* Invoice measurement uses the same compact layout as its printed document. */
-[data-invoice-document][data-measure-print] { width: 186mm !important; max-width: none !important; max-height: none !important; overflow: visible !important; }
+/* Measure in the same page-width layout used by print, never the mobile dialog. */
+[data-invoice-document][data-measure-print] { width: 186mm !important; max-width: none !important; max-height: none !important; overflow: visible !important; scrollbar-gutter: auto; }
 [data-invoice-document][data-measure-print] [data-no-print] { display: none !important; }
-[data-invoice-document][data-measure-print] :is(header, section, td, th) { padding: 5px 8px !important; }
+[data-invoice-document][data-measure-print] :is(header, section, td, th) { padding: 3px 6px !important; }
 [data-invoice-document][data-measure-print] > div { padding: 8px !important; }
 [data-invoice-document][data-measure-print] .space-y-6 > :not(:last-child) { margin-block-end: 8px !important; }
-[data-invoice-document][data-measure-print] * { font-size: 11px !important; line-height: 1.3 !important; }
-[data-invoice-document][data-measure-print] td > span { display: inline !important; margin-left: 5px; }
+[data-invoice-document][data-measure-print] * { min-width: 0 !important; font-size: 12px !important; line-height: 1.3 !important; overflow-wrap: anywhere; }
 [data-invoice-document][data-measure-print] .grid { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; gap: 8px !important; }
+[data-invoice-document][data-measure-print] header > div > span { width: 48px !important; height: 48px !important; }
+[data-invoice-document][data-measure-print] td > span { display: inline !important; margin-left: 4px; }
+[data-invoice-document][data-measure-print] table { width: 100%; table-layout: fixed; }
+[data-invoice-document][data-measure-print] th:first-child { width: 36%; }
+[data-invoice-document][data-measure-print] .overflow-x-auto { overflow: visible !important; }
 .customer-statement-print-only { display: none; }
 .customer-history-page .responsive-table { min-width: 1100px; }
 .customer-history-page .responsive-table th:nth-child(2) { width: 30%; }
 @media print {
-  @page { size: A4; margin: 12mm; }
+  @page { size: auto; margin: 12mm; }
   body:has([data-print-document]) > :not([data-print-document]):not(:has([data-print-document])) { display: none !important; }
   html:has([data-print-document]) { background: white !important; }
   body:has([data-print-document]) { min-height: 0 !important; background: white !important; }
   body:has([data-print-document]) [data-print-document] { inset: auto !important; top: 0 !important; left: 0 !important; width: 100% !important; }
-  body:has([data-invoice-document]) [data-invoice-document] { width: 186mm !important; zoom: var(--invoice-print-scale, 1); }
-  [data-invoice-document] :is(header, section, td, th) { padding: 5px 8px !important; }
+  /* Use normal flow so long documents paginate instead of being cropped by a
+     fixed dialog, transformed ancestor or scroll container. Keep ancestors only. */
+  body:has([data-print-document]) :has([data-print-document]) {
+    position: static !important; display: block !important; transform: none !important;
+    animation: none !important; overflow: visible !important; height: auto !important;
+    min-height: 0 !important; max-height: none !important; width: auto !important;
+    min-width: 0 !important; max-width: none !important; margin: 0 !important;
+    padding: 0 !important; border: 0 !important; background: white !important;
+  }
+  body:has([data-print-document]) :has([data-print-document]) > :not([data-print-document]):not(:has([data-print-document])) { display: none !important; }
+  body:has([data-print-document]) [data-print-document] {
+    position: static !important; margin: 0 !important; min-width: 0 !important;
+    width: 100% !important; max-width: 186mm !important; height: auto !important;
+    padding: 8px !important; border: 0 !important; scrollbar-gutter: auto;
+    font-size: 12px; line-height: 1.3; overflow-wrap: anywhere;
+  }
+  [data-print-document] * { min-width: 0 !important; }
+  [data-print-document] :is(.overflow-x-auto, .responsive-table-wrap) { overflow: visible !important; }
+  [data-print-document] table { display: table; width: 100% !important; min-width: 0 !important; table-layout: fixed; border-collapse: collapse; }
+  [data-print-document] thead { display: table-header-group; position: static; clip: auto; height: auto; }
+  [data-print-document] tbody { display: table-row-group !important; }
+  [data-print-document] tr { display: table-row !important; break-inside: avoid; border-radius: 0; box-shadow: none; }
+  [data-print-document] :is(th, td) { display: table-cell !important; padding: 5px !important; white-space: normal !important; overflow-wrap: anywhere; vertical-align: top; font-size: 12px; }
+  [data-print-document] td::before { display: none; }
+  [data-print-document] .grid.sm\:grid-cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  [data-print-document] :is(.space-y-5, .space-y-6) > :not(:last-child) { margin-block-end: 8px !important; }
+  [data-print-document] :is(header, section) { padding: 8px !important; }
+  [data-print-document] :is(h1, h2, h3) { break-after: avoid; }
+  body:has([data-invoice-document]) [data-invoice-document] { zoom: var(--invoice-print-scale, 1); }
+  [data-invoice-document] header > div > span { width: 48px !important; height: 48px !important; }
+  [data-invoice-document] td > span { display: inline !important; margin-left: 4px; }
+  [data-invoice-document] th:first-child { width: 36%; }
+  [data-invoice-document] :is(header, section, td, th) { padding: 3px 6px !important; }
   [data-invoice-document] > div { padding: 8px !important; }
   [data-invoice-document] .space-y-6 > :not(:last-child) { margin-block-end: 8px !important; }
-  [data-invoice-document] * { font-size: 11px !important; line-height: 1.3 !important; }
-  [data-invoice-document] td > span { display: inline !important; margin-left: 5px; }
+  [data-invoice-document] * { font-size: 12px !important; line-height: 1.3 !important; }
   [data-invoice-document] .grid { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; gap: 8px !important; }
   [data-invoice-document] table { min-width: 0 !important; }
   [data-invoice-document] .overflow-x-auto { overflow: visible !important; }
@@ -433,6 +467,7 @@ textarea { min-height: 96px; }
   @page customer-statement { size: A4 landscape; margin: 12mm; }
   html:has(.customer-statement-print-only) { background: white !important; }
   body:has(.customer-statement-print-only) { page: customer-statement; }
+  body:has([data-print-document]) .customer-statement-print-only { max-width: none !important; }
   .customer-statement-print-only { display: block !important; position: static !important; page: customer-statement; padding: 0 !important; background: white; font-size: 9pt; line-height: 1.35; }
   .customer-statement-print-only h1 { font-size: 14pt; font-weight: 700; }
   .customer-statement-print-only h2 { font-size: 11pt; margin-top: 3px; }

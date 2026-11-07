@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { savePrintFixture } from "./helpers/print-fixture";
 import { afterEach, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { AccountReceiptButton, AccountReceiptDialog } from "@/features/finance/account-receipt";
@@ -23,6 +24,7 @@ it("loads an authorized existing receipt and reprints without posting another pa
   fireEvent.click(screen.getByRole("button", { name: "Print receipt / save PDF" }));
   fireEvent.click(screen.getByRole("button", { name: "Print receipt / save PDF" }));
   expect(print).toHaveBeenCalledTimes(2); expect(api).toHaveBeenCalledTimes(1);
+    savePrintFixture("receipt");
 });
 it("rejects a mismatched receipt and distinguishes advance application from new money", async () => {
   api.mockResolvedValue({ ...receipt, id: "other" });

@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { savePrintFixture } from "./helpers/print-fixture";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { SaleWaybills } from "@/features/pos/sale-waybills";
@@ -33,6 +34,7 @@ describe("collection waybill", () => {
     expect(api).toHaveBeenLastCalledWith("getSaleDocument", { saleId: "sale1", collectionLimit: 25, collectionCursorId: "collection1" });
     fireEvent.click(screen.getByRole("button", { name: "View waybill" }));
     expect(screen.getByRole("dialog", { name: "Collection waybill" }).textContent).toContain("2 unit");
+    savePrintFixture("waybill");
     fireEvent.click(screen.getByRole("button", { name: "Back to invoice" }));
     fireEvent.click(screen.getByRole("button", { name: "Newer collections" }));
     await waitFor(() => expect(screen.getByText(/6 collected by Amina Musa/)).toBeTruthy());
