@@ -127,3 +127,12 @@ The candidate's source fingerprints were refreshed only after that successful au
 and catalog comparison. Index definitions and validation safeguards are unchanged;
 no business data, access controls or indexes were modified by this verification.
 The recorded index inventory timestamp remains historical, not a new inventory check.
+
+Branch-manager purchasing verification (7 November 2026): Candidate ece90481196e73fafaa52745d86d43a9770bc4c4
+adds branch-role capabilities without changing any Firestore query. Reviewed
+functions/src/auth/authorize.ts; its existing profile reads are unchanged. The
+complete catalog remains 735 shapes with SHA-256 f0008c842b3744e3621366fb157df298367c5c0f3a0df50e1afa8963300dbee5.
+A fresh production planner-only audit at 2026-11-07T12:50:13.712Z passed
+735/735 shapes with zero missing indexes. Evidence SHA-256: a8f3ccad7599f3c36c50860ffd4a694526825293b60acee563f5336a9a31180e.
+Only the reviewed source fingerprint was refreshed. The 272-index inventory
+timestamp remains historical; no indexes, rules or production records were changed.
