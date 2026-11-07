@@ -213,3 +213,18 @@ and inventory unchanged. Repeated requests reuse one payment/journal/audit event
 competing refunds cannot overdraw the balance. Inactive suppliers remain eligible
 to refund existing money. No historical records are rewritten. Goods returns and
 their credit notes/refunds remain a separate, unfinished workflow.
+
+## Branch-manager purchasing
+
+The built-in Branch Manager role can create, submit and approve purchase orders,
+receive goods, match and approve supplier invoices, and record supplier payments
+for its assigned branches. It does not need an additional Warehouse Manager role.
+The existing manager self-approval policy and audit evidence apply. Each server
+action still validates its own permission and assigned recording branch, including
+retries, supplier returns and credit. Other branches and warehouses remain denied.
+
+Existing direct assignments gain these capabilities without rewriting user
+profiles. Restricted custom roles retain only their explicitly selected grants;
+a Branch Manager base alone does not grant purchasing. Shared supplier editing
+and bank administration are unchanged. Branch managers purchase from the existing
+supplier directory; authorized supplier administrators maintain that shared list.

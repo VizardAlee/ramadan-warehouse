@@ -6,6 +6,12 @@ import {
   type UserProfile,
 } from "@/types/domain";
 
+const branchPurchasingPermissions: readonly PermissionId[] = [
+  "suppliers.read",
+  "procurement.read", "procurement.create", "procurement.approve", "procurement.receive",
+  "payables.read", "payables.create", "payables.approve", "payables.pay",
+];
+
 const permissionsByRole: Readonly<Record<RoleId, readonly PermissionId[]>> = {
   system_administrator: permissionIds,
   operations_administrator: [
@@ -172,6 +178,7 @@ const permissionsByRole: Readonly<Record<RoleId, readonly PermissionId[]>> = {
     "transfers.report_discrepancy",
   ],
   branch_manager: [
+    ...branchPurchasingPermissions,
     "daily.close.read", "daily.close.prepare", "daily.close.approve",
     "request.create",
     "receipt.confirm",
@@ -346,6 +353,9 @@ export function hasPermission(
     const direct = profile.directRoleIds ?? (profile.customRoleIds?.length ? [] : assignedRoles);
     if (permissionsForRoles(direct).has(permission)) return true;
   }
+  // Refresh the built-in branch capability without widening restricted custom roles.
+  const direct = profile.directRoleIds ?? (profile.customRoleIds?.length ? [] : assignedRoles);
+  if (direct.includes("branch_manager") && branchPurchasingPermissions.includes(permission)) return true;
   if (profile.effectivePermissions) return profile.effectivePermissions.includes(permission);
   return permissionsForRoles(assignedRoles).has(permission);
 }

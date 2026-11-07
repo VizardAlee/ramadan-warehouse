@@ -3,10 +3,9 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import { afterEach, expect, it, vi } from "vitest";
 import ProcurementPage from "@/app/(protected)/procurement/page";
 
-const state = vi.hoisted(() => ({ call: vi.fn(), auth: { profile: { organizationId: "fixture-org" }, user: { uid: "fixture-user" }, operatingContext: { type: "branch", id: "store" } } }));
+const state = vi.hoisted(() => ({ call: vi.fn(), auth: { profile: { organizationId: "fixture-org", status: "active", roleId: "branch_manager", roleIds: ["branch_manager"], effectivePermissions: [], branchIds: ["store"], warehouseIds: [] }, user: { uid: "fixture-user" }, operatingContext: { type: "branch", id: "store" } } }));
 vi.mock("@/features/auth/auth-context", () => ({ useAuth: () => state.auth }));
 vi.mock("@/features/administration/api", () => ({ callAdministration: state.call }));
-vi.mock("@/lib/permissions/roles", () => ({ hasPermission: () => true, canSelfAuthorize: () => true }));
 vi.mock("@/features/procurement/supplier-accounts", () => ({ SupplierAccounts: () => null }));
 vi.mock("@/features/procurement/goods-received-note", () => ({ GoodsReceivedNotes: () => null }));
 vi.mock("@/features/procurement/supplier-returns", () => ({ SupplierReturns: () => null }));
@@ -21,13 +20,14 @@ const workspace = {
   purchaseOrders: [], purchaseOrderItems: [], supplierInvoices: [], bankAccounts: [],
 };
 afterEach(() => { cleanup(); sessionStorage.clear(); state.call.mockReset(); });
-it("searches the real purchase form by partial name, excludes SKU, and keeps IDs and entered cost calculations", async () => {
+it("lets an existing branch-only manager search and create purchases with real role checks", async () => {
   // All writes are intercepted by this mock. No real purchase is submitted.
   state.call.mockImplementation((name: string) => Promise.resolve(name === "getProcurementWorkspace" ? workspace : { id: "mock-order" }));
   const previousScroll = Element.prototype.scrollIntoView;
   Element.prototype.scrollIntoView = vi.fn();
   render(<ProcurementPage />);
   const summary = await screen.findByText("Create purchase order", { selector: "summary" });
+  expect(screen.queryByRole("button", { name: "Add supplier" })).toBeNull();
   fireEvent.click(summary);
   // jsdom does not implement the details toggle.
   (summary.closest("details") as HTMLDetailsElement).open = true;
