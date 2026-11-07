@@ -240,7 +240,7 @@ export default function BankingPage() {
         </div>
       )}
 
-      {can("banking.transfer") && <CompanyFundsTransfer key={`${profile.organizationId}:${profile.uid}`} accounts={workspace?.accounts ?? []} branches={workspace?.branches ?? []} branchId={operatingContext?.type === "branch" ? operatingContext.id : profile.branchIds.length === 1 ? profile.branchIds[0] : undefined} ownerKey={`${profile.organizationId}:${profile.uid}`} onComplete={() => void load(selectedAccountId)} />}
+      {can("banking.transfer") && <CompanyFundsTransfer key={`company-transfer:${profile.organizationId}:${profile.uid}`} accounts={workspace?.accounts ?? []} branches={workspace?.branches ?? []} branchId={operatingContext?.type === "branch" ? operatingContext.id : profile.branchIds.length === 1 ? profile.branchIds[0] : undefined} ownerKey={`${profile.organizationId}:${profile.uid}`} onComplete={() => void load(selectedAccountId)} />}
       {can("banking.manage") && (
         <FinancialActionScope><details
           open={!workspace?.accounts.length}
@@ -416,7 +416,7 @@ export default function BankingPage() {
         </div>
       </section>
 
-      <BankAccountManagement key={`${profile.organizationId}:${profile.uid}`} ownerKey={`${profile.organizationId}:${profile.uid}`} account={selectedAccount} branchId={operatingContext?.type === "branch" ? operatingContext.id : profile.branchIds.length === 1 ? profile.branchIds[0] : undefined} canManage={can("banking.manage")} managementScopeReady={!operatingContext} canPostOpening={can("finance.journal.create") && can("banking.manage")} onSaved={accountId => { setShowInactive(true); setSelectedAccountId(accountId); void load(accountId); }} />
+      <BankAccountManagement key={`account-management:${profile.organizationId}:${profile.uid}`} ownerKey={`${profile.organizationId}:${profile.uid}`} account={selectedAccount} branchId={operatingContext?.type === "branch" ? operatingContext.id : profile.branchIds.length === 1 ? profile.branchIds[0] : undefined} canManage={can("banking.manage")} managementScopeReady={!operatingContext} canPostOpening={can("finance.journal.create") && can("banking.manage")} onSaved={accountId => { setShowInactive(true); setSelectedAccountId(accountId); void load(accountId); }} />
 
       {selectedAccount && selectedAccount.lifecycleStatus !== "removed" && can("banking.reconcile") && (
         <FinancialActionScope><details
