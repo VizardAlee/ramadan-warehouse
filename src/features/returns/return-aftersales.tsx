@@ -1,4 +1,5 @@
 "use client";
+import { SearchableItemSelect } from "@/components/ui/searchable-item-select";
 
 import { useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -37,7 +38,7 @@ export function ReturnAftersales({ record, canRoute, onComplete }: { record: Sal
     {options.filter(option => option.link).map(option => <p key={option.key} className="mt-2 text-sm"><a className="underline" href={`/aftersales?caseId=${encodeURIComponent(option.link!.caseId)}`}>Open service case: {option.item.productName} · {option.serial ?? `${option.item.quantity} units`}</a></p>)}
     {canRoute && options.some(option => !option.link) && <>
       <fieldset disabled={busy || uncertain} className="mt-3 grid gap-3 sm:grid-cols-2">
-        <label className="text-sm">Returned item<select aria-label="Returned item for aftersales" className="mt-1 w-full rounded-lg border p-3" value={selection} onChange={event => setSelection(event.target.value)}><option value="">Select held goods</option>{options.filter(option => !option.link).map(option => <option key={option.key} value={option.key}>{option.item.productName} · {option.serial ?? `${option.item.quantity} units`}</option>)}</select></label>
+        <label className="text-sm">Returned item<SearchableItemSelect itemNames={Object.fromEntries(options.map(option => [option.key, option.item.productName]))} aria-label="Returned item for aftersales" className="mt-1 w-full rounded-lg border p-3" value={selection} onChange={event => setSelection(event.target.value)}><option value="">Select held goods</option>{options.filter(option => !option.link).map(option => <option key={option.key} value={option.key}>{option.item.productName} · {option.serial ?? `${option.item.quantity} units`}</option>)}</SearchableItemSelect></label>
         <label className="text-sm">Service request<textarea className="mt-1 w-full rounded-lg border p-3" value={complaint} onChange={event => setComplaint(event.target.value)} maxLength={1000} /></label>
         {!record.customerId && <><label className="text-sm">Customer name<input className="mt-1 w-full rounded-lg border p-3" value={contactName} onChange={event => setContactName(event.target.value)} maxLength={160} /></label><label className="text-sm">Customer phone<input className="mt-1 w-full rounded-lg border p-3" value={contactPhone} onChange={event => setContactPhone(event.target.value)} maxLength={50} /></label></>}
       </fieldset>

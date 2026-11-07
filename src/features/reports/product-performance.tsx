@@ -1,4 +1,5 @@
 "use client";
+import { SearchableItemSelect } from "@/components/ui/searchable-item-select";
 import { FinancialText } from "@/features/finance/financial-privacy";
 import { useCallback, useState } from "react";
 import { ProductMargins } from "./product-margins";
@@ -21,7 +22,7 @@ export function ProductPerformance({ branches, products, canReadMargins, canRead
       <div className={styles.controls}>
         <ReportPeriodPicker value={period} onChange={value => { setPeriod(value); if (value !== "custom") { const range = reportDateRange(value); setFromDate(range.fromDate); setToDate(range.toDate); } }} />
         <label>Store scope<select value={branchId} onChange={event => setBranchId(event.target.value)}><option value="">All permitted Stores / assigned Store</option>{branches.map(branch => <option value={branch.id} key={branch.id}><FinancialText>{branch.name}</FinancialText></option>)}</select></label>
-        <label>Product filter<select value={productId} onChange={event => setProductId(event.target.value)}><option value="">All matching products</option>{options.map(row => <option value={row.productId} key={row.productId}><FinancialText>{`${row.productName} · ${row.sku || row.productId}`}</FinancialText></option>)}</select></label>
+        <label>Product filter<SearchableItemSelect itemNames={Object.fromEntries(options.map(row => [row.productId, row.productName]))} value={productId} onChange={event => setProductId(event.target.value)}><option value="">All matching products</option>{options.map(row => <option value={row.productId} key={row.productId}><FinancialText>{row.productName}</FinancialText></option>)}</SearchableItemSelect></label>
         <label>Performance from date<input type="date" value={fromDate} onChange={event => { setPeriod("custom"); setFromDate(event.target.value); }} /></label>
         <label>Performance to date<input type="date" value={toDate} onChange={event => { setPeriod("custom"); setToDate(event.target.value); }} /></label>
       </div>

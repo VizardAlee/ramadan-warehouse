@@ -1,4 +1,5 @@
 "use client";
+import { SearchableItemSelect } from "@/components/ui/searchable-item-select";
 
 import Image from "next/image";
 import { useRef, useState } from "react";
@@ -39,7 +40,7 @@ export function CollectionPhotoUpload({ saleId, items, photos, onChange, locked,
   return <fieldset disabled={locked || busy} className="space-y-2 rounded-lg border p-3">
     <legend className="px-1 font-medium">Collection photos (optional)</legend>
     <p className="text-sm text-[var(--muted)]">Up to five JPEG/PNG photos, 2 MB each. Use a camera where supported. Uploading does not release stock; photos attach when you record collection.</p>
-    <label className="block text-sm">Photo product<select className="mt-1 w-full rounded border p-2" value={itemId} onChange={event => { setItemId(event.target.value); pending.current = null; }}>{items.map(item => <option key={item.id} value={item.id}>{item.productName}</option>)}</select></label>
+    <label className="block text-sm">Photo product<SearchableItemSelect itemNames={Object.fromEntries(items.map(item => [item.id, item.productName]))} className="mt-1 w-full rounded border p-2" value={itemId} onChange={event => { setItemId(event.target.value); pending.current = null; }}>{items.map(item => <option key={item.id} value={item.id}>{item.productName}</option>)}</SearchableItemSelect></label>
     <label className="block text-sm">Choose collection photo<input ref={input} className="mt-1 block w-full min-w-0 text-sm" type="file" accept="image/jpeg,image/png" capture="environment" onChange={event => {
       pending.current = null; setError(null);
       const chosen = event.target.files?.[0] ?? null;

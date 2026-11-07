@@ -1,4 +1,5 @@
 "use client";
+import { SearchableItemSelect } from "@/components/ui/searchable-item-select";
 import { FinancialInput, FinancialMessage, FinancialText, FinancialValue } from "@/features/finance/financial-privacy";
 
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -393,7 +394,7 @@ export function PostingForm({
       <div className="form-grid rounded-xl border bg-white p-[clamp(1rem,3vw,1.5rem)]">
         <label className="text-sm">
           <FinancialText>{mode === "opening" ? "1. Product" : "Product"}</FinancialText>
-          <select
+          <SearchableItemSelect loading={products.loading} itemNames={Object.fromEntries(products.data.map(item => [item.id, item.name]))}
             {...form.register("productId")}
             className="mt-1 w-full rounded-lg border p-2.5"
           >
@@ -402,10 +403,10 @@ export function PostingForm({
               .filter((item) => item.active && item.itemKind !== "service")
               .map((item) => (
                 <option key={item.id} value={item.id}>
-                  <FinancialText>{item.name}</FinancialText> · <FinancialText>{item.sku}</FinancialText>
+                  <FinancialText>{item.name}</FinancialText>
                 </option>
               ))}
-          </select>
+          </SearchableItemSelect>
           {form.formState.errors.productId?.message && (
             <span className="mt-1 block text-xs text-red-700">
               <FinancialMessage>{form.formState.errors.productId.message}</FinancialMessage>

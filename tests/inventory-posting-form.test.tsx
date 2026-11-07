@@ -12,7 +12,7 @@ it("posts a reviewed entry cost while retaining the product default and reuses t
   state.call.mockRejectedValueOnce(new Error("Response interrupted"));
   state.call.mockResolvedValueOnce({ transactionNumber: "INV-NEW", posted: false });
   render(<PostingForm mode="opening" initialProductId="panel" initialLocationId="stock" replacementReference="INV-ORIGINAL" />);
-  expect(screen.getByRole("option", {name:"620W Solar Panel · P-620"})).toBeTruthy();
+  expect(screen.getByRole("option", {name:"620W Solar Panel"})).toBeTruthy();
   fireEvent.click(screen.getByRole("checkbox", {name:/Use a different unit cost/}));
   fireEvent.change(screen.getByLabelText("Replacement unit cost (₦)"), {target:{value:"450"}});
   fireEvent.change(screen.getByRole("spinbutton", {name:/3. Quantity/}), {target:{value:"5"}});

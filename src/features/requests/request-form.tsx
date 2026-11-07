@@ -1,4 +1,5 @@
 "use client";
+import { SearchableItemSelect } from "@/components/ui/searchable-item-select";
 
 import { Loader2, Plus, Trash2 } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -282,7 +283,7 @@ export function RequestForm() {
             key={index}
             className="grid gap-3 rounded-lg border p-3 [grid-template-columns:repeat(auto-fit,minmax(min(100%,11rem),1fr))]"
           >
-            <select
+            <SearchableItemSelect loading={products.loading} scopeKey={selectedBranchId} itemNames={Object.fromEntries(products.data.map(product => [product.id, product.name]))}
               className="rounded-lg border p-2.5"
               value={line.productId}
               onChange={(event) =>
@@ -300,10 +301,10 @@ export function RequestForm() {
                 .filter((product) => product.active)
                 .map((product) => (
                   <option key={product.id} value={product.id}>
-                    {product.sku} — {product.name} ({product.trackingType})
+                    {product.name}
                   </option>
                 ))}
-            </select>
+            </SearchableItemSelect>
             <input
               aria-label="Requested quantity"
               className="rounded-lg border p-2.5"

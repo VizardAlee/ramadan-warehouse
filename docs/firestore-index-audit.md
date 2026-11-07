@@ -115,3 +115,15 @@ The candidate's source fingerprints were refreshed only after that successful au
 and catalog comparison. Index definitions and validation safeguards are unchanged;
 no business data, access controls or indexes were modified by this verification.
 The recorded index inventory timestamp remains historical, not a new inventory check.
+
+Client usability dropdown verification (7 November 2026): Searchable item selectors change rendering, local name matching and native select events only. Existing Firestore predicates, scope conditions, ordering, limits and persistence are unchanged.
+Reviewed candidate c0eb4c265d858374381c175b4b5b5acdb9dff87b. Its complete 735-shape catalog
+is byte-equivalent to the live-audited PR #20 candidate dce8ebca6d012838363d7d52d3833d2e162a7a48
+(catalog SHA-256 f0008c842b3744e3621366fb157df298367c5c0f3a0df50e1afa8963300dbee5). The fresh production planner audit at
+2026-11-07T11:07:35.963Z passed 735/735 shapes with zero missing indexes.
+Planner evidence SHA-256: 0d7191ea4789e771b1496300542bee1f9c999293b79c6347e2830043a833fe57.
+Candidate review evidence SHA-256: 5c133ab2d1ef23b37a9bde395ce66059cb2b9bac3653af4c7feba19f309016e8.
+The candidate's source fingerprints were refreshed only after that successful audit
+and catalog comparison. Index definitions and validation safeguards are unchanged;
+no business data, access controls or indexes were modified by this verification.
+The recorded index inventory timestamp remains historical, not a new inventory check.

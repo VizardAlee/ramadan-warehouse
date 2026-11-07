@@ -1,4 +1,5 @@
 "use client";
+import { SearchableItemSelect } from "@/components/ui/searchable-item-select";
 
 import { Loader2, Plus, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -383,7 +384,7 @@ export function TransferForm({ source }: { source: "request" | "direct" }) {
             key={`${line.sourceRequestItemId ?? "direct"}-${index}`}
             className="grid items-end gap-3 rounded-lg border p-3 [grid-template-columns:repeat(auto-fit,minmax(min(100%,11rem),1fr))]"
           >
-            <select
+            <SearchableItemSelect loading={products.loading} scopeKey={source + ":" + branchId} itemNames={Object.fromEntries(products.data.map(item => [item.id, item.name]))}
               required
               disabled={source === "request"}
               className={inputClass}
@@ -403,10 +404,10 @@ export function TransferForm({ source }: { source: "request" | "direct" }) {
                 .filter((item) => item.active)
                 .map((item) => (
                   <option key={item.id} value={item.id}>
-                    {item.sku} · {item.name}
+                    {item.name}
                   </option>
                 ))}
-            </select>
+            </SearchableItemSelect>
             <input
               required
               type="number"

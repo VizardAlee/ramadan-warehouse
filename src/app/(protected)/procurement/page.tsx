@@ -1,4 +1,5 @@
 "use client";
+import { SearchableItemSelect } from "@/components/ui/searchable-item-select";
 import { RecordAttribution } from "@/features/audit/record-attribution";
 import { FinancialAction, FinancialActionScope, FinancialInput, FinancialMessage, FinancialText, FinancialValue  } from "@/features/finance/financial-privacy";
 
@@ -495,7 +496,7 @@ export default function ProcurementPage() {
                 </legend>
                 <label className="text-sm font-medium">
                   Product
-                  <select
+                  <SearchableItemSelect scopeKey={destinationKey + ":" + locationId} itemNames={Object.fromEntries(workspace.products.map(product => [product.id, product.name]))}
                     value={line.productId}
                     onChange={(event) =>
                       setLines(
@@ -511,10 +512,10 @@ export default function ProcurementPage() {
                     <option value="">Select product</option>
                     {workspace.products.map((product) => (
                       <option key={product.id} value={product.id}>
-                        <FinancialText>{product.sku}</FinancialText> · <FinancialText>{product.name}</FinancialText>
+                        <FinancialText>{product.name}</FinancialText>
                       </option>
                     ))}
-                  </select>
+                  </SearchableItemSelect>
                 </label>
                 <label className="text-sm font-medium">
                   Quantity

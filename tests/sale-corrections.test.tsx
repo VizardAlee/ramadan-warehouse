@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { SaleCorrections } from "@/features/returns/sale-corrections";
 const api = vi.hoisted(() => ({ call: vi.fn(), administrator: true }));
@@ -69,4 +69,30 @@ it("completes approved cancellation without a replacement number", async () => {
   fireEvent.change(screen.getByLabelText("Review / completion reason"), { target: { value: "Verified original completely reversed" } });
   fireEvent.click(screen.getByRole("button", { name: "Verify linked transactions and complete" }));
   await waitFor(() => expect(api.call).toHaveBeenCalledWith("salesCorrections", expect.objectContaining({ action: "complete_cancellation", returnNumbers: ["RTN-001"] })));
+});
+
+it("searches the original correction product before catalogue loading and uses the current catalogue name afterwards", async () => {
+  api.call.mockImplementation((name: string) => Promise.resolve(name === "getPosWorkspace"
+    ? { products: [{ id: "panel", name: "Updated panel name", unitPriceMinor: 10000 }], customers: [] }
+    : { records: [], nextCursor: null }));
+  render(<SaleCorrections branchId="branch-1" source={source} canCreate canApprove />);
+  await screen.findByText("No corrections in this view.");
+  const summary = screen.getByText("Request correction to SAL-001");
+  fireEvent.click(summary);
+  (summary.closest("details") as HTMLDetailsElement).open = true;
+  const product = screen.getByRole("combobox", { name: "Product", exact: true }) as HTMLSelectElement;
+  fireEvent.click(product);
+  fireEvent.change(screen.getByRole("combobox", { name: "Search Product by item name" }), { target: { value: "solar" } });
+  fireEvent.click(within(screen.getByRole("listbox")).getByRole("option", { name: "Solar panel", exact: true }));
+  expect(product.value).toBe("panel");
+  fireEvent.click(within(summary.closest("details")!).getByRole("button", { name: "Load product and customer choices" }));
+  await screen.findByRole("option", { name: "Updated panel name", exact: true });
+  fireEvent.click(product);
+  const search = screen.getByRole("combobox", { name: "Search Product by item name" });
+  fireEvent.change(search, { target: { value: "solar" } });
+  expect(screen.getByRole("status").textContent).toBe("No items match this name.");
+  fireEvent.change(search, { target: { value: "updated" } });
+  fireEvent.click(within(screen.getByRole("listbox")).getByRole("option", { name: "Updated panel name", exact: true }));
+  expect(product.value).toBe("panel");
+  expect(api.call.mock.calls.every(([name, input]) => name === "getPosWorkspace" || input.action === "list")).toBe(true);
 });
