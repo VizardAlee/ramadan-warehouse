@@ -20,6 +20,18 @@ beforeEach(() => { HTMLElement.prototype.scrollIntoView = vi.fn(); state.held = 
 afterEach(() => { cleanup(); sessionStorage.clear(); vi.clearAllMocks(); });
 async function basket() { render(<PosPage />); const add = await screen.findByRole("button", { name: "Add", exact: true }); await waitFor(() => expect((add as HTMLButtonElement).disabled).toBe(false)); fireEvent.click(add); await screen.findByLabelText("Price level for Demo battery"); }
 describe("POS client complaint regressions", () => {
+  it("searches only product names without changing the basket or matching a SKU", async () => {
+    await basket();
+    const search = screen.getByRole("textbox", { name: "Search product name" });
+    fireEvent.change(search, { target: { value: "  DEMO    battery  " } });
+    expect(screen.getByRole("heading", { name: "Demo battery" })).toBeTruthy();
+    fireEvent.change(search, { target: { value: "DEMO-BAT" } });
+    expect(screen.queryByRole("heading", { name: "Demo battery" })).toBeNull();
+    expect((screen.getByLabelText("Quantity for Demo battery") as HTMLInputElement).value).toBe("1");
+    fireEvent.change(search, { target: { value: "battery" } });
+    expect(screen.getByRole("heading", { name: "Demo battery" })).toBeTruthy();
+    expect(state.call.mock.calls.some(call => call[0] === "createPosSaleOrder")).toBe(false);
+  });
   it("filters fast-moving products and adds through the normal stock-checked cart flow", async () => {
     state.call.mockImplementation((name, input) => Promise.resolve(name === "getPosWorkspace" ? input.fastMoving ? { version: 1, branchId: "demo-store", status: "ready", productIds: [product.id], asOf: new Date().toISOString(), expiresAt: new Date(Date.now() + 900000).toISOString() } : { ...workspace, products: [product, { ...product, id: "ordinary", name: "Ordinary item" }, { ...product, id: "empty", name: "Empty stock", availableQuantity: 0 }] } : {}));
     render(<PosPage />);
