@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { callAdministration } from "@/features/administration/api";
+import { normalizeProductName } from "@/features/products/name-search";
 import { useAuth } from "@/features/auth/auth-context";
 import { hasOrganizationWideOperatingAccess } from "@/features/auth/operating-context";
 import type { InventoryBalance, InventoryLocation } from "@/types/domain";
@@ -49,12 +50,12 @@ export function useLocationInventoryScope(locations: Locations) {
 }
 
 /** One bounded positions page, plus one whole-scope summary on the first load. */
-export function useLocationInventory(locations: Locations, cursor?: string, limit = 25) {
+export function useLocationInventory(locations: Locations, cursor?: string, limit = 25, search = "") {
   const scope = useLocationInventoryScope(locations);
   const { key: selectedScopeKey, locationKey, selected, waiting, error: scopeError, empty } = scope;
   const [revision, setRevision] = useState(0);
   const refresh = () => setRevision((value) => value + 1);
-  const scopeKey = JSON.stringify([selectedScopeKey, revision]);
+  const scopeKey = JSON.stringify([selectedScopeKey, revision, search]);
   const key = JSON.stringify([scopeKey, cursor, limit]);
   const [result, setResult] = useState<{
     key: string; scopeKey: string; rows: InventoryBalance[]; nextCursor: string | null;
@@ -66,18 +67,22 @@ export function useLocationInventory(locations: Locations, cursor?: string, limi
     if (waiting || scopeError || empty || result.key !== key || !result.loading) return;
     let active = true;
     const savedSummary = result.scopeKey === scopeKey ? result.summary : null;
-    callAdministration<object, PositionPage>("generateStockPositionReport", {
-      locationIds: selected ? JSON.parse(locationKey) as string[] : undefined,
-      cursor, limit, includeCosts: true, withSummary: !savedSummary, view: "positions",
-    }).then((page) => {
-      if (active) setResult({ key, scopeKey, rows: page.rows, nextCursor: page.nextCursor,
-        summary: page.summary ?? savedSummary, loading: false, error: null });
-    }).catch((cause) => {
-      if (active) setResult({ key, scopeKey, rows: [], nextCursor: null, summary: savedSummary,
-        loading: false, error: cause instanceof Error ? cause.message : "Unable to load inventory position." });
-    });
-    return () => { active = false; };
-  }, [key, scopeKey, waiting, scopeError, empty, selected, locationKey, cursor, limit, result.key, result.scopeKey, result.loading, result.summary]);
+    const load = () => {
+      callAdministration<object, PositionPage>("generateStockPositionReport", {
+        locationIds: selected ? JSON.parse(locationKey) as string[] : undefined,
+        cursor, limit, search: normalizeProductName(search) || undefined, includeCosts: true, withSummary: !savedSummary, view: "positions",
+      }).then((page) => {
+        if (active) setResult({ key, scopeKey, rows: page.rows, nextCursor: page.nextCursor,
+          summary: page.summary ?? savedSummary, loading: false, error: null });
+      }).catch((cause) => {
+        if (active) setResult({ key, scopeKey, rows: [], nextCursor: null, summary: savedSummary,
+          loading: false, error: cause instanceof Error ? cause.message : "Unable to load inventory position." });
+      });
+    };
+    const timer = search ? setTimeout(load, 250) : undefined;
+    if (!search) load();
+    return () => { active = false; clearTimeout(timer); };
+  }, [key, scopeKey, waiting, scopeError, empty, selected, locationKey, cursor, limit, search, result.key, result.scopeKey, result.loading, result.summary]);
   if (scopeError) return { rows: [], nextCursor: null, summary: null, loading: false, error: scopeError, refresh };
   if (empty) return { rows: [], nextCursor: null, summary: emptySummary, loading: false, error: null, refresh };
   if (waiting || result.key !== key) return { rows: [], nextCursor: null, summary: null, loading: true, error: null, refresh };
