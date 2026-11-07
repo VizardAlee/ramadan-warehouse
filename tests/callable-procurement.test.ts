@@ -189,14 +189,14 @@ describe.sequential("procurement callables", () => {
     await adminDb.doc(`branches/${remoteBranchId}`).set({ organizationId, name: "Other Store", code: "OTHER", branchType: "store", status: "active" });
     await adminDb.doc(`inventoryLocations/${remoteLocationId}`).set({ organizationId, branchId: remoteBranchId, name: "Other Stock", code: "OTHER-STOCK", type: "branch", status: "active" });
     const input = { supplierId: supplier.supplierId, branchId: remoteBranchId, receivingLocationId: remoteLocationId,
-      lines: [{ productId, quantity: 1, unitCostMinor: 10000 }], idempotencyKey: crypto.randomUUID() };
+      lines: [{ productId, quantity: 1, unitCostMinor: 10000 }], idempotencyKey: crypto.randomUUID(), operatingContext: { type: "all" } };
     await expect(call(headOfficeManager, "createPurchaseOrder", input)).rejects.toMatchObject({ code: "functions/permission-denied" });
-    await expect(call(headOfficeManager, "getProcurementWorkspace", { branchId: remoteBranchId })).rejects.toMatchObject({ code: "functions/permission-denied" });
-    await expect(call(headOfficeManager, "getProcurementWorkspace", { warehouseId })).rejects.toMatchObject({ code: "functions/permission-denied" });
+    await expect(call(headOfficeManager, "getProcurementWorkspace", { branchId: remoteBranchId, operatingContext: { type: "all" } })).rejects.toMatchObject({ code: "functions/permission-denied" });
+    await expect(call(headOfficeManager, "getProcurementWorkspace", { warehouseId, operatingContext: { type: "all" } })).rejects.toMatchObject({ code: "functions/permission-denied" });
     const remoteOrder = await call<{ purchaseOrderId: string }>(administrator, "createPurchaseOrder", input);
     for (const action of ["submitPurchaseOrder", "approvePurchaseOrder"])
-      await expect(call(headOfficeManager, action, { ...remoteOrder, idempotencyKey: crypto.randomUUID() })).rejects.toMatchObject({ code: "functions/permission-denied" });
-    await expect(call(headOfficeManager, "getProcurementWorkspace", { view: "purchase_receipts", ...remoteOrder })).rejects.toMatchObject({ code: "functions/permission-denied" });
+      await expect(call(headOfficeManager, action, { ...remoteOrder, idempotencyKey: crypto.randomUUID(), operatingContext: { type: "all" } })).rejects.toMatchObject({ code: "functions/permission-denied" });
+    await expect(call(headOfficeManager, "getProcurementWorkspace", { view: "purchase_receipts", ...remoteOrder, operatingContext: { type: "all" } })).rejects.toMatchObject({ code: "functions/permission-denied" });
     const workspace = await call<{ branches: { id: string }[]; warehouses: { id: string }[]; purchaseOrders: { id: string }[] }>(headOfficeManager, "getProcurementWorkspace", { branchId: headOfficeId });
     expect(workspace.branches.map(branch => branch.id)).toEqual([headOfficeId]);
     expect(workspace.warehouses).toEqual([]);
