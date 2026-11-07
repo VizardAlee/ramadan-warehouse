@@ -8,6 +8,7 @@ import { FinancialAction, FinancialActionScope, FinancialAttributes, FinancialDo
 
 import { ServiceLineOptions } from "@/features/pos/service-line-options";
 import { PosProductCard } from "@/features/pos/product-card";
+import { matchesProductName } from "@/features/products/name-search";
 import { PosCustomerSelector, type PosCustomerSearchPage } from "@/features/pos/customer-selector";
 import { PosCartSurface } from "@/features/pos/cart-surface";
 import styles from "@/features/pos/pos-layout.module.css";
@@ -420,9 +421,7 @@ export default function PosPage() {
   const visibleProducts = useMemo(
     () =>
       (workspace?.products ?? []).filter((product) =>
-        (!fastMovingOnly || fastMovingIds.has(product.id)) && `${product.name} ${product.sku}`
-          .toLowerCase()
-          .includes(search.toLowerCase()),
+        (!fastMovingOnly || fastMovingIds.has(product.id)) && matchesProductName(product.name, search),
       ),
     [search, workspace?.products, fastMovingOnly, fastMovingIds],
   );
@@ -1495,8 +1494,8 @@ export default function PosPage() {
                 <input
                   value={search}
                   onChange={(event) => setSearch(event.target.value)}
-                  aria-label="Search product name or SKU"
-                  placeholder="Search product name or SKU"
+                  aria-label="Search product name"
+                  placeholder="Search product name"
                   className="w-full rounded-lg border py-3 pl-10 pr-3"
                 />
               </label>

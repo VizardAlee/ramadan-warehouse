@@ -18,6 +18,17 @@ vi.mock("@/features/administration/use-organization-collection", () => ({
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
 
 describe("product catalogue history", () => {
+  it("finds products by part of their name and excludes SKU-only matches", () => {
+    render(<ProductsPage />);
+    const search = screen.getByRole("textbox", { name: "Search product name" });
+    fireEvent.change(search, { target: { value: "  SOLAR   panel  " } });
+    expect(screen.getByRole("button", { name: /Solar panel/ })).toBeTruthy();
+    fireEvent.change(search, { target: { value: "SOLAR-1" } });
+    expect(screen.queryByRole("button", { name: /Solar panel/ })).toBeNull();
+    expect(screen.getByText("No products found.")).toBeTruthy();
+    fireEvent.change(search, { target: { value: "" } });
+    expect(screen.getByRole("button", { name: /Solar panel/ })).toBeTruthy();
+  });
   it("creates a catalogue service with no physical tracking or inventory unit cost", async () => {
     api.call.mockResolvedValue({ productId: "service", saved: true });
     render(<ProductsPage />);

@@ -2,6 +2,7 @@
 import { FinancialInput, FinancialMessage, FinancialText, FinancialValue } from "@/features/finance/financial-privacy";
 
 import { zodResolver } from "@hookform/resolvers/zod";
+import { matchesProductName } from "@/features/products/name-search";
 import { ChevronDown, Plus, Search } from "lucide-react";
 import Link from "next/link";
 import { Fragment, useMemo, useState } from "react";
@@ -159,10 +160,7 @@ function ProductCatalogue() {
       products.data.filter(
         (product) =>
           (!locationScoped || showAllForPricing || localProductIds.has(product.id)) &&
-          (!search ||
-            `${product.name} ${product.sku} ${product.brand ?? ""}`
-              .toLowerCase()
-              .includes(search.toLowerCase())) &&
+          matchesProductName(product.name, search) &&
           (!tracking || product.trackingType === tracking),
       ),
     [products.data, search, tracking, locationScoped, localProductIds, showAllForPricing],
@@ -313,7 +311,8 @@ function ProductCatalogue() {
               setSearch(event.target.value);
               pagination.setPage(1);
             }}
-            placeholder="Search name, SKU, or brand"
+            aria-label="Search product name"
+            placeholder="Search product name"
             className="w-full rounded-lg border py-2.5 pl-9 pr-3"
           />
         </label>
