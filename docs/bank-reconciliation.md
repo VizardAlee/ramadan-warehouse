@@ -52,3 +52,50 @@ are callable-only and audited; Firestore rules deny direct client mutation.
 The application accepts controlled pasted statement data rather than connecting
 directly to a bank or Open Banking provider. Imported references are operator
 evidence and are not confirmation by a bank API.
+
+## Reviewed bank opening balances
+
+The balance and date entered while adding a bank account are reference metadata;
+they do not create a ledger posting. Saving the bank account now creates or
+verifies its unique chart-of-accounts mapping. Code 1010 remains reserved for cash.
+Existing account metadata is never automatically converted into a journal.
+
+An authorized accountant with bank-management access can select the bank in
+**Banking → Post initial account balance**, load the setup, and enter the original
+balance, effective date and time in Nigeria, evidence reference and reason. Select a reviewed active
+non-system equity counterpart. If none exists, an authorized accountant creates
+the appropriate equity ledger in Accounting first. Do not assume all brought-forward
+funds are new owner capital; the counterpart must agree with the migration records.
+The form shows the exact balanced debit and credit before explicit confirmation.
+A negative signed amount represents a documented overdraft and reverses both sides.
+
+The posting must precede any recorded bank transactions, use an open period, and
+have no prior reconciliation or opening journal. Legacy incomplete history,
+duplicate mappings and an existing opening fail closed. The server records one
+opening atomically and retries use the original idempotency key. The opening is
+shown separately from current-period cash movement, never as a sales receipt.
+Reconciliation periods must start after its cutover date; do not invent a statement
+transaction to match the opening. Corrections use a linked manual reversal in
+Accounting, preserving the original history. A second opening is not allowed after
+reversal; an accountant reviews any replacement adjustment.
+
+## Recoverable account removal
+
+Select **All locations** in Working location, then select the bank account and
+choose **Delete or archive account → Review account removal**. Review the result,
+enter a reason and confirm the specific action:
+
+- An account with no financial dependencies can be deleted recoverably.
+- An account with a journal, statement, reconciliation, pending sales order,
+  referenced transaction, financial audit evidence or recorded opening evidence
+  is archived instead. Large or uncertain dependency
+  sets are never treated as proof that the account is unused.
+- Both actions stop new receipts, payments and company transfers. Neither action
+  deletes financial evidence, the bank identifier, its ledger mapping or its reserved
+  ledger code. Archived accounts retain statement-import and reconciliation access.
+- Enable **Show archived / deleted accounts**, select the account, and use
+  **Restore account** with a reviewed reason to make it available again.
+
+Mutations recheck the server state and retain their audit trail. An uncertain result
+must be checked with **Retry saved bank instructions** before starting another
+instruction. Changes in the selected account do not change the saved retry.

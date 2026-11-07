@@ -85,13 +85,13 @@ describe.sequential("trusted manual journal workflow", () => {
     await db.doc(`chartOfAccounts/${accountId("1031")}`).set({ organizationId, code: "1031", name: "Company Bank", active: true });
     await db.doc("bankAccounts/journal-bank").set({ organizationId, active: true, accountName: "Company Bank", ledgerAccountCode: "1031" });
     await call({ action: "save_account", code: "3000", name: "Owner capital", active: true, reason: "Set up capital account", idempotencyKey: crypto.randomUUID() });
-    const value = { ...instructions(), effectiveAt: "2025-06-01T12:00:00Z", purpose: "opening_balance", cashFlowActivity: "financing", lines: [
+    const value = { ...instructions(), effectiveAt: "2025-06-01T12:00:00Z", purpose: "accountant_adjustment", cashFlowActivity: "financing", lines: [
       { accountId: accountId("1031"), debitMinor: 100000, creditMinor: 0, bankAccountId: "journal-bank" }, { accountId: accountId("3000"), debitMinor: 0, creditMinor: 100000 },
     ] };
     await expect(call({ ...value, lines: [{ accountId: accountId("1031"), debitMinor: 100000, creditMinor: 0 }, value.lines[1]] })).rejects.toMatchObject({ code: "functions/failed-precondition" });
     await db.doc("bankAccounts/journal-shared-code").set({ organizationId, active: true, accountName: "Ambiguous bank", ledgerAccountCode: "1031" });
     await expect(call(value)).rejects.toMatchObject({ code: "functions/failed-precondition" });
-    await db.doc("bankAccounts/journal-shared-code").update({ active: false });
+    await db.doc("bankAccounts/journal-shared-code").delete();
     await db.doc("bankAccounts/journal-bank").update({ branchId: "another-store" });
     await expect(call(value)).rejects.toMatchObject({ code: "functions/failed-precondition" });
     await db.doc("bankAccounts/journal-bank").update({ branchId });

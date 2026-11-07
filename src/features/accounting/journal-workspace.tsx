@@ -2,6 +2,7 @@
 import { RecordAttribution } from "@/features/audit/record-attribution";
 import { FinancialAction, FinancialActionScope, FinancialDetails, FinancialInput, FinancialMessage, FinancialText, FinancialValue  } from "@/features/finance/financial-privacy";
 
+import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { firstBlocker } from "@/features/guidance/first-blocker";
@@ -125,7 +126,7 @@ export function JournalWorkspace({ branchId, ownerKey, canCreate, canReverse, ca
     </tbody></table></div>
     <div className="flex flex-wrap items-center justify-between gap-3"><Button variant="outline" disabled={loading || cursors.length < 2} onClick={() => setCursors(cursors.slice(0, -1))}>Previous</Button><span>Page <FinancialText>{cursors.length}</FinancialText><FinancialText>{loading ? " · Refreshing…" : ""}</FinancialText></span><Button variant="outline" disabled={loading || !workspace?.nextCursorId} onClick={() => setCursors([...cursors, workspace!.nextCursorId!])}>Next</Button></div>
     {canCreate && <details className="rounded-xl border bg-white p-4"><summary className="cursor-pointer font-semibold">Post an accountant adjustment</summary>
-      <p className="my-3 text-sm text-[var(--muted)]">Use for opening balances, accruals, depreciation or accountant adjustments. Customer/supplier debt, inventory and tax balances must use their operational workflow. Choose the responsible store above.</p>
+      <p className="my-3 text-sm text-[var(--muted)]">Use for accruals, depreciation and accountant adjustments. Bank opening balances use <Link className="underline" href="/banking">Banking → Post initial account balance</Link> so they cannot be posted twice. Other opening balances require accountant review. Customer/supplier debt, inventory and tax balances must use their operational workflow. Choose the responsible store above.</p>
       <FinancialActionScope><fieldset disabled={locked || !branchId || !workspace} className="space-y-4"><div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         <label>Date<input className={fieldClass} type="datetime-local" value={form.date} onChange={event => setForm({ ...form, date: event.target.value })} /></label>
         <label>Reference<input className={fieldClass} maxLength={160} value={form.reference} onChange={event => setForm({ ...form, reference: event.target.value })} /></label>

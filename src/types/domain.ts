@@ -161,6 +161,9 @@ export interface CustomRole {
 }
 
 export interface BankAccount {
+  lifecycleStatus?: "active" | "archived" | "removed";
+  openingJournalEntryId?: string;
+  openingJournalNumber?: string;
   branchId?: string | null;
   id: string;
   organizationId: string;

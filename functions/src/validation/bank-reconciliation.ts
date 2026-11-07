@@ -23,7 +23,7 @@ export const bankWorkspaceInput = z.object({
   bankAccountId: z.string().trim().min(1).max(180).optional(),
 });
 
-export const saveBankAccountInput = z.object({
+const saveBankAccountDetailsInput = z.object({
   branchId: accountId.nullable().optional(),
   bankAccountId: z.string().trim().min(1).max(180).optional(),
   bankName: z.string().trim().min(2).max(120),
@@ -76,3 +76,5 @@ export const completeBankReconciliationInput = z.object({
   notes: z.string().trim().max(500).optional(),
   idempotencyKey: z.string().uuid(),
 });
+
+export const saveBankAccountInput = z.union([saveBankAccountDetailsInput, z.object({ action: z.literal("lifecycle_preview"), bankAccountId: accountId }), z.object({ action: z.enum(["remove", "restore"]), bankAccountId: accountId, reason: z.string().trim().min(5).max(500), idempotencyKey: z.string().uuid() })]);
