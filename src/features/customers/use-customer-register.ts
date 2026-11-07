@@ -5,18 +5,20 @@ import { callAdministration } from "@/features/administration/api";
 import type { Customer } from "@/types/domain";
 export type CustomerSearchField = "name" | "number" | "phone" | "email";
 interface Page { rows: Customer[]; nextCursor: string | null }
-export function useCustomerRegister() {
+export function useCustomerRegister(selectedBranchId = "") {
   const { profile, operatingContext } = useAuth();
-  const scope = JSON.stringify([profile?.uid, profile?.organizationId, profile?.authorizationVersion, profile?.branchIds, profile?.effectivePermissions, operatingContext]);
+  const branchId = operatingContext?.type === "branch" ? operatingContext.id : selectedBranchId;
+  const scope = JSON.stringify([profile?.uid, profile?.organizationId, profile?.authorizationVersion, profile?.branchIds, profile?.effectivePermissions, operatingContext, branchId]);
   const [pageSize, setPageSize] = useState(25), [searchField, setSearchField] = useState<CustomerSearchField>("name"), [search, setSearch] = useState("");
   const [navigation, setNavigation] = useState<{ scope: string; starts: Array<string | null> }>({ scope, starts: [null] });
   const starts = navigation.scope === scope ? navigation.starts : [null], cursor = starts.at(-1);
-  const key = JSON.stringify([scope, pageSize, searchField, search, cursor]);
+  const [revision, setRevision] = useState(0);
+  const key = JSON.stringify([scope, pageSize, searchField, search, cursor, revision]);
   const [response, setResponse] = useState<{ key: string; data?: Page; error?: string }>();
   useEffect(() => {
     if (!profile) return;
     let active = true;
-    void callAdministration<object, Page>("getCustomerHistory", { action: "list_customers", searchField, search, limit: pageSize, cursor: cursor || undefined })
+    void callAdministration<object, Page>("getCustomerHistory", { action: "list_customers", branchId: branchId || undefined, searchField, search, limit: pageSize, cursor: cursor || undefined })
       .then(data => { if (active) setResponse({ key, data }); }).catch(error => { if (active) setResponse({ key, error: error instanceof Error ? error.message : "Customers could not be loaded." }); });
     return () => { active = false; };
   // key binds the request to current identity, grants, scope and page controls.
@@ -25,6 +27,7 @@ export function useCustomerRegister() {
   const current = response?.key === key ? response : undefined;
   const reset = () => setNavigation({ scope, starts: [null] });
   return {
+    refresh() { setRevision(value => value + 1); },
     data: current?.data?.rows ?? [], loading: Boolean(profile && !current), error: current?.error ?? null,
     page: starts.length, pageSize, searchField, hasNextPage: Boolean(current?.data?.nextCursor),
     updateSearch(value: string, field = searchField) { setSearch(value.trim()); setSearchField(field); reset(); },

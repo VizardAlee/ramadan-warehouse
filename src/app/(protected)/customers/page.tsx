@@ -44,7 +44,10 @@ const emptyForm = {
 
 export default function CustomersPage() {
   const { profile, accessProfile, operatingContext } = useAuth();
-  const customers = useCustomerRegister();
+  const registerContext = JSON.stringify([profile?.uid, profile?.organizationId, profile?.authorizationVersion, profile?.branchIds, profile?.effectivePermissions, operatingContext]);
+  const [registerFilter, setRegisterFilter] = useState({ context: registerContext, branchId: "" });
+  const registerBranchId = registerFilter.context === registerContext ? registerFilter.branchId : "";
+  const customers = useCustomerRegister(registerBranchId);
   const branches = useOrganizationCollection<Branch>("branches");
   const [action, setAction] = useState<CustomerAction | null>(null);
   const [selected, setSelected] = useState<Customer | null>(null);
@@ -434,6 +437,13 @@ export default function CustomersPage() {
         </div>
       )}
       <section className="grid gap-3 rounded-xl border bg-white p-4 sm:grid-cols-[12rem_minmax(0,1fr)]">
+        <label className="text-sm font-medium sm:col-span-2">Customer branch
+          <select value={contextBranchId || registerBranchId} disabled={Boolean(operatingContext)} onChange={event => { setRegisterFilter({ context: registerContext, branchId: event.target.value }); setExpandedCustomerId(null); historyRequest.current += 1; setHistory(null); }} className="mt-1 w-full rounded-lg border p-3">
+            {!contextBranchId && <option value="">All accessible branches</option>}
+            {branches.data.map(branch => <option key={branch.id} value={branch.id}>{branch.name}</option>)}
+          </select>
+          <span className="mt-1 block text-xs font-normal text-[var(--muted)]">Only customers assigned to the selected branch appear. Use the location switcher to change your authorized branch. Missing or unassigned customers need an administrator’s ownership review; do not create a duplicate.</span>
+        </label>
         <label className="text-sm font-medium">Search by
           <select value={searchField} onChange={(event) => setSearchField(event.target.value as CustomerSearchField)} className="mt-1 w-full rounded-lg border p-3">
             <option value="name">Name</option><option value="number">Customer number</option><option value="phone">Phone</option><option value="email">Email</option>
