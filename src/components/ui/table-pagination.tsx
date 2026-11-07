@@ -195,7 +195,9 @@ export function CursorTablePagination({
           <ChevronLeft className="size-4" />
           <span className="hidden sm:inline">Previous</span>
         </Button>
-        <span className="min-w-16 text-center">Page {page}</span>
+        <span className="min-w-16 text-center">
+          Page {page}{!loading && total !== undefined ? ` of ${Math.max(1, Math.ceil(total / pageSize))}` : ""}
+        </span>
         <Button type="button" variant="secondary" disabled={loading || !hasNextPage} onClick={onNext}>
           <span className="hidden sm:inline">Next</span>
           <ChevronRight className="size-4" />
