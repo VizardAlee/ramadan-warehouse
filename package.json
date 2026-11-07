@@ -49,6 +49,7 @@
     "validate:production": "node scripts/validate-environment.mjs production && npm run validate:indexes && node scripts/validate-deployment.mjs production",
     "deploy:rules:production": "npm run validate:production && firebase deploy --only firestore:rules,storage --project production",
     "deploy:indexes:production": "npm run validate:production && firebase deploy --only firestore:indexes --project production",
+    "deploy:procurement-workspace:production": "npm run validate:production && npm run functions:build && firebase deploy --only functions:getProcurementWorkspace --project production",
     "deploy:pos-workspace:production": "npm run validate:production && npm run functions:build && firebase deploy --only functions:getPosWorkspace --project production",
     "deploy:functions:production": "npm run validate:production && npm run functions:build && firebase deploy --only functions --project production",
     "deploy:web:production": "npm run validate:production && npm run build && firebase deploy --only apphosting:ramadan-warehouse-staging --project production",
