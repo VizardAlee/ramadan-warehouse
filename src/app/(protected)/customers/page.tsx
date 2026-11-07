@@ -19,6 +19,7 @@ import { AppDialog } from "@/components/ui/app-dialog";
 import { CursorTablePagination } from "@/components/ui/table-pagination";
 import { callAdministration } from "@/features/administration/api";
 import { useOrganizationCollection } from "@/features/administration/use-organization-collection";
+import { CustomerStatusAction } from "@/features/customers/customer-status-action";
 import { CustomerOwnershipReview } from "@/features/customers/ownership-review";
 import { canCorrectSaleErrors } from "@/lib/permissions/roles";
 import { useAuth } from "@/features/auth/auth-context";
@@ -327,6 +328,7 @@ export default function CustomersPage() {
     return <div className="flex flex-wrap gap-2">
       <Button size="sm" variant="outline" aria-expanded={expandedCustomerId === customer.id} aria-controls={`customer-history-${view}-${customer.id}`} onClick={() => toggleHistory(customer)}><FinancialText>{expandedCustomerId === customer.id ? "Hide history" : "View history"}</FinancialText></Button>
       {canManage && <Button size="sm" variant="outline" onClick={() => edit(customer)}>Edit</Button>}
+      {canManage && <CustomerStatusAction key={`${registerContext}:${customer.id}:${customer.active}`} customer={customer} onSaved={() => { customers.refresh(); setMessage(`${customer.name} ${customer.active ? "deactivated" : "reactivated"}. History has been preserved.`); }} />}
       {canApprove && <Button size="sm" variant="outline" onClick={() => {
         setSelected(customer);
         setCreditDecision(customer.creditStatus === "approved" ? "suspend" : "approve");
