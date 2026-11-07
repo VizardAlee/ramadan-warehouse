@@ -1,4 +1,5 @@
 "use client";
+import { SearchableItemSelect } from "@/components/ui/searchable-item-select";
 
 import Link from "next/link";
 import { Fragment, useCallback, useEffect, useRef, useState } from "react";
@@ -723,7 +724,7 @@ function AuthorizedStockTransferForm({ fromRequest }: { fromRequest: boolean }) 
           >
             <label>
               Product
-              <select
+              <SearchableItemSelect scopeKey={source + ":" + requestId} itemNames={Object.fromEntries(stock.map(s => [s.id, s.name]))}
                 required
                 className={field}
                 value={line.stockId}
@@ -758,7 +759,7 @@ function AuthorizedStockTransferForm({ fromRequest }: { fromRequest: boolean }) 
                       {s.lotId ? ` · Lot ${s.lotNumber ?? s.lotId}` : ""}
                     </option>
                   ))}
-              </select>
+              </SearchableItemSelect>
             </label>
             <label>
               Quantity

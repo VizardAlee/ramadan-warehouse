@@ -1,4 +1,5 @@
 "use client";
+import { SearchableItemSelect } from "@/components/ui/searchable-item-select";
 import { FinancialField, FinancialMessage, FinancialText, FinancialValue } from "@/features/finance/financial-privacy";
 
 import Link from "next/link";
@@ -682,10 +683,10 @@ export default function ReportsPage() {
               </select>
             </label>
             <label className="text-sm font-medium">Product
-              <select value={productId} onChange={(event) => setProductId(event.target.value)} className="mt-1 w-full rounded-lg border p-2.5">
+              <SearchableItemSelect loading={products.loading} itemNames={Object.fromEntries(products.data.map(product => [product.id, product.name]))} value={productId} onChange={(event) => setProductId(event.target.value)} className="mt-1 w-full rounded-lg border p-2.5">
                 <option value="">All products</option>
-                {products.data.map((product) => <option key={product.id} value={product.id}><FinancialText>{product.sku}</FinancialText> — <FinancialText>{product.name}</FinancialText></option>)}
-              </select>
+                {products.data.map((product) => <option key={product.id} value={product.id}><FinancialText>{product.name}</FinancialText></option>)}
+              </SearchableItemSelect>
             </label>
             <label className="text-sm font-medium">Stock location
               <select value={locationId} onChange={(event) => setLocationId(event.target.value)} className="mt-1 w-full rounded-lg border p-2.5">
