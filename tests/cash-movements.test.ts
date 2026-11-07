@@ -52,3 +52,23 @@ describe("scoped internal funds in cash statements", () => {
     expect(() => addCashMovement(groups, { id: "b", type: "receipt" }, 1.5)).toThrow(/safe/);
   });
 });
+
+describe("reviewed bank opening balances in cash statements", () => {
+  it("separates a positive opening from actual receipts and payments", () => {
+    const groups = new Map<string, CashMovement>();
+    addCashMovement(groups, { id: "opening", type: "manual_adjustment", activity: "opening" }, 125000);
+    addCashMovement(groups, { id: "receipt", type: "customer_payment" }, 20000);
+    addCashMovement(groups, { id: "payment", type: "expense_payment" }, -5000);
+    expect(receiptsPayments(groups)).toMatchObject({ openingBalanceMinor: 125000, receiptsMinor: 20000, paymentsMinor: 5000, netCashMovementMinor: 15000 });
+    expect(cashFlowRows(groups)).toContainEqual({ section: "Opening balances", amountMinor: 125000 });
+    expect(cashFlowRows(groups)).toContainEqual({ section: "Operating activities", amountMinor: 15000 });
+  });
+  it("retains an overdraft sign and excludes opening reversal from normal cash movement", () => {
+    const groups = new Map<string, CashMovement>();
+    addCashMovement(groups, { id: "overdraft", type: "manual_adjustment", activity: "opening" }, -25000);
+    expect(receiptsPayments(groups)).toMatchObject({ openingBalanceMinor: -25000, receiptsMinor: 0, paymentsMinor: 0, netCashMovementMinor: 0 });
+    addCashMovement(groups, { id: "reversal", type: "manual_reversal", activity: "opening" }, 25000);
+    expect(receiptsPayments(groups)).toMatchObject({ openingBalanceMinor: 0, receiptsMinor: 0, paymentsMinor: 0, netCashMovementMinor: 0 });
+    expect(cashFlowRows(groups)).toContainEqual({ section: "Opening balances", amountMinor: 0 });
+  });
+});

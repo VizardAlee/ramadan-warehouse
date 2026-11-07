@@ -33,9 +33,7 @@ beforeAll(async () => {
   await adminDb.doc(`organizations/${organizationId}`).set({ name: "Banking test organization", status: "active" });
   administrator = await createActor("bank-admin@example.test", "system_administrator");
   financeOfficer = await createActor("bank-finance@example.test", "finance_officer");
-  const effectiveAt = Timestamp.fromDate(new Date("2026-08-02T00:00:00.000Z"));
-  await adminDb.doc("journalLines/bank-credit-line").set({ organizationId, journalEntryId: "journal-bank-credit", journalNumber: "JRN-2026-000001", accountCode: "1030", accountName: "Bank transfer clearing", debitMinor: 0, creditMinor: 20_000, currency: "NGN", effectiveAt, createdAt: effectiveAt });
-  await adminDb.doc("journalLines/wrong-credit-line").set({ organizationId, journalEntryId: "journal-wrong-credit", journalNumber: "JRN-2026-000002", accountCode: "1030", accountName: "Bank transfer clearing", debitMinor: 0, creditMinor: 10_000, currency: "NGN", effectiveAt, createdAt: effectiveAt });
+
 });
 afterAll(async () => Promise.all(apps.map((app) => deleteApp(app))));
 
@@ -91,6 +89,9 @@ describe.sequential("bank reconciliation callables", () => {
 
   it("imports, matches, independently closes, and freezes reconciled evidence", async () => {
     const account = await call<{ bankAccountId: string }>(financeOfficer, "saveBankAccount", { bankName: "Access Bank", accountName: "ABR operating account", accountNumberLast4: "4321", ledgerAccountCode: "1030", openingBalanceMinor: 100_000, openingDate: "2026-08-01", active: true });
+  const effectiveAt = Timestamp.fromDate(new Date("2026-08-02T00:00:00.000Z"));
+  await adminDb.doc("journalLines/bank-credit-line").set({ organizationId, journalEntryId: "journal-bank-credit", journalNumber: "JRN-2026-000001", accountCode: "1030", accountName: "Bank transfer clearing", debitMinor: 0, creditMinor: 20_000, currency: "NGN", effectiveAt, createdAt: effectiveAt });
+  await adminDb.doc("journalLines/wrong-credit-line").set({ organizationId, journalEntryId: "journal-wrong-credit", journalNumber: "JRN-2026-000002", accountCode: "1030", accountName: "Bank transfer clearing", debitMinor: 0, creditMinor: 10_000, currency: "NGN", effectiveAt, createdAt: effectiveAt });
     const row = { transactionDate: "2026-08-02", description: "Supplier bank payment", reference: "PAY-001", externalId: "ACCESS-0001", amountMinor: -20_000 };
     await expect(call(financeOfficer, "importBankStatement", { bankAccountId: account.bankAccountId, rows: [row], idempotencyKey: crypto.randomUUID() })).resolves.toMatchObject({ importedCount: 1, duplicateCount: 0 });
     await expect(call(financeOfficer, "importBankStatement", { bankAccountId: account.bankAccountId, rows: [row], idempotencyKey: crypto.randomUUID() })).resolves.toMatchObject({ importedCount: 0, duplicateCount: 1 });
@@ -121,5 +122,140 @@ describe.sequential("bank reconciliation callables", () => {
     const prepared = await call<{ reconciliationId: string }>(financeOfficer, "prepareBankReconciliation", { bankAccountId: account.bankAccountId, periodStart: "2026-07-01", periodEnd: "2026-07-31", openingBalanceMinor: 250_000, closingBalanceMinor: 250_000, notes: "No activity confirmed from the statement", idempotencyKey: crypto.randomUUID() });
     await expect(call(administrator, "completeBankReconciliation", { reconciliationId: prepared.reconciliationId, idempotencyKey: crypto.randomUUID() })).resolves.toMatchObject({ status: "closed" });
     expect((await adminDb.doc(`bankReconciliations/${prepared.reconciliationId}`).get()).data()).toMatchObject({ status: "closed", statementTransactionCount: 0, journalLineCount: 0, statementMovementMinor: 0, ledgerMovementMinor: 0, differenceMinor: 0 });
+  });
+});
+
+describe.sequential("recoverable financial account lifecycle and reviewed openings", () => {
+  let nextCode = 1050;
+  const save = (code = String(nextCode++)) => ({ bankName: "Synthetic Bank", accountName: `Lifecycle ${code}`, accountNumberLast4: "2222", ledgerAccountCode: code, openingBalanceMinor: 0, openingDate: "2025-01-01", active: true });
+  const lifecycle = (bankAccountId: string, action: string) => call(financeOfficer, "saveBankAccount", { action, bankAccountId, reason: "Reviewed synthetic lifecycle change", idempotencyKey: crypto.randomUUID() });
+  async function bank() {
+    const input = save();
+    const result = await call<{ bankAccountId: string }>(financeOfficer, "saveBankAccount", input);
+    return { ...result, input };
+  }
+  const opening = (bankAccountId: string, counterpartAccountId: string) => ({ action: "bank_opening", bankAccountId, counterpartAccountId, branchId: "opening-store", effectiveAt: "2025-01-01T00:00:00Z", amountMinor: 150000, reference: "Reviewed starting bank statement", reason: "Accountant reviewed prior balances and counterpart", confirmedNoPreviousOpening: true, idempotencyKey: crypto.randomUUID() });
+  let counterpartId: string;
+  beforeAll(async () => {
+    await adminDb.doc("branches/opening-store").set({ organizationId, name: "Opening store", status: "active" });
+    const result = await call<{ accountId: string }>(financeOfficer, "accountingJournals", { action: "save_account", code: "3015", name: "Reviewed opening equity", active: true, reason: "Reviewed synthetic opening account", idempotencyKey: crypto.randomUUID() });
+    counterpartId = result.accountId;
+  });
+  it("creates a usable chart account without posting and reserves its code through removal/restoration", async () => {
+    const account = await bank();
+    const chart = await adminDb.collection("chartOfAccounts").where("organizationId", "==", organizationId).where("code", "==", account.input.ledgerAccountCode).get();
+    expect(chart.size).toBe(1);
+    expect(chart.docs[0]!.data()).toMatchObject({ active: true, bankAccountId: account.bankAccountId, currency: "NGN" });
+    await expect(lifecycle(account.bankAccountId, "lifecycle_preview")).resolves.toMatchObject({ removalMode: "remove", hasDependencies: false });
+    await expect(lifecycle(account.bankAccountId, "remove")).resolves.toMatchObject({ lifecycleStatus: "removed" });
+    expect((await adminDb.doc(`bankAccounts/${account.bankAccountId}`).get()).exists).toBe(true);
+    await expect(call(financeOfficer, "saveBankAccount", account.input)).rejects.toMatchObject({ code: "functions/already-exists" });
+    await expect(call(financeOfficer, "saveBankAccount", { ...account.input, bankAccountId: account.bankAccountId })).rejects.toMatchObject({ code: "functions/failed-precondition" });
+    await expect(lifecycle(account.bankAccountId, "restore")).resolves.toMatchObject({ lifecycleStatus: "active" });
+  });
+  it("archives direct unposted references, code-only legacy ledger lines, statements and reconciliations without deleting history", async () => {
+    for (const kind of ["saleReturns", "journalEntries", "journalLines", "bankStatementTransactions", "bankReconciliations"]) {
+      const account = await bank();
+      const ref = adminDb.collection(kind).doc();
+      await ref.set({ organizationId, ...(kind === "journalLines" ? { accountCode: account.input.ledgerAccountCode } : kind === "journalEntries" ? { details: { bankAccounts: [{ accountCode: account.input.ledgerAccountCode }] } } : { bankAccountId: account.bankAccountId }) });
+      await expect(lifecycle(account.bankAccountId, "remove")).resolves.toMatchObject({ lifecycleStatus: "archived", hasDependencies: true });
+      expect((await ref.get()).exists).toBe(true);
+      await expect(lifecycle(account.bankAccountId, "restore")).resolves.toMatchObject({ lifecycleStatus: "active" });
+    }
+  });
+  it("archives nested held-order and financial audit-only references without treating creation audits as financial usage", async () => {
+    const orderBank = await bank();
+    await adminDb.collection("salesOrders").add({ organizationId, status: "held", payload: { payments: [{ bankAccountId: orderBank.bankAccountId, amountMinor: 100 }] } });
+    await expect(lifecycle(orderBank.bankAccountId, "remove")).resolves.toMatchObject({ lifecycleStatus: "archived" });
+    for (const sourceFunction of ["recordSupplierPayment", "accountingJournals"]) {
+      const auditBank = await bank();
+      await adminDb.collection("auditLogs").add({ organizationId, sourceFunction, after: { tenders: [{ ledgerAccountCode: auditBank.input.ledgerAccountCode }] } });
+      await expect(lifecycle(auditBank.bankAccountId, "remove")).resolves.toMatchObject({ lifecycleStatus: "archived" });
+    }
+    const unused = await bank();
+    await expect(lifecycle(unused.bankAccountId, "remove")).resolves.toMatchObject({ lifecycleStatus: "removed", hasDependencies: false });
+  });
+  it("posts signed reviewed openings exactly once under concurrent retries, keeps metadata and reports opening separately", async () => {
+    for (const amountMinor of [150000, -25000]) {
+      const account = await bank();
+      const input = { ...opening(account.bankAccountId, counterpartId), amountMinor };
+      const [first, replay] = await Promise.all([call(financeOfficer, "accountingJournals", input), call(financeOfficer, "accountingJournals", input)]);
+      expect(first).toEqual(replay);
+      await expect(call(financeOfficer, "prepareBankReconciliation", { bankAccountId: account.bankAccountId, periodStart: "2025-01-01", periodEnd: "2025-01-31", openingBalanceMinor: amountMinor, closingBalanceMinor: amountMinor, idempotencyKey: crypto.randomUUID() })).rejects.toMatchObject({ code: "functions/failed-precondition", details: { code: "OPERATIONAL_EVIDENCE_ACTION_REQUIRED" } });
+
+      await expect(call(financeOfficer, "accountingJournals", { ...input, idempotencyKey: crypto.randomUUID() })).rejects.toMatchObject({ code: "functions/failed-precondition" });
+      const lines = await adminDb.collection("journalLines").where("journalEntryId", "==", first.journalEntryId).get();
+      expect(lines.size).toBe(2);
+      const bankLine = lines.docs.find(line => line.get("bankAccountId") === account.bankAccountId)!;
+      expect(bankLine.get("debitMinor") - bankLine.get("creditMinor")).toBe(amountMinor);
+      await call(financeOfficer, "saveBankAccount", { ...account.input, bankAccountId: account.bankAccountId, accountName: "Updated display name" });
+      expect((await adminDb.doc(`bankAccounts/${account.bankAccountId}`).get()).get("openingJournalEntryId")).toBe(first.journalEntryId);
+      await expect(call(financeOfficer, "saveBankAccount", { ...account.input, bankAccountId: account.bankAccountId, openingBalanceMinor: 999 })).rejects.toMatchObject({ code: "functions/failed-precondition" });
+
+      await expect(lifecycle(account.bankAccountId, "remove")).resolves.toMatchObject({ lifecycleStatus: "archived" });
+      await expect(call(financeOfficer, "recordCompanyFundsTransfer", { sourceBankAccountId: account.bankAccountId, destinationBankAccountId: "transfer-to", branchId: "opening-store", amountMinor: 100, transferredAt: "2025-02-01T00:00:00Z", reference: "Blocked inactive posting", reason: "Synthetic inactive test", confirmedCompleted: true, idempotencyKey: crypto.randomUUID() })).rejects.toMatchObject({ code: "functions/failed-precondition" });
+      await lifecycle(account.bankAccountId, "restore");
+      await call(financeOfficer, "accountingJournals", { action: "reverse", journalEntryId: first.journalEntryId, branchId: "opening-store", effectiveAt: "2025-02-01T00:00:00Z", reference: "Opening correction reversal", reason: "Reviewed reversal preserves original evidence", idempotencyKey: crypto.randomUUID() });
+      await expect(call(financeOfficer, "accountingJournals", { ...input, idempotencyKey: crypto.randomUUID() })).rejects.toMatchObject({ code: "functions/failed-precondition" });
+    }
+    const report = { fromDate: "2025-01-01", toDate: "2025-01-31", branchId: "opening-store" };
+    await expect(call(financeOfficer, "generateFinancialStatement", { ...report, reportType: "income_statement" })).resolves.toMatchObject({ incomeMinor: 0, profitMinor: 0 });
+    await expect(call(financeOfficer, "generateFinancialStatement", { ...report, reportType: "receipts_payments" })).resolves.toMatchObject({ receiptsMinor: 0, paymentsMinor: 0, netCashMovementMinor: 0, openingBalanceMinor: 125000 });
+  });
+  it("permits only one opening under distinct simultaneous keys and blocks historical baseline conflicts", async () => {
+    const account = await bank();
+    const attempts = await Promise.allSettled([call(financeOfficer, "accountingJournals", opening(account.bankAccountId, counterpartId)), call(financeOfficer, "accountingJournals", opening(account.bankAccountId, counterpartId))]);
+    expect(attempts.filter(result => result.status === "fulfilled")).toHaveLength(1);
+    expect(attempts.filter(result => result.status === "rejected")).toHaveLength(1);
+    const baseline = await bank();
+    await adminDb.doc(`bankAccounts/${baseline.bankAccountId}`).update({ openingBalanceMinor: 100 });
+    await expect(call(financeOfficer, "accountingJournals", opening(baseline.bankAccountId, counterpartId))).rejects.toMatchObject({ code: "functions/failed-precondition" });
+    const reconciled = await bank();
+    await adminDb.collection("bankReconciliations").add({ organizationId, bankAccountId: reconciled.bankAccountId, periodStart: "2025-03-01", status: "closed" });
+    await expect(call(financeOfficer, "accountingJournals", opening(reconciled.bankAccountId, counterpartId))).rejects.toMatchObject({ code: "functions/failed-precondition" });
+  });
+  it("uses Nigerian dates for a nonzero baseline and rejects orphan headers and wrong restore mapping", async () => {
+    const input = { ...save(), openingBalanceMinor: 700, openingDate: "2025-01-01" };
+    const account = await call<{ bankAccountId: string }>(financeOfficer, "saveBankAccount", input);
+    await expect(call(financeOfficer, "accountingJournals", { ...opening(account.bankAccountId, counterpartId), amountMinor: 700, effectiveAt: "2024-12-31T23:30:00Z" })).resolves.toMatchObject({ posted: true });
+    const orphan = await bank();
+    const header = adminDb.collection("journalEntries").doc();
+    await header.set({ organizationId, journalType: "manual_adjustment", status: "posted", details: { purpose: "opening_balance", bankAccounts: [{ bankAccountId: orphan.bankAccountId, accountCode: orphan.input.ledgerAccountCode }] } });
+    await expect(call(financeOfficer, "accountingJournals", opening(orphan.bankAccountId, counterpartId))).rejects.toMatchObject({ code: "functions/failed-precondition" });
+    await expect(lifecycle(orphan.bankAccountId, "remove")).resolves.toMatchObject({ lifecycleStatus: "archived" });
+    const restore = await bank();
+    await lifecycle(restore.bankAccountId, "remove");
+    const chart = await adminDb.collection("chartOfAccounts").where("organizationId", "==", organizationId).where("code", "==", restore.input.ledgerAccountCode).get();
+    await chart.docs[0]!.ref.update({ bankAccountId: "wrong-bank-owner" });
+    await expect(lifecycle(restore.bankAccountId, "restore")).rejects.toMatchObject({ code: "functions/failed-precondition" });
+  });
+  it("rejects missing confirmation, foreign accounts, unauthorized actors, future dates, locked periods and prior legacy openings", async () => {
+    const account = await bank();
+    const base = opening(account.bankAccountId, counterpartId);
+    const restricted = await createActor("opening-cashier@example.test", "sales_cashier");
+    await expect(call(restricted, "accountingJournals", base)).rejects.toMatchObject({ code: "functions/permission-denied" });
+    await expect(call(restricted, "saveBankAccount", { action: "remove", bankAccountId: account.bankAccountId, reason: "Unauthorized synthetic removal", idempotencyKey: crypto.randomUUID() })).rejects.toMatchObject({ code: "functions/permission-denied" });
+    await adminDb.doc("branches/other-opening-store").set({ organizationId, name: "Other store", status: "active" });
+    await expect(call(financeOfficer, "accountingJournals", { ...base, operatingContext: { type: "branch", id: "other-opening-store" } })).rejects.toMatchObject({ code: "functions/failed-precondition" });
+    await adminDb.doc(`bankAccounts/${account.bankAccountId}`).update({ branchId: "other-opening-store" });
+    await expect(call(financeOfficer, "accountingJournals", base)).rejects.toMatchObject({ code: "functions/failed-precondition" });
+    await adminDb.doc(`bankAccounts/${account.bankAccountId}`).update({ branchId: FieldValue.delete() });
+    await adminDb.doc("chartOfAccounts/foreign-opening-counterpart").set({ organizationId: "foreign", code: "3015", currency: "NGN", active: true, name: "Foreign equity" });
+    await expect(call(financeOfficer, "accountingJournals", { ...base, counterpartAccountId: "foreign-opening-counterpart" })).rejects.toMatchObject({ code: "functions/failed-precondition" });
+    await expect(call(financeOfficer, "accountingJournals", { ...base, confirmedNoPreviousOpening: false })).rejects.toMatchObject({ code: "functions/invalid-argument" });
+    await expect(call(financeOfficer, "accountingJournals", { ...base, effectiveAt: "2099-01-01T00:00:00Z" })).rejects.toMatchObject({ code: "functions/invalid-argument" });
+    const { uniquenessDocumentId } = await import("../functions/src/inventory/calculations");
+    const period = adminDb.doc(`accountingPeriods/${uniquenessDocumentId(organizationId, "2025-01")}`);
+    await period.set({ organizationId, status: "closed", periodKey: "2025-01" });
+    await expect(call(financeOfficer, "accountingJournals", base)).rejects.toMatchObject({ code: "functions/failed-precondition" });
+    await period.delete();
+    await adminDb.doc(`bankAccounts/${account.bankAccountId}`).update({ organizationId: "foreign-org" });
+    await expect(call(financeOfficer, "accountingJournals", base)).rejects.toMatchObject({ code: "functions/failed-precondition" });
+    await expect(lifecycle(account.bankAccountId, "remove")).rejects.toMatchObject({ code: "functions/not-found" });
+    await adminDb.doc(`bankAccounts/${account.bankAccountId}`).update({ organizationId });
+    await adminDb.doc("journalEntries/legacy-opening").set({ organizationId, journalType: "manual_adjustment", status: "posted", details: { purpose: "opening_balance" } });
+    await adminDb.doc("journalLines/legacy-opening-line").set({ organizationId, accountCode: account.input.ledgerAccountCode, journalEntryId: "legacy-opening" });
+    await expect(call(financeOfficer, "accountingJournals", base)).rejects.toMatchObject({ code: "functions/failed-precondition" });
+    await expect(call(financeOfficer, "saveBankAccount", save("1010"))).rejects.toMatchObject({ code: "functions/failed-precondition" });
   });
 });

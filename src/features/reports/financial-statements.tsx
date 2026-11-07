@@ -46,6 +46,7 @@ interface StatementResult {
   netAssetsMinor?: number;
   balanced?: boolean;
   netCashMovementMinor?: number;
+  openingBalanceMinor?: number;
   receiptsMinor?: number;
   paymentsMinor?: number;
 }
@@ -119,11 +120,12 @@ function StatementDocument({ statement, scope }: { statement: StatementResult; s
         {statement.reportType === "receipts_payments" && <>
           <StatementSection title="Receipts" rows={sectionRows("Receipts")} totalLabel="Total receipts" total={statement.receiptsMinor} tone="income" />
           <StatementSection title="Payments" rows={sectionRows("Payments")} totalLabel="Total payments" total={statement.paymentsMinor} tone="outflow" />
+          {sectionRows("Opening balances").length > 0 && <StatementSection title="Brought-forward opening balances" rows={sectionRows("Opening balances")} totalLabel="Recorded opening balance" total={statement.openingBalanceMinor} />}
           <StatementLine label="Net cash movement" value={statement.netCashMovementMinor} kind="total" />
-          <p className="text-xs text-[var(--muted)]">Posted cash and bank movements. Transfers between accounts cancel within the selected scope. Advance applications and credit sales do not create receipts.</p>
+          <p className="text-xs text-[var(--muted)]">Posted cash and bank movements. Brought-forward openings are shown separately and excluded from receipts, payments and net cash movement. Transfers between accounts cancel within the selected scope. Advance applications and credit sales do not create receipts.</p>
         </>}
         {statement.reportType === "cash_flow" && <>
-          {statement.rows.map((row, index) => <FinancialAttributes key={`${row.section}-${index}`}><section className="financial-statement-section" key={`${row.section}-${index}`} aria-label={row.section ?? "Other activities"}><h3><FinancialText>{row.section ?? "Other activities"}</FinancialText></h3><StatementLine label={`Net cash from ${row.section?.toLowerCase() ?? "other activities"}`} value={row.amountMinor} kind="subtotal" tone={(row.amountMinor ?? 0) < 0 ? "outflow" : "income"} /></section></FinancialAttributes>)}
+          {statement.rows.map((row, index) => <FinancialAttributes key={`${row.section}-${index}`}><section className="financial-statement-section" key={`${row.section}-${index}`} aria-label={row.section ?? "Other activities"}><h3><FinancialText>{row.section ?? "Other activities"}</FinancialText></h3><StatementLine label={row.section === "Opening balances" ? "Brought-forward balance (excluded from net movement)" : `Net cash from ${row.section?.toLowerCase() ?? "other activities"}`} value={row.amountMinor} kind="subtotal" tone={(row.amountMinor ?? 0) < 0 ? "outflow" : "income"} /></section></FinancialAttributes>)}
           <StatementLine label="Net increase / (decrease) in cash" value={statement.netCashMovementMinor} kind="total" tone={(statement.netCashMovementMinor ?? 0) < 0 ? "outflow" : "income"} />
         </>}
         {statement.reportType === "trial_balance" && <div className="financial-statement-trial-wrap"><table className="financial-statement-trial"><thead><tr><th scope="col">Account</th><th scope="col">Debit</th><th scope="col">Credit</th></tr></thead><tbody>{statement.rows.map((row, index) => <tr key={`${row.accountCode}-${index}`}><td><FinancialText>{row.accountName}</FinancialText>{row.accountCode && <small><FinancialText>{row.accountCode}</FinancialText></small>}</td><td><FinancialValue>{statementMoney(row.debitMinor)}</FinancialValue></td><td><FinancialValue>{statementMoney(row.creditMinor)}</FinancialValue></td></tr>)}</tbody><tfoot><tr><th scope="row">Total</th><td><FinancialValue>{statementMoney(statement.totalDebitMinor)}</FinancialValue></td><td><FinancialValue>{statementMoney(statement.totalCreditMinor)}</FinancialValue></td></tr></tfoot></table></div>}
@@ -205,6 +207,7 @@ export function FinancialStatements() {
       ["Equity", currentResult.equityMinor],
       ["Net assets", currentResult.netAssetsMinor],
       ["Net cash movement", currentResult.netCashMovementMinor],
+      ["Recorded opening balance", currentResult.openingBalanceMinor],
       ["Receipts", currentResult.receiptsMinor],
       ["Payments", currentResult.paymentsMinor],
     ] as const).flatMap(([label, amount]) => amount === undefined ? [] :
