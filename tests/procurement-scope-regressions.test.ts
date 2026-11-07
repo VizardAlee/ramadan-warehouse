@@ -16,6 +16,29 @@ function actor(direct: RoleId[] = ["warehouse_manager"], base: RoleId = "operati
 }
 beforeEach(() => { state.roles = []; });
 describe("procurement permission provenance and assigned store scope", () => {
+  it("allows a branch-only manager to purchase only in assigned branches", async () => {
+    const profile = accessProfileFromRecord("branch-only", { status: "active", organizationId: "org", roleId: "branch_manager", roleIds: ["branch_manager"], directRoleIds: ["branch_manager"], effectivePermissions: [], branchIds: ["own-branch"], warehouseIds: [] });
+    const access = await procurementAccess(profile);
+    for (const permission of ["procurement.read", "payables.read", ...writes] as const) {
+      expect(hasOrganizationProcurementPermission(access, permission)).toBe(false);
+      expect(() => requireProcurementScope(access, { branchId: "own-branch" }, permission)).not.toThrow();
+      expect(() => requireProcurementScope(access, { branchId: "remote-branch" }, permission)).toThrow(/assigned store/);
+      expect(() => requireProcurementScope(access, { warehouseId: "own-warehouse" }, permission)).toThrow(/assigned store/);
+    }
+  });
+  it("does not let a branch manager borrow a custom reader's global write scope", async () => {
+    const access = await procurementAccess(actor(["branch_manager"], "auditor"));
+    for (const permission of writes) {
+      expect(() => requireProcurementScope(access, { branchId: "own-branch" }, permission)).not.toThrow();
+      expect(() => requireProcurementScope(access, { branchId: "remote-branch" }, permission)).toThrow(/assigned store/);
+    }
+  });
+  it("keeps a custom branch-manager reader read-only", async () => {
+    const access = await procurementAccess(actor([], "branch_manager", ["procurement.read"]));
+    expect(() => requireProcurementScope(access, { branchId: "own-branch" }, "procurement.read")).not.toThrow();
+    for (const permission of writes)
+      expect(() => requireProcurementScope(access, { branchId: "own-branch" }, permission)).toThrow(/permission/);
+  });
   it.each(["operations_administrator", "auditor", "finance_officer"] as const)("does not lend a custom %s reader's global scope to manager writes", async base => {
     const access = await procurementAccess(actor(["warehouse_manager"], base));
     expect(hasOrganizationProcurementPermission(access, "procurement.read")).toBe(true);
