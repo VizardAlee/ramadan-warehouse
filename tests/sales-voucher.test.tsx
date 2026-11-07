@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { savePrintFixture } from "./helpers/print-fixture";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { SalesVoucher } from "@/features/pos/sales-voucher";
@@ -15,6 +16,7 @@ describe("sales voucher", () => {
     expect(screen.getByText(/not a receipt or proof of collection/)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Print sales voucher" }));
     expect(print).toHaveBeenCalledOnce();
+    savePrintFixture("voucher");
     expect(state.call).toHaveBeenCalledExactlyOnceWith("getSaleDocument", { action: "get_sales_voucher", orderId: "order-a" });
   });
   it("shows a denied or unavailable voucher without fabricating order details", async () => {

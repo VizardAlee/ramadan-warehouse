@@ -176,3 +176,27 @@ describe("selected Store/Warehouse inventory", () => {
     expect(await screen.findByText("PANEL")).toBeTruthy();
   });
 });
+
+describe("inventory product identity", () => {
+  it("shows the full human-readable name above its separate SKU, including long names and zero stock", async () => {
+    const productName = "Lithium 4 kW(h) / 1.5 kVA All in One Haisic with extended product specifications";
+    mocks.balances = [{ ...stockA, productName, sku: "SKU-366115BDF78EC3DEF837E9820156B005", onHandQuantity: 0, availableQuantity: 0 }];
+    render(<InventoryPage />);
+    const link = await screen.findByRole("link", { name: productName });
+    expect(link.textContent).toBe(productName);
+    expect(link.getAttribute("href")).toBe("/products/panel#movement-history");
+    expect(link.closest("td")?.getAttribute("data-primary")).toBe("true");
+    expect(link.closest("td")?.textContent).toContain("SKU-366115BDF78EC3DEF837E9820156B005");
+  });
+
+  it("keeps the name after refreshing or switching locations and does not substitute its SKU", async () => {
+    const view = render(<InventoryPage />);
+    expect(await screen.findByRole("link", { name: "Solar panel" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Refresh inventory" }));
+    expect(await screen.findByRole("link", { name: "Solar panel" })).toBeTruthy();
+    select("b"); view.rerender(<InventoryPage />);
+    expect(await screen.findByRole("link", { name: "Battery" })).toBeTruthy();
+    expect(screen.queryByRole("link", { name: "Solar panel" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "BATTERY" })).toBeNull();
+  });
+});

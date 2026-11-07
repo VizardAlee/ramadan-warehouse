@@ -19,15 +19,21 @@ function invoice(count: number): SaleDocument {
   };
 }
 describe("invoice printing", () => {
-  it("shrinks a tall invoice and restores scale for a short invoice", () => {
+  it("keeps long invoices readable and restores scale for short invoices", () => {
     const element = document.createElement("section");
     Object.defineProperty(element, "scrollHeight", { value: 2000, configurable: true });
     fitInvoiceToPage(element);
-    expect(Number(element.style.getPropertyValue("--invoice-print-scale"))).toBeCloseTo(0.4913, 3);
+    expect(Number(element.style.getPropertyValue("--invoice-print-scale"))).toBe(1);
     expect(element.hasAttribute("data-measure-print")).toBe(false);
     Object.defineProperty(element, "scrollHeight", { value: 700 });
     fitInvoiceToPage(element);
     expect(element.style.getPropertyValue("--invoice-print-scale")).toBe("1");
+  });
+  it("fits a moderately overflowing invoice without excessive shrinking", () => {
+    const element = document.createElement("section");
+    Object.defineProperty(element, "scrollHeight", { value: 1000 });
+    fitInvoiceToPage(element);
+    expect(Number(element.style.getPropertyValue("--invoice-print-scale"))).toBeCloseTo(0.9449, 3);
   });
   it("retains service, provider and included-part evidence on a mixed printable invoice", () => {
     const mixed = invoice(35); mixed.sale.providerFundsMinor = 50000; mixed.sale.priorServicePaidMinor = 107500; mixed.sale.grossAmountMinor += 50000;
@@ -36,7 +42,7 @@ describe("invoice printing", () => {
     expect(printable.textContent).toContain("CASE-ORIGINAL"); expect(printable.textContent).toContain("Included cable × 2"); expect(printable.textContent).toContain("Existing carrier"); expect(printable.querySelectorAll("tbody tr")).toHaveLength(35);
     if (process.env.INVOICE_PRINT_FIXTURE_DIR) { mkdirSync(process.env.INVOICE_PRINT_FIXTURE_DIR, { recursive: true }); writeFileSync(`${process.env.INVOICE_PRINT_FIXTURE_DIR}/invoice-mixed.html`, `<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="invoice.css"></head><body>${document.querySelector("[data-sale-document-overlay]")!.outerHTML}<script>window.addEventListener('beforeprint', () => (${fitInvoiceToPage.toString()})(document.querySelector('[data-invoice-document]')))</script></body></html>`); }
   });
-  it.each([3, 15, 35])("keeps all %i invoice items in the printable document", count => {
+  it.each([3, 15, 35, 100])("keeps all %i invoice items in the printable document", count => {
     render(<SaleDocumentDialog document={invoice(count)} onClose={() => {}} />);
     const element = document.querySelector<HTMLElement>("[data-invoice-document]")!;
     expect(element.querySelectorAll("tbody tr")).toHaveLength(count);
