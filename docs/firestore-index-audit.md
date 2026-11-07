@@ -67,3 +67,39 @@ Final verification (7 October 2026, 09:40 UTC): 371/371 live query plans passed;
 zero unsupported queries, 194/194 indexes READY, zero single-field overrides.
 Seven new regression tests pass; the complete suite contains 240 passing tests.
 The deployment was index-only; no business data or access controls were changed.
+
+Client usability PR #20 verification (7 November 2026): Customer branch selection reuses the existing authorized customer query and already-cataloged branch equality/in filters and name/number/phone/email ordering.
+Reviewed candidate dce8ebca6d012838363d7d52d3833d2e162a7a48. Its complete 735-shape catalog
+is byte-equivalent to the live-audited PR #20 candidate dce8ebca6d012838363d7d52d3833d2e162a7a48
+(catalog SHA-256 f0008c842b3744e3621366fb157df298367c5c0f3a0df50e1afa8963300dbee5). The fresh production planner audit at
+2026-11-07T11:07:35.963Z passed 735/735 shapes with zero missing indexes.
+Planner evidence SHA-256: 0d7191ea4789e771b1496300542bee1f9c999293b79c6347e2830043a833fe57.
+Candidate review evidence SHA-256: 0398d21078d999ded15b3f90ca752311282f7c87e7bc9e71e88c2b581970faa2.
+The candidate's source fingerprints were refreshed only after that successful audit
+and catalog comparison. Index definitions and validation safeguards are unchanged;
+no business data, access controls or indexes were modified by this verification.
+The recorded index inventory timestamp remains historical, not a new inventory check.
+
+Client usability PR #21 verification (7 November 2026): Item-name filtering changes client-side matching only; no Firestore predicates, ordering or aggregate fields change.
+Reviewed candidate 89aac7c3a46b95ed2acac37b4d656b76505948a3. Its complete 735-shape catalog
+is byte-equivalent to the live-audited PR #20 candidate dce8ebca6d012838363d7d52d3833d2e162a7a48
+(catalog SHA-256 f0008c842b3744e3621366fb157df298367c5c0f3a0df50e1afa8963300dbee5). The fresh production planner audit at
+2026-11-07T11:07:35.963Z passed 735/735 shapes with zero missing indexes.
+Planner evidence SHA-256: 0d7191ea4789e771b1496300542bee1f9c999293b79c6347e2830043a833fe57.
+Candidate review evidence SHA-256: be5a0e71098cf83a1ac859afe74387cee5b8e4e73f7e5c3173b3e48550a37e22.
+The candidate's source fingerprints were refreshed only after that successful audit
+and catalog comparison. Index definitions and validation safeguards are unchanged;
+no business data, access controls or indexes were modified by this verification.
+The recorded index inventory timestamp remains historical, not a new inventory check.
+
+Client usability PR #22 verification (7 November 2026): Inventory name matching scans the same authorized inventoryBalances document-ID ordered query with existing organization, branch/warehouse, product and location filters. Product labels use the existing direct-document reads.
+Reviewed candidate d4ca81b8686c4e422ec99ef3b19e663b4e09fc8d. Its complete 735-shape catalog
+is byte-equivalent to the live-audited PR #20 candidate dce8ebca6d012838363d7d52d3833d2e162a7a48
+(catalog SHA-256 f0008c842b3744e3621366fb157df298367c5c0f3a0df50e1afa8963300dbee5). The fresh production planner audit at
+2026-11-07T11:07:35.963Z passed 735/735 shapes with zero missing indexes.
+Planner evidence SHA-256: 0d7191ea4789e771b1496300542bee1f9c999293b79c6347e2830043a833fe57.
+Candidate review evidence SHA-256: 5c0f506b9fa0d31bb0787be8ba5a39b670c4833ece4e279334b5b0ba8dfa5502.
+The candidate's source fingerprints were refreshed only after that successful audit
+and catalog comparison. Index definitions and validation safeguards are unchanged;
+no business data, access controls or indexes were modified by this verification.
+The recorded index inventory timestamp remains historical, not a new inventory check.
