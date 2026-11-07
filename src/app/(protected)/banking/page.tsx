@@ -9,8 +9,9 @@ import {
   Unlink,
   Upload,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { BankAccountManagement, bankLifecycleLabel } from "@/features/banking/bank-account-management";
 import { BankOwner } from "@/features/banking/bank-owner";
 import { CompanyFundsTransfer } from "@/features/banking/company-funds-transfer";
 import { callAdministration } from "@/features/administration/api";
@@ -100,6 +101,8 @@ export default function BankingPage() {
   const canApproveOwnWork = Boolean(profile && canSelfAuthorize(profile));
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
   const [selectedAccountId, setSelectedAccountId] = useState("");
+  const [showInactive, setShowInactive] = useState(false);
+  const loadSequence = useRef(0);
   const [busy, setBusy] = useState(false),
     [error, setError] = useState<string | null>(null),
     [message, setMessage] = useState<string | null>(null);
@@ -126,6 +129,7 @@ export default function BankingPage() {
   const load = useCallback(
     async (accountId: string) => {
       if (!profile) return;
+      const sequence = ++loadSequence.current;
       setBusy(true);
       setError(null);
       try {
@@ -135,25 +139,28 @@ export default function BankingPage() {
         >("getBankReconciliationWorkspace", {
           bankAccountId: accountId || undefined,
         });
+        if (sequence !== loadSequence.current) return;
         setWorkspace(result);
         if (!accountId && result.accounts.length)
-          setSelectedAccountId(result.accounts[0]!.id);
+          setSelectedAccountId(result.accounts.find(account => account.active)?.id ?? "");
       } catch (cause) {
+        if (sequence !== loadSequence.current) return;
         setError(
           cause instanceof Error
             ? cause.message
             : "Bank reconciliation could not be loaded.",
         );
       } finally {
-        setBusy(false);
+        if (sequence === loadSequence.current) setBusy(false);
       }
     },
     [profile],
   );
+  const invalidateLoad = useCallback(() => { loadSequence.current++; }, []);
   useEffect(() => {
     const timer = window.setTimeout(() => void load(selectedAccountId), 0);
-    return () => window.clearTimeout(timer);
-  }, [load, selectedAccountId]);
+    return () => { window.clearTimeout(timer); invalidateLoad(); };
+  }, [load, selectedAccountId, invalidateLoad]);
   async function run(action: () => Promise<unknown>, success: string) {
     setBusy(true);
     setError(null);
@@ -246,6 +253,9 @@ export default function BankingPage() {
             Only the last four digits are stored. Give each real bank account
             its own 10xx ledger code; sales receipts and supplier/expense
             payments will use the account selected at checkout or payment.
+            The opening amount below is reference information only. After adding
+            the account, use Post initial account balance to record a reviewed
+            balanced opening journal.
           </p>
           <div className="mt-4 grid gap-3 md:grid-cols-3">
             <label className="text-sm">
@@ -345,7 +355,7 @@ export default function BankingPage() {
               accountForm.bankName.trim().length < 2 ||
               accountForm.accountName.trim().length < 2 ||
               accountForm.accountNumberLast4.length !== 4 ||
-              !/^10\d{2}$/.test(accountForm.ledgerAccountCode)
+              (!/^10\d{2}$/.test(accountForm.ledgerAccountCode) || accountForm.ledgerAccountCode === "1010")
             }
             onClick={() =>
               void run(async () => {
@@ -361,7 +371,7 @@ export default function BankingPage() {
                   active: true,
                 });
                 setSelectedAccountId(result.bankAccountId);
-              }, "Bank account added securely.")
+              }, "Bank account added. Use Post initial account balance below if a reviewed opening journal is needed.")
             }
           >
             <Landmark className="mr-2 size-4" /> Add bank account
@@ -369,8 +379,9 @@ export default function BankingPage() {
         </details></FinancialActionScope>
       )}
 
-      {can("banking.manage") && workspace?.accounts.find(account => account.id === selectedAccountId) && <BankOwner key={selectedAccountId} account={workspace.accounts.find(account => account.id === selectedAccountId)!} branches={workspace.branches ?? []} onSaved={() => void load(selectedAccountId)} />}
+      {can("banking.manage") && selectedAccount?.active && <BankOwner key={selectedAccountId} account={selectedAccount} branches={workspace?.branches ?? []} onSaved={() => void load(selectedAccountId)} />}
       <section className="rounded-xl border bg-white p-5">
+        <label className="mb-3 flex items-center gap-2 text-sm"><input type="checkbox" checked={showInactive} onChange={event => { setShowInactive(event.target.checked); if (!event.target.checked && selectedAccount && !selectedAccount.active) setSelectedAccountId(""); }} />Show archived / deleted accounts</label>
         <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
           <label className="text-sm md:min-w-80">
             Bank account
@@ -380,10 +391,10 @@ export default function BankingPage() {
               onChange={(event) => setSelectedAccountId(event.target.value)}
             >
               <option value="">Select bank account</option>
-              {workspace?.accounts.map((account) => (
+              {workspace?.accounts.filter(account => account.active || showInactive).map((account) => (
                 <option key={account.id} value={account.id}>
                   <FinancialText>{account.bankName}</FinancialText> · <FinancialText>{account.accountName}</FinancialText> ·••••{" "}
-                  <FinancialText>{account.accountNumberLast4}</FinancialText>
+                  <FinancialText>{account.accountNumberLast4}</FinancialText>{!account.active ? ` · ${bankLifecycleLabel(account)}` : ""}
                 </option>
               ))}
             </select>
@@ -405,7 +416,9 @@ export default function BankingPage() {
         </div>
       </section>
 
-      {selectedAccount && can("banking.reconcile") && (
+      <BankAccountManagement key={`${profile.organizationId}:${profile.uid}`} ownerKey={`${profile.organizationId}:${profile.uid}`} account={selectedAccount} branchId={operatingContext?.type === "branch" ? operatingContext.id : profile.branchIds.length === 1 ? profile.branchIds[0] : undefined} canManage={can("banking.manage")} managementScopeReady={!operatingContext} canPostOpening={can("finance.journal.create") && can("banking.manage")} onSaved={accountId => { setShowInactive(true); setSelectedAccountId(accountId); void load(accountId); }} />
+
+      {selectedAccount && selectedAccount.lifecycleStatus !== "removed" && can("banking.reconcile") && (
         <FinancialActionScope><details
           open={!workspace?.statementTransactions.length}
           className="rounded-xl border bg-white p-5"
@@ -566,7 +579,7 @@ export default function BankingPage() {
         </section>
       )}
 
-      {selectedAccount && can("banking.reconcile") && (
+      {selectedAccount && selectedAccount.lifecycleStatus !== "removed" && can("banking.reconcile") && (
         <FinancialActionScope><details open className="rounded-xl border bg-white p-5">
           <summary className="cursor-pointer text-lg font-semibold">
             4. Prepare period reconciliation

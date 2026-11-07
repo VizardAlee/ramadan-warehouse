@@ -33,7 +33,7 @@ export function writeJournal(
     description: string;
     details?: Record<string, unknown>;
     manageAccounts?: boolean;
-    cashFlowActivity?: "operating" | "investing" | "financing";
+    cashFlowActivity?: "operating" | "investing" | "financing" | "opening";
     branchId?: string;
     warehouseId?: string;
     effectiveAt: Timestamp;
@@ -116,6 +116,7 @@ export function writeJournal(
         accountId: account.id,
         accountCode: line.accountCode,
         accountName: line.accountName ?? accountNames[line.accountCode] ?? line.accountCode,
+        cashFlowActivity: values.cashFlowActivity,
         bankAccountId: line.bankAccountId,
         debitMinor: line.debitMinor,
         creditMinor: line.creditMinor,

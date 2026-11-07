@@ -85,6 +85,13 @@ export function queryCatalog() {
     visit(source);
   }
 
+  // Bank lifecycle checks use dynamic fields/collection names. Cover both
+  // ledger identities and every bounded dependency scan; limits do not affect indexes.
+  for (const field of ["bankAccountId", "accountCode"])
+    add("bank lifecycle ledger evidence", "journalLines", [org, [field, "=="]]);
+  for (const collection of ["journalEntries", "salesOrders", "bankStatementTransactions", "bankReconciliations", "salePayments", "customerPayments", "supplierPayments", "expensePayments", "aftersalesPayments", "providerFundPayments", "saleReturns", "saleRefunds", "sales", "expenses", "purchaseOrders", "internalTradePayments"])
+    add("bank lifecycle dependency evidence", collection, [org]);
+
   for (const scope of scopes) {
     for (const optional of subsets(["productId", "locationId", "transactionType", "serialNumber"])) {
       add("inventory history/movement filters", "inventoryEntries", [org, ...scope, ...eq(optional), ["effectiveAt", ">="], ["effectiveAt", "<="]], dateOrder("effectiveAt"));

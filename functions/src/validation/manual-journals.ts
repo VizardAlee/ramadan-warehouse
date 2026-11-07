@@ -36,7 +36,8 @@ export const saveLedgerAccountInput = z.object({
   name: z.string().trim().min(2).max(160), active: z.boolean(),
   reason: z.string().trim().min(5).max(500), idempotencyKey: z.string().uuid(),
 });
-export const accountingJournalInput = z.union([z.object({ action: z.literal("access") }), manualJournalInput, reverseManualJournalInput, journalWorkspaceInput, saveLedgerAccountInput,
+export const bankOpeningInput = z.object({ action: z.literal("bank_opening"), ...common, bankAccountId: id, counterpartAccountId: id, amountMinor: z.number().int().safe().refine(value => value !== 0, "Amount cannot be zero."), confirmedNoPreviousOpening: z.literal(true) });
+export const accountingJournalInput = z.union([bankOpeningInput, z.object({ action: z.literal("access") }), manualJournalInput, reverseManualJournalInput, journalWorkspaceInput, saveLedgerAccountInput,
   z.object({ action: z.literal("detail"), journalEntryId: id })]);
 
 // These balances belong to operational subledgers. An arbitrary manual journal

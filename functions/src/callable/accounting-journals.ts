@@ -1,3 +1,4 @@
+import { bankLedgerEvidence, bankReviewRequired } from "../accounting/bank-lifecycle.js";
 import { assignedBranchQuery } from "../auth/view-scope.js";
 import { withRecordActors } from "../audit/record-actors.js";
 import { createHash } from "node:crypto";
@@ -16,7 +17,8 @@ import { uniquenessDocumentId } from "../inventory/calculations.js";
 import { correlationId, parseInput } from "../utils/callable.js";
 import { accountingJournalInput, canConfigureManualAccount, isOperationalControlCode } from "../validation/manual-journals.js";
 
-const fail = (message: string): never => { throw new HttpsError("failed-precondition", message); };
+const fail = bankReviewRequired;
+const bankBusinessDate = (date: Date) => new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Lagos", year: "numeric", month: "2-digit", day: "2-digit" }).format(date);
 function row(document: FirebaseFirestore.DocumentSnapshot) {
   const data = document.data() ?? {};
   return { id: document.id, ...Object.fromEntries(Object.entries(data).map(([key, value]) =>
@@ -25,7 +27,7 @@ function row(document: FirebaseFirestore.DocumentSnapshot) {
 export const accountingJournals = onCall({ enforceAppCheck }, async request => {
   const actor = await scopedAccess(await requireAccess(request));
   const input = parseInput(accountingJournalInput, request.data);
-  const permission = input.action === "post" ? "finance.journal.create" : input.action === "reverse" ? "finance.journal.reverse" : input.action === "save_account" ? "finance.accounts.manage" : "finance.journal.read";
+  const permission = (input.action === "post" || input.action === "bank_opening") ? "finance.journal.create" : input.action === "reverse" ? "finance.journal.reverse" : input.action === "save_account" ? "finance.accounts.manage" : "finance.journal.read";
   requirePermission(actor, permission);
   const organizationWide = hasOrganizationPermission(actor, permission);
   if (input.action === "access") return {
@@ -99,15 +101,60 @@ export const accountingJournals = onCall({ enforceAppCheck }, async request => {
     }
     assertScope(input.branchId);
     const effectiveAt = Timestamp.fromDate(new Date(input.effectiveAt));
-    if (effectiveAt.toMillis() > Date.now() + 300_000) throw new HttpsError("invalid-argument", "The posting date cannot be in the future.");
+    if (effectiveAt.toMillis() > Date.now() + (input.action === "bank_opening" ? 0 : 300_000)) throw new HttpsError("invalid-argument", "The posting date cannot be in the future.");
     const [period, sequence, branch] = await Promise.all([accountingPeriodReference(actor.organizationId, effectiveAt), counter, db.doc(`branches/${input.branchId}`)].map(ref => transaction.get(ref)));
     if (!period || !sequence || !branch || !branch.exists || branch.get("organizationId") !== actor.organizationId || branch.get("status") === "inactive") fail("Select an active store for this journal.");
     assertAccountingPeriodOpen(period!);
-    let cashFlowActivity: "operating" | "investing" | "financing";
+    let cashFlowActivity: "operating" | "investing" | "financing" | "opening";
+    let openingBank: FirebaseFirestore.DocumentSnapshot | undefined;
     let lines: Array<{ accountId: string; bankAccountId?: string; accountCode: string; accountName: string; debitMinor: number; creditMinor: number }>;
     let original: FirebaseFirestore.DocumentSnapshot | undefined;
     let bankEvidence: Array<{ bankAccountId: string; accountCode: string; accountName: string }> = [];
-    if (input.action === "reverse") {
+    if (input.action === "bank_opening") {
+      openingBank = await transaction.get(db.doc(`bankAccounts/${input.bankAccountId}`));
+      const bank = openingBank;
+      if (!bank.exists || bank.get("organizationId") !== actor.organizationId || bank.get("active") !== true || ["archived", "removed"].includes(bank.get("lifecycleStatus"))) fail("Choose an active company bank account.");
+      requirePermissionScope(actor, { branchId: bank.get("branchId") ?? undefined }, "banking.manage");
+      if (bank.get("branchId") && bank.get("branchId") !== input.branchId) fail("Record the opening in the bank account's owning store.");
+      const legacyAmount = bank.get("openingBalanceMinor");
+      if (legacyAmount !== undefined && (!Number.isSafeInteger(legacyAmount) || (legacyAmount !== 0 && (legacyAmount !== input.amountMinor || bank.get("openingDate") !== bankBusinessDate(effectiveAt.toDate()))))) fail("The reviewed opening must agree with the saved nonzero statement baseline and date. Ask your accountant to resolve the difference before posting.");
+      if (bank.get("openingJournalEntryId")) fail("This bank already has a reviewed opening journal. Correct it through manual reversal; do not post another opening.");
+      if (bank.get("currency") !== "NGN") fail("Verify this bank account's NGN currency before posting its opening.");
+      const openingHeaders = await transaction.get(db.collection("journalEntries").where("organizationId", "==", actor.organizationId).where("journalType", "in", ["manual_adjustment", "opening_balance", "bank_opening"]).limit(501));
+      if (openingHeaders.size > 500) fail("There is too much manual journal history to verify a first opening automatically. Ask an accountant to review it.");
+      for (const header of openingHeaders.docs) {
+        if (header.get("journalType") === "manual_adjustment" && header.get("details.purpose") && header.get("details.purpose") !== "opening_balance") continue;
+        const evidence = header.get("details.bankAccounts");
+        if (!Array.isArray(evidence) || evidence.some((item: { bankAccountId?: unknown; accountCode?: unknown }) => !item || typeof item.bankAccountId !== "string" || typeof item.accountCode !== "string")) fail("A legacy opening journal has incomplete bank evidence. Accountant review is required before posting another opening.");
+        if (evidence.some((item: { bankAccountId?: unknown; accountCode?: unknown }) => item.bankAccountId === bank.id || item.accountCode === bank.get("ledgerAccountCode"))) fail("Bank journal headers already contain an opening balance for this account. Do not post it twice.");
+      }
+      const history = await bankLedgerEvidence(transaction, actor.organizationId, bank);
+      if (history.some(line => !(line.get("effectiveAt") instanceof Timestamp) || line.get("effectiveAt").toMillis() <= effectiveAt.toMillis())) fail("The opening date must precede every existing bank ledger transaction. Review the cutover date with your accountant.");
+      const reconciliations = await transaction.get(db.collection("bankReconciliations").where("organizationId", "==", actor.organizationId).where("bankAccountId", "==", bank.id).limit(501));
+      // Never rewrite a reconciled historical baseline, even when its period is open.
+      if (!reconciliations.empty) fail("This bank already has reconciliation history. An accountant must review its opening outside this first-opening workflow.");
+      const statements = await transaction.get(db.collection("bankStatementTransactions").where("organizationId", "==", actor.organizationId).where("bankAccountId", "==", bank.id).limit(501));
+      if (statements.size > 500 || statements.docs.some(row => !/^\d{4}-\d{2}-\d{2}$/.test(String(row.get("transactionDate"))) || row.get("transactionDate") <= bankBusinessDate(effectiveAt.toDate()))) fail("The opening date must precede the first imported bank statement transaction.");
+      const journalIds = [...new Set(history.map(line => String(line.get("journalEntryId") ?? "")))];
+      if (journalIds.some(id => !id || id.includes("/"))) fail("Legacy bank history is incomplete. Accountant review is required before posting an opening.");
+      const journals = journalIds.length ? await transaction.getAll(...journalIds.map(id => db.doc(`journalEntries/${id}`))) : [];
+      if (journals.some(entry => !entry.exists || entry.get("organizationId") !== actor.organizationId || entry.get("status") !== "posted" || (entry.get("journalType") === "manual_adjustment" && !entry.get("details.purpose")))) fail("Legacy bank history is incomplete. Accountant review is required before posting an opening.");
+      if (journals.some(entry => entry.get("details.purpose") === "opening_balance" || /opening/i.test(String(entry.get("journalType"))))) fail("Bank ledger history already contains an opening balance. Do not post it twice.");
+      const code = String(bank.get("ledgerAccountCode"));
+      const bankLedger = await transaction.get(db.doc(`chartOfAccounts/${uniquenessDocumentId(actor.organizationId, code)}`));
+      const counterpart = await transaction.get(db.doc(`chartOfAccounts/${input.counterpartAccountId}`));
+      const peers = await transaction.get(db.collection("bankAccounts").where("organizationId", "==", actor.organizationId).where("ledgerAccountCode", "==", code).limit(2));
+      const ledgers = await transaction.get(db.collection("chartOfAccounts").where("organizationId", "==", actor.organizationId).where("code", "==", code).limit(2));
+      if (peers.size !== 1 || peers.docs[0]?.id !== bank.id || ledgers.size !== 1 || ledgers.docs[0]?.id !== bankLedger.id || !bankLedger.exists || bankLedger.get("organizationId") !== actor.organizationId || bankLedger.get("active") !== true || bankLedger.get("code") !== code || bankLedger.get("currency") !== "NGN" || (bankLedger.get("bankAccountId") && bankLedger.get("bankAccountId") !== bank.id) || bankLedger.get("billingControlPurpose")) fail("Save and verify this bank's unique chart account before posting its opening.");
+      const otherCode = String(counterpart.get("code"));
+      if (!counterpart.exists || counterpart.get("organizationId") !== actor.organizationId || counterpart.get("active") !== true || counterpart.get("currency") !== "NGN" || !/^3\d{3}$/.test(otherCode) || isOperationalControlCode(otherCode) || counterpart.get("billingControlPurpose") || counterpart.get("systemManaged") === true) fail("Choose an accountant-reviewed non-operational opening-equity account. Income and operational control accounts cannot be used.");
+      const counterpartPeers = await transaction.get(db.collection("chartOfAccounts").where("organizationId", "==", actor.organizationId).where("code", "==", otherCode).limit(2));
+      if (counterpartPeers.size !== 1) fail("The opening-equity ledger code is duplicated. Accountant review is required.");
+      const amount = Math.abs(input.amountMinor);
+      lines = [{ accountId: bankLedger.id, bankAccountId: bank.id, accountCode: code, accountName: String(bankLedger.get("name")), debitMinor: input.amountMinor > 0 ? amount : 0, creditMinor: input.amountMinor < 0 ? amount : 0 }, { accountId: counterpart.id, accountCode: otherCode, accountName: String(counterpart.get("name")), debitMinor: input.amountMinor < 0 ? amount : 0, creditMinor: input.amountMinor > 0 ? amount : 0 }];
+      bankEvidence = [{ bankAccountId: bank.id, accountCode: code, accountName: String(bank.get("accountName")) }];
+      cashFlowActivity = "opening";
+    } else if (input.action === "reverse") {
       original = await transaction.get(db.doc(`journalEntries/${input.journalEntryId}`));
       if (!original.exists || original.get("organizationId") !== actor.organizationId || original.get("branchId") !== input.branchId) fail("The original journal is not in this store.");
       if (original.get("journalType") !== "manual_adjustment" || original.get("status") !== "posted") fail("Only manual journals can be reversed here. Correct operational transactions in their own workflow.");
@@ -119,9 +166,16 @@ export const accountingJournals = onCall({ enforceAppCheck }, async request => {
       if (originalAccounts.some(account => account.get("billingControlPurpose"))) fail("Billing control accounts can only be reversed in their operational workflow.");
       if (lines.some(line => isOperationalControlCode(line.accountCode))) fail("Operational control accounts cannot be reversed outside their workflow.");
       cashFlowActivity = original.get("cashFlowActivity");
-      if (!["operating", "investing", "financing"].includes(cashFlowActivity)) fail("The original cash-flow classification requires review.");
+      if (!["operating", "investing", "financing", "opening"].includes(cashFlowActivity)) fail("The original cash-flow classification requires review.");
       if (original.get("totalDebitMinor") !== lines.reduce((sum, line) => sum + line.creditMinor, 0) || original.get("totalCreditMinor") !== lines.reduce((sum, line) => sum + line.debitMinor, 0)) fail("The original lines and header do not agree.");
+      for (const line of lines.filter(line => /^10\d{2}$/.test(line.accountCode) && line.accountCode !== "1010")) {
+        if (!line.bankAccountId) fail("Legacy money journal lines lack financial-account evidence. Accountant review is required before reversal.");
+        const peers = await transaction.get(db.collection("bankAccounts").where("organizationId", "==", actor.organizationId).where("ledgerAccountCode", "==", line.accountCode).limit(2));
+        if (peers.size !== 1 || peers.docs[0]?.id !== line.bankAccountId) fail("The financial account's ledger mapping requires review before reversal.");
+      }
       bankEvidence = original.get("details.bankAccounts") ?? [];
+      const reversingBanks = await Promise.all(lines.filter(line => line.bankAccountId).map(line => transaction.get(db.doc(`bankAccounts/${line.bankAccountId}`))));
+      if (reversingBanks.some(bank => !bank.exists || bank.get("organizationId") !== actor.organizationId || bank.get("active") !== true || ["removed", "archived"].includes(bank.get("lifecycleStatus")))) fail("Restore the affected financial account before posting its reversal.");
     } else {
       const accounts = await Promise.all(input.lines.map(line => transaction.get(db.doc(`chartOfAccounts/${line.accountId}`))));
       const banks = await Promise.all(input.lines.map(line => line.bankAccountId ? transaction.get(db.doc(`bankAccounts/${line.bankAccountId}`)) : undefined));
@@ -129,7 +183,7 @@ export const accountingJournals = onCall({ enforceAppCheck }, async request => {
       for (const account of accounts) {
         const code = String(account.get("code"));
         if (/^10\d{2}$/.test(code) && code !== "1010" && !moneyAccounts.has(code))
-          moneyAccounts.set(code, await transaction.get(db.collection("bankAccounts").where("organizationId", "==", actor.organizationId).where("ledgerAccountCode", "==", code).where("active", "==", true).limit(2)));
+          moneyAccounts.set(code, await transaction.get(db.collection("bankAccounts").where("organizationId", "==", actor.organizationId).where("ledgerAccountCode", "==", code).limit(2)));
       }
       lines = input.lines.map((line, index) => {
         const account = accounts[index]!;
@@ -138,13 +192,14 @@ export const accountingJournals = onCall({ enforceAppCheck }, async request => {
         if (account.get("billingControlPurpose") || isOperationalControlCode(accountCode)) fail("Use the operational workflow for inventory, customer/supplier balances, tax and retained earnings.");
         const bank = banks[index];
         if (/^10\d{2}$/.test(accountCode) && accountCode !== "1010") {
-          if (!bank?.exists || bank.get("organizationId") !== actor.organizationId || bank.get("active") !== true || bank.get("ledgerAccountCode") !== accountCode) fail("Select the active company financial account for this money line.");
+          if (!bank?.exists || bank.get("organizationId") !== actor.organizationId || bank.get("active") !== true || ["archived", "removed"].includes(bank.get("lifecycleStatus")) || bank.get("ledgerAccountCode") !== accountCode) fail("Select the active company financial account for this money line.");
           if (bank!.get("branchId") && bank!.get("branchId") !== input.branchId) fail("This company account belongs to another store. Record it in its owning store; use Company funds transfer for a cross-store movement.");
           if (moneyAccounts.get(accountCode)?.size !== 1) fail("This ledger code is shared by multiple financial accounts. Give each account its own code before posting manual money entries.");
           bankEvidence.push({ bankAccountId: bank!.id, accountCode, accountName: String(bank!.get("accountName")) });
         } else if (line.bankAccountId) fail("A financial account was supplied for a non-bank ledger line.");
         return { accountId: account.id, accountCode, accountName: String(account.get("name")), debitMinor: line.debitMinor, creditMinor: line.creditMinor, ...(line.bankAccountId ? { bankAccountId: line.bankAccountId } : {}) };
       });
+      if (input.purpose === "opening_balance" && bankEvidence.length) fail("Use the reviewed bank opening workflow for bank balances, so duplicate openings are prevented.");
       cashFlowActivity = input.cashFlowActivity;
     }
     try { assertSafeJournal(lines); } catch { fail("Journal lines must balance using safe positive debit and credit amounts."); }
@@ -152,8 +207,10 @@ export const accountingJournals = onCall({ enforceAppCheck }, async request => {
     const journalNumber = writeJournal(transaction, actor, { journal, journalCounter: counter, journalCounterValue: Number(sequence!.get("value") ?? 0) + 1,
       journalType: original ? "manual_reversal" : "manual_adjustment", referenceType: original ? "journalReversal" : "manualJournal", referenceId: original?.id ?? journal.id,
       referenceNumber, description: input.reference, branchId: input.branchId, effectiveAt, cashFlowActivity, manageAccounts: false,
-      details: { reason: input.reason, purpose: input.action === "post" ? input.purpose : "reversal", bankAccounts: bankEvidence,
+      details: { reason: input.reason, purpose: input.action === "bank_opening" ? "opening_balance" : input.action === "post" ? input.purpose : "reversal",
+        ...(input.action === "bank_opening" ? { confirmedNoPreviousOpening: true, signedOpeningAmountMinor: input.amountMinor, counterpartAccountId: input.counterpartAccountId } : {}), bankAccounts: bankEvidence,
         ...(original ? { originalJournalEntryId: original.id, originalJournalNumber: original.get("journalNumber") } : {}) }, lines });
+    if (openingBank) transaction.update(openingBank.ref, { openingJournalEntryId: journal.id, openingJournalNumber: journalNumber, openingPostedAt: FieldValue.serverTimestamp(), openingPostedBy: actor.userId });
     // Keep the original posted amounts and status. Only add the correction link.
     if (original) transaction.update(original.ref, { reversalJournalEntryId: journal.id, reversedAt: FieldValue.serverTimestamp(), reversedBy: actor.userId });
     const result = { journalEntryId: journal.id, journalNumber, referenceNumber, posted: true };

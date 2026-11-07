@@ -136,3 +136,28 @@ A fresh production planner-only audit at 2026-11-07T12:50:13.712Z passed
 735/735 shapes with zero missing indexes. Evidence SHA-256: a8f3ccad7599f3c36c50860ffd4a694526825293b60acee563f5336a9a31180e.
 Only the reviewed source fingerprint was refreshed. The 272-index inventory
 timestamp remains historical; no indexes, rules or production records were changed.
+Bank lifecycle/opening verification (7 November 2026): reviewed and explicitly
+expanded dynamic ledger evidence (organization plus bank ID/account code) and all
+16 bounded organization dependency scans, including orphan journal headers and
+nested pending sales-order tenders. Source extraction additionally covers the
+organization plus journal-type IN opening-header guard and organization plus
+sourceFunction IN financial-audit fallback (seven handlers; configuration and
+lifecycle audit events excluded). Final bank-delta live planner audit at
+2026-11-07T13:40:44.557Z passed 749/749 shapes with zero missing indexes.
+A read-only inventory check at 2026-11-07T11:43:03.885Z
+confirmed all 272 indexes READY. No index definitions, access controls, or live
+business records were changed. Existing index signatures were preserved. The
+baseline was refreshed only after successful audit fingerprints matched the
+current source. Integration with a newer release base requires a fresh combined
+source review and audit. Planner evidence SHA-256:
+f5650a7b560afcd2b248dd1f18c9dd3cd03284933ac639e37672e1891115e901.
+
+Combined bank release verification (7 November 2026): the bank feature was
+integrated onto purchasing/client base b36f398cbd9e1f967f85c8e3cdd2963e754b92ad.
+The combined catalog remains 749 shapes. A fresh read-only planner audit at
+2026-11-07T13:48:03.177Z passed 749/749 with zero missing indexes. The
+baseline fingerprints match this combined source, including prior client and
+authorization changes. Index signatures are unchanged. The existing 272-index
+inventory timestamp is historical, not a new inventory check. No live records,
+indexes, permissions or security settings were changed by this audit.
+Planner evidence SHA-256: f1ae65514f272b9ce03fdb1f12d409c50a0b09a521f66652321a9e4ac3f4f5e1.

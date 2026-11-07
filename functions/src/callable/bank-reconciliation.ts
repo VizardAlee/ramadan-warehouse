@@ -1,3 +1,4 @@
+import { bankLifecycle, bankReviewRequired, bankLedgerEvidence } from "../accounting/bank-lifecycle.js";
 import { matchesView, viewQuery, requireAllLocations } from "../auth/view-scope.js";
 import { createHash } from "node:crypto";
 import { FieldValue, Timestamp } from "firebase-admin/firestore";
@@ -254,6 +255,8 @@ export const saveBankAccount = onCall({ enforceAppCheck }, async (request) => {
   requireAllLocations(actor);
   requirePermissionScope(actor, {}, "banking.manage");
   const input = parseInput(saveBankAccountInput, request.data);
+  if ("action" in input) return bankLifecycle(actor, input);
+  if (input.ledgerAccountCode === "1010") bankReviewRequired("1010 is reserved for cash on hand. Choose a distinct bank ledger code.");
   const account = input.bankAccountId
     ? db.doc(`bankAccounts/${input.bankAccountId}`)
     : db.collection("bankAccounts").doc();
@@ -283,6 +286,7 @@ export const saveBankAccount = onCall({ enforceAppCheck }, async (request) => {
         "already-exists",
         "That bank ledger code is already assigned to another account.",
       );
+    if (current.exists && (current.get("openingBalanceMinor") !== input.openingBalanceMinor || current.get("openingDate") !== input.openingDate)) bankReviewRequired("An existing account's statement starting balance and date cannot be rewritten. Use reviewed accounting corrections; its original baseline is preserved.");
     const ownerBranchId = input.branchId === undefined ? current.get("branchId") ?? null : input.branchId;
     if (current.get("branchId") && current.get("branchId") !== ownerBranchId) throw new HttpsError("failed-precondition", "An assigned bank account cannot be reassigned to another store. Create a separate account/ledger and record an authorized transfer instead.");
     if (ownerBranchId) {
@@ -290,7 +294,20 @@ export const saveBankAccount = onCall({ enforceAppCheck }, async (request) => {
       const owner = await transaction.get(db.doc(`branches/${ownerBranchId}`));
       if (!owner.exists || owner.get("organizationId") !== actor.organizationId || owner.get("status") !== "active") throw new HttpsError("failed-precondition", "Choose an active company store as the bank account owner.");
     }
+    if (current.get("lifecycleStatus") === "removed" || current.get("lifecycleStatus") === "archived") bankReviewRequired("Restore this account before editing its details.");
+    const peers = await transaction.get(db.collection("bankAccounts").where("organizationId", "==", actor.organizationId).where("ledgerAccountCode", "==", input.ledgerAccountCode).limit(2));
+    if (peers.docs.some(peer => peer.id !== account.id) || (lock.exists && lock.get("entityId") !== account.id)) bankReviewRequired("This ledger code is already assigned. Archived and removed account codes remain reserved.");
+    const ledgerRef = db.doc(`chartOfAccounts/${uniquenessDocumentId(actor.organizationId, input.ledgerAccountCode)}`);
+    const ledger = await transaction.get(ledgerRef);
+    const ledgers = await transaction.get(db.collection("chartOfAccounts").where("organizationId", "==", actor.organizationId).where("code", "==", input.ledgerAccountCode).limit(2));
+    if (ledgers.docs.some(row => row.id !== ledgerRef.id) || (ledger.exists && (ledger.get("organizationId") !== actor.organizationId || ledger.get("code") !== input.ledgerAccountCode || ledger.get("currency") !== "NGN" || ledger.get("billingControlPurpose") || ledger.get("active") !== true || (ledger.get("bankAccountId") && ledger.get("bankAccountId") !== account.id)))) bankReviewRequired("The bank's chart account is inconsistent. Ask an accountant to reconcile its mapping.");
+    if (!ledger.exists && current.exists && (await bankLedgerEvidence(transaction, actor.organizationId, current)).length) bankReviewRequired("Existing bank journal history has no chart account. Accountant review is required before setup.");
+    if (!current.exists) {
+      const orphanHistory = await transaction.get(db.collection("journalLines").where("organizationId", "==", actor.organizationId).where("accountCode", "==", input.ledgerAccountCode).limit(1));
+      if (!orphanHistory.empty) bankReviewRequired("This ledger code already has financial history. Ask an accountant to review it instead of assigning it to a new bank account.");
+    }
     const now = FieldValue.serverTimestamp();
+    if (!ledger.exists) transaction.create(ledgerRef, { organizationId: actor.organizationId, code: input.ledgerAccountCode, name: `${input.bankName} · ${input.accountName}`, currency: "NGN", active: true, systemManaged: true, bankAccountId: account.id, createdAt: now });
     transaction.set(
       account,
       clean({
@@ -304,13 +321,15 @@ export const saveBankAccount = onCall({ enforceAppCheck }, async (request) => {
         openingDate: input.openingDate,
         currency: "NGN",
         active: input.active,
+        lifecycleStatus: input.active ? "active" : "archived",
         createdAt: current.exists ? current.get("createdAt") : now,
         createdBy: current.exists ? current.get("createdBy") : actor.userId,
         updatedAt: now,
         updatedBy: actor.userId,
       }),
+      { merge: true },
     );
-    if (!current.exists)
+    if (!lock.exists)
       transaction.create(uniqueness, {
         organizationId: actor.organizationId,
         entityType: "bankAccount",
@@ -341,11 +360,12 @@ export const importBankStatement = onCall(
     const actor = await scopedAccess(await requireAccess(request));
     requirePermissionScope(actor, {}, "banking.reconcile");
     const input = parseInput(importBankStatementInput, request.data);
-    const account = await db.doc(`bankAccounts/${input.bankAccountId}`).get();
+    return db.runTransaction(async batch => {
+    const account = await batch.get(db.doc(`bankAccounts/${input.bankAccountId}`));
     if (
       !account.exists ||
       account.get("organizationId") !== actor.organizationId ||
-      account.get("active") !== true
+      account.get("lifecycleStatus") === "removed"
     )
       throw new HttpsError(
         "failed-precondition",
@@ -354,7 +374,7 @@ export const importBankStatement = onCall(
     const operation = db.doc(
       `idempotencyOperations/${uniquenessDocumentId(actor.organizationId, "importBankStatement", input.idempotencyKey)}`,
     );
-    const previous = await operation.get();
+    const previous = await batch.get(operation);
     if (previous.exists)
       return {
         importedCount: Number(previous.get("importedCount") ?? 0),
@@ -366,8 +386,7 @@ export const importBankStatement = onCall(
         `bankStatementTransactions/${uniquenessDocumentId(actor.organizationId, statementFingerprint(input.bankAccountId, row))}`,
       ),
     );
-    const existing = await db.getAll(...references),
-      batch = db.batch();
+    const existing = await batch.getAll(...references);
     let importedCount = 0,
       duplicateCount = 0;
     const seen = new Set<string>();
@@ -419,8 +438,8 @@ export const importBankStatement = onCall(
       after: { importedCount, duplicateCount },
       createdAt: FieldValue.serverTimestamp(),
     });
-    await batch.commit();
     return { importedCount, duplicateCount, imported: true };
+    });
   },
 );
 
@@ -471,6 +490,7 @@ export const matchBankTransaction = onCall(
         account.get("organizationId") !== actor.organizationId
       )
         throw new HttpsError("not-found", "Bank account not found.");
+      if (currentLine.get("cashFlowActivity") === "opening") bankReviewRequired("A brought-forward opening balance is not a statement transaction. Start reconciliation after its cutover date.");
       assertMatch(
         currentStatement,
         currentLine,
@@ -607,7 +627,7 @@ async function periodEvidence(
   if (
     !account.exists ||
     account.get("organizationId") !== organizationId ||
-    account.get("active") !== true
+    account.get("lifecycleStatus") === "removed"
   )
     throw new HttpsError(
       "failed-precondition",
@@ -643,6 +663,7 @@ async function periodEvidence(
   ]);
   const statements = statementQuery.docs;
   const lines = lineQuery.docs;
+  if (lines.some(line => line.get("cashFlowActivity") === "opening")) bankReviewRequired("This period contains a brought-forward opening or its correction. Start reconciliation after that cutover date and use the reviewed starting bank balance, rather than matching it as a statement transaction.");
   if (statements.length > 200 || lines.length > 200)
     throw new HttpsError(
       "resource-exhausted",
@@ -761,6 +782,9 @@ export const prepareBankReconciliation = onCall(
         };
         return;
       }
+      const latestAccount = await transaction.get(db.doc(`bankAccounts/${input.bankAccountId}`));
+      if (!latestAccount.exists || latestAccount.get("organizationId") !== actor.organizationId || latestAccount.get("lifecycleStatus") === "removed") bankReviewRequired("Restore this account before reconciling it.");
+      if ((latestAccount.get("openingJournalEntryId") ?? null) !== (evidence.account.get("openingJournalEntryId") ?? null)) bankReviewRequired("The bank opening changed during preparation. Reload and review the cutover date before reconciling.");
       const sequence = Number(currentCounter.get("value") ?? 0) + 1,
         reconciliationNumber = numbered(sequence),
         now = FieldValue.serverTimestamp();
