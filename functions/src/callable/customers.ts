@@ -1,3 +1,4 @@
+import { setCustomerStatus } from "../sales/customer-status.js";
 import { customerOwnership, ownershipActions } from "../sales/customer-ownership.js";
 import { customerInView, requireCustomerView, requireCustomerBranch } from "../sales/customer-scope.js";
 import { assignedBranchQuery } from "../auth/view-scope.js";
@@ -315,6 +316,7 @@ function clean(values: Record<string, unknown>) {
 export const saveCustomer = onCall({ enforceAppCheck }, async (request) => {
   const actor = await scopedAccess(await requireAccess(request));
   requirePermission(actor, "customers.manage");
+  if (request.data?.action === "set_status") return setCustomerStatus(actor, request.data);
   const input = parseInput(saveCustomerInput, request.data);
   const customer = input.customerId
     ? db.doc(`customers/${input.customerId}`)
