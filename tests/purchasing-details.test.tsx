@@ -1,0 +1,57 @@
+// @vitest-environment jsdom
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, expect, it, vi } from "vitest";
+import ProcurementPage from "@/app/(protected)/procurement/page";
+const state = vi.hoisted(() => ({ call: vi.fn(), auth: { profile: { organizationId: "org", status: "active", roleId: "branch_manager", roleIds: ["branch_manager"], effectivePermissions: [], branchIds: ["store", "other"], warehouseIds: [] }, user: { uid: "user" }, operatingContext: { type: "branch", id: "store" } } }));
+vi.mock("@/features/auth/auth-context", () => ({ useAuth: () => state.auth }));
+vi.mock("@/features/administration/api", () => ({ callAdministration: state.call }));
+vi.mock("@/features/procurement/supplier-accounts", () => ({ SupplierAccounts: () => <div>Accounts mounted</div> }));
+vi.mock("@/features/procurement/goods-received-note", () => ({ GoodsReceivedNotes: () => null }));
+vi.mock("@/features/procurement/supplier-returns", () => ({ SupplierReturns: () => null }));
+const options = { suppliers: [{ id: "supplier", name: "Supplier", active: true }], branches: [{ id: "store", name: "Store", branchType: "store" }, { id: "other", name: "Other", branchType: "store" }], warehouses: [], locations: [{ id: "stock", branchId: "store" }], products: [], bankAccounts: [] };
+const order = { id: "po", purchaseOrderNumber: "PO-ONE", supplierName: "Supplier", branchId: "store", status: "received", grossAmountMinor: 10000, createdBy: "user", nextAction: "Review invoices" };
+const items = [{ id: "item", purchaseOrderId: "po", productName: "Real product", orderedQuantity: 2, receivedQuantity: 2, invoicedQuantity: 2 }];
+afterEach(() => { cleanup(); sessionStorage.clear(); state.call.mockReset(); state.auth.operatingContext = { type: "branch", id: "store" }; });
+it("loads only the selected order, hides fully matched forms and links recorded invoices", async () => {
+  state.call.mockImplementation((_name, input) => Promise.resolve(input.view === "options" ? options : input.view === "order_detail" ? { order, items } : input.view === "invoices_page" ? { invoices: [], nextCursor: null } : { orders: [order], nextCursor: null }));
+  render(<ProcurementPage />);
+  await screen.findByText("PO-ONE");
+  expect(screen.queryByText("Accounts mounted")).toBeNull();
+  expect(screen.queryByText("Real product")).toBeNull();
+  expect(screen.queryByRole("button", { name: "Create draft order" })).toBeNull();
+  expect(state.call.mock.calls.some(([, input]) => input.view === "order_detail")).toBe(false);
+  fireEvent.click(screen.getByRole("button", { name: "Review invoices" }));
+  await screen.findByText("Real product");
+  expect(screen.queryByLabelText("Supplier invoice number")).toBeNull();
+  expect(screen.getByText(/All received goods are already matched/)).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "View recorded invoices" }));
+  await waitFor(() => expect(state.call).toHaveBeenCalledWith("getProcurementWorkspace", expect.objectContaining({ view: "invoices_page", workflow: "all", search: "PO-ONE" })));
+  expect(screen.queryByText("Real product")).toBeNull();
+});
+it("does not reopen a dismissed pending detail and keeps its list filters/page", async () => {
+  let finish: (result: unknown) => void = () => {};
+  state.call.mockImplementation((_name, input) => input.view === "order_detail" ? new Promise(resolve => { finish = resolve; }) : Promise.resolve(input.view === "options" ? options : { orders: [order], nextCursor: input.cursor ? null : "next" }));
+  render(<ProcurementPage />);
+  await screen.findByText("PO-ONE");
+  fireEvent.click(screen.getByRole("button", { name: "Next", exact: true }));
+  await screen.findByText("PO-ONE");
+  fireEvent.click(screen.getByRole("button", { name: "Review invoices" }));
+  await screen.findByText("Loading order details…");
+  fireEvent.click(screen.getByRole("button", { name: "Close details" }));
+  finish({ order, items });
+  await waitFor(() => expect(screen.queryByText("Real product")).toBeNull());
+  expect(screen.getByText("Page 2")).toBeTruthy();
+});
+it("discards late details across global working-location changes", async () => {
+  let finish: (result: unknown) => void = () => {};
+  state.call.mockImplementation((_name, input) => input.view === "order_detail" ? new Promise(resolve => { finish = resolve; }) : Promise.resolve(input.view === "options" ? options : { orders: input.branchId === "store" ? [order] : [], nextCursor: null }));
+  const { rerender } = render(<ProcurementPage />);
+  await screen.findByText("PO-ONE");
+  fireEvent.click(screen.getByRole("button", { name: "Review invoices" }));
+  state.auth.operatingContext = { type: "branch", id: "other" };
+  rerender(<ProcurementPage />);
+  finish({ order, items });
+  await waitFor(() => expect(state.call).toHaveBeenCalledWith("getProcurementWorkspace", expect.objectContaining({ view: "orders_page", branchId: "other", cursor: undefined })));
+  expect(screen.queryByText("Real product")).toBeNull();
+  expect(screen.queryByText("PO-ONE")).toBeNull();
+});
