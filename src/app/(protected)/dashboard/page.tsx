@@ -32,7 +32,7 @@ import { formatNaira } from "@/features/inventory/format";
 import { hasAnyPermission, hasPermission } from "@/lib/permissions/roles";
 import { NotificationCard } from "@/features/notifications/notification-card";
 import { useNotifications } from "@/features/notifications/use-notifications";
-import { isPurchasingOnlyProfile, PurchasingDashboard } from "@/features/dashboard/purchasing-dashboard";
+import { shouldShowPurchasingDashboard, PurchasingDashboard } from "@/features/dashboard/purchasing-dashboard";
 
 function ChartPlaceholder({ label }: { label: string }) {
   return (
@@ -45,8 +45,8 @@ function ChartPlaceholder({ label }: { label: string }) {
 }
 
 export default function DashboardPage() {
-  const { profile } = useAuth();
-  if (profile && isPurchasingOnlyProfile(profile)) return <PurchasingDashboard />;
+  const { profile, accessProfile, operatingContext } = useAuth();
+  if (profile && shouldShowPurchasingDashboard(profile, accessProfile, operatingContext)) return <PurchasingDashboard />;
   return <OperationsDashboard />;
 }
 

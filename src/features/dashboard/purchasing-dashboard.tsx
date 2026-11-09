@@ -4,8 +4,9 @@ import Link from "next/link";
 import { PageHeader } from "@/components/ui/page-header";
 import { useAuth } from "@/features/auth/auth-context";
 import { DashboardLocationSwitcher } from "@/features/dashboard/location-switcher";
-import { hasPermission, roleIdsForProfile } from "@/lib/permissions/roles";
-import { permissionIds, type PermissionId } from "@/types/domain";
+import { hasPermission, permissionsForRoles, roleIdsForProfile } from "@/lib/permissions/roles";
+import type { OperatingContext } from "@/features/auth/operating-context";
+import { permissionIds, type PermissionId, type RoleId, type UserProfile } from "@/types/domain";
 
 type Profile = Parameters<typeof hasPermission>[0];
 const purchasingPermissions = new Set<PermissionId>([
@@ -19,6 +20,37 @@ export function isPurchasingOnlyProfile(profile: Profile): boolean {
   return roleIdsForProfile(profile).includes("purchasing_manager") &&
     hasPermission(profile, "procurement.read") &&
     !permissionIds.some(permission => !purchasingPermissions.has(permission) && hasPermission(profile, permission));
+}
+
+const globalRoles: readonly RoleId[] = ["system_administrator", "operations_administrator", "finance_officer", "auditor"];
+const branchRoles: readonly RoleId[] = ["branch_manager", "branch_requester", "sales_cashier", "logistics_officer"];
+
+/** Use immutable assignments, never the UI profile narrowed to the selected branch.
+ * Custom-role unions do not prove which role supplied an overlapping permission.
+ * Outside assignments, retain the generic dashboard only with independently
+ * provable organization-wide grants for every generic data section it will fetch.
+ */
+export function shouldShowPurchasingDashboard(profile: Profile, authority: UserProfile | null | undefined, context: OperatingContext | null): boolean {
+  if (isPurchasingOnlyProfile(profile)) return true;
+  if (!roleIdsForProfile(profile).includes("purchasing_manager") || !hasPermission(profile, "procurement.read") || context?.type !== "branch") return false;
+  if (!authority) return true;
+  const roles = roleIdsForProfile(authority);
+  const local = roles.filter(role => branchRoles.includes(role));
+  if (authority.branchIds.includes(context.id) && [...permissionsForRoles(local)].some(permission => !purchasingPermissions.has(permission) && hasPermission(profile, permission))) return false;
+
+  const direct = authority.directRoleIds ?? (authority.customRoleIds?.length || authority.effectivePermissions ? [] : roles);
+  const directGlobal = permissionsForRoles(direct.filter(role => globalRoles.includes(role)));
+  const possibleGlobal = permissionsForRoles(roles.filter(role => globalRoles.includes(role)));
+  const possibleLocal = permissionsForRoles(roles.filter(role => !globalRoles.includes(role)));
+  const provenGlobal = (permission: PermissionId) => hasPermission(profile, permission) &&
+    (directGlobal.has(permission) || possibleGlobal.has(permission) && !possibleLocal.has(permission));
+  const can = (permissions: PermissionId[]) => permissions.some(permission => hasPermission(profile, permission));
+  const required: PermissionId[] = [
+    ...(can(["requests.read.all", "requests.read.own_branch"]) ? ["requests.read.all" as const] : []),
+    ...(can(["transfers.read.all", "transfers.read.own_branch", "transfers.read.assigned_warehouse"]) ? ["transfers.read.all" as const] : []),
+    ...(hasPermission(profile, "reports.sales.read") ? ["reports.sales.read", "sales.read.all"] as const : []),
+  ];
+  return required.length === 0 || !required.every(provenGlobal);
 }
 
 const workflows: readonly { title: string; detail: string; href: string; permission: PermissionId }[] = [
