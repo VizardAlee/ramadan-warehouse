@@ -6,6 +6,7 @@ import { CursorTablePagination } from "@/components/ui/table-pagination";
 import { callAdministration } from "@/features/administration/api";
 import { FinancialMessage, FinancialText, FinancialValue } from "@/features/finance/financial-privacy";
 import { formatNaira } from "@/features/inventory/format";
+import { UserFacingError } from "@/lib/firebase/user-facing-error";
 import type { PurchaseOrder, SupplierInvoice } from "@/types/domain";
 
 type Scope = { branchId?: string; warehouseId?: string };
@@ -22,7 +23,7 @@ export function PurchasingList({ kind, scope, suppliers, branches, warehouses, r
   const [filters, setFilters] = useState({ search: initialSearch, supplierId: "", location: "", status: "", startDate: "", endDate: "", view: initialSearch ? "all" : "needs_action" });
   const [pageSize, setPageSize] = useState(25);
   const [pages, setPages] = useState<Array<string | null>>([null]);
-  const [response, setResponse] = useState<{ key: string; data?: Page; error?: string }>();
+  const [response, setResponse] = useState<{ key: string; data?: Page; error?: string; restartRequired?: boolean }>();
   const [retry, setRetry] = useState(0);
   const [type, id] = filters.location.split(":");
   const effectiveScope = scope.branchId || scope.warehouseId ? scope : type === "branch" ? { branchId: id } : type === "warehouse" ? { warehouseId: id } : {};
@@ -55,7 +56,12 @@ export function PurchasingList({ kind, scope, suppliers, branches, warehouses, r
           }
           cursor = value.nextCursor;
         }
-      })().catch(cause => { if (active) setResponse({ key, error: cause instanceof Error ? cause.message : "Records could not be loaded." }); });
+      })().catch(cause => {
+        if (active) setResponse({
+          key, error: cause instanceof Error ? cause.message : "Records could not be loaded.",
+          restartRequired: cause instanceof UserFacingError && ["functions/invalid-argument", "functions/permission-denied", "functions/failed-precondition", "OPERATING_CONTEXT_MISMATCH"].includes(cause.diagnosticCode ?? ""),
+        });
+      });
     }, 180);
     return () => { active = false; window.clearTimeout(timer); };
     // The serialized key contains every request field, including scope and cursor.
@@ -63,6 +69,9 @@ export function PurchasingList({ kind, scope, suppliers, branches, warehouses, r
   }, [key, invalidDates]);
   function change(name: keyof typeof filters, value: string) {
     onDismiss(); setFilters(current => ({ ...current, [name]: value })); setPages([null]);
+  }
+  function restart() {
+    onDismiss(); setPages([null]); setRetry(value => value + 1);
   }
   const records = kind === "orders" ? data?.orders ?? [] : data?.invoices ?? [];
   const statuses = kind === "orders" ? ["draft", "submitted", "approved", "partially_received", "received"] : ["submitted", "approved", "partially_paid", "paid"];
@@ -78,7 +87,7 @@ export function PurchasingList({ kind, scope, suppliers, branches, warehouses, r
     </div>
     {(scope.branchId || scope.warehouseId) && <p className="text-xs text-[var(--muted)]">Location follows your working location. Change it in the main location selector.</p>}
     <p className="text-xs text-[var(--muted)]">Completed orders and paid invoices remain searchable in History or All records. Date filters use the record creation date in Lagos.</p>
-    {invalidDates ? <p role="alert">The end date must be on or after the start date.</p> : error ? <div role="alert"><FinancialMessage>{error}</FinancialMessage> <Button variant="outline" onClick={() => setRetry(value => value + 1)}>Retry list</Button></div> : !data ? <p role="status">Loading {kind}…</p> : <>
+    {invalidDates ? <p role="alert">The end date must be on or after the start date.</p> : error ? <div role="alert"><FinancialMessage>{error}</FinancialMessage> {!response?.restartRequired && <Button variant="outline" onClick={() => setRetry(value => value + 1)}>Retry list</Button>} <Button variant="outline" onClick={restart}>Restart list</Button></div> : !data ? <p role="status">Loading {kind}…</p> : <>
       <div className="overflow-x-auto"><table className="w-full text-left text-sm"><thead><tr>{["Reference / date", "Supplier", "Location", kind === "orders" ? "Total" : "Still owed", "Status", "Next action"].map(label => <th className="p-2" key={label}>{label}</th>)}</tr></thead><tbody>
         {records.map(record => {
           const order = "purchaseOrderNumber" in record && !("supplierInvoiceNumber" in record) ? record as OrderRow : null;
@@ -94,6 +103,6 @@ export function PurchasingList({ kind, scope, suppliers, branches, warehouses, r
       </tbody></table></div>
       {data.note && <p className="text-xs text-[var(--muted)]"><FinancialText>{data.note}</FinancialText></p>}
     </>}
-    <CursorTablePagination page={pages.length} pageSize={pageSize} rowCount={records.length} hasNextPage={Boolean(data?.nextCursor)} loading={!data || invalidDates} onPrevious={() => { onDismiss(); setPages(value => value.slice(0, -1)); }} onNext={() => { if (data?.nextCursor) { onDismiss(); setPages(value => [...value, data.nextCursor]); } }} onPageSizeChange={size => { onDismiss(); setPageSize(size); setPages([null]); }} itemLabel={kind} />
+    <CursorTablePagination page={pages.length} pageSize={pageSize} rowCount={records.length} hasNextPage={Boolean(data?.nextCursor)} loading={(!data && !error) || invalidDates} onPrevious={() => { onDismiss(); setPages(value => value.slice(0, -1)); }} onNext={() => { if (data?.nextCursor) { onDismiss(); setPages(value => [...value, data.nextCursor]); } }} onPageSizeChange={size => { onDismiss(); setPageSize(size); setPages([null]); }} itemLabel={kind} />
   </section>;
 }

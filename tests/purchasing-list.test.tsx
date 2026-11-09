@@ -2,6 +2,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { PurchasingList } from "@/features/procurement/purchasing-list";
+import { toUserFacingError } from "@/lib/firebase/user-facing-error";
 
 const call = vi.hoisted(() => vi.fn());
 vi.mock("@/features/administration/api", () => ({ callAdministration: call }));
@@ -96,4 +97,50 @@ it("finds a match during bounded continuation and retains the original previous 
   await screen.findByText("PO-001");
   expect(call.mock.calls[3]?.[1].cursor).toBeUndefined();
   expect(call.mock.calls[4]?.[1].cursor).toBe("one");
+});
+
+
+it("restarts a stale cursor without replaying it or clearing scope and filters", async () => {
+  call.mockImplementation((_name, input) => input.cursor
+    ? Promise.reject(toUserFacingError({ code: "functions/invalid-argument" }))
+    : Promise.resolve({ orders: [first], nextCursor: "stale-cursor" }));
+  render(<PurchasingList {...base} initialSearch="PO-001" />);
+  await screen.findByText("PO-001");
+  fireEvent.change(screen.getByLabelText("Filter supplier"), { target: { value: "supplier" } });
+  fireEvent.change(screen.getByLabelText("Filter status"), { target: { value: "received" } });
+  fireEvent.change(screen.getByLabelText("Created from"), { target: { value: "2026-01-01" } });
+  fireEvent.change(screen.getByLabelText("Created through"), { target: { value: "2026-12-31" } });
+  await screen.findByText("PO-001");
+  fireEvent.click(screen.getByRole("button", { name: "Next", exact: true }));
+  await screen.findByRole("alert");
+  expect(screen.queryByRole("button", { name: "Retry list", exact: true })).toBeNull();
+  expect((screen.getByRole("button", { name: "Previous", exact: true }) as HTMLButtonElement).disabled).toBe(false);
+  expect((screen.getByLabelText("Rows per page") as HTMLSelectElement).disabled).toBe(false);
+  fireEvent.click(screen.getByRole("button", { name: "Restart list", exact: true }));
+  await screen.findByText("PO-001");
+  expect(screen.getByText("Page 1")).toBeTruthy();
+  expect(call).toHaveBeenLastCalledWith("getProcurementWorkspace", expect.objectContaining({
+    view: "orders_page", branchId: "store", workflow: "all", search: "PO-001", supplierId: "supplier", status: "received",
+    startDate: "2026-01-01", endDate: "2026-12-31", cursor: undefined,
+  }));
+  expect(call.mock.calls.filter(([, input]) => input.cursor === "stale-cursor")).toHaveLength(1);
+  expect(base.onDismiss).toHaveBeenCalled();
+});
+
+it("lets a denied page return to the previous page without changing its location", async () => {
+  call.mockImplementation((_name, input) => input.cursor
+    ? Promise.reject(toUserFacingError({ code: "functions/permission-denied" }))
+    : Promise.resolve({ orders: [first], nextCursor: "denied-cursor" }));
+  render(<PurchasingList {...base} />);
+  await screen.findByText("PO-001");
+  fireEvent.click(screen.getByRole("button", { name: "Next", exact: true }));
+  await screen.findByRole("alert");
+  expect(screen.queryByRole("button", { name: "Retry list", exact: true })).toBeNull();
+  expect(screen.getByRole("button", { name: "Restart list", exact: true })).toBeTruthy();
+  expect((screen.getByLabelText("Filter location") as HTMLSelectElement).disabled).toBe(true);
+  fireEvent.click(screen.getByRole("button", { name: "Previous", exact: true }));
+  await screen.findByText("PO-001");
+  expect(screen.getByText("Page 1")).toBeTruthy();
+  expect(call).toHaveBeenLastCalledWith("getProcurementWorkspace", expect.objectContaining({ branchId: "store", cursor: undefined }));
+  expect(call.mock.calls.filter(([, input]) => input.cursor === "denied-cursor")).toHaveLength(1);
 });
