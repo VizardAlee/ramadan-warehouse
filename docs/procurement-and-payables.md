@@ -214,17 +214,20 @@ competing refunds cannot overdraw the balance. Inactive suppliers remain eligibl
 to refund existing money. No historical records are rewritten. Goods returns and
 their credit notes/refunds remain a separate, unfinished workflow.
 
-## Branch-manager purchasing
+## Purchasing Manager and branch access
 
-The built-in Branch Manager role can create, submit and approve purchase orders,
-receive goods, match and approve supplier invoices, and record supplier payments
-for its assigned branches. It does not need an additional Warehouse Manager role.
-The existing manager self-approval policy and audit evidence apply. Each server
-action still validates its own permission and assigned recording branch, including
-retries, supplier returns and credit. Other branches and warehouses remain denied.
+Branch Manager no longer grants purchasing, supplier or payable access, including
+old stored permission snapshots and custom roles based on Branch Manager.
+Independently held legitimate roles retain their permissions and original scope.
 
-Existing direct assignments gain these capabilities without rewriting user
-profiles. Restricted custom roles retain only their explicitly selected grants;
-a Branch Manager base alone does not grant purchasing. Shared supplier editing
-and bank administration are unchanged. Branch managers purchase from the existing
-supplier directory; authorized supplier administrators maintain that shared list.
+Purchasing Manager handles suppliers, orders, physical receipts and supplier
+invoices for every current or future branch, including head-office branches.
+It can approve its own purchase orders and invoices. Select a branch to work;
+its receiving options are loaded from that branch before any directory limits.
+Legacy warehouses require independently granted warehouse authority.
+
+Payments, advances, refunds, bank transfers and general financial/inventory
+administration are not granted. Supplier credits, returns, reversals and
+held-customer-return work do not inherit the new role's combined receiving and
+invoice-approval grants. Existing independently authorized staff retain those
+workflows. No users are assigned automatically. See `authorization-model.md`.

@@ -26,7 +26,8 @@ approval authority. Restocking, refund/receivable
 posting, and exchange-credit issuance happen only through the approval
 callable; Firestore clients cannot write these records directly.
 
-Procurement authority is warehouse-scoped. Warehouse managers may create and
+Warehouse procurement authority remains scoped to assigned warehouses.
+The Purchasing Manager branch-only scope is described below. Warehouse managers may create and
 submit purchase orders for assigned warehouses, and warehouse managers and
 officers may receive approved quantities into assigned warehouse locations.
 Warehouse managers may manage suppliers and complete purchase-order,
@@ -77,3 +78,15 @@ Server controls are centralized in `functions/src/auth/authorize.ts`:
 All administrative Firestore mutations use Admin SDK callables. Rules allow scoped reads and deny all client writes to users, organizations, branches, warehouses, locations, bootstrap state, audit logs, code registries, and idempotency records.
 
 Callable App Check enforcement is enabled outside the Emulator Suite. Production must register the web application and approved origins with an App Check provider before these callables are used.
+
+## Purchasing Manager and branch purchasing separation
+
+The built-in Purchasing Manager can manage suppliers, create/submit/approve purchase orders, receive approved goods, and create/approve supplier invoices for every branch, including future branches and head-office branch records. Its grants are branch-only, not warehouse-wide. Select a branch before opening the purchasing register. No branch-ID assignment migration is required. The role may approve its own purchase orders and invoices; that exception does not apply to unrelated approvals.
+
+Branch Manager no longer grants supplier, purchasing, or payable permissions. Current role definitions and fresh custom-role grants override stale stored purchasing permission unions. Separately assigned legitimate roles retain their own permissions and original scope. No users are assigned to Purchasing Manager automatically. Only existing authorized role administrators can assign it.
+
+Purchasing Manager does not grant supplier payments, advances, refunds, banking, general accounting, general inventory changes, return reversals, or customer-return powers. Supplier credit/return posting resolves authority excluding this role, so the receipt-plus-invoice-approval permission bundle cannot silently authorize a credit. Independently held supplier-return authority remains effective only in its own scope.
+
+Purchasing data is served by scoped callables. Raw Firestore finance/purchasing access is not broadened. Purchase receiving uses a temporary, order-specific inventory location scope, not persistent branch assignments or general inventory permission. The branch selector uses paged active-branch metadata; legacy warehouses remain outside this role.
+
+Users whose effective permissions are limited to Purchasing Manager duties land on a purchasing overview with permission-filtered links to orders, receiving, supplier invoices, suppliers and products. It uses the branch selector and existing authorized registers rather than querying generic operations or sales dashboards or presenting incomplete counts. Restricted custom purchasing roles see only their granted workflows. Mixed-role users retain their broader dashboard; this landing-page choice never grants backend access. Purchasing workspace requests do not query or return bank accounts without supplier-payment authority.

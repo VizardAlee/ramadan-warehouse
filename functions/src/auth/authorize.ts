@@ -9,6 +9,7 @@ export const roles = [
   "warehouse_officer",
   "branch_requester",
   "branch_manager",
+  "purchasing_manager",
   "sales_cashier",
   "logistics_officer",
   "finance_officer",
@@ -137,12 +138,6 @@ export type Permission =
   | "daily.close.read"
   | "daily.close.prepare"
   | "daily.close.approve";
-
-const branchPurchasingPermissions: readonly Permission[] = [
-  "suppliers.read",
-  "procurement.read", "procurement.create", "procurement.approve", "procurement.receive",
-  "payables.read", "payables.create", "payables.approve", "payables.pay",
-];
 
 const rolePermissions: Readonly<Record<RoleId, readonly Permission[]>> = {
   system_administrator: [
@@ -407,7 +402,6 @@ const rolePermissions: Readonly<Record<RoleId, readonly Permission[]>> = {
     "transfers.report_discrepancy",
   ],
   branch_manager: [
-    ...branchPurchasingPermissions,
     "daily.close.read", "daily.close.prepare", "daily.close.approve",
     "products.read",
     "inventory.read",
@@ -460,6 +454,11 @@ const rolePermissions: Readonly<Record<RoleId, readonly Permission[]>> = {
     "expenses.create",
     "expenses.approve",
     "expenses.pay",
+  ],
+  purchasing_manager: [
+    "products.read", "suppliers.read", "suppliers.manage",
+    "procurement.read", "procurement.create", "procurement.approve", "procurement.receive",
+    "payables.read", "payables.create", "payables.approve",
   ],
   sales_cashier: [
     "products.read",
@@ -595,6 +594,7 @@ export interface OperatingContext {
 }
 
 const organizationWideRoles: readonly RoleId[] = [
+  "purchasing_manager",
   "system_administrator",
   "operations_administrator",
   "finance_officer",
@@ -898,7 +898,14 @@ export function hasServerPermission(
   // Additive capability for existing directly assigned built-in manager roles.
   // Custom-role bases must not gain a permission their administrator omitted.
   if ((permission === "sales.stock.release" || permission === "banking.transfer" || permission === "finance.journal.create" || permission === "finance.journal.reverse" || permission === "finance.accounts.manage" || permission === "finance.tax.manage" || permission === "finance.budget.manage" || permission.startsWith("daily.close.")) && actor.directRoleIds?.some((roleId) => rolePermissions[roleId].includes(permission))) return true;
-  if (actor.directRoleIds?.includes("branch_manager") && branchPurchasingPermissions.includes(permission)) return true;
+  // Revoke stale built-in/custom Branch Manager purchasing grants while keeping
+  // the permissions of separately assigned legitimate roles.
+  if (permission.startsWith("procurement.") || permission.startsWith("payables.") || permission.startsWith("suppliers.")) {
+    const assigned = accessRoleIds(actor);
+    const direct = actor.directRoleIds ?? (actor.customRoleIds?.length || actor.effectivePermissions ? [] : assigned);
+    if (direct.some(role => rolePermissions[role].includes(permission))) return true;
+    return assigned.some(role => rolePermissions[role].includes(permission)) && Boolean(actor.effectivePermissions?.includes(permission));
+  }
   if (actor.effectivePermissions) return actor.effectivePermissions.includes(permission);
   return accessRoleIds(actor).some((roleId) =>
     rolePermissions[roleId].includes(permission),
@@ -958,4 +965,10 @@ export function requireBranchViewScope(actor: AccessProfile, branchId: string): 
   requireBranchScope(actor, branchId);
   if (actor.operatingContext && (actor.operatingContext.type !== "branch" || actor.operatingContext.id !== branchId))
     throw new HttpsError("failed-precondition", "Select this record's branch before continuing.", { code: "OPERATING_CONTEXT_MISMATCH", retryable: false });
+}
+
+/** Do not extend unrelated self-approval through a Purchasing Manager assignment. */
+export function canSelfAuthorizePurchasing(actor: Pick<AccessProfile, "roleId" | "roleIds" | "directRoleIds" | "customRoleIds">): boolean {
+  const direct = actor.directRoleIds ?? (actor.customRoleIds?.length ? [] : accessRoleIds(actor));
+  return canSelfAuthorize(actor) || direct.includes("purchasing_manager");
 }

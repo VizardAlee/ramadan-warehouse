@@ -127,6 +127,7 @@ export function queryCatalog() {
   for (const scope of [[], ["branchId"], ["warehouseId"]]) add("bounded expense register pages", "expenses", [org, ...eq(scope)], [["__name__", "ASCENDING"]]);
   for (const [collection, field] of [["expenseCategories", "active"], ["bankAccounts", "active"], ["branches", "status"], ["warehouses", "status"]])
     add("expense choices continuation", collection, [org, [field, "=="]], [["__name__", "ASCENDING"]]);
+  for (const field of ["branchId", "warehouseId"]) add("selected purchasing receiving locations", "inventoryLocations", eq(["organizationId", field]), [["__name__", "ASCENDING"]]);
   add("purchase receipt history", "purchaseReceipts", [org, ["purchaseOrderId", "=="]], dateOrder("receivedAt"));
   add("supplier return original receipts", "purchaseReceipts", [org, ["purchaseOrderItemId", "=="]], dateOrder("receivedAt"));
   add("supplier return history", "supplierReturns", [org, ["supplierInvoiceId", "=="]], dateOrder("createdAt"));

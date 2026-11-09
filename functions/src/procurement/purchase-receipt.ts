@@ -1,7 +1,7 @@
 import { FieldValue } from "firebase-admin/firestore";
 import { HttpsError } from "firebase-functions/v2/https";
 import { db } from "../admin.js";
-import { requireProcurementScope, type ProcurementAccess } from "./authorize.js";
+import { purchaseReceiptInventoryActor, requireProcurementScope, type ProcurementAccess } from "./authorize.js";
 import { writeAuditLog } from "../audit/write-audit-log.js";
 import { uniquenessDocumentId } from "../inventory/calculations.js";
 import { postInventoryTransaction, type InventoryPostingExtension } from "../inventory/post-inventory-transaction.js";
@@ -95,7 +95,8 @@ export async function postPurchaseReceipt(actor: ProcurementAccess, input: Recei
       return undefined;
     },
   };
-  const posted = await postInventoryTransaction(actor, {
+  const inventoryActor = purchaseReceiptInventoryActor(actor, { branchId: initialOrder!.get("branchId"), warehouseId: initialOrder!.get("warehouseId") });
+  const posted = await postInventoryTransaction(inventoryActor, {
     transactionType: "inventory_receipt", productId: String(initialItem!.get("productId")), quantity: input.quantity,
     destinationLocationId: String(initialOrder!.get("receivingLocationId")), externalAccount: `supplier:${String(initialOrder!.get("supplierId"))}`,
     unitCostMinor: minor(initialItem!.get("unitCostMinor")), serialNumbers: input.serialNumbers,

@@ -11,7 +11,7 @@ vi.mock("../functions/src/admin", () => {
   return { db: { collection: query, doc: (path: string) => ({ get: async () => record(path) }) } };
 });
 import { supplierDirectory, supplierStatement, supplierSummary } from "../functions/src/procurement/supplier-workspace";
-const local: ProcurementAccess = { userId: "user", organizationId: "org", roleId: "branch_manager", branchIds: ["a"], warehouseIds: [], authorizationVersion: 1, effectivePermissions: ["procurement.read", "payables.read"], organizationProcurementPermissions: [] };
+const local: ProcurementAccess = { userId: "user", organizationId: "org", roleId: "warehouse_manager", branchIds: ["a"], warehouseIds: [], authorizationVersion: 1, effectivePermissions: ["procurement.read", "payables.read"], organizationProcurementPermissions: [] };
 const global: ProcurementAccess = { ...local, roleId: "system_administrator", organizationProcurementPermissions: ["procurement.read", "payables.read"] };
 beforeEach(() => { memory.rows.clear(); memory.rows.set("suppliers/supplier", { organizationId: "org", name: "Supplier", supplierNumber: "SUP-1", active: true }); });
 describe("supplier history projections", () => {

@@ -3,17 +3,26 @@ import { accessRoleIds, permissionsForServerRole, type AccessProfile, type Permi
 import { loadCustomRoles } from "./custom-roles.js";
 
 const globalRoles: readonly RoleId[] = ["system_administrator", "operations_administrator", "finance_officer", "auditor"];
-export type ScopedAccess = AccessProfile & { readonly organizationPermissions: readonly Permission[] };
+export type ScopedAccess = AccessProfile & { readonly organizationPermissions: readonly Permission[]; readonly allBranchPermissions?: readonly Permission[]; readonly assignedPermissions?: readonly Permission[] };
 
 /** Resolve current grants and preserve the scope of each permission's granting role. */
-export async function scopedAccess(actor: AccessProfile): Promise<ScopedAccess> {
-  const direct = actor.directRoleIds ?? (actor.customRoleIds?.length || actor.effectivePermissions ? [] : accessRoleIds(actor));
+export async function scopedAccess(actor: AccessProfile, options: { excludeRoles?: readonly RoleId[] } = {}): Promise<ScopedAccess> {
+  const direct = (actor.directRoleIds ?? (actor.customRoleIds?.length || actor.effectivePermissions ? [] : accessRoleIds(actor))).filter(role => !options.excludeRoles?.includes(role));
   const custom = actor.customRoleIds?.length ? await loadCustomRoles(actor.organizationId, actor.customRoleIds) : [];
-  const grants = custom.filter(role => role.baseRoleId !== "system_administrator").map(role => ({
+  const grants = custom.filter(role => role.baseRoleId !== "system_administrator" && !options.excludeRoles?.includes(role.baseRoleId)).map(role => ({
     ...role, permissionIds: role.permissionIds.filter(permission => permissionsForServerRole(role.baseRoleId).includes(permission)),
   }));
   return { ...actor, directRoleIds: direct,
     effectivePermissions: [...new Set([...direct.flatMap(permissionsForServerRole), ...grants.flatMap(role => role.permissionIds)])],
+    assignedPermissions: [...new Set([
+      ...direct.filter(role => role !== "purchasing_manager").flatMap(permissionsForServerRole),
+      ...grants.filter(role => role.baseRoleId !== "purchasing_manager").flatMap(role => role.permissionIds),
+    ])],
+    // Branch-only purchasing authority never lends warehouse or general finance scope.
+    allBranchPermissions: [...new Set([
+      ...direct.filter(role => role === "purchasing_manager").flatMap(permissionsForServerRole),
+      ...grants.filter(role => role.baseRoleId === "purchasing_manager").flatMap(role => role.permissionIds),
+    ])],
     organizationPermissions: [...new Set([
       ...direct.filter(role => globalRoles.includes(role)).flatMap(permissionsForServerRole),
       ...grants.filter(role => globalRoles.includes(role.baseRoleId)).flatMap(role => role.permissionIds),

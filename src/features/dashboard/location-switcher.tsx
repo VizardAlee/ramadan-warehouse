@@ -3,7 +3,7 @@
 import { Building2, Check, Store } from "lucide-react";
 import { useOperatingContextOptions } from "@/features/auth/use-operating-context-options";
 
-export function DashboardLocationSwitcher() {
+export function DashboardLocationSwitcher({ description = "Dashboard totals update to the selected assignment. Your authorized roles and actions do not change when you switch the view." }: { description?: string } = {}) {
   const { options, activeValue, canSelectAll, selectValue } =
     useOperatingContextOptions();
   if (canSelectAll ? options.length === 0 : options.length < 2) return null;
@@ -21,8 +21,7 @@ export function DashboardLocationSwitcher() {
           Switch store
         </h2>
         <p className="mt-1 max-w-3xl text-sm leading-6 text-[var(--muted)]">
-          Dashboard totals update to the selected assignment. Your authorized
-          roles and actions do not change when you switch the view.
+          {description}
         </p>
       </div>
       <div

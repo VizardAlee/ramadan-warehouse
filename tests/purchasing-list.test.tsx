@@ -3,13 +3,32 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { PurchasingList } from "@/features/procurement/purchasing-list";
 import { toUserFacingError } from "@/lib/firebase/user-facing-error";
+import type { UserProfile } from "@/types/domain";
 
 const call = vi.hoisted(() => vi.fn());
+const auth = vi.hoisted(() => ({ profile: null as UserProfile | null }));
+vi.mock("@/features/auth/auth-context", () => ({ useAuth: () => auth }));
 vi.mock("@/features/administration/api", () => ({ callAdministration: call }));
 const first = { id: "po-1", purchaseOrderNumber: "PO-001", supplierName: "Solar supplier", supplierId: "supplier", branchId: "store", status: "received", grossAmountMinor: 12500, nextAction: "Review invoices", createdAt: { _seconds: 1780000000 } };
 const base = { kind: "orders" as const, scope: { branchId: "store" }, suppliers: [{ id: "supplier", name: "Solar supplier" }], branches: [{ id: "store", name: "Main store" }, { id: "other", name: "Other store" }], warehouses: [], revision: 0, onOrder: vi.fn(), onInvoice: vi.fn(), onDismiss: vi.fn() };
-beforeEach(() => { call.mockReset(); base.onOrder.mockClear(); base.onDismiss.mockClear(); });
+beforeEach(() => { call.mockReset(); base.onOrder.mockClear(); base.onInvoice.mockClear(); base.onDismiss.mockClear(); auth.profile = null; });
 afterEach(cleanup);
+it.each([
+  { role: "purchasing_manager" as const, status: "approved", label: "View invoice" },
+  { role: "purchasing_manager" as const, status: "partially_paid", label: "View invoice" },
+  { role: "purchasing_manager" as const, status: "submitted", label: "Review approval" },
+  { role: "finance_officer" as const, status: "approved", label: "Review payment" },
+  { role: "auditor" as const, status: "submitted", label: "View invoice" },
+])("uses permission-aware invoice wording for $role / $status", async ({ role, status, label }) => {
+  auth.profile = { status: "active", roleId: role, roleIds: [role], directRoleIds: [role] } as UserProfile;
+  call.mockResolvedValue({ invoices: [{ ...first, supplierInvoiceNumber: "INV-SCOPED", outstandingAmountMinor: 12500, status }], nextCursor: null });
+  render(<PurchasingList {...base} kind="invoices" />);
+  await screen.findByText("INV-SCOPED");
+  fireEvent.click(screen.getByRole("button", { name: label, exact: true }));
+  expect(base.onInvoice).toHaveBeenCalledWith(expect.objectContaining({ supplierInvoiceNumber: "INV-SCOPED" }));
+  if (label !== "Review payment") expect(screen.queryByRole("button", { name: "Review payment", exact: true })).toBeNull();
+  expect(call).toHaveBeenCalledTimes(1);
+});
 it("requests 25 scoped actionable rows, opens only the selected record and keeps page on dismissal", async () => {
   call.mockImplementation((_name, input) => Promise.resolve({ orders: input.cursor ? [{ ...first, id: "po-2", purchaseOrderNumber: "PO-002" }] : [first], nextCursor: input.cursor ? null : "cursor-one", hasMore: !input.cursor }));
   const { rerender } = render(<PurchasingList {...base} />);

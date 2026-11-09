@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { CursorTablePagination } from "@/components/ui/table-pagination";
 import { callAdministration } from "@/features/administration/api";
+import { useAuth } from "@/features/auth/auth-context";
+import { hasPermission } from "@/lib/permissions/roles";
 import { FinancialMessage, FinancialText, FinancialValue } from "@/features/finance/financial-privacy";
 import { formatNaira } from "@/features/inventory/format";
 import { UserFacingError } from "@/lib/firebase/user-facing-error";
@@ -20,6 +22,9 @@ export function PurchasingList({ kind, scope, suppliers, branches, warehouses, r
   revision: number; initialSearch?: string;
   onOrder: (id: string) => void; onInvoice: (invoice: SupplierInvoice) => void; onDismiss: () => void;
 }) {
+  const { profile } = useAuth();
+  const canApproveInvoice = Boolean(profile && hasPermission(profile, "payables.approve"));
+  const canPayInvoice = Boolean(profile && hasPermission(profile, "payables.pay"));
   const [filters, setFilters] = useState({ search: initialSearch, supplierId: "", location: "", status: "", startDate: "", endDate: "", view: initialSearch ? "all" : "needs_action" });
   const [pageSize, setPageSize] = useState(25);
   const [pages, setPages] = useState<Array<string | null>>([null]);
@@ -75,7 +80,7 @@ export function PurchasingList({ kind, scope, suppliers, branches, warehouses, r
   }
   const records = kind === "orders" ? data?.orders ?? [] : data?.invoices ?? [];
   const statuses = kind === "orders" ? ["draft", "submitted", "approved", "partially_received", "received"] : ["submitted", "approved", "partially_paid", "paid"];
-  return <section aria-label={kind === "orders" ? "Order list" : "Invoice list"} className="space-y-3 rounded-xl border bg-white p-4">
+  return <section id={kind === "orders" ? "purchase-orders" : "supplier-invoices"} aria-label={kind === "orders" ? "Order list" : "Invoice list"} className="space-y-3 rounded-xl border bg-white p-4">
     <div className="flex flex-wrap gap-2" aria-label="Record view">{([["needs_action", "Needs action"], ["history", "History"], ["all", "All records"]] as const).map(([value, label]) => <Button key={value} variant={filters.view === value ? "primary" : "outline"} aria-pressed={filters.view === value} onClick={() => change("view", value)}>{label}</Button>)}</div>
     <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
       <label className="text-sm">Search reference or supplier<input className="mt-1 w-full rounded-lg border p-2" value={filters.search} onChange={event => change("search", event.target.value)} /></label>
@@ -95,7 +100,7 @@ export function PurchasingList({ kind, scope, suppliers, branches, warehouses, r
           const timestamp = (record as OrderRow).createdAt;
           const seconds = typeof timestamp === "object" ? timestamp.seconds ?? timestamp._seconds : undefined;
           const date = (typeof timestamp === "string" ? timestamp.slice(0, 10) : seconds ? new Intl.DateTimeFormat("en-GB", { timeZone: "Africa/Lagos" }).format(new Date(seconds * 1000)) : "Not recorded");
-          const action = order ? order.nextAction ?? ({ draft: "Review & submit", submitted: "Review approval", approved: "Receive goods", partially_received: "Receive / match", received: "Review matching" }[order.status]) : invoice?.status === "submitted" ? "Review approval" : invoice?.status === "paid" ? "View settlement" : "Review payment";
+          const action = order ? order.nextAction ?? ({ draft: "Review & submit", submitted: "Review approval", approved: "Receive goods", partially_received: "Receive / match", received: "Review matching" }[order.status]) : invoice?.status === "submitted" ? canApproveInvoice ? "Review approval" : "View invoice" : invoice?.status === "paid" ? "View settlement" : canPayInvoice && ["approved", "partially_paid"].includes(invoice?.status ?? "") ? "Review payment" : "View invoice";
           const location = order?.operationalLocationName ?? order?.branchName ?? order?.warehouseName ?? branches.find(value => value.id === record.branchId)?.name ?? warehouses.find(value => value.id === record.warehouseId)?.name ?? "Not recorded";
           return <tr className="border-t" key={record.id}><td className="p-2 font-medium"><FinancialText>{order?.purchaseOrderNumber ?? invoice?.supplierInvoiceNumber}</FinancialText><p className="text-xs font-normal text-[var(--muted)]"><FinancialText>{date}</FinancialText></p></td><td className="p-2"><FinancialText>{record.supplierName}</FinancialText></td><td className="p-2"><FinancialText>{location}</FinancialText></td><td className="whitespace-nowrap p-2"><FinancialValue>{formatNaira(order?.grossAmountMinor ?? invoice?.outstandingAmountMinor ?? 0)}</FinancialValue></td><td className="p-2 capitalize"><FinancialText>{record.status.replaceAll("_", " ")}</FinancialText></td><td className="p-2"><Button size="sm" variant="outline" onClick={() => order ? onOrder(order.id) : invoice && onInvoice(invoice)}>{action}</Button></td></tr>;
         })}

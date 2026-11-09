@@ -23,7 +23,7 @@ import { firstBlocker } from "@/features/guidance/first-blocker";
 import { callAdministration } from "@/features/administration/api";
 import { useAuth } from "@/features/auth/auth-context";
 import { formatNaira, nairaToKobo } from "@/features/inventory/format";
-import { canSelfAuthorize, hasPermission } from "@/lib/permissions/roles";
+import { canPostSupplierReturns, canSelfAuthorizePurchasing, hasPermission } from "@/lib/permissions/roles";
 import type {
   PurchaseOrder,
   PurchaseOrderItem,
@@ -160,7 +160,29 @@ function ProcurementWorkspace() {
   const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Lagos", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
   const can = (permission: Parameters<typeof hasPermission>[1]) =>
     Boolean(profile && hasPermission(profile, permission));
-  const canApproveOwnWork = Boolean(profile && canSelfAuthorize(profile));
+  const canApproveOwnWork = Boolean(profile && canSelfAuthorizePurchasing(profile));
+
+  useEffect(() => {
+    function openLinkedWorkflow() {
+      if (!profile) return;
+      const hash = window.location.hash;
+      const invoices = hash === "#supplier-invoices" && hasPermission(profile, "payables.read");
+      const newOrder = hash === "#new-purchase-order" && hasPermission(profile, "procurement.create");
+      const orders = hash === "#purchase-orders" && hasPermission(profile, "procurement.read");
+      if (!invoices && !newOrder && !orders) return;
+      detailSequence.current++;
+      setDetail(null); setSelectedInvoice(null); setDetailLoading(false);
+      setReceiptOrderId(null); setReturnInvoiceId(null); setPaymentInvoice(null);
+      setShowSupplierForm(false); setShowOrderForm(newOrder);
+      setTab(invoices ? "invoices" : "orders");
+    }
+    const timer = window.setTimeout(openLinkedWorkflow, 0);
+    window.addEventListener("hashchange", openLinkedWorkflow);
+    return () => { window.clearTimeout(timer); window.removeEventListener("hashchange", openLinkedWorkflow); };
+  }, [profile]);
+  useEffect(() => {
+    if (showOrderForm && workspace) newOrderRef.current?.scrollIntoView?.({ block: "start" });
+  }, [showOrderForm, workspace]);
 
 
   async function load() {
@@ -666,7 +688,7 @@ function ProcurementWorkspace() {
         </details></FinancialActionScope>
       )}
 
-      {detail && <section id="purchase-orders" className="scroll-mt-40 rounded-xl border bg-white p-5">
+      {detail && <section className="scroll-mt-40 rounded-xl border bg-white p-5">
         {receiptOrderId && <GoodsReceivedNotes key={receiptOrderId} purchaseOrderId={receiptOrderId} canUpload={Boolean(profile && hasPermission(profile, "procurement.receive"))} onClose={() => setReceiptOrderId(null)} />}
         <h2 className="text-xl font-semibold">Purchase orders</h2>
         <p className="text-sm text-[var(--muted)]">
@@ -934,10 +956,10 @@ function ProcurementWorkspace() {
 
       {can("payables.read") && workspace && (tab === "accounts" || paymentInvoice) && <SupplierAccounts suppliers={workspace.suppliers} banks={workspace.bankAccounts} branches={workspace.branches} scope={contextScope} canPay={can("payables.pay")} invoice={paymentInvoice} closeInvoice={() => setPaymentInvoice(null)} onComplete={() => { setMessage("Supplier transaction recorded with its accounting and audit entries."); setPaymentInvoice(null); setSelectedInvoice(null); setRevision(value => value + 1); void load(); }} />}
 
-      {returnInvoiceId && <SupplierReturns invoiceId={returnInvoiceId} canPost={can("procurement.receive") && can("payables.approve")} canReverse={can("procurement.receive") && can("payables.approve") && can("inventory.reverse")} onClose={() => setReturnInvoiceId(null)} onComplete={() => { dismissDetail(); setRevision(value => value + 1); void load(); }} />}
+      {returnInvoiceId && <SupplierReturns invoiceId={returnInvoiceId} canPost={Boolean(profile && canPostSupplierReturns(profile))} canReverse={Boolean(profile && canPostSupplierReturns(profile)) && can("inventory.reverse")} onClose={() => setReturnInvoiceId(null)} onComplete={() => { dismissDetail(); setRevision(value => value + 1); void load(); }} />}
 
       {can("payables.read") && selectedInvoice && (
-        <section className="rounded-xl border bg-white p-5">
+        <section className="scroll-mt-40 rounded-xl border bg-white p-5">
           <h2 className="flex items-center gap-2 text-xl font-semibold">
             <WalletCards className="size-5" /> Accounts Payable
           </h2>

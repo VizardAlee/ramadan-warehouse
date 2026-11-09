@@ -2,7 +2,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import ProcurementPage from "@/app/(protected)/procurement/page";
-const state = vi.hoisted(() => ({ call: vi.fn(), auth: { profile: { organizationId: "org", status: "active", roleId: "branch_manager", roleIds: ["branch_manager"], effectivePermissions: [], branchIds: ["store", "other"], warehouseIds: [] }, user: { uid: "user" }, operatingContext: { type: "branch", id: "store" } } }));
+const state = vi.hoisted(() => ({ call: vi.fn(), auth: { profile: { organizationId: "org", status: "active", roleId: "purchasing_manager", roleIds: ["purchasing_manager"], directRoleIds: ["purchasing_manager"], effectivePermissions: [], branchIds: ["store", "other"], warehouseIds: [] }, user: { uid: "user" }, operatingContext: { type: "branch", id: "store" } } }));
 vi.mock("@/features/auth/auth-context", () => ({ useAuth: () => state.auth }));
 vi.mock("@/features/administration/api", () => ({ callAdministration: state.call }));
 vi.mock("@/features/procurement/supplier-accounts", () => ({ SupplierAccounts: () => <div>Accounts mounted</div> }));
@@ -11,7 +11,7 @@ vi.mock("@/features/procurement/supplier-returns", () => ({ SupplierReturns: () 
 const options = { suppliers: [{ id: "supplier", name: "Supplier", active: true }], branches: [{ id: "store", name: "Store", branchType: "store" }, { id: "other", name: "Other", branchType: "store" }], warehouses: [], locations: [{ id: "stock", branchId: "store" }], products: [], bankAccounts: [] };
 const order = { id: "po", purchaseOrderNumber: "PO-ONE", supplierName: "Supplier", branchId: "store", status: "received", grossAmountMinor: 10000, createdBy: "user", nextAction: "Review invoices" };
 const items = [{ id: "item", purchaseOrderId: "po", productName: "Real product", orderedQuantity: 2, receivedQuantity: 2, invoicedQuantity: 2 }];
-afterEach(() => { cleanup(); sessionStorage.clear(); state.call.mockReset(); state.auth.operatingContext = { type: "branch", id: "store" }; });
+afterEach(() => { cleanup(); window.history.replaceState(null, "", "/"); sessionStorage.clear(); state.call.mockReset(); state.auth.operatingContext = { type: "branch", id: "store" }; });
 it("loads only the selected order, hides fully matched forms and links recorded invoices", async () => {
   state.call.mockImplementation((_name, input) => Promise.resolve(input.view === "options" ? options : input.view === "order_detail" ? { order, items } : input.view === "invoices_page" ? { invoices: [], nextCursor: null } : { orders: [order], nextCursor: null }));
   render(<ProcurementPage />);
@@ -54,4 +54,20 @@ it("discards late details across global working-location changes", async () => {
   await waitFor(() => expect(state.call).toHaveBeenCalledWith("getProcurementWorkspace", expect.objectContaining({ view: "orders_page", branchId: "other", cursor: undefined })));
   expect(screen.queryByText("Real product")).toBeNull();
   expect(screen.queryByText("PO-ONE")).toBeNull();
+});
+
+it("opens invoice and new-order workflows from purchasing dashboard links", async () => {
+  window.history.replaceState(null, "", "/procurement#supplier-invoices");
+  state.call.mockImplementation((_name, input) => Promise.resolve(input.view === "options" ? options : input.view === "invoices_page" ? { invoices: [], nextCursor: null } : { orders: [], nextCursor: null }));
+  render(<ProcurementPage />);
+  await waitFor(() => expect(state.call).toHaveBeenCalledWith("getProcurementWorkspace", expect.objectContaining({ view: "invoices_page" })));
+  expect(screen.getByRole("region", { name: "Invoice list" }).id).toBe("supplier-invoices");
+  expect(screen.queryByRole("button", { name: "Create draft order" })).toBeNull();
+  window.history.replaceState(null, "", "/procurement#new-purchase-order");
+  fireEvent(window, new HashChangeEvent("hashchange"));
+  await screen.findByRole("button", { name: "Create draft order" });
+  expect(screen.getByRole("region", { name: "Order list" }).id).toBe("purchase-orders");
+  fireEvent.click(screen.getByRole("button", { name: "Invoices & payments" }));
+  expect(screen.queryByRole("button", { name: "Create draft order" })).toBeNull();
+  expect(state.call.mock.calls.every(([name]) => name === "getProcurementWorkspace")).toBe(true);
 });

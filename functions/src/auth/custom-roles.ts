@@ -22,7 +22,7 @@ export function buildRoleAssignment(direct: readonly RoleId[], custom: readonly 
   if (!roleIds.length) throw new HttpsError("invalid-argument", "Select at least one role.");
   const effectivePermissions = [...new Set<Permission>([
     ...direct.flatMap((roleId) => permissionsForServerRole(roleId)),
-    ...custom.flatMap((role) => role.permissionIds),
+    ...custom.flatMap((role) => role.permissionIds.filter(permission => permissionsForServerRole(role.baseRoleId).includes(permission))),
   ])];
   return { roleId: roleIds[0]!, roleIds, directRoleIds: [...direct], customRoleIds: custom.map((role) => role.id), effectivePermissions };
 }

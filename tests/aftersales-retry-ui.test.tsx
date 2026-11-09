@@ -6,7 +6,7 @@ const state = vi.hoisted(() => ({ call: vi.fn(), auth: { profile: { organization
 vi.mock("next/navigation", () => ({ useSearchParams: () => new URLSearchParams() }));
 vi.mock("@/features/auth/auth-context", () => ({ useAuth: () => state.auth }));
 vi.mock("@/features/administration/api", () => ({ callAdministration: state.call }));
-vi.mock("@/lib/permissions/roles", () => ({ hasPermission: () => true }));
+vi.mock("@/lib/permissions/roles", () => ({ hasPermission: () => true, hasIndependentPurchasingPermission: () => true }));
 vi.mock("@/features/pos/operational-photos", () => ({ OperationalPhotos: () => null }));
 vi.mock("@/features/returns/held-return-disposition", () => ({ HeldReturnDisposition: () => null }));
 const workspace = { cases: [{ id: "case", branchId: "store", customerName: "Amina", serviceType: "non_warranty", requestType: "repair", complaint: "Repair cable", status: "open", chargeStatus: "due", chargeAmountMinor: 2000, outstandingAmountMinor: 2000 }], customers: [], products: [], sales: [], suppliers: [], bankAccounts: [] };

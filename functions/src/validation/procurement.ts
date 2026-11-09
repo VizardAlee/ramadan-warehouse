@@ -22,7 +22,7 @@ export const saveSupplierInput = z.object({
 });
 
 export const procurementWorkspaceInput = z.object({
-  view: z.enum(["options", "workspace", "supplier_account", "supplier_payables", "purchase_receipts", "supplier_returns", "supplier_return_receipts", "held_supplier_handover", "supplier_payment_receipt", "supplier_directory", "supplier_profile", "supplier_activity"]).default("workspace"),
+  view: z.enum(["options", "operating_branches", "workspace", "supplier_account", "supplier_payables", "purchase_receipts", "supplier_returns", "supplier_return_receipts", "held_supplier_handover", "supplier_payment_receipt", "supplier_directory", "supplier_profile", "supplier_activity"]).default("workspace"),
   search: z.string().trim().max(160).optional(),
   complete: z.boolean().default(false),
   paymentId: id.refine(value => !value.includes("/"), "Invalid payment reference.").optional(),
