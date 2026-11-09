@@ -18,6 +18,20 @@ vi.mock("@/features/administration/use-organization-collection", () => ({
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
 
 describe("product catalogue history", () => {
+  it("reviews product input margins live and removes the advisory for services", () => {
+    render(<ProductsPage />);
+    fireEvent.click(screen.getByRole("button", { name: "Create product" }));
+    fireEvent.change(screen.getByLabelText("Default unit cost (₦)"), { target: { value: "3000" } });
+    fireEvent.change(screen.getByLabelText(/Retail selling price/), { target: { value: "6000" } });
+    expect(screen.getByRole("status", { name: "Review product margin" }).textContent).toContain("50.0%");
+    fireEvent.change(screen.getByLabelText("Default unit cost (₦)"), { target: { value: "4000" } });
+    expect(screen.queryByRole("status", { name: "Review product margin" })).toBeNull();
+    fireEvent.change(screen.getByLabelText("Default unit cost (₦)"), { target: { value: "" } });
+    expect(screen.getByRole("status", { name: "Review product margin" }).textContent).toContain("catalogue cost is missing");
+    fireEvent.change(screen.getByLabelText(/Catalogue item type/), { target: { value: "service" } });
+    expect(screen.queryByRole("status", { name: "Review product margin" })).toBeNull();
+  });
+
   it("finds products by part of their name and excludes SKU-only matches", () => {
     render(<ProductsPage />);
     const search = screen.getByRole("textbox", { name: "Search product name" });

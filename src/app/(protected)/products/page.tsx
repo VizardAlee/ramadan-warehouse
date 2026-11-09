@@ -29,6 +29,7 @@ import {
 } from "@/features/inventory/format";
 import { hasPermission } from "@/lib/permissions/roles";
 import { useBranchPriceColumns } from "@/features/products/branch-price-columns";
+import { MarginReview } from "@/features/products/margin-review";
 import { BranchPrices } from "@/features/products/branch-prices";
 import { CatalogImportDialog } from "@/features/products/catalog-import-dialog";
 import { ProductHistoryPreview } from "@/features/reports/product-history-preview";
@@ -156,6 +157,8 @@ function ProductCatalogue() {
     defaultValues: defaults,
   });
   const serviceItem = useWatch({ control: form.control, name: "itemKind" }) === "service";
+  const [reviewCost, reviewRetail, reviewWholesale] = useWatch({ control: form.control, name: ["defaultUnitCostNaira", "baseSellingPriceNaira", "wholesalePriceNaira"] });
+  const canReviewMargin = Boolean(profile && hasPermission(profile, "inventory.cost.read")) && !productCosts.loading && !productCosts.error;
   const filtered = useMemo(
     () =>
       products.data.filter(
@@ -274,7 +277,7 @@ function ProductCatalogue() {
   });
   return (
     <div className="space-y-5">
-      {pricingProduct && (() => { const price = productSalesPrices.data.find(item => item.productId === pricingProduct.id); return <BranchPrices key={pricingProduct.id} productId={pricingProduct.id} productName={pricingProduct.name} central={price?.active ? { basePriceMinor: price.basePriceMinor, wholesalePriceMinor: price.wholesalePriceMinor, version: price.version, vatRateBasisPoints: price.vatRateBasisPoints } : null} onClose={() => setPricingProduct(null)} />; })()}
+      {pricingProduct && (() => { const price = productSalesPrices.data.find(item => item.productId === pricingProduct.id); return <BranchPrices key={pricingProduct.id} productId={pricingProduct.id} productName={pricingProduct.name} marginCost={pricingProduct.itemKind !== "service" && canReviewMargin ? { available: true, unitCostNaira: (() => { const cost = productCosts.data.find(row => row.productId === pricingProduct.id || row.id === pricingProduct.id)?.defaultUnitCostMinor; return cost == null ? undefined : cost / 100; })() } : undefined} central={price?.active ? { basePriceMinor: price.basePriceMinor, wholesalePriceMinor: price.wholesalePriceMinor, version: price.version, vatRateBasisPoints: price.vatRateBasisPoints } : null} onClose={() => setPricingProduct(null)} />; })()}
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-3xl font-semibold">Product catalogue</h1>
@@ -603,6 +606,7 @@ function ProductCatalogue() {
                   </label>
                 </>
               )}
+              {!serviceItem && canManageBasePrice && <MarginReview cost={{ available: canReviewMargin, unitCostNaira: reviewCost }} retail={reviewRetail} wholesale={reviewWholesale} />}
               <label className="text-sm">
                 Minimum stock
                 <input

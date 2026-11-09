@@ -1,5 +1,6 @@
 "use client";
 import { AmountInput } from "@/components/ui/amount-input";
+import { MarginReview, type MarginReviewCost } from "./margin-review";
 import { useState, type FormEvent } from "react";
 import { AppDialog } from "@/components/ui/app-dialog";
 import { Button } from "@/components/ui/button";
@@ -10,9 +11,9 @@ import { formatNaira, nairaToKobo } from "@/features/inventory/format";
 import { resolveCatalogPrice, type BranchSalesPrice, type CentralSalesPrice } from "../../../functions/src/sales/pricing";
 
 export interface BranchPriceRecord extends BranchSalesPrice { id: string; productId: string; branchId: string }
-export function BranchPriceEditor({ branchId, branchName, productId, productName, central, current, onClose, onSaved }: {
+export function BranchPriceEditor({ branchId, branchName, productId, productName, central, current, marginCost, onClose, onSaved }: {
   branchId: string; branchName: string; productId: string; productName: string;
-  central: CentralSalesPrice | null; current: BranchSalesPrice; onClose: () => void; onSaved: () => void | Promise<void>;
+  central: CentralSalesPrice | null; current: BranchSalesPrice; marginCost?: MarginReviewCost; onClose: () => void; onSaved: () => void | Promise<void>;
 }) {
   const ref = useDialogFocus<HTMLFormElement>(true, onClose);
   const [retail, setRetail] = useState(current.active && current.sellingPriceMinor != null ? String(current.sellingPriceMinor / 100) : "");
@@ -53,6 +54,7 @@ export function BranchPriceEditor({ branchId, branchName, productId, productName
         <label className="block text-sm font-medium">{label} branch price (₦)<FinancialInput><AmountInput aria-label={`${label} branch price (₦)`} type="number" min="0.01" step="0.01" inputMode="decimal" value={value} onValueChange={rawAmount => setter(rawAmount)} className="mt-1 w-full rounded-lg border p-3" disabled={busy} /></FinancialInput></label>
         <p className="mt-1 text-xs text-[var(--muted)]">Central {label.toLowerCase()}: <FinancialValue>{base ? formatNaira(base) : "Not configured"}</FinancialValue>. Blank = {base ? "use central" : "unavailable"}.</p>
       </div>)}
+      <MarginReview cost={marginCost} retail={retail.trim() ? Number(retail) : central ? central.basePriceMinor / 100 : undefined} wholesale={wholesale.trim() ? Number(wholesale) : central?.wholesalePriceMinor != null ? central.wholesalePriceMinor / 100 : undefined} />
       {!central && <label className="mt-4 block text-sm font-medium">Branch VAT (%) — optional<FinancialInput><input aria-label="Branch VAT (%) — optional" type="number" min="0" max="100" step="0.01" inputMode="decimal" value={vat} onChange={event => setVat(event.target.value)} disabled={busy} className="mt-1 w-full rounded-lg border p-3" /></FinancialInput><span className="mt-1 block text-xs text-[var(--muted)]">No central price exists. Leave blank for VAT not provided; no VAT will be added. This is distinct from a configured 0% rate. No central record will be created.</span></label>}
       <p className="mt-3 text-xs text-[var(--muted)]">Current effective retail: <FinancialValue>{effective ? formatNaira(effective.unitPriceMinor) : "Not configured"}</FinancialValue>{effective ? ` · ${effective.priceSource}` : ""}. {central ? "VAT follows the central configuration. " : ""}Inventory cost and Head Office transfer prices are managed separately.</p>
       {below && <p role="status" className="mt-3 rounded-lg bg-amber-50 p-3 text-sm">A price below its central level, or a branch-only level without a central default, requires a system administrator and an approval reason. Approval is reviewed again when central pricing changes.</p>}
