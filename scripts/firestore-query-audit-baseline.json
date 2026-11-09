@@ -1,15 +1,15 @@
 {
   "lastLiveAudit": {
     "project": "ramadan-warehouse-staging",
-    "verifiedAt": "2026-11-09T12:48:03.251Z",
+    "verifiedAt": "2026-11-09T16:59:04.724Z",
     "queryShapes": 838,
     "unsupportedQueries": 0,
     "readyIndexes": 296,
     "indexInventoryVerifiedAt": "2026-11-09T08:19:28.228Z",
     "probeMethod": "planner-only (analyze=false), with sentinel-scope missing-index diagnostics; no mutations",
-    "plannerEvidenceSha256": "cb1de187a3a61fb8da890b452ee5b0a1834b2b0166a1ae5749708726e672b77b",
+    "plannerEvidenceSha256": "e4647bd8650e0cc9dde62a9a3105588d493b5cdd24cf3d045fbc414e15dd6009",
     "priorSingleFieldOverrideEvidence": 0,
-    "reviewedBase": "9438358a4091be3122e2ea595b5e2c3aeaa8d47b"
+    "reviewedBase": "f22ba67af16cd9a25de77bb16bbc07e12f51d4da"
   },
   "catalogSha256": "07d2e5df53a6a1c1899bd604eb50504e2f07c994d15c8a93ff0c32f52bb411da",
   "sourceFingerprints": {
@@ -110,7 +110,7 @@
     "src/app/(protected)/pos/page.tsx": "7957cd27de0a08efe9e8461ee769d6b99cd13b646ef653ecfe41842b826ecf99",
     "src/app/(protected)/products/[product_id]/page.tsx": "fe1d0d90b565eda40f0683c608bf0871e88b1f70953ab106cffacea5f70c6920",
     "src/app/(protected)/products/categories/page.tsx": "825f82bca475cc5200fc2784bd8acf166ee06bbbe9eccee26aa7ef6bec1599f3",
-    "src/app/(protected)/products/page.tsx": "bbdb68d69eed83932602e7773e8404400dd0cfa9ae9beb4761d7b2fc3ef28aab",
+    "src/app/(protected)/products/page.tsx": "5d63cc95705ade22256e36a4afa24709439341cd503cff14e3537e7ae9de2239",
     "src/app/(protected)/proformas/page.tsx": "ae7a5a59f55fcbae1f4f6ccc3e6cfe1fc88da0062600111bc8d7daa02f4e5e8e",
     "src/app/(protected)/reports/page.tsx": "714c8d76d1178eab5fc4be5a5945f836bd54d665bb116af868119325ec2673a0",
     "src/app/(protected)/returns/page.tsx": "9ba57da1ae8c085e4884cf14f3b19d0e10545f35d92eadbed854e0b708f24143",
@@ -121,7 +121,7 @@
     "src/features/auth/operating-context-metadata.ts": "249e62ad0f6df460a0651f81b3988f7d388f0668337086dbeed092db22b92abb",
     "src/features/inventory/posting-form.tsx": "b612ef3a94c95aae8695b8df7b5abf58da626cece89f9c39042dd3e08766764b",
     "src/features/notifications/use-notifications.ts": "6a148e074e1f6ef1e5079ed506fb160be666054b15dd064475b65b659d8dc1bb",
-    "src/features/products/branch-price-columns.tsx": "c9339ebaf9bcbaa9eb396e6cd796e8a4080b2ff775bd1d34e1961a256181afe9",
+    "src/features/products/branch-price-columns.tsx": "b79e206e306b530977ed9844d14d4c5a57f8af62dd0ff67dad0fcb4e8f7fc9ab",
     "src/features/products/branch-prices.tsx": "442290e9290cd7b1071e7f54da14514a5f704cc3fe6319115bff775680771f45",
     "src/features/products/catalog-import-dialog.tsx": "a16911eb7b9633a9b417ad9ebad36aee744a0d8b44680ae22773a9a8d1d96057",
     "src/features/requests/request-form.tsx": "a6326813757616000f2eca111cd8ac02691a5ae634e9fb64ca66fc1bee455f62",
