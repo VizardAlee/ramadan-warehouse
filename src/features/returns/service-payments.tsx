@@ -1,4 +1,5 @@
 "use client";
+import { AmountInput } from "@/components/ui/amount-input";
 import { FinancialAction, FinancialActionScope, FinancialDetails, FinancialInput, FinancialMessage, FinancialText, FinancialValue  } from "@/features/finance/financial-privacy";
 
 import { useState } from "react";
@@ -68,7 +69,7 @@ export function ServicePayments({ caseId, canRefund, disabled, mutationError, ac
         <p className="mt-2 text-sm">Remaining refundable: <FinancialValue>{formatNaira(selected.amountMinor - (selected.refundedAmountMinor ?? 0))}</FinancialValue>. The original charge stays due after this payment correction.</p>
         {mutationError && <p role="alert" className="mt-3 rounded-lg bg-red-50 p-3 text-sm text-red-700"><FinancialText>{mutationError}</FinancialText> Close this form to use Retry saved service instructions if the result is unconfirmed. Closing does not cancel a submitted refund.</p>}
         <div className="mt-4 grid gap-3 sm:grid-cols-2">
-          <label className="text-sm">Refund amount (₦)<FinancialInput><input disabled={disabled} className="mt-1 w-full rounded-lg border p-3" type="number" min="0.01" step="0.01" value={draft.amount} onChange={event => setDraft({ ...draft, amount: event.target.value })} /></FinancialInput></label>
+          <label className="text-sm">Refund amount (₦)<FinancialInput><AmountInput disabled={disabled} className="mt-1 w-full rounded-lg border p-3" type="number" min="0.01" step="0.01" value={draft.amount} onValueChange={rawAmount => setDraft({ ...draft, amount: rawAmount })} /></FinancialInput></label>
           <label className="text-sm">Refund method<select disabled={disabled} className="mt-1 w-full rounded-lg border p-3" value={draft.method} onChange={event => setDraft({ ...draft, method: event.target.value, bankAccountId: "" })}><option value="cash">Cash</option><option value="bank_transfer">Bank transfer</option><option value="card">Card / POS reversal</option></select></label>
           <label className="text-sm sm:col-span-2">Payout account<select disabled={disabled || draft.method === "cash"} className="mt-1 w-full rounded-lg border p-3" value={draft.bankAccountId} onChange={event => setDraft({ ...draft, bankAccountId: event.target.value })}><option value=""><FinancialText>{draft.method === "cash" ? "Cash on hand" : "Choose the company account paying"}</FinancialText></option>{accounts.map(account => <option key={account.id} value={account.id}><FinancialText>{account.bankName}</FinancialText> · <FinancialText>{account.accountName}</FinancialText> · ••••<FinancialText>{account.accountNumberLast4}</FinancialText></option>)}</select></label>
           <label className="text-sm sm:col-span-2">Refund reason<textarea disabled={disabled} maxLength={500} className="mt-1 w-full rounded-lg border p-3" value={draft.reason} onChange={event => setDraft({ ...draft, reason: event.target.value })} /></label>

@@ -1,4 +1,5 @@
 "use client";
+import { AmountInput } from "@/components/ui/amount-input";
 import { FinancialAction, FinancialActionScope, FinancialDetails, FinancialInput, FinancialMessage, FinancialText, FinancialValue  } from "@/features/finance/financial-privacy";
 
 import { parseSaleSerials, validSaleSerials } from "@/features/pos/serial-selection";
@@ -449,7 +450,7 @@ export default function ReturnsPage() {
                 {item.trackingType === "serial" && <label className="block text-sm md:col-span-3">Exact serial numbers<textarea rows={3} value={serialText[item.id] ?? ""} onChange={event => setSerialText(values => ({ ...values, [item.id]: event.target.value }))} className="mt-1 w-full rounded-lg border p-3" /><span className="block break-all text-xs text-[var(--muted)]">One per selected unit, one per line. Eligible: <FinancialText>{(kind === "reservation_cancellation" ? item.cancellableSerialNumbers : item.returnableSerialNumbers)?.join(", ") || "None"}</FinancialText></span></label>}
               </div>
             ))}
-            {kind === "service_credit" && workspace.items.filter(item => (item.providerCreditableMinor ?? 0) > 0).map(item => <label className="block rounded border p-3 text-sm" key={`provider:${item.id}`}>Provider credit for <FinancialText>{item.productName}</FinancialText> · <FinancialText>{item.providerFunds?.supplierName}</FinancialText> · up to <FinancialValue>{formatNaira(item.providerCreditableMinor!)}</FinancialValue><FinancialInput><input className="input ml-2" type="number" min="0" step="0.01" max={item.providerCreditableMinor! / 100} value={providerCredits[item.id] ?? ""} onChange={event => setProviderCredits(current => ({ ...current, [item.id]: event.target.value }))}/></FinancialInput></label>)}
+            {kind === "service_credit" && workspace.items.filter(item => (item.providerCreditableMinor ?? 0) > 0).map(item => <label className="block rounded border p-3 text-sm" key={`provider:${item.id}`}>Provider credit for <FinancialText>{item.productName}</FinancialText> · <FinancialText>{item.providerFunds?.supplierName}</FinancialText> · up to <FinancialValue>{formatNaira(item.providerCreditableMinor!)}</FinancialValue><FinancialInput><AmountInput className="input ml-2" type="number" min="0" step="0.01" max={item.providerCreditableMinor! / 100} value={providerCredits[item.id] ?? ""} onValueChange={rawAmount => setProviderCredits(current => ({ ...current, [item.id]: rawAmount }))}/></FinancialInput></label>)}
           </div>
           <div className="mt-5 grid gap-4 md:grid-cols-2">
             <label className="text-sm font-medium">
@@ -485,7 +486,7 @@ export default function ReturnsPage() {
                 placeholder="Why is the customer returning these goods?"
               />
             </label>
-            {resolution === "split" && <><label className="text-sm">Refund / exchange portion (₦)<FinancialInput><input className="input block w-full" type="number" min="0.01" step="0.01" value={splitAmount} onChange={event => setSplitAmount(event.target.value)}/></FinancialInput><span>Remaining credit reduces invoice debt.</span></label><label className="text-sm">Refund / exchange method<select className="input block w-full" value={splitMethod} onChange={event => setSplitMethod(event.target.value as typeof splitMethod)}><option value="cash">Cash</option><option value="card">Card</option><option value="bank_transfer">Bank transfer</option><option value="exchange_credit">Exchange credit</option></select></label></>}
+            {resolution === "split" && <><label className="text-sm">Refund / exchange portion (₦)<FinancialInput><AmountInput className="input block w-full" type="number" min="0.01" step="0.01" value={splitAmount} onValueChange={rawAmount => setSplitAmount(rawAmount)}/></FinancialInput><span>Remaining credit reduces invoice debt.</span></label><label className="text-sm">Refund / exchange method<select className="input block w-full" value={splitMethod} onChange={event => setSplitMethod(event.target.value as typeof splitMethod)}><option value="cash">Cash</option><option value="card">Card</option><option value="bank_transfer">Bank transfer</option><option value="exchange_credit">Exchange credit</option></select></label></>}
             {["card", "bank_transfer"].includes(fundingMethod) && <label className="text-sm font-medium">Refund from company account
               <select value={refundBankAccountId} onChange={(event) => setRefundBankAccountId(event.target.value)} className="mt-1 w-full rounded-lg border p-3">
                 <option value="">Select funding account</option>

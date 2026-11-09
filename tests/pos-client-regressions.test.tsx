@@ -54,7 +54,7 @@ describe("POS client complaint regressions", () => {
     await screen.findByRole("option", { name: /Alhaji Aliyu Ventures.*CUS-1005/ });
     expect(screen.getByText("Walk-in customer")).toBeTruthy();
     expect((screen.getByLabelText("Quantity for Demo battery") as HTMLInputElement).value).toBe("2");
-    expect((screen.getByLabelText("Discount (₦)") as HTMLInputElement).value).toBe("50000");
+    expect((screen.getByLabelText("Discount (₦)") as HTMLInputElement).value).toBe("50,000");
     expect(state.call.mock.calls.some(call => call[0] === "createPosSaleOrder")).toBe(false);
     fireEvent.click(screen.getByRole("option", { name: /Alhaji Aliyu Ventures.*CUS-1005/ }));
   }

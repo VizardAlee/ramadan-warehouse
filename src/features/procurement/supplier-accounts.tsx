@@ -1,4 +1,5 @@
 "use client";
+import { AmountInput } from "@/components/ui/amount-input";
 import { FinancialAction, FinancialActionScope, FinancialAttributes, FinancialDisplayScope, FinancialInput, FinancialMessage, FinancialText, FinancialValue  } from "@/features/finance/financial-privacy";
 
 import { createPortal } from "react-dom";
@@ -195,7 +196,7 @@ function SupplierPaymentDialog({ supplier, invoice, refund = false, scope, banks
     <fieldset disabled={busy || uncertain} className="mt-4 space-y-3">
       {!paymentScope.warehouseId && <label className="block text-sm">Funding / recording store<select aria-label="Supplier payment store" disabled={Boolean(invoice)} value={branchId} onChange={(event) => setBranch(event.target.value)} className="mt-1 w-full rounded-lg border p-3"><option value="">Choose store</option>{branches.map((branch) => <option key={branch.id} value={branch.id}><FinancialText>{branch.name}</FinancialText></option>)}</select></label>}
       {invoice && <label className="block text-sm">Payment source<select aria-label="Payment source" value={source} onChange={(event) => setSource(event.target.value as typeof source)} className="mt-1 w-full rounded-lg border p-3"><option value="disbursement">New company payment</option><option value="advance_balance">Apply unused supplier advance</option></select><small className="block">Unused advance in this store: <FinancialValue>{formatNaira(availableAdvance)}</FinancialValue>. Applying it does not pay money twice.</small></label>}
-      <label className="block text-sm">Amount (₦)<FinancialInput><input aria-label="Supplier payment amount" type="number" min="0.01" step="0.01" value={amount} onChange={(event) => setAmount(event.target.value)} className="mt-1 w-full rounded-lg border p-3" /></FinancialInput></label>
+      <label className="block text-sm">Amount (₦)<FinancialInput><AmountInput aria-label="Supplier payment amount" type="number" min="0.01" step="0.01" value={amount} onValueChange={rawAmount => setAmount(rawAmount)} className="mt-1 w-full rounded-lg border p-3" /></FinancialInput></label>
       {amountError && <p role="alert" className="text-sm text-red-800"><FinancialText>{amountError}</FinancialText></p>}
       {source === "disbursement" && <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={split} onChange={event => { setSplit(event.target.checked); if (!parts.length) setParts([{ id: "first", method, amount, bankAccountId, reference }]); }} />Split money across methods / accounts</label>}
       {splitMoney && <MoneyTenderEditor value={parts} onChange={setParts} total={amountMinor} branchId={paymentScope.branchId} banks={banks} />}

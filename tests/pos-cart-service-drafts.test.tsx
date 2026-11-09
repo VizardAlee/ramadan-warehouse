@@ -37,6 +37,22 @@ function ServiceCart({ desktop = false, onChange }: { desktop?: boolean; onChang
 }
 
 describe("POS cart service draft preservation", () => {
+  it("rejects non-decimal input before a non-form provider funds action can parse it", () => {
+    const change = vi.fn();
+    render(<ServiceCart onChange={change} />);
+    fireEvent.click(screen.getByRole("button", { name: "Open cart" }));
+    fireEvent.click(screen.getByText("Service billing details"));
+    fireEvent.change(screen.getByLabelText("Delivery/service provider"), { target: { value: "provider" } });
+    const amount = screen.getByLabelText("Provider funds (₦), separate from company fee") as HTMLInputElement;
+    for (const value of ["0x10", "0b10", " ", "1.e3"]) {
+      fireEvent.change(amount, { target: { value } }); fireEvent.blur(amount);
+      expect(amount.value).toBe(""); fireEvent.click(screen.getByRole("button", { name: "Apply provider funds" }));
+      expect(change).not.toHaveBeenCalled();
+    }
+    fireEvent.change(amount, { target: { value: "1234.50" } });
+    expect(amount.value).toBe("1,234.50"); fireEvent.click(screen.getByRole("button", { name: "Apply provider funds" }));
+    expect(change).toHaveBeenCalledWith(expect.objectContaining({ providerFunds: { supplierId: "provider", amountMinor: 123450 } }));
+  });
   it("retains unapplied provider/amount/part/case drafts, loaded pages and disclosure across close/reopen", async () => {
     const change = vi.fn();
     api.call.mockResolvedValue({ providers: [{ id: "provider-2", name: "Later supplier", supplierType: "mixed" }], nextCursorId: "provider-2" });

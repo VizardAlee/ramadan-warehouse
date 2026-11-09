@@ -1,4 +1,5 @@
 "use client";
+import { AmountInput } from "@/components/ui/amount-input";
 
 import Link from "next/link";
 import { useState } from "react";
@@ -40,7 +41,7 @@ function PricingForm({ transfer, canPrice, disabled, onPrice }: Parameters<typeo
     <p className="text-sm">This is internal purchasing, not an external sale or VAT invoice.</p>
     {agreement.pricingStatus === "required" && <p className="mt-2 text-amber-900">Prices are required before source confirmation.</p>}
     <fieldset disabled={disabled || busy} className="mt-4 space-y-3">
-      {transfer.items.map(line => <div key={line.id}><label className="block text-sm">{line.productName} · {line.sku}{editable ? <FinancialInput><input aria-label={`Internal unit price for ${line.productName} (₦)`} className={tradingField} inputMode="decimal" value={prices[line.id] ?? ""} onChange={event => setPrices(old => ({...old, [line.id]: event.target.value}))} /></FinancialInput> : <span className="block font-semibold"><FinancialValue>{agreement.pricesByLineId[line.id] === undefined ? agreement.pricingStatus === "priced" ? "Restricted" : "Not recorded" : tradeMoney(agreement.pricesByLineId[line.id]!)}</FinancialValue></span>}</label></div>)}
+      {transfer.items.map(line => <div key={line.id}><label className="block text-sm">{line.productName} · {line.sku}{editable ? <FinancialInput><AmountInput aria-label={`Internal unit price for ${line.productName} (₦)`} className={tradingField} inputMode="decimal" value={prices[line.id] ?? ""} onValueChange={rawAmount => setPrices(old => ({...old, [line.id]: rawAmount}))} /></FinancialInput> : <span className="block font-semibold"><FinancialValue>{agreement.pricesByLineId[line.id] === undefined ? agreement.pricingStatus === "priced" ? "Restricted" : "Not recorded" : tradeMoney(agreement.pricesByLineId[line.id]!)}</FinancialValue></span>}</label></div>)}
       {editable && <FinancialAction><Button type="button" onClick={save}>Save internal prices</Button></FinancialAction>}
     </fieldset>
     {error && <p role="alert"><FinancialMessage>{error}</FinancialMessage></p>}

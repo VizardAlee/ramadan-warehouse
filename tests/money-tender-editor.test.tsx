@@ -20,3 +20,14 @@ it("requires exact kobo across multiple actual accounts and detects repeated rec
   fireEvent.change(screen.getByLabelText("Part 2 reference"), { target: { value: "BANK-1" } });
   expect(screen.getByRole("status").textContent).toContain("matched exactly");
 });
+
+it("keeps grouped tender entry out of the submitted kobo amount", () => {
+  let draft: MoneyTenderDraft[] = [];
+  function Harness() { const [value, setValue] = useState<MoneyTenderDraft[]>([{ id: "1", method: "cash", amount: "", bankAccountId: "", reference: "" }]); draft = value; return <MoneyTenderEditor value={value} onChange={setValue} total={123456750} banks={[]} />; }
+  render(<Harness />);
+  const input = screen.getByLabelText("Part 1 amount") as HTMLInputElement;
+  fireEvent.paste(input, { clipboardData: { getData: () => "1,234,567.50" } });
+  expect(input.value).toBe("1,234,567.50");
+  expect(draft[0]?.amount).toBe("1234567.50");
+  expect(parseMoneyTenders(draft, 123456750).error).toBeNull();
+});

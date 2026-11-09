@@ -1,4 +1,5 @@
 "use client";
+import { AmountInput } from "@/components/ui/amount-input";
 import { FinancialInput, FinancialMessage, FinancialText, FinancialValue } from "@/features/finance/financial-privacy";
 
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -6,7 +7,7 @@ import { matchesProductName } from "@/features/products/name-search";
 import { ChevronDown, Plus, Search } from "lucide-react";
 import Link from "next/link";
 import { Fragment, useMemo, useState } from "react";
-import { useForm, useWatch } from "react-hook-form";
+import { Controller, useForm, useWatch } from "react-hook-form";
 import { z } from "zod";
 import { Button } from "@/components/ui/button";
 import { AppDialog } from "@/components/ui/app-dialog";
@@ -543,38 +544,32 @@ function ProductCatalogue() {
               </label>
               <label className="text-sm">
                 Default unit cost (₦)
-                <FinancialInput><input
+                <Controller control={form.control} name="defaultUnitCostNaira" render={({ field }) => (<FinancialInput><AmountInput
                   type="number"
                   min="0"
                   step="0.01"
                   inputMode="decimal"
                   placeholder="Not provided"
                   aria-label="Default unit cost (₦)"
-                  {...form.register("defaultUnitCostNaira", {
-                    setValueAs: (value) =>
-                      value === "" ? undefined : Number(value),
-                  })}
+                  name={field.name} ref={field.ref} onBlur={field.onBlur} value={field.value} onValueChange={value => field.onChange(value === "" ? undefined : Number(value))}
                   disabled={serviceItem}
                   className="mt-1 w-full rounded-lg border p-2.5"
-                /></FinancialInput>
+                /></FinancialInput>)} />
               {serviceItem && <span className="mt-1 block text-xs text-[var(--muted)]">Services do not have a physical stock unit cost; use the approved service charge and linked cost workflows.</span>}
               </label>
               {canManageBasePrice && (
                 <>
                   <label className="text-sm">
                     Retail selling price (₦)
-                    <FinancialInput><input
+                    <Controller control={form.control} name="baseSellingPriceNaira" render={({ field }) => (<FinancialInput><AmountInput
                       type="number"
                       min="0.01"
                       step="0.01"
                       inputMode="decimal"
                       placeholder="Not provided"
-                      {...form.register("baseSellingPriceNaira", {
-                        setValueAs: (value) =>
-                          value === "" ? undefined : Number(value),
-                      })}
+                      name={field.name} ref={field.ref} onBlur={field.onBlur} value={field.value} onValueChange={value => field.onChange(value === "" ? undefined : Number(value))}
                       className="mt-1 w-full rounded-lg border p-2.5"
-                    /></FinancialInput>
+                    /></FinancialInput>)} />
                     <span className="mt-1 block text-xs text-[var(--muted)]">
                       Branches may sell above this. A lower price needs
                       administrator approval.
@@ -582,9 +577,9 @@ function ProductCatalogue() {
                   </label>
                   <label className="text-sm">
                     Wholesale selling price (₦, optional)
-                    <FinancialInput><input type="number" min="0.01" step="0.01" inputMode="decimal"
-                      {...form.register("wholesalePriceNaira", { setValueAs: (value) => value === "" ? undefined : Number(value) })}
-                      className="mt-1 w-full rounded-lg border p-2.5" /></FinancialInput>
+                    <Controller control={form.control} name="wholesalePriceNaira" render={({ field }) => (<FinancialInput><AmountInput type="number" min="0.01" step="0.01" inputMode="decimal"
+                      name={field.name} ref={field.ref} onBlur={field.onBlur} value={field.value} onValueChange={value => field.onChange(value === "" ? undefined : Number(value))}
+                      className="mt-1 w-full rounded-lg border p-2.5" /></FinancialInput>)} />
                     <span className="mt-1 block text-xs text-[var(--muted)]">An approved catalogue price. Leave empty to disable wholesale pricing.</span>
                   </label>
                   <label className="text-sm">

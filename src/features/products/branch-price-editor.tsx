@@ -1,4 +1,5 @@
 "use client";
+import { AmountInput } from "@/components/ui/amount-input";
 import { useState, type FormEvent } from "react";
 import { AppDialog } from "@/components/ui/app-dialog";
 import { Button } from "@/components/ui/button";
@@ -49,7 +50,7 @@ export function BranchPriceEditor({ branchId, branchName, productId, productName
       <p className="mt-2 text-sm"><FinancialText>{productName}</FinancialText> · {branchName}</p>
       <p className="mt-2 text-sm text-[var(--muted)]">Applies to future sales and quotations at this branch. Leave either level blank to use its central default where configured; otherwise that level is unavailable. VAT is added only when a rate is provided.</p>
       {([ ["Retail", retail, setRetail, central?.basePriceMinor], ["Wholesale", wholesale, setWholesale, central?.wholesalePriceMinor] ] as const).map(([label, value, setter, base]) => <div key={label} className="mt-4">
-        <label className="block text-sm font-medium">{label} branch price (₦)<FinancialInput><input aria-label={`${label} branch price (₦)`} type="number" min="0.01" step="0.01" inputMode="decimal" value={value} onChange={event => setter(event.target.value)} className="mt-1 w-full rounded-lg border p-3" disabled={busy} /></FinancialInput></label>
+        <label className="block text-sm font-medium">{label} branch price (₦)<FinancialInput><AmountInput aria-label={`${label} branch price (₦)`} type="number" min="0.01" step="0.01" inputMode="decimal" value={value} onValueChange={rawAmount => setter(rawAmount)} className="mt-1 w-full rounded-lg border p-3" disabled={busy} /></FinancialInput></label>
         <p className="mt-1 text-xs text-[var(--muted)]">Central {label.toLowerCase()}: <FinancialValue>{base ? formatNaira(base) : "Not configured"}</FinancialValue>. Blank = {base ? "use central" : "unavailable"}.</p>
       </div>)}
       {!central && <label className="mt-4 block text-sm font-medium">Branch VAT (%) — optional<FinancialInput><input aria-label="Branch VAT (%) — optional" type="number" min="0" max="100" step="0.01" inputMode="decimal" value={vat} onChange={event => setVat(event.target.value)} disabled={busy} className="mt-1 w-full rounded-lg border p-3" /></FinancialInput><span className="mt-1 block text-xs text-[var(--muted)]">No central price exists. Leave blank for VAT not provided; no VAT will be added. This is distinct from a configured 0% rate. No central record will be created.</span></label>}

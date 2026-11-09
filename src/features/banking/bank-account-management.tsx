@@ -1,4 +1,5 @@
 "use client";
+import { AmountInput } from "@/components/ui/amount-input";
 
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
@@ -134,7 +135,7 @@ function AccountActions({ account, branchId, canManage, canPostOpening, manageme
         {openingLoaded && <fieldset disabled={locked || openingBusy} className="mt-4 space-y-3">
           <div className="grid gap-3 sm:grid-cols-2">
             <label className="text-sm">Opening effective date and time (Nigeria)<input className={fieldClass} type="datetime-local" value={form.date} onChange={event => updateForm({ date: event.target.value })} /></label>
-            <label className="text-sm">Initial balance (₦)<FinancialInput><input className={fieldClass} type="number" step="0.01" value={form.amount} onChange={event => updateForm({ amount: event.target.value })} /></FinancialInput></label>
+            <label className="text-sm">Initial balance (₦)<FinancialInput><AmountInput className={fieldClass} type="number" step="0.01" value={form.amount} onValueChange={rawAmount => updateForm({ amount: rawAmount })} /></FinancialInput></label>
             <label className="text-sm">Opening-equity counterpart<select className={fieldClass} value={form.counterpart} onChange={event => updateForm({ counterpart: event.target.value })}><option value="">Choose reviewed equity account</option>{accounts.map(value => <option key={value.id} value={value.id}><FinancialText>{value.code}</FinancialText> · <FinancialText>{value.name}</FinancialText></option>)}</select></label>
             <label className="text-sm">Opening evidence reference<input className={fieldClass} maxLength={160} value={form.reference} onChange={event => updateForm({ reference: event.target.value })} /></label>
             <label className="text-sm sm:col-span-2">Opening balance reason<input className={fieldClass} maxLength={500} value={form.reason} onChange={event => updateForm({ reason: event.target.value })} /></label>

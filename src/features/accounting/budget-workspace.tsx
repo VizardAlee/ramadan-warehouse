@@ -1,4 +1,5 @@
 "use client";
+import { AmountInput } from "@/components/ui/amount-input";
 import { FinancialAction, FinancialActionScope, FinancialDetails, FinancialInput, FinancialMessage, FinancialText, FinancialValue  } from "@/features/finance/financial-privacy";
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -80,7 +81,7 @@ export function BudgetWorkspace({ ownerKey, branchId, canManage }: { ownerKey: s
     {canManage && <details className="rounded-xl border bg-white p-4" open><summary className="cursor-pointer font-semibold">Create or revise a monthly target</summary><p className="my-3 text-sm text-[var(--muted)]">Targets are not accounting postings. To revise an existing target, choose Revise in its row. Saving a changed target preserves the old version and your reason. Positive variance is favorable: higher income or lower expenses.</p>
       <FinancialActionScope><fieldset disabled={locked || loading || !data} className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <label>Income or expense account<select className={field} value={form.accountId} disabled={form.expectedVersion > 0} onChange={event => { const existing = data?.rows.find(row => row.accountId === event.target.value); setForm({ ...form, accountId: event.target.value, amount: existing ? String(existing.amountMinor / 100) : "", expectedVersion: existing?.version ?? 0 }); }}><option value="">Choose ledger account</option>{data?.accounts.filter(account => account.active).map(account => <option key={account.id} value={account.id}><FinancialText>{account.code}</FinancialText> · <FinancialText>{account.name}</FinancialText></option>)}</select>{form.expectedVersion > 0 && <span className="block text-xs text-[var(--muted)]">This revision keeps the original ledger account. Use Clear form to create a target for another account.</span>}</label>
-        <label>Budget amount (₦)<FinancialInput><input className={field} type="number" min="0" step="0.01" value={form.amount} onChange={event => setForm({ ...form, amount: event.target.value })} /></FinancialInput></label>
+        <label>Budget amount (₦)<FinancialInput><AmountInput className={field} type="number" min="0" step="0.01" value={form.amount} onValueChange={rawAmount => setForm({ ...form, amount: rawAmount })} /></FinancialInput></label>
         <label className="sm:col-span-2">Reason<input className={field} maxLength={1000} value={form.reason} onChange={event => setForm({ ...form, reason: event.target.value })} /></label>
         <FinancialAction retry={Boolean(pending)}><Button disabled={!form.accountId || !form.amount || !Number.isFinite(Number(form.amount)) || Number(form.amount) < 0 || form.reason.trim().length < 10} onClick={() => void save()}>Save budget target</Button></FinancialAction>
         <Button variant="outline" onClick={() => setForm({ accountId: "", amount: "", expectedVersion: 0, reason: "" })}>Clear form</Button>

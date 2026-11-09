@@ -1,4 +1,5 @@
 "use client";
+import { AmountInput } from "@/components/ui/amount-input";
 import { FinancialAction, FinancialActionScope, FinancialAttributes, FinancialInput, FinancialMessage, FinancialText, FinancialValue  } from "@/features/finance/financial-privacy";
 
 import { useRef, useState } from "react";
@@ -45,7 +46,7 @@ export function ReturnFollowUp({ record, accounts, shifts, onComplete }: { recor
     {credit?.lastRedeemedSaleId && <p className="mt-2 break-all text-xs">Latest linked replacement sale: <FinancialText>{credit.lastRedeemedSaleNumber ?? "Recorded replacement (see sales register)"}</FinancialText></p>}
     <fieldset disabled={busy || uncertain} className="mt-3 grid min-w-0 gap-3 sm:grid-cols-2">
       {inspection ? record.items?.map(item => <label key={item.id} className="text-sm"><FinancialText>{item.productName}</FinancialText> · <FinancialText>{item.quantity}</FinancialText> returned<FinancialAttributes><select aria-label={`Disposition for ${item.productName}`} value={decisions[item.id] ?? ""} onChange={e => setDecisions(current => ({ ...current, [item.id]: e.target.value as Disposition }))} className="mt-1 w-full rounded-lg border p-3"><option value="">Choose after inspection</option>{Object.entries(dispositions).map(([value, label]) => <option key={value} value={value}><FinancialText>{label}</FinancialText></option>)}</select></FinancialAttributes></label>) : <>
-        <label className="text-sm">Refund amount (₦)<FinancialInput><input type="number" min="0.01" step="0.01" value={amount} onChange={e => setAmount(e.target.value)} className="mt-1 w-full rounded-lg border p-3" /></FinancialInput></label>
+        <label className="text-sm">Refund amount (₦)<FinancialInput><AmountInput type="number" min="0.01" step="0.01" value={amount} onValueChange={rawAmount => setAmount(rawAmount)} className="mt-1 w-full rounded-lg border p-3" /></FinancialInput></label>
         <label className="text-sm">Refund method<select value={method} onChange={e => { setMethod(e.target.value); setAccountId(""); }} className="mt-1 w-full rounded-lg border p-3"><option value="bank_transfer">Bank transfer</option><option value="card">Card/POS</option><option value="cash">Cash</option></select></label>
         <label className="text-sm"><FinancialText>{method === "cash" ? "Funding till" : "Funding company account"}</FinancialText><select value={accountId} onChange={e => setAccountId(e.target.value)} className="mt-1 w-full rounded-lg border p-3"><option value="">Select funding source</option>{method === "cash" ? shifts.map(s => <option key={s.id} value={s.id}><FinancialText>{s.deviceName}</FinancialText></option>) : accounts.map(a => <option key={a.id} value={a.id}><FinancialText>{a.bankName}</FinancialText> · <FinancialText>{a.accountName}</FinancialText> · ••••<FinancialText>{a.accountNumberLast4}</FinancialText></option>)}</select></label>
       </>}
