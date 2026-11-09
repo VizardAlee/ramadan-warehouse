@@ -1,5 +1,6 @@
 "use client";
 import { PurchasingList } from "@/features/procurement/purchasing-list";
+import { AmountInput } from "@/components/ui/amount-input";
 import { SearchableItemSelect } from "@/components/ui/searchable-item-select";
 import { RecordAttribution } from "@/features/audit/record-attribution";
 import { FinancialAction, FinancialActionScope, FinancialInput, FinancialMessage, FinancialText, FinancialValue  } from "@/features/finance/financial-privacy";
@@ -575,18 +576,18 @@ function ProcurementWorkspace() {
                 </label>
                 <label className="text-sm font-medium">
                   Unit cost (₦)
-                  <FinancialInput><input
+                  <FinancialInput><AmountInput
                     type="number"
                     min="0.01"
                     step="0.01"
                     inputMode="decimal"
                     placeholder="0.00"
                     value={line.unitCostNaira}
-                    onChange={(event) =>
+                    onValueChange={rawAmount =>
                       setLines(
                         lines.map((current, currentIndex) =>
                           currentIndex === index
-                            ? { ...current, unitCostNaira: event.target.value }
+                            ? { ...current, unitCostNaira: rawAmount }
                             : current,
                         ),
                       )

@@ -1,4 +1,5 @@
 "use client";
+import { AmountInput } from "@/components/ui/amount-input";
 import { PosActiveShift, PosShiftAccess } from "@/features/pos/shift-controls";
 import { SalesVoucher } from "@/features/pos/sales-voucher";
 import { BranchPriceEditor } from "@/features/products/branch-price-editor";
@@ -1746,14 +1747,14 @@ export default function PosPage() {
               {!!totals.priorServicePaidMinor && <p className="text-sm">Previously received on linked cases: <FinancialValue>{formatNaira(totals.priorServicePaidMinor)}</FinancialValue>. Allocate now: <FinancialValue>{formatNaira(amountToAllocateMinor)}</FinancialValue>.</p>}
               <label className="block text-sm font-medium">
                 Discount (₦)
-                <FinancialInput><input
+                <FinancialInput><AmountInput
                   type="number"
                   min="0"
                   max={(baseTotals.discountableSubtotalMinor ?? baseTotals.subtotalAmountMinor) / 100}
                   step="0.01"
                   inputMode="decimal"
                   value={discountAmount}
-                  onChange={(event) => setDiscountAmount(event.target.value)}
+                  onValueChange={rawAmount => setDiscountAmount(rawAmount)}
                   className={`mt-1 w-full rounded-lg border p-3 ${discountIsValid ? "" : "border-red-400"}`}
                   placeholder="0.00"
                 /></FinancialInput>
@@ -1902,7 +1903,7 @@ export default function PosPage() {
                       </select>
                     </label>
                     <label className="text-sm font-medium">Amount (₦)
-                      <FinancialInput><input type="number" inputMode="decimal" min="0.01" step="0.01" value={payment.amount} onChange={(event) => setSplitPayments((items) => items.map((item) => item.id === payment.id ? { ...item, amount: event.target.value } : item))} className="mt-1 w-full rounded-lg border p-2.5" placeholder="0.00" /></FinancialInput>
+                      <FinancialInput><AmountInput type="number" inputMode="decimal" min="0.01" step="0.01" value={payment.amount} onValueChange={rawAmount => setSplitPayments((items) => items.map((item) => item.id === payment.id ? { ...item, amount: rawAmount } : item))} className="mt-1 w-full rounded-lg border p-2.5" placeholder="0.00" /></FinancialInput>
                     </label>
                     {["card", "bank_transfer"].includes(payment.method) && <>
                       <label className="text-sm font-medium">Company bank account
@@ -1946,7 +1947,7 @@ export default function PosPage() {
                 {creditIntent === "part" && (
                   <label className="block text-sm font-medium">
                     Amount paid now (₦)
-                    <FinancialInput><input
+                    <FinancialInput><AmountInput
                       type="number"
                       min="0.01"
                       max={Math.max(0, amountToAllocateMinor - 1) / 100}
@@ -1954,7 +1955,7 @@ export default function PosPage() {
                       inputMode="decimal"
                       required
                       value={creditPaidAmount}
-                      onChange={(event) => setCreditPaidAmount(event.target.value)}
+                      onValueChange={rawAmount => setCreditPaidAmount(rawAmount)}
                       className="mt-1 w-full rounded-lg border p-3"
                       placeholder="0.00"
                     /></FinancialInput>

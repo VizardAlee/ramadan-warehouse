@@ -1,4 +1,5 @@
 "use client";
+import { AmountInput } from "@/components/ui/amount-input";
 import { SearchableItemSelect } from "@/components/ui/searchable-item-select";
 import { FinancialAction, FinancialActionScope, FinancialInput, FinancialMessage, FinancialText, FinancialValue  } from "@/features/finance/financial-privacy";
 
@@ -252,14 +253,14 @@ function AftersalesWorkspace() {
               )}
               {!item.billingSaleId && can("sales.returns.approve") && item.chargeStatus === "not_quoted" && !["completed", "cancelled"].includes(item.status) && (
                 <div className="mt-3 grid gap-3 md:grid-cols-[10rem_minmax(0,1fr)_auto]">
-                  <label className="text-sm">Service charge (₦)<FinancialInput><input type="number" min="0" step="0.01" value={form.chargeNaira} onChange={(event) => set({ chargeNaira: event.target.value })} className="mt-1 w-full rounded-lg border p-3" /></FinancialInput></label>
+                  <label className="text-sm">Service charge (₦)<FinancialInput><AmountInput type="number" min="0" step="0.01" value={form.chargeNaira} onValueChange={rawAmount => set({ chargeNaira: rawAmount })} className="mt-1 w-full rounded-lg border p-3" /></FinancialInput></label>
                   <label className="text-sm">Charge / complimentary reason<input value={form.chargeReason} onChange={(event) => set({ chargeReason: event.target.value })} className="mt-1 w-full rounded-lg border p-3" /></label>
                   <FinancialAction><Button className="self-end" aria-busy={busy} disabledReason={!Number.isSafeInteger(chargeMinor) || chargeMinor < 0 || form.chargeNaira === "" ? "Enter the real nonnegative charge with at most two decimal places. Zero is permitted for a complimentary service." : form.chargeReason.trim().length < 5 ? "Enter the actual charge or complimentary-service reason, at least 5 characters." : undefined} disabled={busy || !Number.isSafeInteger(chargeMinor) || chargeMinor < 0 || form.chargeNaira === "" || form.chargeReason.trim().length < 5} onClick={() => void run("setAftersalesCharge", { caseId: item.id, chargeAmountMinor: chargeMinor, reason: form.chargeReason, idempotencyKey: crypto.randomUUID() }, "Service charge recorded.")}>Set charge</Button></FinancialAction>
                 </div>
               )}
               {!item.billingSaleId && can("customers.payment.record") && (item.outstandingAmountMinor ?? 0) > 0 && item.status !== "cancelled" && (
                 <div className="mt-3 grid gap-3 border-t pt-4 sm:grid-cols-2 lg:grid-cols-[10rem_10rem_minmax(12rem,1fr)_minmax(12rem,1fr)_auto]">
-                  <label className="text-sm">Pay now (₦)<FinancialInput><input type="number" min="0.01" max={((item.outstandingAmountMinor ?? 0) / 100).toFixed(2)} step="0.01" value={form.paymentNaira} onChange={(event) => set({ paymentNaira: event.target.value })} className="mt-1 w-full rounded-lg border p-3" /></FinancialInput></label>
+                  <label className="text-sm">Pay now (₦)<FinancialInput><AmountInput type="number" min="0.01" max={((item.outstandingAmountMinor ?? 0) / 100).toFixed(2)} step="0.01" value={form.paymentNaira} onValueChange={rawAmount => set({ paymentNaira: rawAmount })} className="mt-1 w-full rounded-lg border p-3" /></FinancialInput></label>
                   <label className="text-sm">Method<select value={form.method} onChange={(event) => set({ method: event.target.value as typeof form.method, bankAccountId: "" })} className="mt-1 w-full rounded-lg border p-3"><option value="cash">Cash</option><option value="card">Card / POS</option><option value="bank_transfer">Bank transfer</option></select></label>
                   <label className="text-sm">Receiving account<select disabled={form.method === "cash"} value={form.bankAccountId} onChange={(event) => set({ bankAccountId: event.target.value })} className="mt-1 w-full rounded-lg border p-3 disabled:bg-slate-100"><option value=""><FinancialText>{form.method === "cash" ? "Cash on hand" : "Select account"}</FinancialText></option>{workspace.bankAccounts.map((account) => <option key={account.id} value={account.id}><FinancialText>{account.bankName}</FinancialText> · <FinancialText>{account.accountName}</FinancialText> · ••••<FinancialText>{account.accountNumberLast4}</FinancialText></option>)}</select></label>
                   <label className="text-sm">Reference (optional)<input value={form.reference} onChange={(event) => set({ reference: event.target.value })} className="mt-1 w-full rounded-lg border p-3" /></label>

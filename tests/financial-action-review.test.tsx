@@ -32,7 +32,7 @@ it("refuses a retained transfer before persistence, then posts its exact amount 
   const button = screen.getByRole("button", { name: "Record completed transfer", hidden: true });
   fireEvent.click(button); expect(api).not.toHaveBeenCalled(); expect(sessionStorage.getItem("abr-pending-company-transfer:org:user")).toBeNull();
   expect(screen.getByText("Nothing was submitted. Your entered amounts are retained.")).toBeTruthy();
-  review(button); expect((screen.getByLabelText("Amount (₦)") as HTMLInputElement).value).toBe("2500.51");
+  review(button); expect((screen.getByLabelText("Amount (₦)") as HTMLInputElement).value).toBe("2,500.51");
   expect(screen.getByRole("button", { name: "Hide financial values" }).getAttribute("aria-pressed")).toBe("true");
   fireEvent.click(button); await waitFor(() => expect(api).toHaveBeenCalledOnce());
   expect(api.mock.calls[0]).toEqual(["recordCompanyFundsTransfer", expect.objectContaining({ amountMinor: 250051, sourceBankAccountId: "a", destinationBankAccountId: "b", branchId: "store", reference: "BANK-001", confirmedCompleted: true, idempotencyKey: expect.any(String) })]);

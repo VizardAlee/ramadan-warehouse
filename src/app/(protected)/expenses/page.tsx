@@ -1,4 +1,5 @@
 "use client";
+import { AmountInput } from "@/components/ui/amount-input";
 import { RecordAttribution } from "@/features/audit/record-attribution";
 import { FinancialAction, FinancialActionScope, FinancialInput, FinancialMessage, FinancialText, FinancialValue  } from "@/features/finance/financial-privacy";
 
@@ -442,26 +443,26 @@ function ExpensesWorkspace() {
             </label>
             <label className="text-sm">
               Net amount (₦)
-              <FinancialInput><input
+              <FinancialInput><AmountInput
                 type="number"
                 min="0.01"
                 step="0.01"
                 value={form.netAmountNaira}
-                onChange={(event) =>
-                  setForm({ ...form, netAmountNaira: event.target.value })
+                onValueChange={rawAmount =>
+                  setForm({ ...form, netAmountNaira: rawAmount })
                 }
                 className="mt-1 w-full rounded-lg border p-3"
               /></FinancialInput>
             </label>
             <label className="text-sm">
               VAT (₦)
-              <FinancialInput><input
+              <FinancialInput><AmountInput
                 type="number"
                 min="0"
                 step="0.01"
                 value={form.vatAmountNaira}
-                onChange={(event) =>
-                  setForm({ ...form, vatAmountNaira: event.target.value })
+                onValueChange={rawAmount =>
+                  setForm({ ...form, vatAmountNaira: rawAmount })
                 }
                 className="mt-1 w-full rounded-lg border p-3"
               /></FinancialInput>
@@ -635,19 +636,19 @@ function ExpensesWorkspace() {
                 {["approved", "partially_paid"].includes(expense.status) &&
                   hasExpenseScope(access, expense, "expenses.pay") && (
                     <div className={`${styles.payment} mt-4 border-t pt-4`}>
-                      <FinancialInput><input
+                      <FinancialInput><AmountInput
                         aria-label="Payment amount in naira"
                         type="number"
                         min="0.01"
                         max={(expense.outstandingAmountMinor / 100).toFixed(2)}
                         step="0.01"
                         value={draft.amountNaira}
-                        onChange={(event) =>
+                        onValueChange={rawAmount =>
                           setPayments({
                             ...payments,
                             [expense.id]: {
                               ...draft,
-                              amountNaira: event.target.value,
+                              amountNaira: rawAmount,
                             },
                           })
                         }

@@ -1,4 +1,5 @@
 "use client";
+import { AmountInput } from "@/components/ui/amount-input";
 import { FinancialAction, FinancialActionScope, FinancialAttributes, FinancialInput, FinancialMessage, FinancialText, FinancialValue   } from "@/features/finance/financial-privacy";
 
 import {
@@ -319,15 +320,15 @@ export default function BankingPage() {
             </label>
             <label className="text-sm">
               Opening balance (₦)
-              <FinancialInput><input
+              <FinancialInput><AmountInput
                 type="number"
                 step="0.01"
                 className="mt-1 w-full rounded-lg border p-3"
                 value={accountForm.openingBalanceNaira}
-                onChange={(event) =>
+                onValueChange={rawAmount =>
                   setAccountForm({
                     ...accountForm,
-                    openingBalanceNaira: event.target.value,
+                    openingBalanceNaira: rawAmount,
                   })
                 }
               /></FinancialInput>
@@ -620,30 +621,30 @@ export default function BankingPage() {
             </label>
             <label className="text-sm">
               Opening balance (₦)
-              <FinancialInput><input
+              <FinancialInput><AmountInput
                 type="number"
                 step="0.01"
                 className="mt-1 w-full rounded-lg border p-3"
                 value={reconciliationForm.openingBalanceNaira}
-                onChange={(event) =>
+                onValueChange={rawAmount =>
                   setReconciliationForm({
                     ...reconciliationForm,
-                    openingBalanceNaira: event.target.value,
+                    openingBalanceNaira: rawAmount,
                   })
                 }
               /></FinancialInput>
             </label>
             <label className="text-sm">
               Closing balance (₦)
-              <FinancialInput><input
+              <FinancialInput><AmountInput
                 type="number"
                 step="0.01"
                 className="mt-1 w-full rounded-lg border p-3"
                 value={reconciliationForm.closingBalanceNaira}
-                onChange={(event) =>
+                onValueChange={rawAmount =>
                   setReconciliationForm({
                     ...reconciliationForm,
-                    closingBalanceNaira: event.target.value,
+                    closingBalanceNaira: rawAmount,
                   })
                 }
               /></FinancialInput>

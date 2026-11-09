@@ -1,4 +1,5 @@
 "use client";
+import { AmountInput } from "@/components/ui/amount-input";
 import { FinancialInput, FinancialText, FinancialValue } from "@/features/finance/financial-privacy";
 
 import type { Ref } from "react";
@@ -47,7 +48,7 @@ export function SalePriceDialog({
         </div>
         <label className="mt-4 block text-sm font-medium">
           Selling price before VAT (₦)
-          <FinancialInput><input type="number" min="0.01" step="0.01" inputMode="decimal" required value={salePrice} onChange={(event) => onPriceChange(event.target.value)} className="mt-1 w-full rounded-lg border p-3 text-lg" /></FinancialInput>
+          <FinancialInput><AmountInput type="number" min="0.01" step="0.01" inputMode="decimal" required value={salePrice} onValueChange={rawAmount => onPriceChange(rawAmount)} className="mt-1 w-full rounded-lg border p-3 text-lg" /></FinancialInput>
         </label>
         {enteredMinor > 0 && changed && (
           <p className="mt-2 text-sm font-semibold text-[var(--brand)]" role="status">New price for this sale: <FinancialValue>{formatNaira(enteredMinor)}</FinancialValue></p>

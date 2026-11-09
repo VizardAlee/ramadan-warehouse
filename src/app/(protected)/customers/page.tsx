@@ -1,4 +1,5 @@
 "use client";
+import { AmountInput } from "@/components/ui/amount-input";
 import { FinancialAction, FinancialActionScope, FinancialAttributes, FinancialInput, FinancialMessage, FinancialText, FinancialValue  } from "@/features/finance/financial-privacy";
 
 import {
@@ -662,12 +663,12 @@ export default function CustomersPage() {
                 {creditDecision === "approve" && (
                   <label className="block text-sm font-medium">
                     Credit limit (₦)
-                    <FinancialInput><input
+                    <FinancialInput><AmountInput
                       type="number"
                       min="0.01"
                       step="0.01"
                       value={creditLimit}
-                      onChange={(event) => setCreditLimit(event.target.value)}
+                      onValueChange={rawAmount => setCreditLimit(rawAmount)}
                       className="mt-1 w-full rounded-lg border p-3"
                     /></FinancialInput>
                   </label>
@@ -718,12 +719,12 @@ export default function CustomersPage() {
                 )}
                 <label className="block text-sm font-medium">
                   <FinancialText>{refundAdvance ? "Amount refunded (₦)" : paymentSource === "advance_balance" ? "Amount to apply (₦)" : "Amount received (₦)"}</FinancialText>
-                  <FinancialInput><input
+                  <FinancialInput><AmountInput
                     type="number"
                     min="0.01"
                     step="0.01"
                     value={paymentAmount}
-                    onChange={(event) => setPaymentAmount(event.target.value)}
+                    onValueChange={rawAmount => setPaymentAmount(rawAmount)}
                     className="mt-1 w-full rounded-lg border p-3"
                   /></FinancialInput>
                 </label>
@@ -751,7 +752,7 @@ export default function CustomersPage() {
                     <label className="block text-sm">Customer account <FinancialText>{index + 1}</FinancialText><select className="mt-1 w-full rounded-lg border p-3" value={allocation.accountId} onChange={(event) => setPaymentAllocations((items) => items.map((item, position) => position === index ? { ...item, accountId: event.target.value } : item))}>
                       {(history?.customer.arrangements ?? [{ id: "general", name: "General account", outstandingBalanceMinor: selected.outstandingBalanceMinor }]).map((account) => <option key={account.id} value={account.id}><FinancialText>{account.name}</FinancialText> · <FinancialValue textOnly>{formatNaira(refundAdvance ? history?.customer.advanceBalances?.[account.id] ?? 0 : account.outstandingBalanceMinor)}</FinancialValue> <FinancialText>{refundAdvance ? "unused advance" : "due"}</FinancialText></option>)}
                     </select></label>
-                    {paymentAllocations.length > 1 && <><label className="block text-sm">Allocated amount (₦)<FinancialInput><input className="mt-1 w-full rounded-lg border p-3" type="number" min="0.01" step="0.01" value={allocation.amount} onChange={(event) => setPaymentAllocations((items) => items.map((item, position) => position === index ? { ...item, amount: event.target.value } : item))} /></FinancialInput></label><Button size="sm" variant="outline" onClick={() => setPaymentAllocations((items) => items.filter((_, position) => position !== index))}>Remove allocation</Button></>}
+                    {paymentAllocations.length > 1 && <><label className="block text-sm">Allocated amount (₦)<FinancialInput><AmountInput className="mt-1 w-full rounded-lg border p-3" type="number" min="0.01" step="0.01" value={allocation.amount} onValueChange={rawAmount => setPaymentAllocations((items) => items.map((item, position) => position === index ? { ...item, amount: rawAmount } : item))} /></FinancialInput></label><Button size="sm" variant="outline" onClick={() => setPaymentAllocations((items) => items.filter((_, position) => position !== index))}>Remove allocation</Button></>}
                   </div>)}
                   <Button size="sm" variant="outline" disabled={paymentAllocations.length >= (history?.customer.arrangements?.length ?? 1)} onClick={() => setPaymentAllocations((items) => [...items.map((item) => ({ ...item, amount: items.length === 1 ? paymentAmount : item.amount })), { accountId: history?.customer.arrangements?.find((account) => !items.some((item) => item.accountId === account.id))?.id ?? "general", amount: "" }])}>Split across arrangements</Button>
                 </fieldset>

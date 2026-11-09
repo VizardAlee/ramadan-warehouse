@@ -1,4 +1,5 @@
 "use client";
+import { AmountInput } from "@/components/ui/amount-input";
 
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -52,7 +53,7 @@ function PaymentForm({ invoice, accounts, disabled, onSubmit }: {invoice: Intern
     await onSubmit({action: "record_payment", invoiceId: invoice.id, amountMinor, confirmedCompleted: true, paymentDate: new Date(date).toISOString(), reference: reference.trim(), sourceMethod, destinationMethod, ...(sourceMethod === "bank_transfer" && sourceBank ? {sourceBankAccountId: sourceBank} : {}), ...(destinationMethod === "bank_transfer" && destinationBank ? {destinationBankAccountId: destinationBank} : {}), ...(existingId.trim() ? {existingFundsTransferId: existingId.trim()} : {}), idempotencyKey: crypto.randomUUID()});
   }
   return <FinancialActionScope><section className={tradingPanel}><h2 className="font-semibold">Record payment to head office</h2><p className="text-sm">Record money already moved from this branch to head office. This does not send money or create an external sale.</p><p>Outstanding: <FinancialValue>{tradeMoney(Math.max(0, invoice.balanceMinor))}</FinancialValue></p><fieldset disabled={disabled || invoice.balanceMinor <= 0} className="mt-4 space-y-3">
-    <label className="block">Amount (₦)<FinancialInput><input aria-label="Internal payment amount (₦)" className={tradingField} inputMode="decimal" value={amount} onChange={event => setAmount(event.target.value)} /></FinancialInput></label>
+    <label className="block">Amount (₦)<FinancialInput><AmountInput aria-label="Internal payment amount (₦)" className={tradingField} inputMode="decimal" value={amount} onValueChange={rawAmount => setAmount(rawAmount)} /></FinancialInput></label>
     <label className="block">Date money moved<input aria-label="Date money moved" className={tradingField} type="datetime-local" step="0.001" value={date} onChange={event => setDate(event.target.value)} /></label>
     <label className="block">Payment reference<input aria-label="Payment reference" className={tradingField} maxLength={160} value={reference} onChange={event => setReference(event.target.value)} /></label>
     <label className="block">Already-recorded company funds transfer ID (optional)<input aria-label="Already-recorded company funds transfer ID" className={tradingField} value={existingId} onChange={event => setExistingId(event.target.value)} /></label><p className="text-sm">Use the original journal entry ID and exact original date and time to allocate that movement without creating another company funds transfer.</p>

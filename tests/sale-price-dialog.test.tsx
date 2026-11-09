@@ -28,6 +28,7 @@ describe("one-sale price dialog", () => {
     const apply = vi.fn();
     render(<PriceHarness onApply={apply} />);
     expect(screen.getByText("New price for this sale: ₦8,550,000.00")).toBeTruthy();
+    expect((screen.getByLabelText("Selling price before VAT (₦)") as HTMLInputElement).value).toBe("8,550,000");
     const button = screen.getByRole("button", { name: "Apply to sale" });
     expect(button.hasAttribute("disabled")).toBe(false);
     expect(screen.getByText(/Reason for price change/).textContent).toContain("required");
@@ -39,7 +40,7 @@ describe("one-sale price dialog", () => {
     const apply = vi.fn();
     render(<PriceHarness onApply={apply} />);
     fireEvent.click(screen.getByRole("button", { name: "Agreed customer price" }));
-    expect((screen.getByRole("textbox") as HTMLTextAreaElement).value).toBe("Agreed customer price");
+    expect((screen.getByRole("textbox", { name: /Reason for price change/ }) as HTMLTextAreaElement).value).toBe("Agreed customer price");
     fireEvent.click(screen.getByRole("button", { name: "Apply to sale" }));
     expect(apply).toHaveBeenCalledOnce();
   });
@@ -47,8 +48,8 @@ describe("one-sale price dialog", () => {
   it("accepts a lower custom price with a typed reason", () => {
     const apply = vi.fn();
     render(<PriceHarness onApply={apply} />);
-    fireEvent.change(screen.getByRole("spinbutton"), { target: { value: "800000" } });
-    fireEvent.change(screen.getByRole("textbox"), { target: { value: "Customer-negotiated price" } });
+    fireEvent.change(screen.getByRole("textbox", { name: "Selling price before VAT (₦)" }), { target: { value: "800000" } });
+    fireEvent.change(screen.getByRole("textbox", { name: /Reason for price change/ }), { target: { value: "Customer-negotiated price" } });
     fireEvent.click(screen.getByRole("button", { name: "Apply to sale" }));
     expect(apply).toHaveBeenCalledOnce();
   });

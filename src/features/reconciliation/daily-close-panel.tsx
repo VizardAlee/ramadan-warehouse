@@ -1,4 +1,5 @@
 "use client";
+import { AmountInput } from "@/components/ui/amount-input";
 import { FinancialAction, FinancialActionScope, FinancialInput, FinancialMessage, FinancialText, FinancialValue  } from "@/features/finance/financial-privacy";
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -130,7 +131,7 @@ export function DailyClosePanel() {
       {workspace.close && <p className="mt-4 text-sm font-semibold">Revision <FinancialText>{workspace.close.version}</FinancialText> · <FinancialText>{workspace.close.status === "signed" ? "Signed off" : "Prepared — ready for sign-off"}</FinancialText></p>}
       <p className="mt-3 text-xs text-[var(--muted)]"><FinancialText>{busy ? "Wait for the current daily-close request to finish." : locked ? "This signed revision retains its recorded cash count. New evidence requires authorized staff to prepare a new revision; sign-off does not lock the accounting month." : !canPrepare ? "Ask authorized daily-close preparation staff to record physically counted cash and explain differences." : "Enter physically counted cash; do not change the count to force a zero difference."}</FinancialText></p>
       <div className="mt-4 grid gap-4 sm:grid-cols-2">
-        <label className="grid gap-1 text-sm">Physical store cash counted (₦)<FinancialInput><input className="form-input" inputMode="decimal" value={cash} disabled={busy || locked || !canPrepare} onChange={(event) => setCash(event.target.value)} placeholder="0.00" /></FinancialInput></label>
+        <label className="grid gap-1 text-sm">Physical store cash counted (₦)<FinancialInput><AmountInput className="form-input" inputMode="decimal" value={cash} disabled={busy || locked || !canPrepare} onValueChange={rawAmount => setCash(rawAmount)} placeholder="0.00" /></FinancialInput></label>
         <div><p className="text-sm">Difference from posted cash</p><p className={`mt-2 text-xl font-semibold ${variance ? "text-amber-700" : "text-emerald-700"}`}><FinancialValue>{variance === null ? "Enter the cash counted" : formatNaira(variance)}</FinancialValue></p></div>
       </div>
       <label className="mt-4 grid gap-1 text-sm">Variance / exception explanation<textarea className="form-input min-h-24" maxLength={1000} value={explanation} disabled={busy || locked || !canPrepare} onChange={(event) => setExplanation(event.target.value)} placeholder="Explain cash differences, incomplete checks or a revision after sign-off." /></label>

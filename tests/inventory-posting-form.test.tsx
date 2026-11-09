@@ -14,11 +14,12 @@ it("posts a reviewed entry cost while retaining the product default and reuses t
   render(<PostingForm mode="opening" initialProductId="panel" initialLocationId="stock" replacementReference="INV-ORIGINAL" />);
   expect(screen.getByRole("option", {name:"620W Solar Panel"})).toBeTruthy();
   fireEvent.click(screen.getByRole("checkbox", {name:/Use a different unit cost/}));
-  fireEvent.change(screen.getByLabelText("Replacement unit cost (₦)"), {target:{value:"450"}});
+  fireEvent.change(screen.getByLabelText("Replacement unit cost (₦)"), {target:{value:"1450.50"}});
+  expect((screen.getByLabelText("Replacement unit cost (₦)") as HTMLInputElement).value).toBe("1,450.50");
   fireEvent.change(screen.getByRole("spinbutton", {name:/3. Quantity/}), {target:{value:"5"}});
   fireEvent.click(screen.getByRole("button", {name:"Add stock to inventory"}));
   await screen.findByText("Response interrupted");
-  expect(state.call.mock.calls[0]).toEqual(["postOpeningStock", expect.objectContaining({ productId: "panel", destinationLocationId: "stock", quantity: 5, unitCostMinor: 45000, referenceNumber: "Correction of INV-ORIGINAL" })]);
+  expect(state.call.mock.calls[0]).toEqual(["postOpeningStock", expect.objectContaining({ productId: "panel", destinationLocationId: "stock", quantity: 5, unitCostMinor: 145050, referenceNumber: "Correction of INV-ORIGINAL" })]);
   fireEvent.click(screen.getByRole("button", {name:"Add stock to inventory"}));
   await waitFor(() => expect(state.call).toHaveBeenCalledTimes(2));
   expect(state.call.mock.calls[1]).toEqual(state.call.mock.calls[0]);

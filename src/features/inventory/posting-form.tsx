@@ -1,4 +1,5 @@
 "use client";
+import { AmountInput } from "@/components/ui/amount-input";
 import { SearchableItemSelect } from "@/components/ui/searchable-item-select";
 import { FinancialInput, FinancialMessage, FinancialText, FinancialValue } from "@/features/finance/financial-privacy";
 
@@ -551,22 +552,19 @@ export function PostingForm({
             <FinancialText>{mode === "opening"
               ? overrideOpeningCost ? "Replacement unit cost (₦)" : "Unit cost (₦ — no product default configured)"
               : "Unit cost (₦)"}</FinancialText>
-            <FinancialInput><input
+            <Controller control={form.control} name="unitCostNaira" render={({ field }) => (<FinancialInput><AmountInput
               type="number"
               min="0"
               step="0.01"
               inputMode="decimal"
               placeholder="0.00"
-              {...form.register("unitCostNaira", {
-                setValueAs: (value) =>
-                  value === "" ? undefined : Number(value),
-              })}
+              name={field.name} ref={field.ref} onBlur={field.onBlur} value={field.value} onValueChange={value => field.onChange(value === "" ? undefined : Number(value))}
               disabled={
                 mode === "adjustment" &&
                 form.getValues("direction") === "decrease"
               }
               className="mt-1 w-full rounded-lg border p-2.5"
-            /></FinancialInput>
+            /></FinancialInput>)} />
             {mode === "adjustment" && form.getValues("direction") === "decrease" && <span className="mt-1 block text-xs text-[var(--muted)]">Decrease cost comes from recorded stock issue evidence and cannot be typed here. Ask the inventory manager or accountant to review the original receipt/cost records if it is incorrect.</span>}
             {form.formState.errors.unitCostNaira?.message && (
               <span className="mt-1 block text-xs text-red-700">

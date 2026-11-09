@@ -50,7 +50,7 @@ it("lets an existing branch-only manager search and create purchases with real r
   expect(screen.queryByRole("listbox")).toBeNull();
   expect(product.value).toBe("panel-id");
   expect(product.selectedOptions[0].textContent?.trim()).toBe("Solar Panel 620W");
-  expect((screen.getByLabelText("Unit cost (₦)") as HTMLInputElement).value).toBe("1250.50");
+  expect((screen.getByLabelText("Unit cost (₦)") as HTMLInputElement).value).toBe("1,250.50");
   expect(state.call.mock.calls.every(call => call[0] === "getProcurementWorkspace")).toBe(true);
   fireEvent.click(screen.getByRole("button", { name: "Create draft order" }));
   await waitFor(() => expect(state.call).toHaveBeenCalledWith("createPurchaseOrder", expect.objectContaining({

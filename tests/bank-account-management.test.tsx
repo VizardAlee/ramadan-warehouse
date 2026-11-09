@@ -109,7 +109,7 @@ it("requires visible amount review before posting a new opening", async () => {
   await waitFor(() => expect((screen.getByRole("button", { name: "Load opening balance setup", hidden: true }) as HTMLButtonElement).disabled).toBe(false));
   fireEvent.click(screen.getByRole("button", { name: "Load opening balance setup", hidden: true }));
   await screen.findByLabelText("Opening effective date and time (Nigeria)");
-  expect(screen.queryByRole("spinbutton", { name: "Initial balance (₦)", hidden: true })).toBeNull();
+  expect(screen.queryByRole("textbox", { name: "Initial balance (₦)", hidden: true })).toBeNull();
   const region = screen.getByText("Post initial account balance").closest("details")!;
   fireEvent.click(within(region).getByRole("button", { name: "Review all action amounts", hidden: true }));
   expect(screen.getByLabelText("Initial balance (₦)")).toBeTruthy(); expect(calls("bank_opening")).toHaveLength(0);

@@ -1,4 +1,5 @@
 "use client";
+import { AmountInput } from "@/components/ui/amount-input";
 import { FinancialInput, FinancialMessage, FinancialText, FinancialValue } from "@/features/finance/financial-privacy";
 
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -6,7 +7,7 @@ import { matchesProductName } from "@/features/products/name-search";
 import { ChevronDown, Plus, Search } from "lucide-react";
 import Link from "next/link";
 import { Fragment, useMemo, useState } from "react";
-import { useForm, useWatch } from "react-hook-form";
+import { Controller, useForm, useWatch } from "react-hook-form";
 import { z } from "zod";
 import { Button } from "@/components/ui/button";
 import { AppDialog } from "@/components/ui/app-dialog";
@@ -28,6 +29,7 @@ import {
 } from "@/features/inventory/format";
 import { hasPermission } from "@/lib/permissions/roles";
 import { useBranchPriceColumns } from "@/features/products/branch-price-columns";
+import { MarginReview } from "@/features/products/margin-review";
 import { BranchPrices } from "@/features/products/branch-prices";
 import { CatalogImportDialog } from "@/features/products/catalog-import-dialog";
 import { ProductHistoryPreview } from "@/features/reports/product-history-preview";
@@ -155,6 +157,8 @@ function ProductCatalogue() {
     defaultValues: defaults,
   });
   const serviceItem = useWatch({ control: form.control, name: "itemKind" }) === "service";
+  const [reviewCost, reviewRetail, reviewWholesale] = useWatch({ control: form.control, name: ["defaultUnitCostNaira", "baseSellingPriceNaira", "wholesalePriceNaira"] });
+  const canReviewMargin = Boolean(profile && hasPermission(profile, "inventory.cost.read")) && !productCosts.loading && !productCosts.error;
   const filtered = useMemo(
     () =>
       products.data.filter(
@@ -273,7 +277,7 @@ function ProductCatalogue() {
   });
   return (
     <div className="space-y-5">
-      {pricingProduct && (() => { const price = productSalesPrices.data.find(item => item.productId === pricingProduct.id); return <BranchPrices key={pricingProduct.id} productId={pricingProduct.id} productName={pricingProduct.name} central={price?.active ? { basePriceMinor: price.basePriceMinor, wholesalePriceMinor: price.wholesalePriceMinor, version: price.version, vatRateBasisPoints: price.vatRateBasisPoints } : null} onClose={() => setPricingProduct(null)} />; })()}
+      {pricingProduct && (() => { const price = productSalesPrices.data.find(item => item.productId === pricingProduct.id); return <BranchPrices key={pricingProduct.id} productId={pricingProduct.id} productName={pricingProduct.name} marginCost={pricingProduct.itemKind !== "service" && canReviewMargin ? { available: true, unitCostNaira: (() => { const cost = productCosts.data.find(row => row.productId === pricingProduct.id || row.id === pricingProduct.id)?.defaultUnitCostMinor; return cost == null ? undefined : cost / 100; })() } : undefined} central={price?.active ? { basePriceMinor: price.basePriceMinor, wholesalePriceMinor: price.wholesalePriceMinor, version: price.version, vatRateBasisPoints: price.vatRateBasisPoints } : null} onClose={() => setPricingProduct(null)} />; })()}
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-3xl font-semibold">Product catalogue</h1>
@@ -543,38 +547,32 @@ function ProductCatalogue() {
               </label>
               <label className="text-sm">
                 Default unit cost (₦)
-                <FinancialInput><input
+                <Controller control={form.control} name="defaultUnitCostNaira" render={({ field }) => (<FinancialInput><AmountInput
                   type="number"
                   min="0"
                   step="0.01"
                   inputMode="decimal"
                   placeholder="Not provided"
                   aria-label="Default unit cost (₦)"
-                  {...form.register("defaultUnitCostNaira", {
-                    setValueAs: (value) =>
-                      value === "" ? undefined : Number(value),
-                  })}
+                  name={field.name} ref={field.ref} onBlur={field.onBlur} value={field.value} onValueChange={value => field.onChange(value === "" ? undefined : Number(value))}
                   disabled={serviceItem}
                   className="mt-1 w-full rounded-lg border p-2.5"
-                /></FinancialInput>
+                /></FinancialInput>)} />
               {serviceItem && <span className="mt-1 block text-xs text-[var(--muted)]">Services do not have a physical stock unit cost; use the approved service charge and linked cost workflows.</span>}
               </label>
               {canManageBasePrice && (
                 <>
                   <label className="text-sm">
                     Retail selling price (₦)
-                    <FinancialInput><input
+                    <Controller control={form.control} name="baseSellingPriceNaira" render={({ field }) => (<FinancialInput><AmountInput
                       type="number"
                       min="0.01"
                       step="0.01"
                       inputMode="decimal"
                       placeholder="Not provided"
-                      {...form.register("baseSellingPriceNaira", {
-                        setValueAs: (value) =>
-                          value === "" ? undefined : Number(value),
-                      })}
+                      name={field.name} ref={field.ref} onBlur={field.onBlur} value={field.value} onValueChange={value => field.onChange(value === "" ? undefined : Number(value))}
                       className="mt-1 w-full rounded-lg border p-2.5"
-                    /></FinancialInput>
+                    /></FinancialInput>)} />
                     <span className="mt-1 block text-xs text-[var(--muted)]">
                       Branches may sell above this. A lower price needs
                       administrator approval.
@@ -582,9 +580,9 @@ function ProductCatalogue() {
                   </label>
                   <label className="text-sm">
                     Wholesale selling price (₦, optional)
-                    <FinancialInput><input type="number" min="0.01" step="0.01" inputMode="decimal"
-                      {...form.register("wholesalePriceNaira", { setValueAs: (value) => value === "" ? undefined : Number(value) })}
-                      className="mt-1 w-full rounded-lg border p-2.5" /></FinancialInput>
+                    <Controller control={form.control} name="wholesalePriceNaira" render={({ field }) => (<FinancialInput><AmountInput type="number" min="0.01" step="0.01" inputMode="decimal"
+                      name={field.name} ref={field.ref} onBlur={field.onBlur} value={field.value} onValueChange={value => field.onChange(value === "" ? undefined : Number(value))}
+                      className="mt-1 w-full rounded-lg border p-2.5" /></FinancialInput>)} />
                     <span className="mt-1 block text-xs text-[var(--muted)]">An approved catalogue price. Leave empty to disable wholesale pricing.</span>
                   </label>
                   <label className="text-sm">
@@ -608,6 +606,7 @@ function ProductCatalogue() {
                   </label>
                 </>
               )}
+              {!serviceItem && canManageBasePrice && <MarginReview cost={{ available: canReviewMargin, unitCostNaira: reviewCost }} retail={reviewRetail} wholesale={reviewWholesale} />}
               <label className="text-sm">
                 Minimum stock
                 <input

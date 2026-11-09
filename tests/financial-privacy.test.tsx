@@ -151,9 +151,9 @@ it("hides draft journal totals and retains operational labels and exact reviewed
   fireEvent.change(screen.getAllByLabelText("Credit (₦)")[1]!, { target: { value: "87654.32" } });
   expect(details.textContent).toContain("87,654.32"); toggle();
   expect(details.textContent).not.toContain("87,654.32");
-  expect(screen.queryAllByRole("spinbutton", { name: "Debit (₦)" })).toHaveLength(0);
+  expect(screen.queryAllByRole("textbox", { name: "Debit (₦)" })).toHaveLength(0);
   expect(screen.getByText("Add line")).toBeTruthy();
-  toggle(); expect((screen.getAllByLabelText("Debit (₦)")[0] as HTMLInputElement).value).toBe("87654.32");
+  toggle(); expect((screen.getAllByLabelText("Debit (₦)")[0] as HTMLInputElement).value).toBe("87,654.32");
   expect(api.mock.calls.every(call => call[1].action === "workspace")).toBe(true);
 });
 
