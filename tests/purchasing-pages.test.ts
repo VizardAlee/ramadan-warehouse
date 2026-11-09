@@ -12,7 +12,7 @@ vi.mock("../functions/src/admin", () => {
   return { db: { collection: query, doc: (path: string) => ({ get: async () => record(path) }) } };
 });
 import { purchasingPage, purchasingOrderDetail, purchasingNeedsAction, purchasingPageInput } from "../functions/src/procurement/purchasing-pages";
-const actor: ProcurementAccess = { userId: "user", organizationId: "org", roleId: "branch_manager", branchIds: ["a"], warehouseIds: [], authorizationVersion: 1, effectivePermissions: ["procurement.read", "payables.read"], organizationProcurementPermissions: [] };
+const actor: ProcurementAccess = { userId: "user", organizationId: "org", roleId: "warehouse_manager", branchIds: ["a"], warehouseIds: [], authorizationVersion: 1, effectivePermissions: ["procurement.read", "payables.read"], organizationProcurementPermissions: [] };
 const input = (extras: Record<string,unknown> = {}) => purchasingPageInput.parse({ branchId: "a", view: "all", pageSize: 25, ...extras });
 function add(id: string, data: Record<string, unknown> = {}, collection = "purchaseOrders") { memory.rows.set(`${collection}/${id}`, { organizationId: "org", branchId: "a", status: "draft", createdAt: Timestamp.fromDate(new Date("2026-11-06T23:30:00Z")), ...data }); }
 beforeEach(() => { memory.rows.clear(); memory.reads = 0; });
@@ -71,4 +71,14 @@ describe("purchasing server pages", () => {
     await expect(purchasingOrderDetail(actor,{purchaseOrderId:"other"})).rejects.toMatchObject({code:"permission-denied"});
     await expect(purchasingOrderDetail({...actor,operatingContext:{type:"branch",id:"b"}}, {purchaseOrderId:"order"})).rejects.toMatchObject({code:"failed-precondition"});
   });
+});
+
+it("serves a newly added selected branch for purchasing-only managers without legacy warehouse authority", async () => {
+  add("new-order", { branchId: "new-branch" });
+  const manager: ProcurementAccess = { ...actor, roleId: "purchasing_manager", directRoleIds: ["purchasing_manager"], branchIds: [], warehouseIds: [], allBranchProcurementPermissions: ["procurement.read", "payables.read"], assignedProcurementPermissions: [] };
+  const result = await purchasingPage(manager, input({ branchId: "new-branch" }), "orders");
+  expect(result.orders?.map(row => row.id)).toEqual(["new-order"]);
+  await expect(purchasingPage(manager, input({ branchId: undefined }), "orders")).rejects.toMatchObject({ code: "failed-precondition" });
+  await expect(purchasingPage(manager, input({ branchId: undefined, warehouseId: "legacy" }), "orders")).rejects.toMatchObject({ code: "permission-denied" });
+  await expect(purchasingPage({ ...manager, roleId: "branch_manager", directRoleIds: ["branch_manager"] }, input({ branchId: "new-branch" }), "orders")).rejects.toMatchObject({ code: "permission-denied" });
 });

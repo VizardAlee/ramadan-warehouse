@@ -343,7 +343,7 @@ export const getProcurementWorkspace = onCall(
     if (["list_evidence", "read_evidence", "upload_evidence"].includes(request.data?.action))
       return operationalEvidence(actor, request.data?.evidenceKind === "purchase_receipt" ? "purchase_receipt" : request.data?.evidenceKind === "supplier_replacement" ? "supplier_replacement" : "supplier_return", parseInput(operationalEvidenceInput, request.data));
     const input = parseInput(procurementWorkspaceInput, request.data);
-    if (input.view === "workspace" && !input.branchId && !input.warehouseId && actor.operatingContext) {
+    if ((input.view === "workspace" || input.view === "options") && !input.branchId && !input.warehouseId && actor.operatingContext) {
       if (actor.operatingContext.type === "branch") input.branchId = actor.operatingContext.id;
       else input.warehouseId = actor.operatingContext.id;
     }

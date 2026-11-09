@@ -230,8 +230,12 @@ describe.sequential("procurement callables", () => {
     } while (cursor);
     expect(branches).toEqual(expect.arrayContaining([headOfficeId, futureBranch]));
     expect(branches).not.toContain(warehouseId);
+    const options = await call<{ branches: Array<{ id: string }>; bankAccounts: unknown[]; warehouses: unknown[] }>(purchasingManager, "getProcurementWorkspace", { view: "options", operatingContext: { type: "branch", id: futureBranch } });
+    expect(options.branches.map(row => row.id)).toEqual([futureBranch]);
+    expect(options.bankAccounts).toEqual([]); expect(options.warehouses).toEqual([]);
     await expect(call(purchasingManager, "getProcurementWorkspace", { operatingContext: { type: "all" } })).rejects.toMatchObject({ code: "functions/failed-precondition" });
-    await expect(call(purchasingManager, "createPurchaseOrder", { ...input, branchId: undefined, warehouseId, receivingLocationId: locationId })).rejects.toMatchObject({ code: "functions/permission-denied" });
+    const warehouseInput = { supplierId: input.supplierId, warehouseId, receivingLocationId: locationId, lines: input.lines, idempotencyKey: crypto.randomUUID() };
+    await expect(call(purchasingManager, "createPurchaseOrder", warehouseInput)).rejects.toMatchObject({ code: "functions/permission-denied" });
     const order = await call<{ purchaseOrderId: string }>(purchasingManager, "createPurchaseOrder", input);
     await call(purchasingManager, "submitPurchaseOrder", { ...order, idempotencyKey: crypto.randomUUID() });
     await call(purchasingManager, "approvePurchaseOrder", { ...order, idempotencyKey: crypto.randomUUID() });

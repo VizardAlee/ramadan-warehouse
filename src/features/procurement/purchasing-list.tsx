@@ -75,7 +75,7 @@ export function PurchasingList({ kind, scope, suppliers, branches, warehouses, r
   }
   const records = kind === "orders" ? data?.orders ?? [] : data?.invoices ?? [];
   const statuses = kind === "orders" ? ["draft", "submitted", "approved", "partially_received", "received"] : ["submitted", "approved", "partially_paid", "paid"];
-  return <section aria-label={kind === "orders" ? "Order list" : "Invoice list"} className="space-y-3 rounded-xl border bg-white p-4">
+  return <section id={kind === "orders" ? "purchase-orders" : "supplier-invoices"} aria-label={kind === "orders" ? "Order list" : "Invoice list"} className="space-y-3 rounded-xl border bg-white p-4">
     <div className="flex flex-wrap gap-2" aria-label="Record view">{([["needs_action", "Needs action"], ["history", "History"], ["all", "All records"]] as const).map(([value, label]) => <Button key={value} variant={filters.view === value ? "primary" : "outline"} aria-pressed={filters.view === value} onClick={() => change("view", value)}>{label}</Button>)}</div>
     <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
       <label className="text-sm">Search reference or supplier<input className="mt-1 w-full rounded-lg border p-2" value={filters.search} onChange={event => change("search", event.target.value)} /></label>
