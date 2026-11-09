@@ -62,6 +62,7 @@ import {
 import { ProformaLoader } from "@/features/pos/proforma-loader";
 import { SaleDocumentDialog } from "@/features/pos/sale-document";
 import { CollectionQueue } from "@/features/pos/collection-queue";
+import { usePosPaymentConfirmation, type HandoverChoice } from "@/features/pos/use-pos-payment-confirmation";
 import { usePosOrderReceive } from "@/features/pos/use-pos-order-receive";
 import { PriceLevelControl } from "@/features/pos/price-level-control";
 import { SalePriceDialog } from "@/features/pos/sale-price-dialog";
@@ -92,13 +93,6 @@ import { formatNaira, nairaToKobo } from "@/features/inventory/format";
 import { useConnectivity } from "@/lib/connectivity";
 import { hasPermission, hasRole } from "@/lib/permissions/roles";
 import type { Branch } from "@/types/domain";
-
-interface SaleResult {
-  saleId: string;
-  saleNumber: string;
-  receiptNumber: string;
-  posted: boolean;
-}
 
 interface SaleOrderResult {
   orderId: string;
@@ -199,6 +193,9 @@ export default function PosPage() {
   const checkoutScope = JSON.stringify([profile?.organizationId, user?.uid, selectedBranchId]);
   const fastMoving = usePosFastMoving(JSON.stringify([checkoutScope, profile?.authorizationVersion]), selectedBranchId, online, workspace?.branch.id === selectedBranchId ? workspace.refreshedAt : undefined);
   const fastMovingIds = useMemo(() => new Set(fastMoving?.status === "ready" ? fastMoving.productIds : []), [fastMoving]);
+  const paymentConfirmation = usePosPaymentConfirmation(checkoutScope);
+  const [handover, setHandover] = useState<{ saleId: string; scope: string; choice: HandoverChoice } | null>(null);
+  const [handoverLocked, setHandoverLocked] = useState(false);
   const checkoutScopeRef = useRef(checkoutScope);
   useEffect(() => { checkoutScopeRef.current = checkoutScope; }, [checkoutScope]);
   const canReceiveOrder = Boolean(
@@ -1022,7 +1019,7 @@ export default function PosPage() {
         idempotencyKey: crypto.randomUUID(),
       });
       setMessage(
-        `Payment accepted for ${result.orderNumber}. It is ready for confirmation and inventory release.`,
+        `Payment accepted for ${result.orderNumber}. It is ready for payment confirmation, then authorized physical handover.`,
       );
       await loadWorkspace();
     } catch (cause) {
@@ -1036,40 +1033,22 @@ export default function PosPage() {
     }
   }
 
-  async function confirmOrderPayment(orderId: string, deferCollection = true) {
+  async function confirmOrderPayment(orderId: string, choice: HandoverChoice) {
+    if (!online || busy || handoverLocked || !canConfirmPayment || !paymentConfirmation.ready) return;
+    const scope = checkoutScope;
     setBusy(true);
     setError(null);
     try {
-      const result = await callAdministration<
-        { orderId: string; idempotencyKey: string; deferCollection: boolean },
-        SaleResult & { orderNumber: string; status: "completed" }
-      >("confirmPosSaleOrder", {
-        orderId,
-        deferCollection,
-        idempotencyKey: crypto.randomUUID(),
-      });
-      const document = await callAdministration<
-        { saleId: string },
-        SaleDocument
-      >("getSaleDocument", { saleId: result.saleId });
-      setReceipt({
-        reference: result.receiptNumber,
-        totalMinor: document.sale.grossAmountMinor,
-        queued: false,
-        document,
-      });
-      setMessage(
-        `Payment confirmed for ${result.orderNumber}. ${document.sale.collectionStatus === "awaiting_collection" ? "Goods are reserved for later collection and remain physically in the store." : "Goods collected; stock and accounts updated."}`,
-      );
+      const result = await paymentConfirmation.run(orderId, choice);
+      if (checkoutScopeRef.current !== scope) return;
+      setHandover({ saleId: result.saleId, scope, choice: result.choice });
+      setMessage(`Payment confirmed for ${result.orderNumber}. ${result.choice === "later" ? "Collect later was selected. Goods remain reserved until an authorized physical handover is recorded." : canReleaseStock ? "Next: record the quantities physically handed over below. The receipt alone does not release goods." : "Send the customer and receipt to authorized store staff to record the physical handover below."}`);
       await loadWorkspace();
+      window.requestAnimationFrame(() => document.getElementById("pos-collections")?.scrollIntoView({ behavior: "smooth", block: "start" }));
     } catch (cause) {
-      setError(
-        cause instanceof Error
-          ? cause.message
-          : "Payment confirmation and inventory release failed.",
-      );
+      if (checkoutScopeRef.current === scope) setError(cause instanceof Error ? cause.message : "Payment confirmation could not be verified. Retry the same confirmation before starting another.");
     } finally {
-      setBusy(false);
+      if (checkoutScopeRef.current === scope) setBusy(false);
     }
   }
 
@@ -1335,7 +1314,7 @@ export default function PosPage() {
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <p className="text-xs font-semibold uppercase tracking-[.14em] text-[var(--brand)]">
-                Three-step sales control
+                Payment and goods handover
               </p>
               <h2 className="mt-1 text-xl font-semibold">Sales workflow</h2>
               <p className="mt-1 text-sm text-[var(--muted)]">
@@ -1352,7 +1331,7 @@ export default function PosPage() {
               <RefreshCw className="mr-2 size-4" /> Refresh queue
             </Button>
           </div>
-          <div className="mt-4 grid gap-2 sm:grid-cols-3">
+          <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
             <div className="rounded-xl bg-sky-50 p-3 text-sm text-sky-950">
               <strong>1. Receive order</strong>
               <span className="mt-1 block">Capture products and customer.</span>
@@ -1362,10 +1341,19 @@ export default function PosPage() {
               <span className="mt-1 block">Acknowledge the payment details.</span>
             </div>
             <div className="rounded-xl bg-emerald-50 p-3 text-sm text-emerald-950">
-              <strong>3. Confirm payment, then store handover</strong>
-              <span className="mt-1 block">Issue the receipt and reserve goods. Authorized store staff confirm the actual handover separately.</span>
+              <strong>3. Confirm payment</strong>
+              <span className="mt-1 block">Issue the receipt. Choose handover now or an intentional later collection.</span>
+            </div>
+            <div className="rounded-xl bg-violet-50 p-3 text-sm text-violet-950">
+              <strong>4. Record physical handover</strong>
+              <span className="mt-1 block">Authorized store staff confirm actual quantities and collector. This releases stock and records its cost.</span>
             </div>
           </div>
+          {paymentConfirmation.error && <p role="alert" className="mt-3 text-red-700">{paymentConfirmation.error}</p>}
+          {paymentConfirmation.pending && <div role="status" className="mt-3 rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm">
+            <p>A payment confirmation is unresolved. Retry its original reference to recover the existing receipt before confirming another payment.</p>
+            <Button className="mt-2" disabled={!online || busy || handoverLocked || !canConfirmPayment || !paymentConfirmation.ready} onClick={() => void confirmOrderPayment(paymentConfirmation.pending!.orderId, paymentConfirmation.pending!.choice)}>Retry same payment confirmation</Button>
+          </div>}
           {workspace.pendingOrders.length > 0 ? (
             <ul className="mt-4 grid gap-3 xl:grid-cols-2">
               {workspace.pendingOrders.map((order) => {
@@ -1418,7 +1406,11 @@ export default function PosPage() {
                         </p>
                       )
                     ) : canConfirmPayment ? (
-                      <FinancialAction><Button type="button" className="mt-3 w-full" disabled={!online || busy} onClick={() => void confirmOrderPayment(order.id)}>Issue receipt · await store handover</Button></FinancialAction>
+                      <div className="mt-3 space-y-2">
+                        <FinancialAction><Button type="button" className="w-full" disabled={!online || busy || handoverLocked || !paymentConfirmation.ready || Boolean(paymentConfirmation.pending)} onClick={() => void confirmOrderPayment(order.id, "now")}>{canReleaseStock ? "Confirm payment · hand over now" : "Confirm payment · send to store handover"}</Button></FinancialAction>
+                        <FinancialAction><Button type="button" variant="outline" className="w-full" disabled={!online || busy || handoverLocked || !paymentConfirmation.ready || Boolean(paymentConfirmation.pending)} onClick={() => void confirmOrderPayment(order.id, "later")}>Confirm payment · collect later</Button></FinancialAction>
+                        <p className="text-xs text-[var(--muted)]">Use collect later only when the customer is leaving the goods here. {canReleaseStock ? "Handover now opens the physical collection check; it does not release stock automatically." : "Only authorized stock-release staff can record handover. Payment confirmation does not grant that access."}</p>
+                      </div>
                     ) : (
                       <p className="mt-3 text-xs text-[var(--muted)]">
                         Waiting for a branch manager or administrator.
@@ -1439,13 +1431,13 @@ export default function PosPage() {
             </ul>
           ) : (
             <p className="mt-4 rounded-xl bg-slate-50 p-4 text-center text-sm text-[var(--muted)]">
-              No orders are waiting for payment or release.
+              No orders are waiting for payment. Check physical handovers below before the customer leaves.
             </p>
           )}
         </section></FinancialActionScope>
       )}
 
-      {selectedBranchId && <CollectionQueue key={selectedBranchId} branchId={selectedBranchId} canRelease={canReleaseStock} online={online} />}
+      {selectedBranchId && <CollectionQueue key={checkoutScope} branchId={selectedBranchId} ownerKey={checkoutScope} canRelease={canReleaseStock} online={online} handover={handover?.scope === checkoutScope ? handover : null} onDismissHandover={() => setHandover(null)} onLockChange={setHandoverLocked} />}
 
       {!workspace ? (
         <div className="grid min-h-64 place-items-center rounded-xl border bg-white p-6 text-center">
