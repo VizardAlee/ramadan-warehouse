@@ -1,4 +1,5 @@
 import { purchasingPage, purchasingOrderDetail, purchasingPageInput, purchasingDetailInput } from "../procurement/purchasing-pages.js";
+import { selectedPurchasingLocationOptions } from "../procurement/location-options.js";
 import { withRecordActors } from "../audit/record-actors.js";
 import { changeCreditSources, type SupplierCreditSourceMap } from "../procurement/credit-sources.js";
 import { supplierDirectory, supplierProfile, supplierActivity, supplierStatement, supplierSummary } from "../procurement/supplier-workspace.js";
@@ -8,7 +9,7 @@ import { AggregateField, FieldPath, FieldValue, Timestamp } from "firebase-admin
 import { HttpsError, onCall } from "firebase-functions/v2/https";
 import { createHash } from "node:crypto";
 import { db } from "../admin.js";
-import { procurementAccess, requireProcurementScope, hasProcurementScope, hasOrganizationProcurementPermission } from "../procurement/authorize.js";
+import { procurementAccess, requireProcurementScope, hasProcurementScope, hasOrganizationProcurementPermission, hasAllBranchProcurementPermission } from "../procurement/authorize.js";
 import { postPurchaseReceipt } from "../procurement/purchase-receipt.js";
 import { requestFingerprint } from "../utils/request-fingerprint.js";
 import {
@@ -20,7 +21,7 @@ import { paymentTenders, resolvePaymentTenders } from "../accounting/payment-ten
 import { accountNames, writeJournal } from "../accounting/write-journal.js";
 import { writeAuditLog } from "../audit/write-audit-log.js";
 import {
-  canSelfAuthorize,
+  canSelfAuthorizePurchasing,
   hasServerPermission,
   requireAccess,
   requirePermission,
@@ -342,6 +343,23 @@ export const getProcurementWorkspace = onCall(
     if (["list_evidence", "read_evidence", "upload_evidence"].includes(request.data?.action))
       return operationalEvidence(actor, request.data?.evidenceKind === "purchase_receipt" ? "purchase_receipt" : request.data?.evidenceKind === "supplier_replacement" ? "supplier_replacement" : "supplier_return", parseInput(operationalEvidenceInput, request.data));
     const input = parseInput(procurementWorkspaceInput, request.data);
+    if (input.view === "workspace" && !input.branchId && !input.warehouseId && actor.operatingContext) {
+      if (actor.operatingContext.type === "branch") input.branchId = actor.operatingContext.id;
+      else input.warehouseId = actor.operatingContext.id;
+    }
+    if (input.view === "operating_branches") {
+      if (!hasOrganizationProcurementPermission(actor, "procurement.read") && !hasAllBranchProcurementPermission(actor, "procurement.read"))
+        throw new HttpsError("permission-denied", "Company-wide purchasing branch access is required.");
+      let query = db.collection("branches").where("organizationId", "==", actor.organizationId).where("status", "==", "active").orderBy(FieldPath.documentId());
+      if (input.cursor) {
+        const anchor = await db.doc(`branches/${input.cursor}`).get();
+        if (!anchor.exists || anchor.get("organizationId") !== actor.organizationId || anchor.get("status") !== "active")
+          throw new HttpsError("invalid-argument", "Restart purchasing branch selection.");
+        query = query.startAfter(anchor);
+      }
+      const page = await query.limit(input.limit + 1).get(), visible = page.docs.slice(0, input.limit);
+      return { rows: visible.map(branch => ({ id: branch.id, name: branch.get("name"), branchType: branch.get("branchType") ?? "store" })), nextCursor: page.size > input.limit ? visible.at(-1)!.id : null };
+    }
     if (input.view === "supplier_directory") return supplierDirectory(actor, input);
     if (input.view === "supplier_profile") return supplierProfile(actor, input);
     if (input.view === "supplier_activity") return supplierActivity(actor, input);
@@ -431,6 +449,8 @@ export const getProcurementWorkspace = onCall(
         };
       }
     }
+    if (!input.branchId && !input.warehouseId && !actor.operatingContext && hasAllBranchProcurementPermission(actor, "procurement.read") && !hasOrganizationProcurementPermission(actor, "procurement.read"))
+      throw new HttpsError("failed-precondition", "Choose a branch to view purchasing. Every branch, including head office, is available.", { code: "PURCHASING_BRANCH_REQUIRED" });
     const scopedQuery = (collection: string, limit: number) => {
       let query: FirebaseFirestore.Query = db
         .collection(collection)
@@ -443,6 +463,7 @@ export const getProcurementWorkspace = onCall(
     const purchaseOrdersQuery = scopedQuery("purchaseOrders", input.limit);
     const purchaseItemsQuery = scopedQuery("purchaseOrderItems", 500);
     const invoicesQuery = scopedQuery("supplierInvoices", input.limit);
+    const selectedOptions = input.branchId || input.warehouseId ? await selectedPurchasingLocationOptions(actor, input) : null;
     const [
       suppliers,
       branches,
@@ -459,19 +480,19 @@ export const getProcurementWorkspace = onCall(
         .where("organizationId", "==", actor.organizationId)
         .limit(200)
         .get(),
-      db
+      selectedOptions ? Promise.resolve({ docs: selectedOptions.branches }) : db
         .collection("branches")
         .where("organizationId", "==", actor.organizationId)
         .where("status", "==", "active")
         .limit(100)
         .get(),
-      db
+      selectedOptions ? Promise.resolve({ docs: selectedOptions.warehouses }) : db
         .collection("warehouses")
         .where("organizationId", "==", actor.organizationId)
         .where("status", "==", "active")
         .limit(100)
         .get(),
-      db
+      selectedOptions ? Promise.resolve({ docs: selectedOptions.locations }) : db
         .collection("inventoryLocations")
         .where("organizationId", "==", actor.organizationId)
         .where("status", "==", "active")
@@ -486,11 +507,11 @@ export const getProcurementWorkspace = onCall(
       input.view === "options" ? Promise.resolve({ docs: [] }) : purchaseOrdersQuery.get(),
       input.view === "options" ? Promise.resolve({ docs: [] }) : purchaseItemsQuery.get(),
       input.view === "options" ? Promise.resolve({ docs: [] }) : invoicesQuery.get(),
-      db.collection("bankAccounts")
+      hasServerPermission(actor, "payables.pay") ? db.collection("bankAccounts")
         .where("organizationId", "==", actor.organizationId)
         .where("active", "==", true)
         .limit(100)
-        .get(),
+        .get() : Promise.resolve({ docs: [] }),
     ]);
     const organizationWide = hasOrganizationProcurementPermission(actor, "procurement.read");
     const visible = (document: FirebaseFirestore.DocumentSnapshot) =>
@@ -499,10 +520,10 @@ export const getProcurementWorkspace = onCall(
       hasProcurementScope(actor, procurementScopeFrom(document), "payables.read");
     return {
       suppliers: suppliers.docs.map(document => supplierSummary(actor, document)),
-      bankAccounts: bankAccounts.docs.map(bankAccountSummary),
+      bankAccounts: hasServerPermission(actor, "payables.pay") ? bankAccounts.docs.map(bankAccountSummary) : [],
       branches: branches.docs
         .filter(
-          (document) => organizationWide || actor.branchIds.includes(document.id),
+          (document) => organizationWide || hasAllBranchProcurementPermission(actor, "procurement.read") || actor.branchIds.includes(document.id),
         )
         .map((document) => ({
           id: document.id,
@@ -513,7 +534,7 @@ export const getProcurementWorkspace = onCall(
       warehouses: warehouses.docs
         .filter(
           (document) =>
-            organizationWide || actor.warehouseIds.includes(document.id),
+            organizationWide || Boolean(actor.assignedProcurementPermissions?.includes("procurement.read") && actor.warehouseIds.includes(document.id)),
         )
         .map((document) => ({
           id: document.id,
@@ -806,7 +827,7 @@ async function purchaseOrderStatusAction(
     if (
       action === "approve" &&
       current.get("createdBy") === actor.userId &&
-      !canSelfAuthorize(actor)
+      !canSelfAuthorizePurchasing(actor)
     )
       throw new HttpsError(
         "permission-denied",
@@ -1099,7 +1120,7 @@ export const approveSupplierInvoice = onCall(
           "Only a submitted supplier invoice can be approved.",
         );
       assertAccountingPeriodOpen(accountingPeriodSnapshot);
-      if (current.get("createdBy") === actor.userId && !canSelfAuthorize(actor))
+      if (current.get("createdBy") === actor.userId && !canSelfAuthorizePurchasing(actor))
         throw new HttpsError(
           "permission-denied",
           "This role cannot approve its own supplier invoice.",
@@ -1231,7 +1252,9 @@ export const approveSupplierInvoice = onCall(
 );
 
 export const postSupplierReturn = onCall({ enforceAppCheck, timeoutSeconds: 120 }, async (request) => {
-  const actor = await procurementAccess(await requireAccess(request));
+  // Receiving and invoice approval do not authorize credits/returns for the new
+  // purchasing role. Resolve these operations from independently held grants.
+  const actor = await procurementAccess(await requireAccess(request), { excludeRoles: ["purchasing_manager"] });
   requirePermission(actor, "procurement.receive");
   requirePermission(actor, "payables.approve");
   try {

@@ -23,7 +23,7 @@ import { firstBlocker } from "@/features/guidance/first-blocker";
 import { callAdministration } from "@/features/administration/api";
 import { useAuth } from "@/features/auth/auth-context";
 import { formatNaira, nairaToKobo } from "@/features/inventory/format";
-import { canSelfAuthorize, hasPermission } from "@/lib/permissions/roles";
+import { canPostSupplierReturns, canSelfAuthorizePurchasing, hasPermission } from "@/lib/permissions/roles";
 import type {
   PurchaseOrder,
   PurchaseOrderItem,
@@ -160,7 +160,7 @@ function ProcurementWorkspace() {
   const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Lagos", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
   const can = (permission: Parameters<typeof hasPermission>[1]) =>
     Boolean(profile && hasPermission(profile, permission));
-  const canApproveOwnWork = Boolean(profile && canSelfAuthorize(profile));
+  const canApproveOwnWork = Boolean(profile && canSelfAuthorizePurchasing(profile));
 
 
   async function load() {
@@ -934,10 +934,10 @@ function ProcurementWorkspace() {
 
       {can("payables.read") && workspace && (tab === "accounts" || paymentInvoice) && <SupplierAccounts suppliers={workspace.suppliers} banks={workspace.bankAccounts} branches={workspace.branches} scope={contextScope} canPay={can("payables.pay")} invoice={paymentInvoice} closeInvoice={() => setPaymentInvoice(null)} onComplete={() => { setMessage("Supplier transaction recorded with its accounting and audit entries."); setPaymentInvoice(null); setSelectedInvoice(null); setRevision(value => value + 1); void load(); }} />}
 
-      {returnInvoiceId && <SupplierReturns invoiceId={returnInvoiceId} canPost={can("procurement.receive") && can("payables.approve")} canReverse={can("procurement.receive") && can("payables.approve") && can("inventory.reverse")} onClose={() => setReturnInvoiceId(null)} onComplete={() => { dismissDetail(); setRevision(value => value + 1); void load(); }} />}
+      {returnInvoiceId && <SupplierReturns invoiceId={returnInvoiceId} canPost={Boolean(profile && canPostSupplierReturns(profile))} canReverse={Boolean(profile && canPostSupplierReturns(profile)) && can("inventory.reverse")} onClose={() => setReturnInvoiceId(null)} onComplete={() => { dismissDetail(); setRevision(value => value + 1); void load(); }} />}
 
       {can("payables.read") && selectedInvoice && (
-        <section className="rounded-xl border bg-white p-5">
+        <section id="supplier-invoices" className="scroll-mt-40 rounded-xl border bg-white p-5">
           <h2 className="flex items-center gap-2 text-xl font-semibold">
             <WalletCards className="size-5" /> Accounts Payable
           </h2>

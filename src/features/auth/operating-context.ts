@@ -44,6 +44,7 @@ export function hasExplicitAllSelection() {
 }
 
 const organizationWideRoles: readonly RoleId[] = [
+  "purchasing_manager",
   "system_administrator",
   "operations_administrator",
   "finance_officer",

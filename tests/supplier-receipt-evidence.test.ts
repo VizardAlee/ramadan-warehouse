@@ -19,7 +19,7 @@ import { db } from "../functions/src/admin";
 import { supplierReceiptEvidence } from "../functions/src/procurement/supplier-receipt-evidence";
 import { accountReceipt } from "../functions/src/accounting/account-receipt";
 import { getProcurementWorkspace } from "../functions/src/callable/procurement";
-const local: ProcurementAccess = { userId: "reader", organizationId: "org", roleId: "branch_manager", branchIds: ["a"], warehouseIds: [], authorizationVersion: 1, effectivePermissions: ["procurement.read", "payables.read"], organizationProcurementPermissions: [] };
+const local: ProcurementAccess = { userId: "reader", organizationId: "org", roleId: "warehouse_manager", branchIds: ["a"], warehouseIds: [], authorizationVersion: 1, effectivePermissions: ["procurement.read", "payables.read"], organizationProcurementPermissions: [] };
 const global: ProcurementAccess = { ...local, roleId: "system_administrator", organizationProcurementPermissions: ["procurement.read", "payables.read"] };
 const payment = () => db.doc("supplierPayments/legacy").get();
 beforeEach(() => {

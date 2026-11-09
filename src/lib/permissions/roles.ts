@@ -6,12 +6,6 @@ import {
   type UserProfile,
 } from "@/types/domain";
 
-const branchPurchasingPermissions: readonly PermissionId[] = [
-  "suppliers.read",
-  "procurement.read", "procurement.create", "procurement.approve", "procurement.receive",
-  "payables.read", "payables.create", "payables.approve", "payables.pay",
-];
-
 const permissionsByRole: Readonly<Record<RoleId, readonly PermissionId[]>> = {
   system_administrator: permissionIds,
   operations_administrator: [
@@ -178,7 +172,6 @@ const permissionsByRole: Readonly<Record<RoleId, readonly PermissionId[]>> = {
     "transfers.report_discrepancy",
   ],
   branch_manager: [
-    ...branchPurchasingPermissions,
     "daily.close.read", "daily.close.prepare", "daily.close.approve",
     "request.create",
     "receipt.confirm",
@@ -233,6 +226,11 @@ const permissionsByRole: Readonly<Record<RoleId, readonly PermissionId[]>> = {
     "expenses.create",
     "expenses.approve",
     "expenses.pay",
+  ],
+  purchasing_manager: [
+    "products.read", "suppliers.read", "suppliers.manage",
+    "procurement.read", "procurement.create", "procurement.approve", "procurement.receive",
+    "payables.read", "payables.create", "payables.approve",
   ],
   sales_cashier: [
     "products.read",
@@ -353,9 +351,13 @@ export function hasPermission(
     const direct = profile.directRoleIds ?? (profile.customRoleIds?.length ? [] : assignedRoles);
     if (permissionsForRoles(direct).has(permission)) return true;
   }
-  // Refresh the built-in branch capability without widening restricted custom roles.
-  const direct = profile.directRoleIds ?? (profile.customRoleIds?.length ? [] : assignedRoles);
-  if (direct.includes("branch_manager") && branchPurchasingPermissions.includes(permission)) return true;
+  // Purchasing grants follow the current role definitions, including revocations.
+  // Never trust an old Branch Manager effective-permission snapshot.
+  if (permission.startsWith("procurement.") || permission.startsWith("payables.") || permission.startsWith("suppliers.")) {
+    const direct = profile.directRoleIds ?? (profile.customRoleIds?.length || profile.effectivePermissions ? [] : assignedRoles);
+    if (permissionsForRoles(direct).has(permission)) return true;
+    return permissionsForRoles(assignedRoles).has(permission) && Boolean(profile.effectivePermissions?.includes(permission));
+  }
   if (profile.effectivePermissions) return profile.effectivePermissions.includes(permission);
   return permissionsForRoles(assignedRoles).has(permission);
 }
@@ -408,4 +410,21 @@ export function isAssignedToBranch(
 export function canCorrectSaleErrors(profile: Pick<UserProfile, "status" | "roleId" | "roleIds" | "directRoleIds" | "customRoleIds">): boolean {
   const direct = profile.directRoleIds ?? (profile.customRoleIds?.length ? [] : roleIdsForProfile(profile));
   return profile.status === "active" && direct.includes("system_administrator");
+}
+
+/** Self-approval here applies only to purchase orders and supplier invoices. */
+export function canSelfAuthorizePurchasing(profile: Pick<UserProfile, "roleId" | "roleIds" | "directRoleIds" | "customRoleIds">): boolean {
+  const direct = profile.directRoleIds ?? (profile.customRoleIds?.length ? [] : roleIdsForProfile(profile));
+  return canSelfAuthorize(profile) || direct.includes("purchasing_manager");
+}
+
+/** The Purchasing Manager role does not grant supplier-credit/return posting. */
+export function canPostSupplierReturns(profile: Parameters<typeof hasPermission>[0]): boolean {
+  return ["procurement.receive", "payables.approve"].every(permission => hasIndependentPurchasingPermission(profile, permission as PermissionId));
+}
+
+/** Purchasing Manager grants cover purchasing, not held-return disposition. */
+export function hasIndependentPurchasingPermission(profile: Parameters<typeof hasPermission>[0], permission: PermissionId): boolean {
+  const roles = roleIdsForProfile(profile).filter(role => role !== "purchasing_manager");
+  return permissionsForRoles(roles).has(permission) && hasPermission(profile, permission);
 }

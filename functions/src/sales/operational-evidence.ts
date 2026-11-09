@@ -146,6 +146,10 @@ async function handleOperationalEvidence(actor: AccessProfile, kind: Kind, input
 }
 
 export async function operationalEvidence(actor: AccessProfile, kind: Kind, input: Input) {
+  if (input.action === "upload_evidence" && ["supplier_return", "supplier_replacement"].includes(kind)) {
+    actor = await procurementAccess(actor, { excludeRoles: ["purchasing_manager"] });
+    requirePermission(actor, "procurement.receive");
+  }
   if (["supplier_return", "purchase_receipt", "supplier_replacement"].includes(kind) && !("organizationProcurementPermissions" in actor)) actor = await procurementAccess(actor);
   try { return await handleOperationalEvidence(actor, kind, input); }
   catch (cause) {

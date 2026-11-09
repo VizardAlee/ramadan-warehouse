@@ -1,3 +1,4 @@
+import { procurementAccess } from "../procurement/authorize.js";
 import { createHash } from "node:crypto";
 import { FieldValue, Timestamp } from "firebase-admin/firestore";
 import { HttpsError } from "firebase-functions/v2/https";
@@ -15,6 +16,10 @@ import { disposeHeldReturn, receiveHeldSupplierReplacement } from "./return-disp
 
 export async function followUpSaleReturn(actor: Awaited<ReturnType<typeof requireAccess>>, input: z.infer<typeof approveSaleReturnInput>) {
   // Replays must not bypass current stage permissions after a role is removed.
+  if (input.action === "receive_supplier_replacement" || (input.action === "dispose_held" && input.disposition?.outcome === "supplier_handover")) {
+    actor = await procurementAccess(actor, { excludeRoles: ["purchasing_manager"] });
+    requirePermission(actor, "procurement.receive");
+  }
   if (input.action === "receive_supplier_replacement") {
     requirePermission(actor, "inventory.receive");
     requirePermission(actor, "procurement.receive");

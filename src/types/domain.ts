@@ -7,6 +7,7 @@ export const roleIds = [
   "warehouse_officer",
   "branch_requester",
   "branch_manager",
+  "purchasing_manager",
   "sales_cashier",
   "logistics_officer",
   "finance_officer",

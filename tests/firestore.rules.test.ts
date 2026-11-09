@@ -853,6 +853,22 @@ describe("Firestore baseline rules", () => {
     await assertFails(warehouseDb.doc("purchaseOrders/purchase-1").update({ status: "received" }));
     await assertFails(financeDb.doc("supplierInvoices/supplier-invoice-1").update({ status: "paid" }));
   });
+  it("keeps new purchasing authority behind scoped callables and rejects stale Branch Manager raw reads", async () => {
+    await seed();
+    await environment.withSecurityRulesDisabled(async context => {
+      const db = context.firestore();
+      const permissions = ["procurement.read", "procurement.create", "procurement.approve", "procurement.receive", "payables.read", "payables.create", "payables.approve", "suppliers.read", "suppliers.manage"];
+      await db.doc("users/purchasing-manager").set({ organizationId: "org-1", status: "active", roleId: "purchasing_manager", roleIds: ["purchasing_manager"], directRoleIds: ["purchasing_manager"], effectivePermissions: permissions, branchIds: [], warehouseIds: [] });
+      await db.doc("users/branch-manager").update({ effectivePermissions: [...permissions, "payables.pay"] });
+    });
+    for (const id of ["purchasing-manager", "branch-manager"]) {
+      const db = environment.authenticatedContext(id).firestore();
+      for (const path of ["purchaseOrders/purchase-1", "purchaseOrderItems/purchase-item-1", "supplierInvoices/supplier-invoice-1", "suppliers/supplier-1", "bankAccounts/account-1"])
+        await assertFails(db.doc(path).get());
+      await assertFails(db.doc("purchaseOrders/purchase-1").update({ status: "approved" }));
+      await assertFails(db.doc("supplierInvoices/supplier-invoice-1").update({ status: "paid" }));
+    }
+  });
   it("does not lend a custom global base to local financial permissions in raw reads", async () => {
     await seed();
     await environment.withSecurityRulesDisabled(async context => {

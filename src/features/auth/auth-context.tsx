@@ -6,7 +6,7 @@ import { httpsCallable } from "firebase/functions";
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { getFirebaseServices } from "@/lib/firebase/client";
 import { detachBrowserPush } from "@/features/notifications/push-subscription";
-import type { UserProfile } from "@/types/domain";
+import type { PermissionId, UserProfile } from "@/types/domain";
 import {
   availableOperatingContexts,
   bindOperatingContextStorage,
@@ -19,6 +19,7 @@ import {
   type OperatingContext,
 } from "./operating-context";
 
+import { refreshPurchasingPermissions, safeOfflinePurchasingPermissions } from "./refresh-purchasing-permissions";
 import { loadOperatingBranches } from "./operating-context-metadata";
 
 interface AuthContextValue {
@@ -110,7 +111,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               ? null
               : readCachedAccessProfile(nextUser.uid);
             if (!cached) throw cause;
-            nextProfile = cached;
+            nextProfile = safeOfflinePurchasingPermissions(cached);
             loadedOffline = true;
             setError(
               "Offline access uses the last verified role and branch assignment. Server authorization is checked again during synchronization.",
@@ -131,6 +132,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             ) {
               await nextUser.getIdToken(true);
             }
+            nextProfile = await refreshPurchasingPermissions(nextProfile, async () => (await httpsCallable<object, { permissions: PermissionId[] }>(getFirebaseServices().functions, "getMyAccessContext")({ action: "purchasing_access", operatingContext: { type: "all" } })).data);
+            cacheAccessProfile(nextProfile);
             if (["pending", "expired"].includes(String(nextProfile.invitationStatus))) {
               void httpsCallable(getFirebaseServices().functions, "getMyAccessContext")({}).catch(() => undefined);
             }
@@ -178,7 +181,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setError("Application access has been revoked. Contact an administrator.");
       return;
     }
-    const nextProfile = { id: snapshot.id, ...snapshot.data() } as UserProfile;
+    let nextProfile = { id: snapshot.id, ...snapshot.data() } as UserProfile;
     if (nextProfile.status !== "active" || nextProfile.authDisabled) {
       window.localStorage.removeItem(offlineProfileKey(current.uid));
       await signOut(getFirebaseServices().auth);
@@ -186,6 +189,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setError("Application access has been disabled. Contact an administrator.");
       return;
     }
+    nextProfile = await refreshPurchasingPermissions(nextProfile, async () => (await httpsCallable<object, { permissions: PermissionId[] }>(getFirebaseServices().functions, "getMyAccessContext")({ action: "purchasing_access", operatingContext: { type: "all" } })).data);
     cacheAccessProfile(nextProfile);
     const nextContext = await initialOperatingContext(nextProfile);
     storeOperatingContext(nextContext);
