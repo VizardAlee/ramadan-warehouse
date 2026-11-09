@@ -1,3 +1,4 @@
+import { editDraftPurchaseOrder } from "../procurement/edit-draft-purchase-order.js";
 import { purchasingPage, purchasingOrderDetail, purchasingPageInput, purchasingDetailInput } from "../procurement/purchasing-pages.js";
 import { selectedPurchasingLocationOptions } from "../procurement/location-options.js";
 import { withRecordActors } from "../audit/record-actors.js";
@@ -40,6 +41,7 @@ import { assertBalancedJournal } from "../sales/calculations.js";
 import { correlationId, parseInput } from "../utils/callable.js";
 import {
   createPurchaseOrderInput,
+  editDraftPurchaseOrderInput,
   procurementWorkspaceInput,
   purchaseOrderActionInput,
   receivePurchaseOrderItemInput,
@@ -577,6 +579,8 @@ export const createPurchaseOrder = onCall(
   async (request) => {
     const actor = await procurementAccess(await requireAccess(request));
     requirePermission(actor, "procurement.create");
+    if (request.data?.action === "edit_draft")
+      return editDraftPurchaseOrder(actor, parseInput(editDraftPurchaseOrderInput, request.data));
     const input = parseInput(createPurchaseOrderInput, request.data);
     requireProcurementScope(actor, input, "procurement.create");
     const ownerType = input.branchId ? "branch" : "warehouse";
@@ -669,7 +673,7 @@ export const createPurchaseOrder = onCall(
             "A purchase product is unavailable.",
           );
         const net = line.quantity * line.unitCostMinor,
-          vat = Math.round((net * line.vatRateBasisPoints) / 10_000);
+          vat = Number((BigInt(net) * BigInt(line.vatRateBasisPoints) + 5_000n) / 10_000n);
         return { line, product, net, vat, gross: net + vat };
       });
       const sequence = Number(counterSnapshot.get("value") ?? 0) + 1,
@@ -715,6 +719,7 @@ export const createPurchaseOrder = onCall(
           receivingLocationId: receivingLocation.id,
           receivingLocationName: locationSnapshot.get("name"),
           status: "draft",
+          revision: 0,
           expectedAt: input.expectedAt
             ? Timestamp.fromDate(new Date(input.expectedAt))
             : undefined,

@@ -304,6 +304,9 @@ export interface Supplier {
 }
 
 export interface PurchaseOrder {
+  revision?: number;
+  expectedAt?: string | null;
+  notes?: string;
   actorLabels?: RecordActorLabels;
   approvedBy?: string;
   receivedBy?: string;
