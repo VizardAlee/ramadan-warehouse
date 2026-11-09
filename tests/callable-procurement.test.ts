@@ -1273,3 +1273,98 @@ describe.sequential("draft editing callables", () => {
     expect((await adminDb.doc(`purchaseOrders/${order.purchaseOrderId}`).get()).get("revision")).toBe(1);
   }, 120000);
 });
+
+describe("supplier invoice pending matching guards", () => {
+  async function receivedOrder() {
+    const supplier = await call<{ supplierId: string }>(administrator, "saveSupplier", { name: `Matching ${crypto.randomUUID()}`, phone: "07011117777", idempotencyKey: crypto.randomUUID() });
+    const order = await call<{ purchaseOrderId: string }>(administrator, "createPurchaseOrder", { ...supplier, warehouseId, receivingLocationId: locationId, lines: [{ productId, quantity: 5, unitCostMinor: 10000, vatRateBasisPoints: 750 }], idempotencyKey: crypto.randomUUID() });
+    await call(administrator, "submitPurchaseOrder", { ...order, idempotencyKey: crypto.randomUUID() });
+    await call(administrator, "approvePurchaseOrder", { ...order, idempotencyKey: crypto.randomUUID() });
+    const item = (await adminDb.collection("purchaseOrderItems").where("purchaseOrderId", "==", order.purchaseOrderId).get()).docs[0]!;
+    await call(administrator, "receivePurchaseOrderItem", { ...order, purchaseOrderItemId: item.id, quantity: 5, receivedAt: new Date().toISOString(), serialNumbers: [], idempotencyKey: crypto.randomUUID() });
+    const input = { ...order, supplierInvoiceNumber: `MATCH-${crypto.randomUUID()}`, invoiceDate: "2026-11-09", dueDate: "2026-12-09", notes: "Matching regression", lines: [{ purchaseOrderItemId: item.id, quantity: 5 }], idempotencyKey: crypto.randomUUID() };
+    return { supplier, order, item, input };
+  }
+  const submit = (input: Record<string, unknown>) => call<{ supplierInvoiceId: string }>(administrator, "submitSupplierInvoice", input);
+  const approve = (supplierInvoiceId: string, idempotencyKey = crypto.randomUUID()) => call(administrator, "approveSupplierInvoice", { supplierInvoiceId, idempotencyKey });
+
+  it("returns exact retries without reserving or posting twice, but rejects changed retries and pending overlap", async () => {
+    const { input, order, supplier } = await receivedOrder();
+    const first = await submit(input);
+    expect((await submit(input)).supplierInvoiceId).toBe(first.supplierInvoiceId);
+    expect((await submit({ ...input, idempotencyKey: crypto.randomUUID() })).supplierInvoiceId).toBe(first.supplierInvoiceId);
+    for (const change of [{ notes: "Changed" }, { dueDate: "2026-12-10" }, { invoiceDate: "2026-11-10" }, { lines: [{ ...input.lines[0], quantity: 4 }] }]) {
+      await expect(submit({ ...input, ...change })).rejects.toBeDefined();
+      await expect(submit({ ...input, ...change, idempotencyKey: crypto.randomUUID() })).rejects.toBeDefined();
+    }
+    await expect(submit({ ...input, supplierInvoiceNumber: `${input.supplierInvoiceNumber}-OVERLAP`, idempotencyKey: crypto.randomUUID() })).rejects.toMatchObject({ code: "functions/failed-precondition" });
+    expect((await adminDb.collection("supplierInvoices").where("purchaseOrderId", "==", order.purchaseOrderId).get()).size).toBe(1);
+    const approvalKey = crypto.randomUUID();
+    await approve(first.supplierInvoiceId, approvalKey);
+    const balance = (await adminDb.doc(`suppliers/${supplier.supplierId}`).get()).get("outstandingBalanceMinor");
+    expect(balance).toBeGreaterThan(0);
+    await approve(first.supplierInvoiceId, approvalKey);
+    await expect(approve(first.supplierInvoiceId)).rejects.toMatchObject({ code: "functions/failed-precondition" });
+    expect((await submit({ ...input, idempotencyKey: crypto.randomUUID() })).supplierInvoiceId).toBe(first.supplierInvoiceId);
+    expect((await adminDb.doc(`suppliers/${supplier.supplierId}`).get()).get("outstandingBalanceMinor")).toBe(balance);
+    expect((await adminDb.collection("journalEntries").where("referenceId", "==", first.supplierInvoiceId).get()).size).toBe(1);
+  });
+
+  it("serializes competing pending submissions for the same received quantity", async () => {
+    const { input, order } = await receivedOrder();
+    const results = await Promise.allSettled([submit(input), submit({ ...input, supplierInvoiceNumber: `${input.supplierInvoiceNumber}-RACE`, idempotencyKey: crypto.randomUUID() })]);
+    expect(results.filter(result => result.status === "fulfilled")).toHaveLength(1);
+    expect(results.filter(result => result.status === "rejected")).toHaveLength(1);
+    expect((await adminDb.collection("supplierInvoices").where("purchaseOrderId", "==", order.purchaseOrderId).get()).size).toBe(1);
+  });
+
+  it("serializes actual concurrent Firestore transactions independently of Functions debug scheduling", async () => {
+    expect(process.env.FIRESTORE_EMULATOR_HOST).toBeTruthy();
+    const { input, order } = await receivedOrder();
+    // Use the server package's own Admin SDK instance, always on the guarded
+    // demo emulator. Direct .run calls bypass the HTTP emulator's optional
+    // serial debug scheduler but execute the real authorization + transactions.
+    const { createRequire } = await import("node:module");
+    const serverAdmin = createRequire(new URL("../functions/package.json", import.meta.url))("firebase-admin/app") as typeof import("firebase-admin/app");
+    if (!serverAdmin.getApps().some(app => app.name === "[DEFAULT]")) serverAdmin.initializeApp({ projectId });
+    const { submitSupplierInvoice } = await import("../functions/src/callable/procurement");
+    const requests = Array.from({ length: 5 }, (_, index) => ({
+      data: { ...input, supplierInvoiceNumber: `${input.supplierInvoiceNumber}-DIRECT-${index}`, idempotencyKey: crypto.randomUUID() },
+      auth: { uid: administrator.auth.currentUser!.uid, token: {} },
+    } as unknown as Parameters<typeof submitSupplierInvoice.run>[0]));
+    const results = await Promise.allSettled(requests.map(request => submitSupplierInvoice.run(request)));
+    expect(results.filter(result => result.status === "fulfilled")).toHaveLength(1);
+    expect(results.filter(result => result.status === "rejected")).toHaveLength(4);
+    expect(results.filter(result => result.status === "rejected").every(result => result.reason.code === "failed-precondition")).toBe(true);
+    expect((await adminDb.collection("supplierInvoices").where("purchaseOrderId", "==", order.purchaseOrderId).get()).size).toBe(1);
+  }, 120000);
+
+  it("permits partial invoices for the pending remainder and approves both once", async () => {
+    const { input, supplier } = await receivedOrder();
+    const first = await submit({ ...input, lines: [{ ...input.lines[0], quantity: 2 }] });
+    const second = await submit({ ...input, supplierInvoiceNumber: `${input.supplierInvoiceNumber}-REST`, lines: [{ ...input.lines[0], quantity: 3 }], idempotencyKey: crypto.randomUUID() });
+    await approve(first.supplierInvoiceId);
+    await approve(second.supplierInvoiceId);
+    expect((await adminDb.doc(`suppliers/${supplier.supplierId}`).get()).get("outstandingBalanceMinor")).toBe(53750);
+    await expect(submit({ ...input, supplierInvoiceNumber: `${input.supplierInvoiceNumber}-EXTRA`, lines: [{ ...input.lines[0], quantity: 1 }], idempotencyKey: crypto.randomUUID() })).rejects.toMatchObject({ code: "functions/failed-precondition" });
+  });
+
+  it.each(["rejected", "cancelled"])("ignores %s invoices when calculating pending reservations", async status => {
+    const { input } = await receivedOrder();
+    const first = await submit(input);
+    await adminDb.doc(`supplierInvoices/${first.supplierInvoiceId}`).update({ status });
+    const replacement = await submit({ ...input, supplierInvoiceNumber: `${input.supplierInvoiceNumber}-REPLACE`, idempotencyKey: crypto.randomUUID() });
+    expect(replacement.supplierInvoiceId).not.toBe(first.supplierInvoiceId);
+    await approve(replacement.supplierInvoiceId);
+  });
+
+  it("denies scope and cross-organization access even on exact retries", async () => {
+    const { input, order } = await receivedOrder();
+    await submit(input);
+    await expect(call(headOfficeManager, "submitSupplierInvoice", input)).rejects.toMatchObject({ code: "functions/failed-precondition", details: { code: "OPERATING_CONTEXT_MISMATCH" } });
+    await expect(call(headOfficeManager, "submitSupplierInvoice", { ...input, operatingContext: { type: "all" } })).rejects.toMatchObject({ code: "functions/permission-denied" });
+    // This suite is guarded to use isolated emulators only. Simulate foreign ownership.
+    await adminDb.doc(`purchaseOrders/${order.purchaseOrderId}`).update({ organizationId: "other-matching-organization" });
+    await expect(submit(input)).rejects.toBeDefined();
+  });
+ });

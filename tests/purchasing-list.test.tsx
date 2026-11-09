@@ -163,3 +163,17 @@ it("lets a denied page return to the previous page without changing its location
   expect(call).toHaveBeenLastCalledWith("getProcurementWorkspace", expect.objectContaining({ branchId: "store", cursor: undefined }));
   expect(call.mock.calls.filter(([, input]) => input.cursor === "denied-cursor")).toHaveLength(1);
 });
+
+it.each(["cancelled", "rejected", "void"])("shows zero actionable due and original amount for %s invoices without enabling payment", async status => {
+  auth.profile = { status: "active", roleId: "finance_officer", roleIds: ["finance_officer"], directRoleIds: ["finance_officer"] } as UserProfile;
+  const original = { ...first, supplierInvoiceNumber: "INV-INACTIVE", outstandingAmountMinor: 12500, status };
+  call.mockResolvedValue({ invoices: [original], nextCursor: null });
+  render(<PurchasingList {...base} kind="invoices" initialSearch="INV-INACTIVE" />);
+  await screen.findByText("INV-INACTIVE");
+  expect(screen.getByText("₦0.00")).toBeTruthy();
+  expect(screen.getByText(/Original/).textContent).toContain("₦125.00");
+  expect(screen.queryByRole("button", { name: "Review payment" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Review approval" })).toBeNull();
+  expect(original.outstandingAmountMinor).toBe(12500);
+  expect(call.mock.calls.every(([name]) => name === "getProcurementWorkspace")).toBe(true);
+});

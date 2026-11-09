@@ -1,3 +1,4 @@
+import { pendingOrderMatches, submittedOrderInvoices, matchableQuantity } from "./invoice-matching.js";
 import { createHash } from "node:crypto";
 import { FieldPath, Filter, Timestamp } from "firebase-admin/firestore";
 import { HttpsError } from "firebase-functions/v2/https";
@@ -19,6 +20,7 @@ export const purchasingPageInput = z.object({
   if (value.branchId && value.warehouseId) ctx.addIssue({ code: "custom", message: "Choose one operating location." });
   if (value.startDate && value.endDate && value.startDate > value.endDate) ctx.addIssue({ code: "custom", message: "End date must not precede start date." });
 });
+export const purchasingInvoiceDetailInput = z.object({ supplierInvoiceId: id, branchId: id.optional(), warehouseId: id.optional() });
 export const purchasingDetailInput = z.object({ purchaseOrderId: id, branchId: id.optional(), warehouseId: id.optional() });
 type Input = z.infer<typeof purchasingPageInput>;
 type Scope = { branchId?: string; warehouseId?: string };
@@ -109,7 +111,8 @@ export async function purchasingPage(actor: ProcurementAccess, input: Input, kin
         const at = data.createdAt?.toMillis?.();
         if (typeof at !== "number" || at < from || at >= through) continue;
       }
-      const nextAction = kind === "orders" ? data.status === "received" ? action ? "Match invoice" : "Review invoices" : data.status === "draft" ? "Submit order" : data.status === "submitted" ? "Approve order" : ["approved", "partially_received"].includes(String(data.status)) ? "Receive goods" : "View details" : data.status === "submitted" ? "Approve invoice" : ["approved", "partially_paid"].includes(String(data.status)) ? "Record payment" : "View details";
+      const awaitingApproval = kind === "orders" && ["received", "partially_received"].includes(String(data.status)) && (await submittedOrderInvoices(actor.organizationId, row.id)).length > 0;
+      const nextAction = kind === "orders" ? awaitingApproval ? "Review invoice approval" : data.status === "received" ? action ? "Match invoice" : "Review invoices" : data.status === "draft" ? "Submit order" : data.status === "submitted" ? "Approve order" : ["approved", "partially_received"].includes(String(data.status)) ? "Receive goods" : "View details" : data.status === "submitted" ? "Approve invoice" : ["approved", "partially_paid"].includes(String(data.status)) ? "Record payment" : "View details";
       rows.push({ ...data, id: row.id, needsAction: action, nextAction });
       if (rows.length === input.pageSize) break;
     }
@@ -136,5 +139,19 @@ export async function purchasingOrderDetail(actor: ProcurementAccess, input: z.i
     }
     if (items.length > 10000) throw new HttpsError("resource-exhausted", "This order exceeds the detail limit; no partial order was returned.");
   }, { pageSize: 500 });
-  return { order: (await withRecordActors(actor.organizationId, [{ ...order.data(), id: order.id, revision: order.get("revision") ?? 0, expectedAt: order.get("expectedAt")?.toDate?.().toISOString() ?? null }]))[0], items };
+  const pending = await pendingOrderMatches(actor.organizationId, order.id);
+  return { order: (await withRecordActors(actor.organizationId, [{ ...order.data(), id: order.id, revision: order.get("revision") ?? 0, expectedAt: order.get("expectedAt")?.toDate?.().toISOString() ?? null }]))[0],
+    items: items.map(item => ({ ...item, pendingInvoiceQuantity: pending.quantities.get(String(item.id)) ?? 0,
+      matchableQuantity: matchableQuantity(Number(item.receivedQuantity ?? 0), Number(item.invoicedQuantity ?? 0), pending.quantities.get(String(item.id)) ?? 0) })),
+    pendingInvoiceCount: pending.invoices.length,
+  };
+}
+
+export async function purchasingInvoiceDetail(actor: ProcurementAccess, input: z.infer<typeof purchasingInvoiceDetailInput>) {
+  requirePermission(actor, "payables.read");
+  const invoice = await db.doc(`supplierInvoices/${input.supplierInvoiceId}`).get();
+  if (!invoice.exists || invoice.get("organizationId") !== actor.organizationId) throw new HttpsError("not-found", "Supplier invoice not found.");
+  requireProcurementScope(actor, scopeOf(invoice), "payables.read");
+  if (!inside(invoice, input)) throw new HttpsError("permission-denied", "Supplier invoice belongs to another location.");
+  return { invoice: (await withRecordActors(actor.organizationId, [{ ...invoice.data(), id: invoice.id }]))[0] };
 }
