@@ -8,7 +8,7 @@ vi.mock("@/features/auth/use-operating-context-options", () => ({ useOperatingCo
 vi.mock("@/lib/permissions/roles", () => ({ hasPermission: () => state.canRead }));
 vi.mock("@/features/finance/financial-privacy", () => ({ FinancialValue: ({ children }: { children: React.ReactNode }) => <>{children}</> }));
 vi.mock("@/features/administration/use-organization-collection", () => ({ useOrganizationCollection: () => ({ loading: false, error: state.error, data: [{ id: "a-p", productId: "p", branchId: "a", active: true, version: 1, sellingPriceMinor: 15000, wholesalePriceMinor: 25000, belowBaseApproved: true, belowWholesaleApproved: true, basePriceVersion: 0 }] }) }));
-function Price({ tier = "retail", centralStatus }: { tier?: "retail" | "wholesale"; centralStatus?: "error" }) { const value = useBranchPriceColumns(); return <>{value("p", null, tier, centralStatus)}</>; }
+function Price({ tier = "retail", centralStatus }: { tier?: "retail" | "wholesale"; centralStatus?: "error" }) { const value = useBranchPriceColumns(); return <>{value.price("p", null, tier, centralStatus)}</>; }
 beforeEach(() => { state.context = { type: "branch", id: "a" }; state.canRead = true; state.error = null; });
 afterEach(cleanup);
 describe("effective branch price columns", () => {

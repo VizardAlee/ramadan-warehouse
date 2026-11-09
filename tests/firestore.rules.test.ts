@@ -623,6 +623,27 @@ describe("Firestore baseline rules", () => {
       financeDb.doc("inventoryTransactions/branch-1-tx").delete(),
     );
   });
+  it("protects catalogue margin inputs from unauthorized reads, lists, and revoked cost permission", async () => {
+    await seed();
+    await environment.withSecurityRulesDisabled(async context => {
+      const db = context.firestore();
+      for (const roleId of ["sales_cashier", "operations_administrator"]) {
+        await db.doc(`users/${roleId}`).set({ organizationId: "org-1", status: "active", roleId, branchIds: ["branch-1"], warehouseIds: [] });
+      }
+      await db.doc("productCosts/foreign-product").set({ organizationId: "org-2", productId: "foreign-product", defaultUnitCostMinor: 1 });
+    });
+    for (const uid of ["branch-manager", "sales_cashier", "operations_administrator"]) {
+      const db = environment.authenticatedContext(uid).firestore();
+      await assertFails(db.doc("productCosts/product-1").get());
+      await assertFails(db.collection("productCosts").where("organizationId", "==", "org-1").get());
+    }
+    const finance = environment.authenticatedContext("finance").firestore();
+    await assertSucceeds(finance.collection("productCosts").where("organizationId", "==", "org-1").get());
+    await assertFails(finance.doc("productCosts/foreign-product").get());
+    await environment.withSecurityRulesDisabled(context => context.firestore().doc("users/finance").update({ effectivePermissions: ["products.read", "sales.read.all"] }));
+    await assertFails(finance.doc("productCosts/product-1").get());
+    await assertFails(finance.collection("productCosts").where("organizationId", "==", "org-1").get());
+  });
   it("isolates branch requests and hides internal approval records", async () => {
     await seed();
     const branchDb = environment

@@ -109,7 +109,9 @@ export default function ProductsPage() {
 
 function ProductCatalogue() {
   const { profile, operatingContext } = useAuth();
-  const branchPriceValue = useBranchPriceColumns();
+  const branchPriceColumns = useBranchPriceColumns();
+  const canReadCost = Boolean(profile && hasPermission(profile, "inventory.cost.read"));
+  const catalogueColumnCount = canReadCost ? 13 : 11;
   const products = useOrganizationCollection<Product>("products");
   const categories =
     useOrganizationCollection<ProductCategory>("productCategories");
@@ -119,7 +121,7 @@ function ProductCatalogue() {
     defaultUnitCostMinor: number;
   }>(
     "productCosts",
-    profile ? hasPermission(profile, "inventory.cost.read") : false,
+    canReadCost,
   );
   const productSalesPrices = useOrganizationCollection<{
     id: string;
@@ -158,7 +160,7 @@ function ProductCatalogue() {
   });
   const serviceItem = useWatch({ control: form.control, name: "itemKind" }) === "service";
   const [reviewCost, reviewRetail, reviewWholesale] = useWatch({ control: form.control, name: ["defaultUnitCostNaira", "baseSellingPriceNaira", "wholesalePriceNaira"] });
-  const canReviewMargin = Boolean(profile && hasPermission(profile, "inventory.cost.read")) && !productCosts.loading && !productCosts.error;
+  const canReviewMargin = canReadCost && !productCosts.loading && !productCosts.error;
   const filtered = useMemo(
     () =>
       products.data.filter(
@@ -338,6 +340,9 @@ function ProductCatalogue() {
         <p className="rounded-lg bg-amber-50 p-3 text-sm"><FinancialMessage>{message}</FinancialMessage></p>
       )}
       {inventoryError && <p role="alert" className="rounded-lg bg-red-50 p-3 text-red-800"><FinancialText>{inventoryError}</FinancialText></p>}
+      {canReadCost && <p className="text-sm text-[var(--muted)]">
+        Estimated gross margins use catalogue default cost and each branch’s effective selling price before VAT: (selling price − cost) ÷ selling price × 100. These are not posted profit; inventory costs may differ. Unknown means a cost or price is missing or invalid. Zero catalogue cost and services have no meaningful estimate.
+      </p>}
       <div className="responsive-table-wrap">
         <table className="responsive-table">
           <thead className="bg-slate-50">
@@ -351,7 +356,9 @@ function ProductCatalogue() {
                 "Central retail",
                 "Central VAT",
                 "Branch retail",
+                ...(canReadCost ? ["Retail margin"] : []),
                 "Branch wholesale",
+                ...(canReadCost ? ["Wholesale margin"] : []),
                 "Status",
                 "",
               ].map((label) => (
@@ -364,13 +371,13 @@ function ProductCatalogue() {
           <tbody>
             {loading ? (
               <tr>
-                <td colSpan={11} className="p-8 text-center">
+                <td colSpan={catalogueColumnCount} className="p-8 text-center">
                   Loading…
                 </td>
               </tr>
             ) : filtered.length === 0 ? (
               <tr>
-                <td colSpan={11} className="p-8 text-center text-[var(--muted)]">
+                <td colSpan={catalogueColumnCount} className="p-8 text-center text-[var(--muted)]">
                   <FinancialText>{inventoryError ? "Inventory could not be loaded." : operatingContext && canReadInventory && !search && !tracking ? "No products with inventory history at this location." : "No products found."}</FinancialText>
                 </td>
               </tr>
@@ -404,13 +411,10 @@ function ProductCatalogue() {
                     <FinancialText>{product.unitOfMeasure}</FinancialText>
                   </td>
                   <td data-label="Default cost" className="px-4">
-                    <FinancialValue>{formatNaira(
-                      productCosts.data.find(
-                        (cost) =>
-                          cost.productId === product.id ||
-                          cost.id === product.id,
-                      )?.defaultUnitCostMinor,
-                    )}</FinancialValue>
+                    <FinancialValue>{!canReadCost ? "Restricted" : productCosts.loading ? "Loading…" : productCosts.error ? "Unable to load" : (() => {
+                      const cost = productCosts.data.find(row => row.productId === product.id || row.id === product.id)?.defaultUnitCostMinor;
+                      return cost === undefined || !Number.isSafeInteger(cost) || cost < 0 ? "Unknown" : formatNaira(cost);
+                    })()}</FinancialValue>
                   </td>
                   <td data-label="Central retail" className="px-4">
                     <FinancialValue>{productSalesPrices.loading ? "Loading…" : productSalesPrices.error ? "Unable to load" : (() => {
@@ -428,7 +432,19 @@ function ProductCatalogue() {
                       return productSalesPrices.loading ? "Loading…" : productSalesPrices.error ? "Unable to load" : rate == null ? "Not provided" : `${rate / 100}%`;
                     })()}</FinancialValue>
                   </td>
-                  {(["retail", "wholesale"] as const).map(tier => <td key={tier} data-label={`Branch ${tier}`} className="px-4 py-3">{branchPriceValue(product.id, productSalesPrices.error ? null : productSalesPrices.data.find(price => price.productId === product.id || price.id === product.id) ?? null, tier, productSalesPrices.loading ? "loading" : productSalesPrices.error ? "error" : undefined)}</td>)}
+                  {(["retail", "wholesale"] as const).map(tier => {
+                    const central = productSalesPrices.data.find(price => price.productId === product.id || price.id === product.id) ?? null;
+                    const centralStatus = productSalesPrices.loading ? "loading" : productSalesPrices.error ? "error" : undefined;
+                    return <Fragment key={tier}>
+                      <td data-label={`Branch ${tier}`} className="px-4 py-3">{branchPriceColumns.price(product.id, central, tier, centralStatus)}</td>
+                      {canReadCost && <td data-label={`${tier === "retail" ? "Retail" : "Wholesale"} margin`} className="px-4 py-3">{branchPriceColumns.margin(product.id, central, tier, {
+                        unitCostMinor: productCosts.data.find(cost => cost.productId === product.id || cost.id === product.id)?.defaultUnitCostMinor,
+                        loading: productCosts.loading,
+                        error: productCosts.error,
+                        service: product.itemKind === "service",
+                      }, centralStatus)}</td>}
+                    </Fragment>;
+                  })}
                   <td data-label="Status" className="px-4">
                     <StatusBadge tone={product.active ? "success" : "warning"}>
                       {product.active ? "active" : "inactive"}
@@ -443,7 +459,7 @@ function ProductCatalogue() {
                     )}
                   </td>
                 </tr>
-                {expandedProductId === product.id && canReadInventory && <tr id={`product-history-preview-${product.id}`}><td colSpan={11} className="p-2 sm:p-3"><ProductHistoryPreview locationIds={locationScoped ? locations.data.filter((location) => operatingContext?.type === "branch" ? location.branchId === operatingContext.id : operatingContext?.type === "warehouse" && location.warehouseId === operatingContext.id).map((location) => location.id) : undefined} productId={product.id} productName={product.name} locations={Object.fromEntries(locations.data.map((location) => [location.id, location.name]))} reportRow={{}} /></td></tr>}
+                {expandedProductId === product.id && canReadInventory && <tr id={`product-history-preview-${product.id}`}><td colSpan={catalogueColumnCount} className="p-2 sm:p-3"><ProductHistoryPreview locationIds={locationScoped ? locations.data.filter((location) => operatingContext?.type === "branch" ? location.branchId === operatingContext.id : operatingContext?.type === "warehouse" && location.warehouseId === operatingContext.id).map((location) => location.id) : undefined} productId={product.id} productName={product.name} locations={Object.fromEntries(locations.data.map((location) => [location.id, location.name]))} reportRow={{}} /></td></tr>}
                 </Fragment>
               ))
             )}
