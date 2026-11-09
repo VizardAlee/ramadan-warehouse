@@ -3008,3 +3008,42 @@ describe("standalone mistaken-sale cancellation", () => {
     for (const journalId of proof.get("journalEntryIds")) { const journal = await adminDb.doc(`journalEntries/${journalId}`).get(); expect(journal.get("totalDebitMinor")).toBe(journal.get("totalCreditMinor")); }
   }, 120000);
 });
+
+describe.sequential("explicit POS handover workflow boundaries", () => {
+  it("reserves payment-confirmed goods and releases only explicitly recorded quantities, once under concurrent retries", async () => {
+    const id = `explicit-handover-${crypto.randomUUID()}`, deviceId = crypto.randomUUID();
+    await adminDb.doc(`products/${id}`).set({ organizationId, name: "Explicit handover fixture", sku: id, unitOfMeasure: "unit", trackingType: "quantity", active: true, hasLedgerActivity: true });
+    const balance = adminDb.doc(`inventoryBalances/${balanceDocumentId(organizationId, id, locationId)}`);
+    await balance.set({ organizationId, branchId, locationId, productId: id, onHandQuantity: 5, reservedQuantity: 0, availableQuantity: 5, averageUnitCostMinor: 101, totalValueMinor: 505, version: 1 });
+    await call(administrator, "saveProductSalesPrice", { productId: id, basePriceMinor: 1000, vatRateBasisPoints: null, active: true, idempotencyKey: crypto.randomUUID() });
+    const shift = await call<{ shiftId: string }>(cashier, "openPosShift", { branchId, deviceId, deviceName: "Explicit handover till", openingCashMinor: 0, idempotencyKey: crypto.randomUUID() });
+    const order = await call<{ orderId: string }>(cashier, "createPosSaleOrder", { branchId, shiftId: shift.shiftId, deviceId, recordedAt: new Date().toISOString(), offline: false, lines: [{ productId: id, quantity: 2 }], payments: [{ method: "cash", amountMinor: 2000 }], idempotencyKey: crypto.randomUUID() });
+    await call(cashier, "acceptPosSaleOrderPayment", { orderId: order.orderId, shiftId: shift.shiftId, deviceId, idempotencyKey: crypto.randomUUID() });
+    const confirm = { orderId: order.orderId, deferCollection: true, idempotencyKey: crypto.randomUUID() };
+    await expect(call(cashier, "confirmPosSaleOrder", confirm)).rejects.toMatchObject({ code: "functions/permission-denied" });
+    const sale = await call<{ saleId: string }>(branchManager, "confirmPosSaleOrder", confirm);
+    await expect(call(branchManager, "confirmPosSaleOrder", confirm)).resolves.toMatchObject({ saleId: sale.saleId, posted: false });
+    expect((await balance.get()).data()).toMatchObject({ onHandQuantity: 5, reservedQuantity: 2, availableQuantity: 3, totalValueMinor: 505 });
+    expect((await adminDb.doc(`sales/${sale.saleId}`).get()).data()).toMatchObject({ collectionStatus: "awaiting_collection", collectedQuantity: 0, costAmountMinor: 0 });
+    expect((await adminDb.collection("saleCollections").where("saleId", "==", sale.saleId).get()).size).toBe(0);
+    const item = (await adminDb.collection("saleItems").where("saleId", "==", sale.saleId).get()).docs[0]!;
+    const collect = { action: "collect", saleId: sale.saleId, lines: [{ saleItemId: item.id, quantity: 1 }], collector: "Explicit fixture collector", idempotencyKey: crypto.randomUUID() };
+    await expect(call(cashier, "confirmPosSaleOrder", collect)).rejects.toMatchObject({ code: "functions/permission-denied" });
+    await expect(call(branchManager, "confirmPosSaleOrder", { ...collect, operatingContext: { type: "branch", id: "foreign-branch" } })).rejects.toMatchObject({ code: "functions/permission-denied" });
+    await expect(call(branchManager, "confirmPosSaleOrder", { ...collect, collector: "" })).rejects.toMatchObject({ code: "functions/invalid-argument" });
+    await expect(call(branchManager, "confirmPosSaleOrder", { ...collect, lines: [{ saleItemId: item.id, quantity: 3 }] })).rejects.toMatchObject({ code: "functions/failed-precondition" });
+    const partial = await Promise.all([call(administrator, "confirmPosSaleOrder", collect), call(administrator, "confirmPosSaleOrder", collect)]);
+    expect(partial.filter(result => result.recorded)).toHaveLength(1);
+    expect((await balance.get()).data()).toMatchObject({ onHandQuantity: 4, reservedQuantity: 1, availableQuantity: 3, totalValueMinor: 404 });
+    expect((await adminDb.doc(`sales/${sale.saleId}`).get()).data()).toMatchObject({ collectionStatus: "partially_collected", collectedQuantity: 1, costAmountMinor: 101 });
+    await expect(call(administrator, "confirmPosSaleOrder", { ...collect, collector: "Changed collector" })).rejects.toMatchObject({ code: "functions/invalid-argument" });
+    const remainder = await Promise.allSettled([branchManager, administrator].map(actor => call(actor, "confirmPosSaleOrder", { ...collect, idempotencyKey: crypto.randomUUID() })));
+    expect(remainder.filter(result => result.status === "fulfilled")).toHaveLength(1);
+    expect(remainder.find(result => result.status === "rejected")).toMatchObject({ reason: { code: "functions/failed-precondition" } });
+    expect((await balance.get()).data()).toMatchObject({ onHandQuantity: 3, reservedQuantity: 0, availableQuantity: 3, totalValueMinor: 303 });
+    expect((await adminDb.doc(`sales/${sale.saleId}`).get()).data()).toMatchObject({ collectionStatus: "collected", collectedQuantity: 2, costAmountMinor: 202 });
+    expect((await adminDb.collection("saleCollections").where("saleId", "==", sale.saleId).get()).size).toBe(2);
+    expect((await adminDb.collection("salesReceipts").where("saleId", "==", sale.saleId).get()).size).toBe(1);
+    expect((await adminDb.doc(`posShifts/${shift.shiftId}`).get()).get("cashSalesMinor")).toBe(2000);
+  }, 120000);
+});
