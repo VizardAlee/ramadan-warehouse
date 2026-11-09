@@ -1,17 +1,17 @@
 {
   "lastLiveAudit": {
     "project": "ramadan-warehouse-staging",
-    "verifiedAt": "2026-11-09T11:13:52.938Z",
-    "queryShapes": 833,
+    "verifiedAt": "2026-11-09T12:48:03.251Z",
+    "queryShapes": 838,
     "unsupportedQueries": 0,
     "readyIndexes": 296,
     "indexInventoryVerifiedAt": "2026-11-09T08:19:28.228Z",
     "probeMethod": "planner-only (analyze=false), with sentinel-scope missing-index diagnostics; no mutations",
-    "plannerEvidenceSha256": "cb8556e14f8efae49af27d58533b78d40cb25cfb02695b1c239a4f0658abe02c",
+    "plannerEvidenceSha256": "cb1de187a3a61fb8da890b452ee5b0a1834b2b0166a1ae5749708726e672b77b",
     "priorSingleFieldOverrideEvidence": 0,
-    "reviewedBase": "c1398d397c656c7131e379249ca93760dbdf5e2c"
+    "reviewedBase": "9438358a4091be3122e2ea595b5e2c3aeaa8d47b"
   },
-  "catalogSha256": "256ee93292674e159838bf6d706d56f6f95978f5b5d25d57c6229e8f1490d37b",
+  "catalogSha256": "07d2e5df53a6a1c1899bd604eb50504e2f07c994d15c8a93ff0c32f52bb411da",
   "sourceFingerprints": {
     "functions/src/accounting/bank-lifecycle.ts": "521f428b891e6e26091ad95f6d6d58213a26a2210619c46fc77a8db4cda8d3e9",
     "functions/src/accounting/daily-close.ts": "904fa0dee8c4af98feaf99f17900caa97d86a16560cd3d0d85846ac33cd26e8e",
@@ -50,7 +50,7 @@
     "functions/src/callable/manage-roles.ts": "49701ae3e28f7ece7f3819bda47a097b747f26ab685467a54ed75541c3a02b56",
     "functions/src/callable/manage-users.ts": "4ad7cb1e8b5b660b9342bc0c2495e696b221444fc60666350e5a81b9d2e09eb4",
     "functions/src/callable/operational-readiness.ts": "5710f7b794dc5560f44a60fa86e21dc96c9591066d6996ca0119ba7615e11279",
-    "functions/src/callable/procurement.ts": "6b55a21ac8eb755e80e77bb0978ff2afabdcfccd051a38e7eb29558f50dd00ca",
+    "functions/src/callable/procurement.ts": "186df0170ff504cbc72eca198b7e7dd657ef080ec2a8df97b973c80005b521eb",
     "functions/src/callable/product-margins.ts": "26a37eba73eebf0c98439de659ed4c29cb958f3b674d084d45b9729c0d3abe2e",
     "functions/src/callable/product-movement.ts": "22981f519e028ebc3c20606f3e2ccbc302e8a9e5d01669b99842b30255ee0d33",
     "functions/src/callable/provider-funds.ts": "b0a7011a898309352b7ee49b61dcdcdd482799eb0d73f6441ee9563e2f4a5344",
@@ -73,9 +73,10 @@
     "functions/src/notifications/debt-reminders.ts": "c69fa232df0f3d3ad39cb47685ad0bd169c513f59bfc23e27ce160081efff70f",
     "functions/src/notifications/in-app.ts": "eff0be70576af9011dedf8a616bf836d3d2672e9e6ff39380371c1afd6be6c6d",
     "functions/src/notifications/web-push.ts": "f0645af68419cf9f25cff8a9e5e8eec84e3fb09fa982c671e55080609053176e",
+    "functions/src/procurement/edit-draft-purchase-order.ts": "483bf20d91a0726d6c0d3993a086c4abdcd83629eee567981485214d1b1c48df",
     "functions/src/procurement/location-options.ts": "c590c6189e8fc9b902c6ef7223e1358f1db70a7f40cc60438b73f891a0e3441c",
     "functions/src/procurement/purchase-receipt.ts": "868d577b3ae7fcf585d9ca431a51744b3b802e79f36652c988e1570f038b7947",
-    "functions/src/procurement/purchasing-pages.ts": "a3946d89017878876ba0f3656af1c4fcc4af284869dc6f6e4356199efb9b5312",
+    "functions/src/procurement/purchasing-pages.ts": "233c4d2b4eda95176ea9beefabab105683ef6412f3080336f4f53976f2a00db0",
     "functions/src/procurement/supplier-receipt-evidence.ts": "9f20948b42856b816bb60fc5e9b05f154301d999d0930c08ec6a53c428242980",
     "functions/src/procurement/supplier-workspace.ts": "8e3fc73c5d89bce688745965eef884b631dfe50e08bcebc235b763afbda0d8f5",
     "functions/src/reconciliation/warehouse-operations.ts": "333261c86082284f4702f50a7c67bc6b987d1f4691d96fd6ea04b9e577b1ac3b",

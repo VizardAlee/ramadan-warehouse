@@ -2,6 +2,7 @@ import { z } from "zod";
 import { accountTenderInput, refineAccountTenders } from "./account-tenders.js";
 
 const id = z.string().trim().min(1).max(128);
+const purchaseId = id.refine(value => !value.includes("/"), "Invalid reference.");
 const positiveMoney = z.number().int().positive().max(Number.MAX_SAFE_INTEGER);
 const optionalText = (max: number) => z.string().trim().max(max).optional();
 
@@ -56,28 +57,44 @@ export const procurementWorkspaceInput = z.object({
     context.addIssue({ code: "custom", path: ["through"], message: "The end date must not precede the start date." });
 });
 
-export const createPurchaseOrderInput = z.object({
-  supplierId: id,
-  warehouseId: id.optional(),
-  branchId: id.optional(),
-  receivingLocationId: id,
+const purchaseOrderFields = z.object({
+  supplierId: purchaseId,
+  warehouseId: purchaseId.optional(),
+  branchId: purchaseId.optional(),
+  receivingLocationId: purchaseId,
   expectedAt: z.string().datetime().optional(),
   notes: optionalText(500),
   lines: z.array(z.object({
-    productId: id,
+    productId: purchaseId,
     quantity: z.number().int().positive().max(100_000),
     unitCostMinor: positiveMoney,
     vatRateBasisPoints: z.number().int().min(0).max(10_000).default(0),
   })).min(1).max(100).superRefine((lines, context) => {
     const productIds = lines.map((line) => line.productId);
     if (new Set(productIds).size !== productIds.length)
-      context.addIssue({ code: "custom", message: "Each product may appear only once." });
+      context.addIssue({ code: "custom", message: "Each product may appear only once."});
   }),
   idempotencyKey: z.string().uuid(),
-}).superRefine((value, context) => {
-  if (Boolean(value.branchId) === Boolean(value.warehouseId))
-    context.addIssue({ code: "custom", path: ["branchId"], message: "Choose exactly one receiving operating location." });
 });
+function validatePurchaseOrder(value: z.infer<typeof purchaseOrderFields>, context: z.RefinementCtx) {
+  if (Boolean(value.branchId) === Boolean(value.warehouseId))
+    context.addIssue({ code: "custom", path: ["branchId"], message: "Choose exactly one receiving operating location."});
+  let gross = 0n;
+  for (const line of value.lines) {
+    const net = BigInt(line.quantity) * BigInt(line.unitCostMinor);
+    gross += net + (net * BigInt(line.vatRateBasisPoints) + 5_000n) / 10_000n;
+  }
+  if (gross > BigInt(Number.MAX_SAFE_INTEGER))
+    context.addIssue({ code: "custom", path: ["lines"], message: "The purchase order total exceeds the supported monetary limit."});
+}
+export const createPurchaseOrderInput = purchaseOrderFields.extend({
+  action: z.literal("create").optional(),
+}).superRefine(validatePurchaseOrder);
+export const editDraftPurchaseOrderInput = purchaseOrderFields.extend({
+  action: z.literal("edit_draft"),
+  purchaseOrderId: purchaseId,
+  expectedRevision: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER - 1),
+}).superRefine(validatePurchaseOrder);
 
 export const purchaseOrderActionInput = z.object({
   purchaseOrderId: id,

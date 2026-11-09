@@ -117,6 +117,7 @@ function ProcurementWorkspace() {
   const mounted = useRef(true);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   function dismissDetail() {
+    clearEditor(); setShowOrderForm(false);
     detailSequence.current++;
     setDetail(null); setSelectedInvoice(null); setDetailLoading(false); setReceiptOrderId(null); setReturnInvoiceId(null); setPaymentInvoice(null);
   }
@@ -145,6 +146,25 @@ function ProcurementWorkspace() {
   const [destinationKey, setDestinationKey] = useState("");
   const [locationId, setLocationId] = useState("");
   const [supplierId, setSupplierId] = useState("");
+  const [editingOrder, setEditingOrder] = useState<PurchaseOrder | null>(null);
+  const [expectedAt, setExpectedAt] = useState("");
+  const [notes, setNotes] = useState("");
+  const editorVersion = useRef(0);
+  const saveKey = useRef<{ payload: string; key: string } | null>(null);
+  function clearEditor() {
+    editorVersion.current++;
+    setEditingOrder(null); setExpectedAt(""); setNotes(""); setLines([blankLine()]);
+    saveKey.current = null;
+  }
+  function editDraft(order: PurchaseOrder, items: PurchaseOrderItem[]) {
+    clearEditor();
+    setEditingOrder(order); setSupplierId(order.supplierId);
+    setDestinationKey(order.branchId ? `branch:${order.branchId}` : `warehouse:${order.warehouseId}`);
+    setLocationId(order.receivingLocationId);
+    setExpectedAt(typeof order.expectedAt === "string" && Number.isFinite(Date.parse(order.expectedAt)) ? order.expectedAt.slice(0, 10) : ""); setNotes(order.notes ?? "");
+    setLines(items.map(item => ({ productId: item.productId, quantity: String(item.orderedQuantity), unitCostNaira: String(item.unitCostMinor / 100), vatPercent: String((item.vatRateBasisPoints ?? 0) / 100) })));
+    setShowOrderForm(true);
+  }
   const [lines, setLines] = useState<DraftLine[]>([blankLine()]);
   const [receiveValues, setReceiveValues] = useState<
     Record<string, { quantity: string; serials: string; lotNumber: string; supplierReference?: string; notes?: string }>
@@ -170,6 +190,7 @@ function ProcurementWorkspace() {
       const newOrder = hash === "#new-purchase-order" && hasPermission(profile, "procurement.create");
       const orders = hash === "#purchase-orders" && hasPermission(profile, "procurement.read");
       if (!invoices && !newOrder && !orders) return;
+      clearEditor();
       detailSequence.current++;
       setDetail(null); setSelectedInvoice(null); setDetailLoading(false);
       setReceiptOrderId(null); setReturnInvoiceId(null); setPaymentInvoice(null);
@@ -311,29 +332,43 @@ function ProcurementWorkspace() {
   }
   async function createOrder() {
     const [ownerType, ownerId] = destinationKey.split(":");
-    const created = await run(
-      () =>
-        callAdministration("createPurchaseOrder", {
-          supplierId,
-          branchId: ownerType === "branch" ? ownerId : undefined,
-          warehouseId: ownerType === "warehouse" ? ownerId : undefined,
-          receivingLocationId: locationId,
-          lines: lines.map((line) => ({
-            productId: line.productId,
-            quantity: Number(line.quantity),
-            unitCostMinor: nairaToKobo(Number(line.unitCostNaira)),
-            vatRateBasisPoints: Math.round(Number(line.vatPercent) * 100),
-          })),
-          idempotencyKey: crypto.randomUUID(),
-        }),
-      "Draft purchase order created. Review it before submission.",
-    );
-    if (created) {
-      setLines([blankLine()]);
-      setShowOrderForm(false);
-      document.getElementById("purchase-orders")?.scrollIntoView({ behavior: "smooth" });
+    if (busy) return;
+    const version = editorVersion.current;
+    const dateValue = expectedAt ? new Date(expectedAt + "T00:00:00.000Z") : null;
+    if (dateValue && !Number.isFinite(dateValue.getTime())) {
+      setError("Choose a valid expected delivery date."); return;
     }
+    const savedExpectedAt = editingOrder?.expectedAt;
+    const expectedTimestamp = dateValue
+      ? (typeof savedExpectedAt === "string" && Number.isFinite(Date.parse(savedExpectedAt)) && expectedAt === savedExpectedAt.slice(0, 10)
+        ? savedExpectedAt : dateValue.toISOString())
+      : undefined;
+    const payload = {
+      ...(editingOrder ? { action: "edit_draft", purchaseOrderId: editingOrder.id, expectedRevision: editingOrder.revision ?? 0 } : {}),
+      supplierId, branchId: ownerType === "branch" ? ownerId : undefined,
+      warehouseId: ownerType === "warehouse" ? ownerId : undefined,
+      receivingLocationId: locationId,
+      expectedAt: expectedTimestamp,
+      notes,
+      lines: lines.map(line => ({ productId: line.productId, quantity: Number(line.quantity), unitCostMinor: nairaToKobo(Number(line.unitCostNaira)), vatRateBasisPoints: Math.round(Number(line.vatPercent) * 100) })),
+    };
+    const serialized = JSON.stringify(payload);
+    if (saveKey.current?.payload !== serialized) saveKey.current = { payload: serialized, key: crypto.randomUUID() };
+    setBusy(true); setError(null); setMessage(null);
+    try {
+      await callAdministration("createPurchaseOrder", { ...payload, idempotencyKey: saveKey.current.key });
+      if (!mounted.current) return;
+      setRevision(value => value + 1);
+      if (version === editorVersion.current) {
+        clearEditor(); setShowOrderForm(false);
+        setMessage(editingOrder ? "Draft purchase order updated. Review it before submission." : "Draft purchase order created. Review it before submission.");
+        if (editingOrder) await openOrder(editingOrder.id);
+      }
+    } catch (cause) {
+      if (mounted.current && version === editorVersion.current) setError((cause instanceof Error ? cause.message : "Could not save draft.") + " Your unsaved changes are kept. If this order changed, cancel and reopen it before editing again.");
+    } finally { if (mounted.current) setBusy(false); }
   }
+
   const selectedLocations =
     workspace?.locations.filter(
       (location) => {
@@ -392,10 +427,10 @@ function ProcurementWorkspace() {
 
       <nav aria-label="Purchasing workspace" className="flex flex-wrap gap-2 rounded-xl border bg-white p-2">
         {([["orders", "Orders"], ["invoices", "Invoices & payments"], ["accounts", "Supplier accounts"]] as const).filter(([value]) => value === "orders" ? can("procurement.read") : can("payables.read")).map(([value, label]) => <Button key={value} variant={tab === value ? "primary" : "outline"} aria-pressed={tab === value} onClick={() => { dismissDetail(); setPaymentInvoice(null); setShowOrderForm(false); setShowSupplierForm(false); setTab(value); }}>{label}</Button>)}
-        {can("procurement.create") && <Button variant="outline" onClick={() => { dismissDetail(); setTab("orders"); setShowOrderForm(value => !value); }}>New order</Button>}
+        {can("procurement.create") && <Button variant="outline" onClick={() => { dismissDetail(); setTab("orders"); setShowOrderForm(true); }}>New order</Button>}
         {can("suppliers.manage") && <Button variant="outline" onClick={() => setShowSupplierForm(value => !value)}>Add supplier</Button>}
       </nav>
-      {workspace && tab !== "accounts" && <PurchasingList key={`${tab}:${invoiceSearch}`} kind={tab} scope={contextScope} suppliers={workspace.suppliers} branches={workspace.branches} warehouses={workspace.warehouses} revision={revision} initialSearch={tab === "invoices" ? invoiceSearch : ""} onOrder={id => { void openOrder(id); }} onInvoice={invoice => { dismissDetail(); setSelectedInvoice(invoice); }} onDismiss={dismissDetail} />}
+      {workspace && tab !== "accounts" && <PurchasingList key={`${tab}:${invoiceSearch}`} kind={tab} scope={contextScope} suppliers={workspace.suppliers} branches={workspace.branches} warehouses={workspace.warehouses} revision={revision} initialSearch={tab === "invoices" ? invoiceSearch : ""} onOrder={id => { clearEditor(); setShowOrderForm(false); void openOrder(id); }} onInvoice={invoice => { dismissDetail(); setSelectedInvoice(invoice); }} onDismiss={dismissDetail} />}
       <div ref={detailStart} tabIndex={-1} className="scroll-mt-24" aria-label="Selected purchasing record" />
       {detailLoading && <p role="status">Loading order details…</p>}
       {(detail || selectedInvoice || detailLoading) && <Button variant="outline" onClick={dismissDetail}>Close details</Button>}
@@ -475,10 +510,11 @@ function ProcurementWorkspace() {
       )}
 
       {can("procurement.create") && workspace && showOrderForm && (
-        <FinancialActionScope><details open ref={newOrderRef} id="new-purchase-order" className="scroll-mt-40 rounded-xl border bg-white p-5">
+        <FinancialActionScope><details onChange={() => { editorVersion.current++; }} open ref={newOrderRef} id="new-purchase-order" className="scroll-mt-40 rounded-xl border bg-white p-5">
           <summary className="cursor-pointer text-lg font-semibold">
-            Create purchase order
+            {editingOrder ? `Edit draft ${editingOrder.purchaseOrderNumber}` : "Create purchase order"}
           </summary>
+          <fieldset disabled={busy}>
           <p className="mt-1 text-sm text-[var(--muted)]">
             Costs are entered in naira with two decimal places. Product names
             and tracking rules come from the catalogue.
@@ -503,7 +539,7 @@ function ProcurementWorkspace() {
               Receiving location
               <select
                 value={destinationKey}
-                disabled={Boolean(contextKey)}
+                disabled={Boolean(contextKey) || Boolean(editingOrder)}
                 onChange={(event) => {
                   const key = event.target.value;
                   const [ownerType, ownerId] = key.split(":");
@@ -653,10 +689,15 @@ function ProcurementWorkspace() {
               </fieldset>
             ))}
           </div>
+          <div className="mt-4 grid gap-3 md:grid-cols-2">
+            <label className="text-sm">Expected delivery date<input type="date" value={expectedAt} onChange={event => setExpectedAt(event.target.value)} className="mt-1 w-full rounded-lg border p-3" /></label>
+            <label className="text-sm">Notes<textarea value={notes} onChange={event => setNotes(event.target.value)} className="mt-1 w-full rounded-lg border p-3" /></label>
+          </div>
           <div className="mt-4 flex flex-wrap gap-3">
+            <Button variant="outline" onClick={() => { clearEditor(); setShowOrderForm(false); }}>Cancel</Button>
             <Button
               variant="outline"
-              onClick={() => setLines([...lines, blankLine()])}
+              onClick={() => { editorVersion.current++; setLines([...lines, blankLine()]); }}
             >
               Add product
             </Button>
@@ -682,9 +723,10 @@ function ProcurementWorkspace() {
               }
               onClick={() => void createOrder()}
             >
-              <ShoppingBasket className="mr-2 size-4" /> Create draft order
+              <ShoppingBasket className="mr-2 size-4" /> {editingOrder ? "Save draft changes" : "Create draft order"}
             </Button></FinancialAction>
           </div>
+          </fieldset>
         </details></FinancialActionScope>
       )}
 
@@ -717,9 +759,10 @@ function ProcurementWorkspace() {
                 </div>
                 <div className="flex flex-wrap gap-2">
                   <Button variant="outline" onClick={() => setReceiptOrderId(order.id)}>Receiving history / GRN</Button>
+                  {order.status === "draft" && can("procurement.create") && <Button variant="outline" disabled={busy || Boolean(editingOrder)} onClick={() => editDraft(order, detail.items)}>Edit draft</Button>}
                   {order.status === "draft" && can("procurement.create") && (
                     <FinancialAction><Button
-                      disabled={busy}
+                      disabled={busy || Boolean(editingOrder)}
                       onClick={() =>
                         void run(
                           () =>

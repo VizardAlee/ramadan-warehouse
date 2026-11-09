@@ -1219,3 +1219,57 @@ describe.sequential("procurement callables", () => {
   }, 120000);
 
 });
+
+// Only isolated demo-emulator records are used by these draft-edit regressions.
+describe.sequential("draft editing callables", () => {
+  async function fixture() {
+    const suffix = crypto.randomUUID();
+    const product = `draft-edit-${suffix}`;
+    await adminDb.doc(`products/${product}`).create({ organizationId, name: "Draft editing goods", sku: product, active: true, trackingType: "quantity", unitOfMeasure: "unit", hasLedgerActivity: false });
+    await adminDb.doc(`productCosts/${product}`).create({ organizationId, productId: product, defaultUnitCostMinor: 10000, currency: "NGN" });
+    const supplier = await call<{ supplierId: string }>(purchasingManager, "saveSupplier", { name: `Draft supplier ${suffix}`, phone: "07011114444", idempotencyKey: crypto.randomUUID() });
+    const base = { supplierId: supplier.supplierId, branchId: headOfficeId, receivingLocationId: headOfficeLocationId, lines: [{ productId: product, quantity: 2, unitCostMinor: 10000, vatRateBasisPoints: 0 }] };
+    const order = await call<{ purchaseOrderId: string; purchaseOrderNumber: string }>(purchasingManager, "createPurchaseOrder", { ...base, idempotencyKey: crypto.randomUUID() });
+    const item = (await adminDb.collection("purchaseOrderItems").where("purchaseOrderId", "==", order.purchaseOrderId).get()).docs[0]!;
+    return { base, order, item, edit: { ...base, action: "edit_draft", purchaseOrderId: order.purchaseOrderId, expectedRevision: 0, notes: "Updated draft", lines: [{ productId: product, quantity: 3, unitCostMinor: 12500, vatRateBasisPoints: 750 }], idempotencyKey: crypto.randomUUID() } };
+  }
+  it("edits, audits, retries once, preserves line references and completes receiving/invoicing", async () => {
+    const { order, item, edit } = await fixture();
+    const changed = await call(purchasingManager, "createPurchaseOrder", edit);
+    expect(changed).toMatchObject({ purchaseOrderId: order.purchaseOrderId, purchaseOrderNumber: order.purchaseOrderNumber, revision: 1, updated: true });
+    expect((await adminDb.doc(`purchaseOrders/${order.purchaseOrderId}`).get()).data()).toMatchObject({ revision: 1, status: "draft", notes: "Updated draft", grossAmountMinor: 40313 });
+    expect((await item.ref.get()).data()).toMatchObject({ orderedQuantity: 3, unitCostMinor: 12500, vatRateBasisPoints: 750 });
+    expect(await call(purchasingManager, "createPurchaseOrder", edit)).toMatchObject({ revision: 1, updated: false });
+    await expect(call(purchasingManager, "createPurchaseOrder", { ...edit, notes: "Different payload" })).rejects.toMatchObject({ code: "functions/already-exists" });
+    await expect(call(purchasingManager, "createPurchaseOrder", { ...edit, idempotencyKey: crypto.randomUUID() })).rejects.toMatchObject({ code: "functions/aborted" });
+    const audits = await adminDb.collection("auditLogs").where("entityId", "==", order.purchaseOrderId).get();
+    const edits = audits.docs.filter(row => row.get("action") === "purchase_order.draft_edited");
+    expect(edits).toHaveLength(1);
+    expect(edits[0]!.get("before.lines")[0]).toMatchObject({ id: item.id, orderedQuantity: 2 });
+    expect(edits[0]!.get("after.lines")[0]).toMatchObject({ id: item.id, orderedQuantity: 3 });
+    await call(purchasingManager, "submitPurchaseOrder", { ...order, idempotencyKey: crypto.randomUUID() });
+    await expect(call(purchasingManager, "createPurchaseOrder", { ...edit, expectedRevision: 1, idempotencyKey: crypto.randomUUID() })).rejects.toMatchObject({ code: "functions/failed-precondition" });
+    await call(purchasingManager, "approvePurchaseOrder", { ...order, idempotencyKey: crypto.randomUUID() });
+    await call(purchasingManager, "receivePurchaseOrderItem", { ...order, purchaseOrderItemId: item.id, quantity: 3, receivedAt: new Date().toISOString(), serialNumbers: [], idempotencyKey: crypto.randomUUID() });
+    const invoice = await call<{supplierInvoiceId: string}>(purchasingManager, "submitSupplierInvoice", { ...order, supplierInvoiceNumber: `EDIT-${order.purchaseOrderId}`, invoiceDate: new Date().toISOString().slice(0,10), lines: [{ purchaseOrderItemId: item.id, quantity: 3 }], idempotencyKey: crypto.randomUUID() });
+    await call(purchasingManager, "approveSupplierInvoice", { ...invoice, idempotencyKey: crypto.randomUUID() });
+    expect((await adminDb.doc(`supplierInvoices/${invoice.supplierInvoiceId}`).get()).get("grossAmountMinor")).toBe(40313);
+    expect((await item.ref.get()).get("invoicedQuantity")).toBe(3);
+  }, 120000);
+  it("allows only one concurrent revision and refuses immutable-scope or damaged-header edits", async () => {
+    const { order, edit } = await fixture();
+    const results = await Promise.allSettled([
+      call(purchasingManager, "createPurchaseOrder", edit),
+      call(purchasingManager, "createPurchaseOrder", { ...edit, notes: "Competing edit", idempotencyKey: crypto.randomUUID() }),
+    ]);
+    expect(results.filter(result => result.status === "fulfilled")).toHaveLength(1);
+    expect(results.find(result => result.status === "rejected")).toMatchObject({ reason: { code: "functions/aborted" } });
+    const next = { ...edit, expectedRevision: 1, idempotencyKey: crypto.randomUUID() };
+    await expect(call(branchManager, "createPurchaseOrder", next)).rejects.toMatchObject({ code: "functions/permission-denied" });
+    const moved = Object.fromEntries(Object.entries({ ...next, warehouseId, receivingLocationId: locationId }).filter(([key]) => key !== "branchId"));
+    await expect(call(administrator, "createPurchaseOrder", moved)).rejects.toMatchObject({ code: "functions/permission-denied" });
+    await adminDb.doc(`purchaseReceipts/corrupt-draft-${order.purchaseOrderId}`).create({ organizationId, purchaseOrderId: order.purchaseOrderId, quantity: 1 });
+    await expect(call(purchasingManager, "createPurchaseOrder", next)).rejects.toMatchObject({ code: "functions/failed-precondition" });
+    expect((await adminDb.doc(`purchaseOrders/${order.purchaseOrderId}`).get()).get("revision")).toBe(1);
+  }, 120000);
+});

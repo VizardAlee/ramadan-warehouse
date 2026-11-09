@@ -136,5 +136,5 @@ export async function purchasingOrderDetail(actor: ProcurementAccess, input: z.i
     }
     if (items.length > 10000) throw new HttpsError("resource-exhausted", "This order exceeds the detail limit; no partial order was returned.");
   }, { pageSize: 500 });
-  return { order: (await withRecordActors(actor.organizationId, [{ ...order.data(), id: order.id }]))[0], items };
+  return { order: (await withRecordActors(actor.organizationId, [{ ...order.data(), id: order.id, revision: order.get("revision") ?? 0, expectedAt: order.get("expectedAt")?.toDate?.().toISOString() ?? null }]))[0], items };
 }
