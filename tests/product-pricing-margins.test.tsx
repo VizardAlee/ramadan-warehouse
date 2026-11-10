@@ -3,6 +3,7 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import ProductsPage from "@/app/(protected)/products/page";
 import { catalogueGrossMarginPercent } from "@/features/products/catalogue-gross-margin";
+import { useBranchStockCosts } from "@/features/products/use-branch-stock-costs";
 import { useBranchPriceColumns } from "@/features/products/branch-price-columns";
 import { FinancialPrivacyProvider } from "@/features/finance/financial-privacy";
 import type { OperatingContext } from "@/features/auth/operating-context";
@@ -15,6 +16,8 @@ const state = vi.hoisted(() => ({
   context: { type: "branch", id: "a" } as OperatingContext | null,
   cost: 60000 as number | undefined,
   service: false,
+  stockCost: 60000 as number | undefined,
+  stockStatus: "ready",
   central: { basePriceMinor: 150000, wholesalePriceMinor: 100000, active: true, version: 2 } as CentralSalesPrice | null,
   branch: { active: true, sellingPriceMinor: 180000, wholesalePriceMinor: 150000, version: 1 } as BranchSalesPrice,
   loading: "",
@@ -39,14 +42,15 @@ vi.mock("@/features/administration/use-organization-collection", () => ({ useOrg
     : name === "branchSalesPrices" ? [{ id: "a-p", branchId: "a", productId: "p", ...state.branch }] : [];
   return { data, loading: state.loading === name, error: state.error === name ? "Load failed" : null };
 } }));
+vi.mock("@/features/products/use-branch-stock-costs", () => ({ useBranchStockCosts: () => ({ status: state.stockStatus, refresh: vi.fn(), costs: { a: { p: { quantity: 1, valueMinor: state.stockCost, unitCostMinor: state.stockCost, invalid: state.stockCost === undefined } }, b: { p: { quantity: 1, valueMinor: 30000, unitCostMinor: 30000 } } } }) }));
 function marginCell(tier: "Retail" | "Wholesale") { return document.querySelector(`td[data-label="${tier} margin"]`)!; }
 function DirectMargin() {
-  const columns = useBranchPriceColumns();
+  const columns = useBranchPriceColumns(useBranchStockCosts());
   return <>{columns.margin("p", state.central, "retail", { unitCostMinor: state.cost, loading: false, error: null, service: false })}</>;
 }
 beforeEach(() => {
   state.role = "system_administrator"; state.permissions = undefined; state.context = { type: "branch", id: "a" };
-  state.cost = 60000; state.service = false; state.loading = ""; state.error = ""; state.localIds = new Set(["p"]);
+  state.cost = 60000; state.stockCost = 60000; state.stockStatus = "ready"; state.service = false; state.loading = ""; state.error = ""; state.localIds = new Set(["p"]);
   state.central = { basePriceMinor: 150000, wholesalePriceMinor: 100000, active: true, version: 2 };
   state.branch = { active: true, sellingPriceMinor: 180000, wholesalePriceMinor: 150000, version: 1 };
   state.collection.mockClear();
@@ -74,21 +78,33 @@ describe("product catalogue pricing margins", () => {
   it("places each margin immediately after its effective branch price and labels the cost basis", () => {
     render(<ProductsPage />);
     const headers = screen.getAllByRole("columnheader").map(cell => cell.textContent);
-    expect(headers.slice(7, 11)).toEqual(["Branch retail", "Retail margin", "Branch wholesale", "Wholesale margin"]);
+    expect(headers.slice(8, 12)).toEqual(["Branch retail", "Retail margin", "Branch wholesale", "Wholesale margin"]);
     expect(marginCell("Retail").textContent).toBe("66.7%Branch override");
     expect(marginCell("Wholesale").textContent).toBe("60.0%Branch override");
-    expect(screen.getByText(/Estimated gross margins use catalogue default cost/).textContent).toContain("not posted profit");
+    expect(screen.getByText(/Estimated gross margins use current branch stock cost/).textContent).toContain("not posted profit");
     fireEvent.click(screen.getByRole("button", { name: "Solar panel" }));
-    expect(screen.getByText("History preview").closest("td")?.colSpan).toBe(13);
+    expect(screen.getByText("History preview").closest("td")?.colSpan).toBe(14);
     fireEvent.click(screen.getByRole("button", { name: "Solar panel" }));
     expect(screen.queryByText("History preview")).toBeNull();
   });
+  it("keeps the saved default separate from branch stock estimates", () => {
+    state.cost = 90000;
+    render(<ProductsPage />);
+    expect(marginCell("Retail").textContent).toContain("66.7%");
+    expect(document.querySelector('td[data-label="Default cost"]')?.textContent).toContain("900.00");
+    expect(document.querySelector('td[data-label="Branch stock cost"]')?.textContent).toContain("600.00");
+  });
+  it.each(["loading", "error", "restricted"])("never renders a stock estimate when %s", status => {
+    state.stockStatus = status; render(<ProductsPage />);
+    expect(marginCell("Retail").textContent).not.toMatch(/\d/);
+    expect(document.querySelector('td[data-label="Branch stock cost"]')?.textContent).not.toMatch(/\d/);
+  });
   it("shows high and negative percentages without changing prices", () => {
-    state.cost = 15500; state.branch.sellingPriceMinor = 160000;
+    state.stockCost = 15500; state.branch.sellingPriceMinor = 160000;
     const view = render(<ProductsPage />);
     expect(marginCell("Retail").textContent).toContain("90.3%");
     expect(document.querySelector('td[data-label="Branch retail"]')?.textContent).toContain("1,600.00");
-    state.cost = 320000; view.rerender(<ProductsPage />);
+    state.stockCost = 320000; view.rerender(<ProductsPage />);
     expect(marginCell("Retail").textContent).toContain("-100.0%");
   });
   it("uses central fallback for stale below-base approval and resolves each tier separately", () => {
@@ -103,9 +119,9 @@ describe("product catalogue pricing margins", () => {
   it("keeps all-branch results attributed and switches without retaining the previous branch", () => {
     state.context = null;
     const view = render(<ProductsPage />);
-    expect(marginCell("Retail").textContent).toBe("Branch A66.7%Branch overrideBranch B60.0%Central fallback");
+    expect(marginCell("Retail").textContent).toBe("Branch A66.7%Branch overrideBranch B80.0%Central fallback");
     state.context = { type: "branch", id: "b" }; view.rerender(<ProductsPage />);
-    expect(marginCell("Retail").textContent).toBe("60.0%Central fallback");
+    expect(marginCell("Retail").textContent).toBe("80.0%Central fallback");
     state.context = { type: "warehouse", id: "w" }; view.rerender(<ProductsPage />);
     expect(marginCell("Retail").textContent).toBe("Choose a branch");
   });
@@ -124,11 +140,11 @@ describe("product catalogue pricing margins", () => {
     expect(marginCell("Retail").textContent).toBe("Unknown");
   });
   it("distinguishes missing and zero costs and does not call service fees 100% profit", () => {
-    state.cost = undefined; const view = render(<ProductsPage />);
-    expect(marginCell("Retail").textContent).toContain("Unknown");
-    state.cost = 0; view.rerender(<ProductsPage />);
+    state.stockCost = undefined; const view = render(<ProductsPage />);
+    expect(marginCell("Retail").textContent).toContain("Unavailable");
+    state.stockCost = 0; view.rerender(<ProductsPage />);
     expect(marginCell("Retail").textContent).toContain("Not meaningful");
-    state.cost = 60000; state.service = true; view.rerender(<ProductsPage />);
+    state.cost = 60000; state.stockCost = 60000; state.stockStatus = "ready"; state.service = true; view.rerender(<ProductsPage />);
     expect(marginCell("Wholesale").textContent).toContain("Not meaningful");
     expect(view.container.textContent).not.toContain("100.0%");
   });
@@ -140,7 +156,7 @@ describe("product catalogue pricing margins", () => {
     state.central = { basePriceMinor: 150000, wholesalePriceMinor: 100000, version: 1, active: false }; view.rerender(<ProductsPage />);
     expect(marginCell("Retail").textContent).toBe("Unknown");
   });
-  it.each(["productCosts", "productSalesPrices", "branchSalesPrices"])("never shows cached estimates while %s is loading or failed", name => {
+  it.each(["productSalesPrices", "branchSalesPrices"])("never shows cached estimates while %s is loading or failed", name => {
     state.loading = name; const view = render(<ProductsPage />);
     expect(marginCell("Retail").textContent).toBe("Loading…");
     state.loading = ""; state.error = name; view.rerender(<ProductsPage />);

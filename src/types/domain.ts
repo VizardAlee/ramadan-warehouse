@@ -341,6 +341,8 @@ export interface PurchaseOrderItem {
   orderedQuantity: number;
   receivedQuantity: number;
   invoicedQuantity?: number;
+  pendingInvoiceQuantity?: number;
+  matchableQuantity?: number;
   unitCostMinor: number;
   vatRateBasisPoints: number | null;
 }
@@ -361,7 +363,7 @@ export interface SupplierInvoice {
   supplierInvoiceNumber: string;
   invoiceDate?: string;
   dueDate?: string;
-  status: "submitted" | "approved" | "partially_paid" | "paid";
+  status: "submitted" | "approved" | "partially_paid" | "paid" | "cancelled" | "rejected" | "void";
   netAmountMinor: number;
   vatAmountMinor: number;
   grossAmountMinor: number;

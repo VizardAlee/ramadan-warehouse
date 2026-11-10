@@ -8,6 +8,7 @@ import type { InventoryBalance, InventoryLocation, Product, UserProfile } from "
 const mocks = vi.hoisted(() => ({ call: vi.fn(), metadata: vi.fn(), auth: {} as Record<string, unknown>, locations: [] as InventoryLocation[], products: [] as Product[], balances: [] as InventoryBalance[], loading: false }));
 vi.mock("@/features/administration/api", () => ({ callAdministration: mocks.call }));
 vi.mock("@/features/auth/auth-context", () => ({ useAuth: () => mocks.auth }));
+vi.mock("@/features/auth/use-operating-context-options", () => ({ useOperatingContextOptions: () => ({ options: [{ type: "branch", id: "a", name: "Store A" }, { type: "branch", id: "b", name: "Store B" }] }) }));
 vi.mock("@/features/administration/use-organization-collection", () => ({
   useOrganizationCollection: (name: string, enabled = true, scope?: { field: string; id: string }) => {
     mocks.metadata(name, enabled, scope);
@@ -23,14 +24,20 @@ function balance(id: string, productId: string, locationId: string, quantity = 1
 }
 const stockA = balance("a", "panel", "stock-a", 5, 500);
 const stockB = balance("b", "battery", "stock-b", 2, 900);
-interface Input { search?: string; locationIds?: string[]; locationId?: string; cursor?: string; limit?: number; view?: string; withSummary?: boolean }
+interface Input { search?: string; locationIds?: string[]; locationId?: string; cursor?: string; limit?: number; view?: string; withSummary?: boolean; includeCosts?: boolean }
 function positionResponse(input: Input) {
-  const all = mocks.balances.filter((row) => (!input.locationIds || input.locationIds.includes(row.locationId)) && (!input.search || row.productName?.toLowerCase().includes(input.search.toLowerCase()))).sort((a, b) => a.id < b.id ? -1 : 1);
+  // The real callable applies the authenticated operating context independently
+  // of locationIds. Model that boundary for the branch cost report as well.
+  const context = mocks.auth.operatingContext as { type: "branch" | "warehouse"; id: string } | null;
+  const all = mocks.balances.map(row => {
+    const location = mocks.locations.find(item => item.id === row.locationId);
+    return { ...row, branchId: location?.branchId, warehouseId: location?.warehouseId };
+  }).filter((row) => (!context || (context.type === "branch" ? row.branchId : row.warehouseId) === context.id) && (!input.locationIds || input.locationIds.includes(row.locationId)) && (!input.search || row.productName?.toLowerCase().includes(input.search.toLowerCase()))).sort((a, b) => a.id < b.id ? -1 : 1);
   const offset = input.cursor ? all.findIndex((row) => row.id === input.cursor) + 1 : 0;
   const limit = input.limit ?? 25;
   const rows = all.slice(offset, offset + limit);
   const summary = input.view !== "membership" && input.withSummary !== false ? all.reduce((s, row) => ({ count: s.count + 1, onHandQuantity: s.onHandQuantity + row.onHandQuantity, reservedQuantity: s.reservedQuantity + row.reservedQuantity, availableQuantity: s.availableQuantity + row.availableQuantity, valueMinor: s.valueMinor + (row.totalValueMinor ?? 0) }), { count: 0, onHandQuantity: 0, reservedQuantity: 0, availableQuantity: 0, valueMinor: 0 }) : null;
-  return { rows: input.view === "membership" ? rows.map(({ id, productId }) => ({ id, productId })) : rows, summary, nextCursor: offset + rows.length < all.length ? rows.at(-1)!.id : null };
+  return { includeCosts: input.view !== "membership" && input.includeCosts === true, rows: input.view === "membership" ? rows.map(({ id, productId }) => ({ id, productId })) : rows, summary, nextCursor: offset + rows.length < all.length ? rows.at(-1)!.id : null };
 }
 function deferred() {
   let resolve!: (value: unknown) => void;
@@ -38,7 +45,7 @@ function deferred() {
   return { promise, resolve };
 }
 beforeEach(() => {
-  vi.clearAllMocks(); select("a"); mocks.loading = false;
+  vi.clearAllMocks(); mocks.call.mockReset(); select("a"); mocks.loading = false;
   mocks.locations = [{ id: "stock-a", branchId: "a", name: "Store A stock" }, { id: "damaged-a", branchId: "a", name: "Store A damaged" }, { id: "stock-b", branchId: "b", name: "Store B stock" }, { id: "legacy-a", warehouseId: "a", name: "Legacy warehouse A" }, { id: "empty", branchId: "empty", name: "Empty store" }] as InventoryLocation[];
   mocks.products = ["panel", "battery", "zero", "never"].map((id) => ({ id, name: id, sku: id.toUpperCase(), active: true, trackingType: "quantity", unitOfMeasure: "unit" })) as Product[];
   mocks.balances = [stockA, stockB, balance("zero", "zero", "stock-a", 0, 0), balance("warehouse", "warehouse-only", "legacy-a")];
@@ -92,6 +99,23 @@ describe("selected Store/Warehouse inventory", () => {
     fireEvent.click(screen.getByRole("button", { name: "panel" }));
     await waitFor(() => expect(mocks.call).toHaveBeenCalledWith("getSkuMovementHistory", expect.objectContaining({ productId: "panel", locationId: "stock-a" })));
   });
+  it("keeps branch costs scoped independently of catalogue membership and never fetches costs for non-cost roles", async () => {
+    mocks.balances.push(balance("other-panel", "panel", "stock-b", 1, 99000));
+    const view = render(<ProductsPage />);
+    expect(await screen.findByRole("button", { name: "panel" })).toBeTruthy();
+    await waitFor(() => expect(document.querySelector('td[data-label="Branch stock cost"]')?.textContent).toBe("₦1.00"));
+    expect(view.container.textContent).not.toContain("₦990.00");
+    select("b"); view.rerender(<ProductsPage />);
+    expect(view.container.textContent).not.toContain("₦1.00");
+    expect(await screen.findByRole("button", { name: "panel" })).toBeTruthy();
+    await waitFor(() => expect(view.container.textContent).toContain("₦990.00"));
+    view.unmount(); mocks.call.mockClear();
+    const assigned = { ...administrator, roleId: "branch_manager", roleIds: ["branch_manager"], branchIds: ["a"] } as UserProfile;
+    select("a", "branch", assigned); render(<ProductsPage />);
+    expect(await screen.findByRole("button", { name: "panel" })).toBeTruthy();
+    expect(screen.queryByRole("columnheader", { name: "Branch stock cost" })).toBeNull();
+    expect(mocks.call.mock.calls.every(call => call[1].view === "membership" && call[1].includeCosts === false)).toBe(true);
+  });
   it("loads a single bounded page and obtains whole-location totals rather than summing that page", async () => {
     mocks.balances = Array.from({ length: 26 }, (_, i) => balance(`a-${String(i).padStart(2, "0")}`, `panel-${i}`, "stock-a", 2, 200));
     render(<InventoryPage />);
@@ -110,8 +134,14 @@ describe("selected Store/Warehouse inventory", () => {
     mocks.balances = mocks.products.map((p, i) => balance(`b-${String(i).padStart(3, "0")}`, p.id, "stock-a"));
     render(<ProductsPage />);
     expect(await screen.findByText("1–25 of 501 products")).toBeTruthy();
-    expect(mocks.call).toHaveBeenCalledTimes(2);
-    for (const call of mocks.call.mock.calls) expect(call[1]).toMatchObject({ view: "membership", limit: 500, withSummary: false, includeCosts: false });
+    const membershipCalls = mocks.call.mock.calls.filter(call => call[1].view === "membership");
+    expect(membershipCalls).toHaveLength(2);
+    for (const call of membershipCalls) expect(call[1]).toMatchObject({ view: "membership", limit: 500, withSummary: false, includeCosts: false });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Refresh stock costs" }).hasAttribute("disabled")).toBe(false));
+    const costCalls = mocks.call.mock.calls.filter(call => call[1].view === "positions");
+    expect(costCalls).toHaveLength(6);
+    for (const call of costCalls) expect(call[1]).toMatchObject({ view: "positions", limit: 100, withSummary: false, includeCosts: true });
+    expect(costCalls.at(-1)?.[1].cursor).toBe("b-499");
   });
   it("shows loading while location mappings load and never falls back to All locations", async () => {
     mocks.loading = true; const view = render(<InventoryPage />);
@@ -145,10 +175,15 @@ describe("selected Store/Warehouse inventory", () => {
     await act(async () => b.resolve({ rows: [stockB], nextCursor: null, summary: null })); expect(screen.queryByText("BATTERY")).toBeNull();
   });
   it("stops old membership pagination after switching and hides old catalogue rows", async () => {
-    const old = deferred(); mocks.call.mockReturnValueOnce(old.promise); const view = render(<ProductsPage />);
+    const old = deferred();
+    mocks.call.mockImplementation(async (_name: string, input: Input) => input.view === "membership" && input.locationIds?.includes("stock-a") ? old.promise : positionResponse(input));
+    const view = render(<ProductsPage />);
     select("b"); view.rerender(<ProductsPage />); expect(await screen.findByRole("button", { name: "battery" })).toBeTruthy();
     await act(async () => old.resolve({ rows: [{ productId: "panel" }], nextCursor: "old-more" }));
-    expect(screen.queryByRole("button", { name: "panel" })).toBeNull(); expect(mocks.call).toHaveBeenCalledTimes(2);
+    expect(screen.queryByRole("button", { name: "panel" })).toBeNull();
+    expect(mocks.call.mock.calls.filter(call => call[1].view === "membership")).toHaveLength(2);
+    expect(mocks.call.mock.calls.some(call => call[1].cursor === "old-more")).toBe(false);
+    expect(document.querySelector('td[data-label="Branch stock cost"]')?.textContent).toBe("₦4.50");
   });
   it("separates failed requests from empty results and clears error on switch", async () => {
     mocks.call.mockRejectedValueOnce(new Error("Inventory unavailable")); const view = render(<InventoryPage />);
@@ -160,8 +195,12 @@ describe("selected Store/Warehouse inventory", () => {
     select(null); const view = render(<InventoryPage />);
     expect(await screen.findByText("PANEL")).toBeTruthy(); expect(screen.getByText("BATTERY")).toBeTruthy();
     expect(mocks.call).toHaveBeenCalledWith("generateStockPositionReport", expect.objectContaining({ locationIds: undefined }));
-    view.unmount(); mocks.call.mockClear(); render(<ProductsPage />); expect(screen.getByRole("button", { name: "never" })).toBeTruthy(); expect(mocks.call).not.toHaveBeenCalled();
-    cleanup(); const assigned = { ...administrator, roleId: "branch_manager", roleIds: ["branch_manager"], branchIds: ["a"] } as UserProfile;
+    view.unmount(); mocks.call.mockClear(); render(<ProductsPage />); expect(screen.getByRole("button", { name: "never" })).toBeTruthy();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Refresh stock costs" }).hasAttribute("disabled")).toBe(false));
+    expect(mocks.call).toHaveBeenCalledTimes(1);
+    expect(mocks.call).toHaveBeenCalledWith("generateStockPositionReport", expect.objectContaining({ view: "positions", includeCosts: true, limit: 100 }));
+    expect(mocks.call.mock.calls.some(call => call[1].view === "membership")).toBe(false);
+    cleanup(); mocks.call.mockClear(); const assigned = { ...administrator, roleId: "branch_manager", roleIds: ["branch_manager"], branchIds: ["a"] } as UserProfile;
     select(null, "branch", assigned); render(<InventoryPage />); expect(screen.getByRole("alert").textContent).toBe("Choose a Store/Warehouse to view inventory."); expect(mocks.call).not.toHaveBeenCalled();
   });
   it("refreshes a failed or outdated inventory view with a fresh summary", async () => {

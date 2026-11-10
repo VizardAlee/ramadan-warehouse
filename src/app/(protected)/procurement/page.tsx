@@ -1,4 +1,6 @@
 "use client";
+import { SupplierInvoiceMatch, availableForMatching, type InvoiceMatchInput } from "@/features/procurement/supplier-invoice-match";
+import { invoiceAmountDue, isInactiveInvoice } from "@/features/procurement/invoice-status";
 import { PurchasingList } from "@/features/procurement/purchasing-list";
 import { AmountInput } from "@/components/ui/amount-input";
 import { SearchableItemSelect } from "@/components/ui/searchable-item-select";
@@ -7,7 +9,6 @@ import { FinancialAction, FinancialActionScope, FinancialInput, FinancialMessage
 
 import {
   CheckCircle2,
-  PackagePlus,
   RefreshCw,
   ShoppingBasket,
   Truck,
@@ -103,27 +104,31 @@ function ProcurementWorkspace() {
   const [showSupplierForm, setShowSupplierForm] = useState(false);
   const [revision, setRevision] = useState(0);
   const [invoiceSearch, setInvoiceSearch] = useState("");
-  const [detail, setDetail] = useState<{ order: PurchaseOrder; items: PurchaseOrderItem[] } | null>(null);
+  const [detail, setDetail] = useState<{ order: PurchaseOrder; items: PurchaseOrderItem[]; pendingInvoiceCount?: number } | null>(null);
   const [selectedInvoice, setSelectedInvoice] = useState<SupplierInvoice | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const detailSequence = useRef(0);
+  const matchingRequests = useRef(new Map<string, string>());
+  const [matchingMessage, setMatchingMessage] = useState<string | null>(null);
   const detailStart = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    if (detail || selectedInvoice || detailLoading) {
+    if (detail || selectedInvoice || detailLoading || matchingMessage) {
       detailStart.current?.scrollIntoView?.({ behavior: "smooth", block: "start" });
       detailStart.current?.focus({ preventScroll: true });
     }
-  }, [detail, selectedInvoice, detailLoading]);
+  }, [detail, selectedInvoice, detailLoading, matchingMessage]);
   const mounted = useRef(true);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   function dismissDetail() {
     clearEditor(); setShowOrderForm(false);
     detailSequence.current++;
+    setMatchingMessage(null);
     setDetail(null); setSelectedInvoice(null); setDetailLoading(false); setReceiptOrderId(null); setReturnInvoiceId(null); setPaymentInvoice(null);
   }
   async function openOrder(purchaseOrderId: string) {
     setReceiptOrderId(null); setReturnInvoiceId(null); setPaymentInvoice(null);
     const sequence = ++detailSequence.current;
+    setMatchingMessage(null);
     setDetail(null); setSelectedInvoice(null); setDetailLoading(true); setError(null);
     try {
       const result = await callAdministration<object, { order: PurchaseOrder; items: PurchaseOrderItem[] }>("getProcurementWorkspace", { view: "order_detail", purchaseOrderId, ...contextScope });
@@ -169,15 +174,9 @@ function ProcurementWorkspace() {
   const [receiveValues, setReceiveValues] = useState<
     Record<string, { quantity: string; serials: string; lotNumber: string; supplierReference?: string; notes?: string }>
   >({});
-  const [invoiceNumbers, setInvoiceNumbers] = useState<Record<string, string>>(
-    {},
-  );
   const [paymentInvoice, setPaymentInvoice] = useState<SupplierInvoice | null>(null);
-  const [invoiceIssueDates, setInvoiceIssueDates] = useState<Record<string, string>>({});
-  const [invoiceDueDates, setInvoiceDueDates] = useState<Record<string, string>>({});
   const [receiptOrderId, setReceiptOrderId] = useState<string | null>(null);
   const [returnInvoiceId, setReturnInvoiceId] = useState<string | null>(null);
-  const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Lagos", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
   const can = (permission: Parameters<typeof hasPermission>[1]) =>
     Boolean(profile && hasPermission(profile, permission));
   const canApproveOwnWork = Boolean(profile && canSelfAuthorizePurchasing(profile));
@@ -192,6 +191,7 @@ function ProcurementWorkspace() {
       if (!invoices && !newOrder && !orders) return;
       clearEditor();
       detailSequence.current++;
+      setMatchingMessage(null);
       setDetail(null); setSelectedInvoice(null); setDetailLoading(false);
       setReceiptOrderId(null); setReturnInvoiceId(null); setPaymentInvoice(null);
       setShowSupplierForm(false); setShowOrderForm(newOrder);
@@ -303,6 +303,37 @@ function ProcurementWorkspace() {
       return false;
     } finally {
       setBusy(false);
+    }
+  }
+  async function matchInvoice(order: PurchaseOrder, input: InvoiceMatchInput) {
+    if (busy) return;
+    const selection = detailSequence.current;
+    const payload = { purchaseOrderId: order.id, ...input };
+    const fingerprint = JSON.stringify(payload);
+    const idempotencyKey = matchingRequests.current.get(fingerprint) ?? crypto.randomUUID();
+    matchingRequests.current.set(fingerprint, idempotencyKey);
+    setBusy(true); setError(null); setMessage(null); setMatchingMessage(null);
+    let saved = false;
+    try {
+      const result = await callAdministration<object, { supplierInvoiceId: string; submitted: boolean }>("submitSupplierInvoice", { ...payload, idempotencyKey });
+      if (!mounted.current) return;
+      setRevision(value => value + 1);
+      if (selection !== detailSequence.current) return;
+      saved = true;
+      setMatchingMessage(result.submitted
+        ? `Invoice ${payload.supplierInvoiceNumber} is saved for approval. Review it below; do not match these goods again.`
+        : `Invoice ${payload.supplierInvoiceNumber} is already saved. Review its current status below; do not match these goods again.`);
+      setDetail(null); setInvoiceSearch(payload.supplierInvoiceNumber); setTab("invoices"); setDetailLoading(true);
+      const record = await callAdministration<object, { invoice: SupplierInvoice }>("getProcurementWorkspace", { view: "invoice_detail", supplierInvoiceId: result.supplierInvoiceId, ...contextScope });
+      if (mounted.current && selection === detailSequence.current) setSelectedInvoice(record.invoice);
+    } catch (cause) {
+      if (mounted.current && selection === detailSequence.current) {
+        const explanation = cause instanceof Error ? cause.message : "Invoice matching could not be confirmed.";
+        setError(explanation);
+        setMatchingMessage(saved ? `The invoice is saved, but its detail could not be opened. Find ${payload.supplierInvoiceNumber} in Invoices & payments. Do not submit it again.` : explanation);
+      }
+    } finally {
+      if (mounted.current) { setBusy(false); if (selection === detailSequence.current) setDetailLoading(false); }
     }
   }
   async function receiveGoods(input?: PurchaseReceiptInput) {
@@ -432,6 +463,7 @@ function ProcurementWorkspace() {
       </nav>
       {workspace && tab !== "accounts" && <PurchasingList key={`${tab}:${invoiceSearch}`} kind={tab} scope={contextScope} suppliers={workspace.suppliers} branches={workspace.branches} warehouses={workspace.warehouses} revision={revision} initialSearch={tab === "invoices" ? invoiceSearch : ""} onOrder={id => { clearEditor(); setShowOrderForm(false); void openOrder(id); }} onInvoice={invoice => { dismissDetail(); setSelectedInvoice(invoice); }} onDismiss={dismissDetail} />}
       <div ref={detailStart} tabIndex={-1} className="scroll-mt-24" aria-label="Selected purchasing record" />
+      {matchingMessage && <p role="status" className="rounded-lg border border-indigo-200 bg-indigo-50 p-4 text-sm"><FinancialMessage>{matchingMessage}</FinancialMessage></p>}
       {detailLoading && <p role="status">Loading order details…</p>}
       {(detail || selectedInvoice || detailLoading) && <Button variant="outline" onClick={dismissDetail}>Close details</Button>}
 
@@ -821,6 +853,7 @@ function ProcurementWorkspace() {
                         <FinancialText>{item.sku}</FinancialText> · ordered <FinancialText>{item.orderedQuantity}</FinancialText> · received{" "}
                         <FinancialText>{item.receivedQuantity}</FinancialText>
                       </p>
+                      {Boolean(item.pendingInvoiceQuantity) && <p className="mt-1 text-xs text-amber-900">Awaiting invoice approval: <FinancialText>{item.pendingInvoiceQuantity}</FinancialText> · Available to match: <FinancialText>{availableForMatching(item)}</FinancialText></p>}
                       {outstanding > 0 &&
                         ["approved", "partially_received"].includes(
                           order.status,
@@ -925,73 +958,17 @@ function ProcurementWorkspace() {
                   );
                 })}
               </div>
+              {Boolean(detail.pendingInvoiceCount) && <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm">
+                <FinancialText>{detail.pendingInvoiceCount}</FinancialText> submitted invoice(s) are awaiting approval. These quantities are already matched; do not submit them again.
+                {can("payables.read") && <Button variant="outline" className="ml-2" onClick={() => { setInvoiceSearch(order.purchaseOrderNumber); dismissDetail(); setTab("invoices"); }}>Review submitted invoices</Button>}
+              </div>}
               {can("payables.create") &&
-                ["partially_received", "received"].includes(order.status) && (itemsByOrder.get(order.id) ?? []).some(item => item.receivedQuantity > (item.invoicedQuantity ?? 0)) && (
-                  <div className="mt-4 grid items-end gap-3 border-t pt-4 md:grid-cols-2 xl:grid-cols-[minmax(0,1fr)_10rem_12rem_auto]">
-                    <label className="min-w-0 flex-1 text-sm">Supplier invoice number
-                    <input
-                      value={invoiceNumbers[order.id] ?? ""}
-                      onChange={(event) =>
-                        setInvoiceNumbers({
-                          ...invoiceNumbers,
-                          [order.id]: event.target.value,
-                        })
-                      }
-                      placeholder="Supplier invoice number"
-                      className="block min-h-10 w-full rounded-lg border px-3"
-                    />
-                    </label>
-                    <label className="text-sm">Invoice date<input type="date" value={invoiceIssueDates[order.id] ?? today} onChange={(event) => setInvoiceIssueDates({ ...invoiceIssueDates, [order.id]: event.target.value })} className="block min-h-10 w-full rounded-lg border px-3" /></label>
-                    <label className="text-sm">Payment due date (optional)<input type="date" min={invoiceIssueDates[order.id] ?? today} value={invoiceDueDates[order.id] ?? ""} onChange={(event) => setInvoiceDueDates({ ...invoiceDueDates, [order.id]: event.target.value })} className="block min-h-10 w-full rounded-lg border px-3" /></label>
-                    <FinancialAction><Button aria-busy={busy} disabledReason={firstBlocker([
-                      [!(invoiceNumbers[order.id] ?? "").trim(), "Enter the supplier's actual invoice number."],
-                      [!(invoiceIssueDates[order.id] ?? today), "Enter the supplier invoice date."],
-                      [invoiceDueDates[order.id] && (invoiceDueDates[order.id] ?? "") < (invoiceIssueDates[order.id] ?? today), "Payment due date cannot be before the supplier invoice date."],
-                      [!(itemsByOrder.get(order.id) ?? []).some(item => item.receivedQuantity > (item.invoicedQuantity ?? 0)), (itemsByOrder.get(order.id) ?? []).some(item => item.receivedQuantity > 0) ? "All received goods are already matched to invoices. Review recorded invoices; do not create a duplicate." : "Record physically delivered PO goods first. Ask authorized receiving staff; undelivered goods cannot be invoiced."]
-                    ])}
-                      disabled={
-                        busy ||
-                        !(invoiceIssueDates[order.id] ?? today) ||
-                        Boolean(invoiceDueDates[order.id] && (invoiceDueDates[order.id] ?? "") < (invoiceIssueDates[order.id] ?? today)) ||
-                        !(invoiceNumbers[order.id] ?? "").trim() ||
-                        !(itemsByOrder.get(order.id) ?? []).some(
-                          (item) =>
-                            item.receivedQuantity >
-                            (item.invoicedQuantity ?? 0),
-                        )
-                      }
-                      onClick={() =>
-                        void run(
-                          () =>
-                            callAdministration("submitSupplierInvoice", {
-                              purchaseOrderId: order.id,
-                              supplierInvoiceNumber: invoiceNumbers[order.id],
-                              invoiceDate: invoiceIssueDates[order.id] ?? today,
-                              dueDate: invoiceDueDates[order.id] || undefined,
-                              lines: (itemsByOrder.get(order.id) ?? [])
-                                .filter(
-                                  (item) =>
-                                    item.receivedQuantity >
-                                    (item.invoicedQuantity ?? 0),
-                                )
-                                .map((item) => ({
-                                  purchaseOrderItemId: item.id,
-                                  quantity:
-                                    item.receivedQuantity -
-                                    (item.invoicedQuantity ?? 0),
-                                })),
-                              idempotencyKey: crypto.randomUUID(),
-                            }),
-                          `Invoice ${invoiceNumbers[order.id]} submitted for approval.`,
-                        )
-                      }
-                    >
-                      <PackagePlus className="mr-2 size-4" /> Match received
-                      goods to invoice
-                    </Button></FinancialAction>
-                  </div>
+                ["partially_received", "received"].includes(order.status) && (itemsByOrder.get(order.id) ?? []).some(item => availableForMatching(item) > 0) && (
+                  <SupplierInvoiceMatch key={JSON.stringify([order.id, (itemsByOrder.get(order.id) ?? []).map(item => [item.id, item.receivedQuantity, item.invoicedQuantity, item.pendingInvoiceQuantity, item.matchableQuantity, item.unitCostMinor, item.vatRateBasisPoints])])}
+                    items={itemsByOrder.get(order.id) ?? []} busy={busy}
+                    onMatch={input => matchInvoice(order, input)} />
                 )}
-              {["partially_received", "received"].includes(order.status) && !(itemsByOrder.get(order.id) ?? []).some(item => item.receivedQuantity > (item.invoicedQuantity ?? 0)) && <div className="mt-4 rounded-lg bg-emerald-50 p-3 text-sm">All received goods are already matched to invoices. No new invoice is needed for these goods. {can("payables.read") && <Button variant="outline" className="ml-2" onClick={() => { setInvoiceSearch(order.purchaseOrderNumber); dismissDetail(); setTab("invoices"); }}>View recorded invoices</Button>}</div>}
+              {!detail.pendingInvoiceCount && ["partially_received", "received"].includes(order.status) && !(itemsByOrder.get(order.id) ?? []).some(item => availableForMatching(item) > 0) && <div className="mt-4 rounded-lg bg-emerald-50 p-3 text-sm">All received goods are already matched to invoices. No new invoice is needed for these goods. {can("payables.read") && <Button variant="outline" className="ml-2" onClick={() => { setInvoiceSearch(order.purchaseOrderNumber); dismissDetail(); setTab("invoices"); }}>View recorded invoices</Button>}</div>}
             </article></FinancialActionScope>
           ))}
         </div>
@@ -1025,11 +1002,12 @@ function ProcurementWorkspace() {
                     <FinancialText>{invoice.supplierName}</FinancialText> · <FinancialText>{invoice.purchaseOrderNumber}</FinancialText>
                   </p>
                   <p className="mt-1 text-sm">
-                    Outstanding <strong className={invoice.outstandingAmountMinor > 0 ? "finance-attention" : "finance-neutral"}><FinancialValue>{formatNaira(invoice.outstandingAmountMinor)}</FinancialValue></strong> ·{" "}
+                    {isInactiveInvoice(invoice.status) ? "Amount due" : "Outstanding"} <strong className={invoiceAmountDue(invoice) > 0 ? "finance-attention" : "finance-neutral"}><FinancialValue>{formatNaira(invoiceAmountDue(invoice))}</FinancialValue></strong> ·{" "}
                     <span className="capitalize">
                       <FinancialText>{invoice.status === "paid" && invoice.creditedAmountMinor ? "settled (includes credit note)" : invoice.status.replaceAll("_", " ")}</FinancialText>
                     </span>
                   </p>
+                  {isInactiveInvoice(invoice.status) && <p className="mt-2 text-sm text-[var(--muted)]">Original invoice amount: <FinancialValue>{formatNaira(invoice.grossAmountMinor)}</FinancialValue>. This <FinancialText>{invoice.status}</FinancialText> invoice cannot be approved or paid. Its original record is retained.</p>}
                 </div>
                 <div className="flex flex-col gap-2 sm:flex-row">
                   {["approved", "partially_paid", "paid"].includes(invoice.status) && <Button variant="outline" disabled={busy} onClick={() => setReturnInvoiceId(invoice.id)}>Returns & credit notes</Button>}

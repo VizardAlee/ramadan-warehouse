@@ -28,6 +28,7 @@ import {
   nairaToKobo,
 } from "@/features/inventory/format";
 import { hasPermission } from "@/lib/permissions/roles";
+import { useBranchStockCosts } from "@/features/products/use-branch-stock-costs";
 import { useBranchPriceColumns } from "@/features/products/branch-price-columns";
 import { MarginReview } from "@/features/products/margin-review";
 import { BranchPrices } from "@/features/products/branch-prices";
@@ -109,9 +110,10 @@ export default function ProductsPage() {
 
 function ProductCatalogue() {
   const { profile, operatingContext } = useAuth();
-  const branchPriceColumns = useBranchPriceColumns();
+  const stockCosts = useBranchStockCosts();
+  const branchPriceColumns = useBranchPriceColumns(stockCosts);
   const canReadCost = Boolean(profile && hasPermission(profile, "inventory.cost.read"));
-  const catalogueColumnCount = canReadCost ? 13 : 11;
+  const catalogueColumnCount = canReadCost ? 14 : 11;
   const products = useOrganizationCollection<Product>("products");
   const categories =
     useOrganizationCollection<ProductCategory>("productCategories");
@@ -341,8 +343,9 @@ function ProductCatalogue() {
       )}
       {inventoryError && <p role="alert" className="rounded-lg bg-red-50 p-3 text-red-800"><FinancialText>{inventoryError}</FinancialText></p>}
       {canReadCost && <p className="text-sm text-[var(--muted)]">
-        Estimated gross margins use catalogue default cost and each branch’s effective selling price before VAT: (selling price − cost) ÷ selling price × 100. These are not posted profit; inventory costs may differ. Unknown means a cost or price is missing or invalid. Zero catalogue cost and services have no meaningful estimate.
+        Estimated gross margins use current branch stock cost (total stock value ÷ total on-hand quantity across all branch locations and lots) and effective selling prices before VAT. This is a weighted estimate, not posted profit or exact POS cost for a particular location or serial. Saved default cost remains separate. No stock, unavailable cost, zero cost, and services have no meaningful estimate.
       </p>}
+      {canReadCost && <div className="flex items-center gap-3 text-sm"><Button variant="secondary" onClick={stockCosts.refresh} disabled={stockCosts.status === "loading"}>Refresh stock costs</Button><span>{stockCosts.loadedAt ? `Stock snapshot loaded ${new Date(stockCosts.loadedAt).toLocaleTimeString()}. Refresh after stock changes.` : "Stock costs are a snapshot; refresh after stock changes."}</span></div>}
       <div className="responsive-table-wrap">
         <table className="responsive-table">
           <thead className="bg-slate-50">
@@ -353,6 +356,7 @@ function ProductCatalogue() {
                 "Tracking",
                 "Unit",
                 "Default cost",
+                ...(canReadCost ? ["Branch stock cost"] : []),
                 "Central retail",
                 "Central VAT",
                 "Branch retail",
@@ -416,6 +420,7 @@ function ProductCatalogue() {
                       return cost === undefined || !Number.isSafeInteger(cost) || cost < 0 ? "Unknown" : formatNaira(cost);
                     })()}</FinancialValue>
                   </td>
+                  {canReadCost && <td data-label="Branch stock cost" className="px-4">{branchPriceColumns.stockCost(product.id, product.itemKind === "service")}</td>}
                   <td data-label="Central retail" className="px-4">
                     <FinancialValue>{productSalesPrices.loading ? "Loading…" : productSalesPrices.error ? "Unable to load" : (() => {
                       const price = productSalesPrices.data.find(price => price.productId === product.id || price.id === product.id);
@@ -438,9 +443,8 @@ function ProductCatalogue() {
                     return <Fragment key={tier}>
                       <td data-label={`Branch ${tier}`} className="px-4 py-3">{branchPriceColumns.price(product.id, central, tier, centralStatus)}</td>
                       {canReadCost && <td data-label={`${tier === "retail" ? "Retail" : "Wholesale"} margin`} className="px-4 py-3">{branchPriceColumns.margin(product.id, central, tier, {
-                        unitCostMinor: productCosts.data.find(cost => cost.productId === product.id || cost.id === product.id)?.defaultUnitCostMinor,
-                        loading: productCosts.loading,
-                        error: productCosts.error,
+                        loading: false,
+                        error: null,
                         service: product.itemKind === "service",
                       }, centralStatus)}</td>}
                     </Fragment>;
