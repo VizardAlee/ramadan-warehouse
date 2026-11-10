@@ -88,6 +88,26 @@ describe("supplier invoice price review", () => {
     for (const amount of ["2,345.67", "1,234.56", "1,111.11", "3,333.33", "7.5"]) expect(view.container.innerHTML).not.toContain(amount);
     expect(view.container.innerHTML).toContain("Financial value hidden");
   });
+  it("masks currency embedded in product labels while preserving revealed accessible names", async () => {
+    const key = privacyStorageKey("org", "user");
+    localStorage.setItem(key, JSON.stringify({ version: 1, hidden: false }));
+    const productName = "Panel ₦1,500";
+    const view = render(<FinancialPrivacyProvider organizationId="org" uid="user"><SupplierInvoiceMatch items={[{ ...item, productName }]} busy={false} onMatch={vi.fn(async () => {})} /></FinancialPrivacyProvider>);
+    const label = `Actual supplier unit price (₦) for ${productName}`;
+    expect(await screen.findByLabelText(label)).toBeTruthy();
+    await act(async () => {
+      localStorage.setItem(key, JSON.stringify({ version: 1, hidden: true }));
+      window.dispatchEvent(new StorageEvent("storage", { key }));
+    });
+    expect(view.container.innerHTML).not.toContain("₦1,500");
+    expect(view.container.innerHTML).not.toContain("1,500");
+    expect(screen.queryByLabelText(label)).toBeNull();
+    await act(async () => {
+      localStorage.setItem(key, JSON.stringify({ version: 1, hidden: false }));
+      window.dispatchEvent(new StorageEvent("storage", { key }));
+    });
+    expect(await screen.findByLabelText(label)).toBeTruthy();
+  });
   it("locks repeated submits until the pending request finishes", async () => {
     let finish!: () => void;
     const onMatch = vi.fn(() => new Promise<void>(resolve => { finish = resolve; }));
