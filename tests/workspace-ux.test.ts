@@ -15,14 +15,17 @@ describe("task-first workspaces", () => {
     expect(shell).not.toContain("visibleNavigation.slice(0, 5)");
   });
 
-  it("keeps mobile sale state in one cart panel without changing checkout actions", () => {
+  it("keeps mobile sale state in one cart panel with explicit handover choices", () => {
     const pos = source("src/app/(protected)/pos/page.tsx");
     expect(pos).toContain('aria-label="Point of sale workspace"');
     expect(pos).toContain('"Current sale and held sales"');
     // Cart focus and nested-dialog isolation have behavioral coverage in
     // pos-cart-service-drafts.test.tsx rather than depending on hook placement.
     expect(pos).toContain("void holdSale()");
-    expect(pos).toContain("confirmOrderPayment(order.id)");
+    // The actual handover and permission boundaries are exercised in
+    // pos-handover-confirmation.test.tsx; both intent choices stay reachable.
+    expect(pos).toContain('confirmOrderPayment(order.id, "now")');
+    expect(pos).toContain('confirmOrderPayment(order.id, "later")');
   });
 
   it("reuses the audited transfer detail action in a quick-view panel", () => {
