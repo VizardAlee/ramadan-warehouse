@@ -512,7 +512,7 @@ describe("approved transfer action scope and retry security", () => {
     const input = approvalInput();
     await invokeLegacy("approveTransfer", input);
     const role: StoredRole = { id: "approval-only", organizationId: "org", name: "Approval only", baseRoleId: "operations_administrator", permissionIds: ["transfers.approve"], status: "active" };
-    state.db.seed("roles/approval-only", role);
+    state.db.seed("roles/approval-only", { ...role });
     state.actor = { ...state.actor, ...buildRoleAssignment([], [role]) };
     await expect(invokeLegacy("approveTransfer", input)).rejects.toMatchObject({ code: "permission-denied" });
     expect(state.db.all("transferApprovals")).toHaveLength(1);
