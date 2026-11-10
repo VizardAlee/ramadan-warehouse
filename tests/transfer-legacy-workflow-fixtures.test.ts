@@ -415,6 +415,7 @@ function combinedAccess(base: RoleId = "operations_administrator", global: Permi
 const invokeLegacy = (name: keyof typeof legacy, data: object) => (legacy[name] as { run: (request: never) => Promise<unknown> }).run({ data } as never);
 function approvalInput() {
   seedDispatch();
+  state.actor = { ...state.actor, roleId: "operations_administrator", roleIds: ["operations_administrator"], directRoleIds: ["operations_administrator"] };
   state.db.seed("transfers/transfer", { ...state.db.row("transfers/transfer"), status: "under_review", totalPlannedQuantity: 4, createdBy: "manager" });
   for (const product of ["product", "other"]) state.db.seed(`transferItems/${product}`, { ...state.db.row(`transferItems/${product}`), plannedQuantity: 2 });
   return { transferId: "transfer", expectedVersion: 1, reason: "Source stock reviewed", idempotencyKey: crypto.randomUUID() };
@@ -476,7 +477,7 @@ describe("approved transfer action scope and retry security", () => {
     await expect(invokeLegacy("reportTransferDiscrepancy", { transferId: "transfer", dispatchId: "dispatch", expectedVersion: 1, type: "missing_quantity", description: "One unit missing", lines: [{ transferItemId: "product", quantity: 1 }], idempotencyKey: crypto.randomUUID(), operatingContext: { type: "branch", id: "branch" } })).resolves.toMatchObject({ created: true });
   });
 
-  it("preserves assigned manager self-approval and replays canonical parsed payloads without another write", async () => {
+  it("preserves administrator self-approval and replays canonical parsed payloads without another write", async () => {
     const input = approvalInput();
     await expect(invokeLegacy("approveTransfer", input)).resolves.toMatchObject({ changed: true });
     const count = state.db.all("transferApprovals").length;
@@ -510,26 +511,32 @@ describe("approved transfer action scope and retry security", () => {
   it("requires reading authority as well as action authority on replay", async () => {
     const input = approvalInput();
     await invokeLegacy("approveTransfer", input);
-    state.actor = { ...state.actor, directRoleIds: [], effectivePermissions: ["transfers.approve"] };
+    const role: StoredRole = { id: "approval-only", organizationId: "org", name: "Approval only", baseRoleId: "operations_administrator", permissionIds: ["transfers.approve"], status: "active" };
+    state.db.seed("roles/approval-only", role);
+    state.actor = { ...state.actor, ...buildRoleAssignment([], [role]) };
     await expect(invokeLegacy("approveTransfer", input)).rejects.toMatchObject({ code: "permission-denied" });
     expect(state.db.all("transferApprovals")).toHaveLength(1);
   });
 
   it("requires a working location for multiple scoped assignments despite a broad read-only role", async () => {
-    const input = approvalInput();
+    seedDispatch(["product"]);
     combinedAccess();
     state.actor = { ...state.actor, warehouseIds: ["warehouse", "second-warehouse"] };
-    await expect(invokeLegacy("approveTransfer", input)).rejects.toMatchObject({ details: { code: "OPERATING_CONTEXT_REQUIRED" } });
-    expect(state.db.all("transferApprovals")).toHaveLength(0);
+    const input = { transferId: "transfer", expectedVersion: 1, reason: "Source cancellation", idempotencyKey: crypto.randomUUID() };
+    await expect(invokeLegacy("cancelTransfer", input)).rejects.toMatchObject({ details: { code: "OPERATING_CONTEXT_REQUIRED" } });
+    expect(state.db.row("transfers/transfer").status).toBe("ready_for_dispatch");
+    expect(state.db.all("idempotencyKeys")).toHaveLength(0);
   });
 
   it("rechecks the selected working location before replay even when both locations are assigned", async () => {
-    const input = approvalInput();
+    seedDispatch(["product"]);
     combinedAccess();
     state.actor = { ...state.actor, warehouseIds: ["warehouse", "second-warehouse"] };
-    await expect(invokeLegacy("approveTransfer", { ...input, operatingContext: { type: "warehouse", id: "warehouse" } })).resolves.toMatchObject({ changed: true });
-    await expect(invokeLegacy("approveTransfer", { ...input, operatingContext: { type: "warehouse", id: "second-warehouse" } })).rejects.toMatchObject({ code: "permission-denied" });
-    expect(state.db.all("transferApprovals")).toHaveLength(1);
+    const input = { transferId: "transfer", expectedVersion: 1, reason: "Source cancellation", idempotencyKey: crypto.randomUUID() };
+    await expect(invokeLegacy("cancelTransfer", { ...input, operatingContext: { type: "warehouse", id: "warehouse" } })).resolves.toMatchObject({ cancelled: true });
+    const events = state.db.all("transferEvents").length;
+    await expect(invokeLegacy("cancelTransfer", { ...input, operatingContext: { type: "warehouse", id: "second-warehouse" } })).rejects.toMatchObject({ code: "permission-denied" });
+    expect(state.db.all("transferEvents")).toHaveLength(events);
   });
 
   it("revalidates child ownership before returning a cached dispatch result", async () => {
@@ -595,13 +602,15 @@ describe("approved transfer action scope and retry security", () => {
   });
 
   it("honors only the exact globally granted operations action and its current role document", async () => {
-    const input = seedDispatch(["product"]);
-    combinedAccess("operations_administrator", ["transfers.read.all", "transfers.dispatch"]);
-    await expect(dispatch(input)).resolves.toMatchObject({ confirmed: true });
-    await expect(cancellation()).rejects.toMatchObject({ code: "permission-denied" });
+    seedDispatch(["product"]);
+    combinedAccess("operations_administrator", ["transfers.read.all", "transfers.cancel"]);
+    const input = { transferId: "transfer", expectedVersion: 1, reason: "Globally authorized cancellation", idempotencyKey: crypto.randomUUID() };
+    await expect(invokeLegacy("cancelTransfer", input)).resolves.toMatchObject({ cancelled: true });
+    const events = state.db.all("transferEvents").length;
+    await expect(invokeLegacy("reserveTransferStock", { ...input, idempotencyKey: crypto.randomUUID() })).rejects.toMatchObject({ code: "permission-denied" });
     state.db.seed("roles/global-reader", { ...state.db.row("roles/global-reader"), permissionIds: ["transfers.read.all"] });
-    await expect(dispatch(input)).rejects.toMatchObject({ code: "permission-denied" });
-    expect(state.db.all("inventoryTransactions")).toHaveLength(1);
+    await expect(invokeLegacy("cancelTransfer", input)).rejects.toMatchObject({ code: "permission-denied" });
+    expect(state.db.all("transferEvents")).toHaveLength(events);
   });
 
   it("retains explicitly assigned organization administrator authority", async () => {

@@ -25,13 +25,14 @@ const manager = (side: "source" | "destination"): AccessProfile => ({
   roleIds: ["branch_manager"], directRoleIds: ["branch_manager"],
   branchIds: [side === "source" ? "source-branch" : "branch"], warehouseIds: [], authorizationVersion: 1,
 });
+const purchaser: AccessProfile = { userId: "purchaser", organizationId: "org", roleId: "purchasing_manager", roleIds: ["purchasing_manager"], directRoleIds: ["purchasing_manager"], branchIds: [], warehouseIds: [], authorizationVersion: 1 };
 function balance(location = "source", product = "product", lot?: string) {
   return `inventoryBalances/${balanceDocumentId("org", product, location, lot)}`;
 }
 const transfer = (id: string) => state.db.row(`stockTransfers/${id}`) as unknown as StockTransfer;
 const key = () => crypto.randomUUID();
 async function create(quantity = 5, extra: object = {}) {
-  state.actor = manager("destination");
+  state.actor = purchaser;
   const id = (await invoke({ action: "create", sourceLocationId: "source", destinationLocationId: "destination", items: [{ productId: "product", quantity }], idempotencyKey: key(), ...extra })).transferId;
   // New branch supplies require administrator pricing before stock confirmation.
   state.actor = {userId:"admin",organizationId:"org",roleId:"system_administrator",roleIds:["system_administrator"],directRoleIds:["system_administrator"],branchIds:[],warehouseIds:[],authorizationVersion:1};
@@ -40,7 +41,7 @@ async function create(quantity = 5, extra: object = {}) {
   return id;
 }
 async function approve(id: string, quantity = transfer(id).items[0]!.requested) {
-  state.actor = manager("source");
+  state.actor = purchaser;
   return invoke({ action: "approve", transferId: id, version: transfer(id).version, lines: [{ id: transfer(id).items[0]!.id, quantity }], idempotencyKey: key() });
 }
 async function receive(id: string, received: number, damaged = 0) {
@@ -77,11 +78,16 @@ describe("offline manager transfer workflows", () => {
     state.db.seed("inventoryLocations/foreign", { organizationId: "other", status: "active", type: "warehouse", warehouseId: "warehouse" });
     const result = await invoke<{ locations: Array<{ id: string; name: string; assigned: boolean }> }>({ action: "options" });
     expect(result.locations).toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: "source", name: "Sending store", assigned: true }),
+      expect.objectContaining({ id: "source", name: "Sending store", assigned: false }),
       expect.objectContaining({ id: "destination", name: "Receiving branch", assigned: false }),
       expect.objectContaining({ id: "warehouse", name: "Main warehouse", assigned: false }),
     ]));
     expect(result.locations).toHaveLength(3);
+    // Assignment here means initiation authority, which plain managers no longer have.
+    state.actor = purchaser;
+    const purchasing = await invoke<{ locations: Array<{ assigned: boolean }> }>({ action: "options" });
+    expect(purchasing.locations).toHaveLength(3);
+    expect(purchasing.locations.every(location => location.assigned)).toBe(true);
     for (const hidden of ["closed", "transit", "foreign"]) expect(result.locations.map(location => location.id)).not.toContain(hidden);
   });
 
@@ -139,6 +145,7 @@ describe("offline manager transfer workflows", () => {
     const line = transfer(id).items[0]!;
     await expect(invoke({ action: "approve", transferId: id, version: transfer(id).version, lines: [{ id: line.id, quantity: 5 }], idempotencyKey: key() })).rejects.toMatchObject({ code: "permission-denied" });
     await approve(id);
+    state.actor = manager("source");
     await expect(invoke({ action: "receive", transferId: id, version: transfer(id).version, lines: [{ id: line.id, received: 5, damaged: 0 }], idempotencyKey: key() })).rejects.toMatchObject({ code: "permission-denied" });
     state.actor = manager("destination");
     await expect(invoke({ action: "receive", transferId: id, version: 0, lines: [{ id: line.id, received: 5, damaged: 0 }], idempotencyKey: key() })).rejects.toMatchObject({ code: "failed-precondition" });
@@ -149,7 +156,7 @@ describe("offline manager transfer workflows", () => {
   it("rolls back all lines on insufficient stock and rejects a competing approval after the hold", async () => {
     state.db.seed("products/empty", { organizationId: "org", active: true, trackingType: "quantity", name: "Empty", sku: "EMPTY" });
     const multi = await create(5, { items: [{ productId: "product", quantity: 5 }, { productId: "empty", quantity: 1 }] });
-    state.actor = manager("source");
+    state.actor = purchaser;
     await expect(invoke({ action: "approve", transferId: multi, version: transfer(multi).version, lines: transfer(multi).items.map(line => ({ id: line.id, quantity: line.requested })), idempotencyKey: key() })).rejects.toMatchObject({ code: "failed-precondition" });
     expect(state.db.row(balance()).reservedQuantity).toBe(0);
     expect(transfer(multi).status).toBe("requested");
@@ -184,7 +191,7 @@ describe("offline manager transfer workflows", () => {
     for (const serial of serialItemIds) state.db.seed(`serializedItems/${serial}`, { organizationId: "org", productId: "tracked", serialNumber: serial, currentLocationId: "source", branchId: "source-branch", status: "at_branch", active: true, currentUnitCostMinor: 100 });
     const id = await create(2, { items: [{ productId: "tracked", quantity: 2, ...(lotId ? { lotId } : {}) }] });
     const lineId = transfer(id).items[0]!.id;
-    state.actor = manager("source");
+    state.actor = purchaser;
     const approval = { action: "approve", transferId: id, version: transfer(id).version, lines: [{ id: lineId, quantity: 2, serialItemIds }], idempotencyKey: key() };
     if (trackingType === "serial") {
       await expect(invoke({ ...approval, lines: [{ id: lineId, quantity: 2, serialItemIds: [serialItemIds[0], serialItemIds[0]] }] })).rejects.toMatchObject({ code: "failed-precondition" });

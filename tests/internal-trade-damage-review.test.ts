@@ -28,6 +28,17 @@ describe("held internal-trade damage charging", () => {
     const request = input(); await reviewInternalTradeDamage(actor, request);
     await expect(reviewInternalTradeDamage({ ...actor, effectivePermissions: [] }, request)).rejects.toMatchObject({ code: "permission-denied" });
   });
+  it("never promotes purchasing, warehouse, or custom administrator bases into pricing authority", async () => {
+    for (const role of ["purchasing_manager", "warehouse_manager"] as const) {
+      const restricted: AccessProfile = { ...actor, roleId: role, roleIds: [role], directRoleIds: [role] };
+      expect(canReviewInternalTradeDamage(restricted)).toBe(false);
+      await expect(reviewInternalTradeDamage(restricted, input())).rejects.toMatchObject({ code: "permission-denied" });
+    }
+    const custom: AccessProfile = { ...actor, directRoleIds: [], customRoleIds: ["custom-admin"] };
+    expect(canReviewInternalTradeDamage(custom)).toBe(false);
+    expect(canReviewInternalTradeDamage({ ...actor, effectivePermissions: [] })).toBe(false);
+    expect(state.db.all("internalTradeDamageReviews")).toHaveLength(0);
+  });
   it("charges only reviewed pending damage at immutable price, without any stock or external entries", async () => {
     const result = await reviewInternalTradeDamage(actor, input("charge", 2));
     expect(result).toMatchObject({ amountMinor: 400, repeated: false, entryId: "invoice_000000000002" });

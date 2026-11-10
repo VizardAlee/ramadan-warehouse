@@ -168,6 +168,16 @@ describe("combined custom global reading and scoped transfer actions", () => {
       }
     }
   });
+  it("preserves only an already explicit direct administrator pricing grant", async () => {
+    for (const granted of [false, true]) {
+      custom("operations_administrator", ["transfers.read.all", ...(granted ? ["transfers.cost.create" as const] : [])]);
+      state.actor = { ...state.actor, directRoleIds: ["operations_administrator"] };
+      await expect(invoke({ action: "options" })).resolves.toMatchObject({ canPrice: granted, canReviewDamage: granted });
+    }
+    custom("purchasing_manager", ["transfers.read.all", "transfers.cost.create"]);
+    state.actor = { ...state.actor, directRoleIds: ["purchasing_manager"] };
+    await expect(invoke({ action: "options" })).resolves.toMatchObject({ canPrice: false, canReviewDamage: false });
+  });
   it("preserves direct operations-administrator global actions", async () => {
     custom("operations_administrator", ["transfers.read.all"]); state.actor = { ...state.actor, directRoleIds: ["operations_administrator"] }; state.get.mockResolvedValue(transferSnapshot());
     await expect(invoke({ action: "get", transferId: "transfer" })).resolves.toMatchObject({ canApprove: true, canReceive: true });

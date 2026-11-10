@@ -27,17 +27,18 @@ const manager = (side: "source" | "destination"): AccessProfile => ({
   roleIds: ["branch_manager"], directRoleIds: ["branch_manager"],
   branchIds: [side === "source" ? "source-branch" : "branch"], warehouseIds: [], authorizationVersion: 1,
 });
+const purchaser: AccessProfile = { userId: "purchaser", organizationId: "org", roleId: "purchasing_manager", roleIds: ["purchasing_manager"], directRoleIds: ["purchasing_manager"], branchIds: [], warehouseIds: [], authorizationVersion: 1 };
 function balance(location = "source", product = "product", lot?: string) {
   return `inventoryBalances/${balanceDocumentId("org", product, location, lot)}`;
 }
 const transfer = (id: string) => state.db.row(`stockTransfers/${id}`) as unknown as StockTransfer;
 const key = () => crypto.randomUUID();
 async function create(quantity = 5, extra: object = {}) {
-  state.actor = manager("destination");
+  state.actor = purchaser;
   return (await invoke({ action: "create", sourceLocationId: "source", destinationLocationId: "destination", items: [{ productId: "product", quantity }], idempotencyKey: key(), ...extra })).transferId;
 }
 async function approve(id: string, quantity = transfer(id).items[0]!.requested) {
-  state.actor = manager("source");
+  state.actor = purchaser;
   return invoke({ action: "approve", transferId: id, version: transfer(id).version, lines: [{ id: transfer(id).items[0]!.id, quantity }], idempotencyKey: key() });
 }
 async function receive(id: string, received: number, damaged = 0) {

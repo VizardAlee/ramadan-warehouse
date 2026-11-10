@@ -354,7 +354,7 @@ export function hasPermission(
   }
   // Purchasing grants follow the current role definitions, including revocations.
   // Never trust an old Branch Manager effective-permission snapshot.
-  if ((permission.startsWith("transfers.") || permission === "inventory.read") || permission.startsWith("procurement.") || permission.startsWith("payables.") || permission.startsWith("suppliers.")) {
+  if (((permission.startsWith("transfers.") && !permission.startsWith("transfers.cost.")) || permission === "inventory.read") || permission.startsWith("procurement.") || permission.startsWith("payables.") || permission.startsWith("suppliers.")) {
     const direct = profile.directRoleIds ?? (profile.customRoleIds?.length || profile.effectivePermissions ? [] : assignedRoles);
     if (permissionsForRoles(direct).has(permission)) return true;
     return permissionsForRoles(assignedRoles).has(permission) && Boolean(profile.effectivePermissions?.includes(permission));

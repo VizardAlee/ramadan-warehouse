@@ -310,8 +310,10 @@ function event(
 
 export const stockTransfers = onCall({ enforceAppCheck }, async (request) => {
   let actor: TransferAccess = await requireAccess(request);
+  const existingAdministratorPricing = canPrice(actor);
   const financialAccess = await scopedAccess(actor);
-  actor = {...actor,effectivePermissions:financialAccess.effectivePermissions,financialPermissions:financialAccess.effectivePermissions,organizationFinancialPermissions:financialAccess.organizationPermissions,organizationTransferPermissions:(financialAccess.allBranchPermissions ?? []).filter(permission=>permission.startsWith("transfers."))};
+  const currentPermissions = [...new Set([...(financialAccess.effectivePermissions ?? []), ...(existingAdministratorPricing ? ["transfers.cost.create" as const] : [])])];
+  actor = {...actor,effectivePermissions:currentPermissions,financialPermissions:financialAccess.effectivePermissions,organizationFinancialPermissions:financialAccess.organizationPermissions,organizationTransferPermissions:(financialAccess.allBranchPermissions ?? []).filter(permission=>permission.startsWith("transfers."))};
   if (
     !manager(actor) &&
     !hasRole(actor, "auditor") &&

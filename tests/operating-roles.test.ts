@@ -52,8 +52,9 @@ describe("custom operating roles", () => {
     }
     expect(canCreateStockTransfer(user)).toBe(false);
     expect(canCreateStockTransfer(user, true)).toBe(false);
-    expect(canCreateStockTransfer(profile([2], ["branch_manager"]))).toBe(true);
-    expect(canCreateStockTransfer({ ...user, customRoleIds: undefined, effectivePermissions: undefined, directRoleIds: undefined })).toBe(true);
+    expect(canCreateStockTransfer(profile([2], ["branch_manager"]))).toBe(false);
+    expect(canCreateStockTransfer(profile([2], ["purchasing_manager"]))).toBe(true);
+    expect(canCreateStockTransfer({ ...user, customRoleIds: undefined, effectivePermissions: undefined, directRoleIds: undefined })).toBe(false);
     expect(canCreateStockTransfer({ ...user, status: "inactive" })).toBe(false);
   });
 });

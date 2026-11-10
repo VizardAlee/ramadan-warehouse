@@ -901,7 +901,7 @@ export function hasServerPermission(
   if ((permission === "sales.stock.release" || permission === "banking.transfer" || permission === "finance.journal.create" || permission === "finance.journal.reverse" || permission === "finance.accounts.manage" || permission === "finance.tax.manage" || permission === "finance.budget.manage" || permission.startsWith("daily.close.")) && actor.directRoleIds?.some((roleId) => rolePermissions[roleId].includes(permission))) return true;
   // Revoke stale built-in/custom Branch Manager purchasing grants while keeping
   // the permissions of separately assigned legitimate roles.
-  if ((permission.startsWith("transfers.") || permission === "inventory.read") || permission.startsWith("procurement.") || permission.startsWith("payables.") || permission.startsWith("suppliers.")) {
+  if (((permission.startsWith("transfers.") && !permission.startsWith("transfers.cost.")) || permission === "inventory.read") || permission.startsWith("procurement.") || permission.startsWith("payables.") || permission.startsWith("suppliers.")) {
     const assigned = accessRoleIds(actor);
     const direct = actor.directRoleIds ?? (actor.customRoleIds?.length || actor.effectivePermissions ? [] : assigned);
     if (direct.some(role => rolePermissions[role].includes(permission))) return true;

@@ -109,11 +109,12 @@ describe("server authorization controls", () => {
     expect(hasServerPermission(scoped, "transfers.dispatch")).toBe(true);
     expect(hasServerPermission(scoped, "products.create")).toBe(true);
   });
-  it("gives warehouse managers complete warehouse operations without branch receiving authority", () => {
+  it("preserves warehouse operations while withholding transfer initiation and approval", () => {
     const manager = actor("warehouse_manager");
     expect(hasServerPermission(manager, "inventory.opening_stock")).toBe(true);
     expect(hasServerPermission(manager, "inventory.reconcile")).toBe(true);
-    expect(hasServerPermission(manager, "transfers.create.from_request")).toBe(true);
+    expect(hasServerPermission(manager, "transfers.create.from_request")).toBe(false);
+    expect(hasServerPermission(manager, "transfers.approve")).toBe(false);
     expect(hasServerPermission(manager, "transfers.cost.reconcile")).toBe(true);
     expect(hasServerPermission(manager, "transfers.create.direct")).toBe(false);
     expect(hasServerPermission(manager, "transfers.receive")).toBe(false);

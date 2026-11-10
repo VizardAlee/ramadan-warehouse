@@ -1,13 +1,13 @@
 {
   "lastLiveAudit": {
     "project": "ramadan-warehouse-staging",
-    "verifiedAt": "2026-11-10T15:34:42.889Z",
+    "verifiedAt": "2026-11-10T16:34:22.696Z",
     "queryShapes": 845,
     "unsupportedQueries": 0,
     "readyIndexes": 298,
     "indexInventoryVerifiedAt": "2026-11-10T13:14:19.403Z",
     "probeMethod": "planner-only (analyze=false), with sentinel-scope missing-index diagnostics; no mutations",
-    "plannerEvidenceSha256": "e55e2ddcaacdb4c8357d01954a5d9c4f33ed2f83d19651ff8c3c6940e90e4a75",
+    "plannerEvidenceSha256": "dd7004e3ae6168b19f9186d55cdc2878aefe1a462083900852f46ba3ac4fc52b",
     "priorSingleFieldOverrideEvidence": 0,
     "reviewedBase": "b9596d27cacea90d3752a300baf92db3c9474050"
   },
@@ -18,7 +18,7 @@
     "functions/src/accounting/stock-postings.ts": "005230ec2a728e426d435a3574e4ccd3e08928f30db4f8c710069da12137f24e",
     "functions/src/accounting/write-journal.ts": "59dddcf12c8464a2d5b3376613e168c4d683a3714e6662ba306ddc3e2c6a7120",
     "functions/src/audit/write-audit-log.ts": "67bcbf26853633bfd0a9335731877c6eca663d12bb7ecae9942c3511db515699",
-    "functions/src/auth/authorize.ts": "02ad34540dd1634a795407657d77b512abdffc4263c6d01bac7ab26a7005c671",
+    "functions/src/auth/authorize.ts": "7095f829397dcbde9e71f268efd55cd63bd41b8bdc71a963b755be1671152c5c",
     "functions/src/auth/custom-roles.ts": "ae876b742ef6ffbe8f029007b388e33a9123168dadf9d9c8b2f61ca49d888bcf",
     "functions/src/auth/view-scope.ts": "a8c6b3bab6cef20db563a63b9006c24a516731443f698b83c622c7b67df5a700",
     "functions/src/billing/sale-context.ts": "4e3542d870160de4a8458d5699d2450e739d2c4bd044256b5ab9a746a22edf26",
@@ -60,7 +60,7 @@
     "functions/src/callable/sales.ts": "11e20780d916153f03a262e826531076967c0d58c2f882bf0956b99a9d0a8f22",
     "functions/src/callable/service-billing-case.ts": "d60574eac1572f593c1f3ea44c44419821e83ad0ea34712aac4ca0376fa27f3a",
     "functions/src/callable/stock-counts.ts": "cc25ae2108bc606d887224765c55246e92904a5455260ee94803aed76b7516d3",
-    "functions/src/callable/stock-transfers.ts": "e0fa04ce10acf06f0b439021d81f8115291ac98822d2fdce75cf37028a6585b4",
+    "functions/src/callable/stock-transfers.ts": "18235ba5772684059520231781a7e23838013c541e6f93d3602ff2fd6652e002",
     "functions/src/callable/tax-rule-administration.ts": "110f57bc7243fbff7c8f4cd2915bf02ebc123558b59a9677935db2c1a642754c",
     "functions/src/callable/transfers.ts": "c3d872bc377931b846b6352e9997ccf458b502dee52fb906cc8329a9de12b0c1",
     "functions/src/callable/user-activity.ts": "c84e0e1945009a5f6f2434ce51e8c1fea5625d97a7bab97106d9e2ced2d9e80f",

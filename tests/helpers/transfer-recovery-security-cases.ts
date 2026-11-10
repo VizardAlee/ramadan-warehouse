@@ -79,7 +79,8 @@ describe.sequential("real posting engine interruption and retry security", () =>
     h = await setupTransferHarness({ suffix: `review-${action.toLowerCase()}`, openingQuantity: 4 });
     const draft = await approvedDraft();
     await call(h.creator, "submitTransfer", { transferId: draft.transferId, expectedVersion: 0, idempotencyKey: crypto.randomUUID() });
-    await call(h.manager, "approveTransfer", { transferId: draft.transferId, expectedVersion: 1, idempotencyKey: crypto.randomUUID() });
+    await expect(call(h.manager, "approveTransfer", { transferId: draft.transferId, expectedVersion: 1, idempotencyKey: crypto.randomUUID() })).rejects.toMatchObject({ code: "functions/permission-denied" });
+    await call(h.creator, "approveTransfer", { transferId: draft.transferId, expectedVersion: 1, idempotencyKey: crypto.randomUUID() });
     if (action !== "reserveTransferStock") await call(h.manager, "reserveTransferStock", { transferId: draft.transferId, expectedVersion: 1, idempotencyKey: crypto.randomUUID() });
     const input = { transferId: draft.transferId, expectedVersion: 1, reason: "Original reviewed command", idempotencyKey: crypto.randomUUID() };
     const cachePath = `idempotencyKeys/${h.organizationId}_transferCommand_${input.idempotencyKey}`;
