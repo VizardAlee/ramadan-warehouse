@@ -1,13 +1,14 @@
-# Head-office and branch trading
+# Interbranch trading
 
-## Two supply routes
+## Internal and external supply routes
 
-New transfers from the administrator-designated Head Office, or its configured
-supply warehouse, to another branch use an internal trading agreement. Other
-store-to-store movements retain their existing inventory-only behavior. An
-administrator must set each internal unit price before the source confirms the
-stock. Prices and the HQ counterpart are snapshotted and cannot change after
-approval. Changing HQ setup affects future requests, not existing agreements.
+New transfers between any two different active branches use an internal trading
+agreement, including ordinary branch-to-branch supplies and supplies back to
+head office. The configured HQ supply warehouse retains the same behavior.
+Other warehouses without a configured supplying branch remain inventory-only.
+An administrator must set each internal unit price before source confirmation.
+Prices and the supplying branch are snapshotted and cannot change after approval.
+Changing HQ setup affects future warehouse requests, not existing agreements.
 
 An independent branch purchase continues through **Procurement** with the
 existing purchase-order, receiving, supplier-invoice and payment permissions.
@@ -18,7 +19,7 @@ not assign procurement, financial or banking privileges to staff.
 
 The existing stock-receipt transaction remains the only stock movement. Each
 partial receipt adds only newly confirmed good quantities to the internal
-invoice, records immutable receipt evidence and updates the branch/HQ balance
+invoice, records immutable receipt evidence and updates the buying/supplying branch balance
 in that same transaction. An invoice is a cumulative operational projection;
 its underlying receipt, payment, damage-review and return entries are retained.
 No invoice or debt exists merely because stock was requested or held.
@@ -35,7 +36,7 @@ prices are migrated or inferred.
 
 ## Payment and return records
 
-**Move stock → Head-office accounts** shows internal invoices, full persisted
+**Move stock → Interbranch accounts** shows internal invoices, full persisted
 balances and invoice entries. A branch can leave an invoice on credit. Staff
 with existing organization-wide `banking.transfer` authority may record a
 completed payment immediately or later. Recording a payment does not send
@@ -102,3 +103,21 @@ integration suite is `npm run test:internal-trading`; it is also included in
 the normal callable and production gates. New query shapes and changed query
 sources require the existing read-only live query audit before its baseline is
 updated. Deployment and live acceptance are separate from source/test success.
+
+## Compatibility and branch statements
+
+Persisted `headOfficeBranchId` and `headOfficeBranchName` are compatibility
+fields for the supplying branch; `branchId` identifies the buyer. Existing
+invoice and balance IDs remain unchanged. No historical rewrite is required.
+The same pair may trade in either direction, with separate directional balances.
+A permitted branch sees only invoices and balances where it is buyer or supplier,
+using its existing financial and stock-transfer read grants. Branch filters do
+not grant access to unrelated branches. Organization-wide payment authority and
+administrator-only pricing/return authority remain unchanged.
+
+The Banking account screen shows a full recorded ledger balance and the latest
+500 account movements, including interbranch payments. Full balance aggregates
+are not calculated from the displayed history slice. Posted opening journals
+are included; setup-only balances and unrecorded bank activity are not. It is
+not a live bank balance. Switching account or operating location hides old
+balance details until the matching response arrives.

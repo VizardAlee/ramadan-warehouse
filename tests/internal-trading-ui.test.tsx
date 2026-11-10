@@ -19,7 +19,7 @@ describe("internal branch trading UI", () => {
   it("does not add pricing to legacy transfers or allow edits after confirmation", () => {
     const onPrice = vi.fn();
     const view = render(<HQTransferPricing transfer={{...transfer, tradeAgreement: undefined}} canPrice disabled={false} onPrice={onPrice} />);
-    expect(screen.queryByText("Head-office internal prices")).toBeNull();
+    expect(screen.queryByText("Interbranch internal prices")).toBeNull();
     view.rerender(<HQTransferPricing transfer={{...transfer, status: "awaiting_receipt"}} canPrice disabled={false} onPrice={onPrice} />);
     expect(screen.queryByRole("button", {name: "Save internal prices"})).toBeNull();
   });
@@ -78,7 +78,7 @@ describe("internal branch trading UI", () => {
     fireEvent.change(screen.getByLabelText("Date money moved"), {target: {value: "2026-10-01T12:00"}});
     fireEvent.change(screen.getByLabelText("Payment reference"), {target: {value: "BANK-REF"}});
     fireEvent.change(screen.getByLabelText("Branch source bank account"), {target: {value: "source"}});
-    fireEvent.change(screen.getByLabelText("Head-office destination bank account"), {target: {value: "dest"}});
+    fireEvent.change(screen.getByLabelText("Supplying branch destination bank account"), {target: {value: "dest"}});
     fireEvent.click(screen.getByLabelText(/I confirm this payment/));
     fireEvent.click(screen.getByRole("button", {name: "Record completed internal payment"}));
     await screen.findByRole("button", {name: "Retry saved action"});

@@ -48,7 +48,7 @@ function invoiceLines(snapshot: DocumentSnapshot): InvoiceLine[] {
     fail("The internal invoice lines need administrator review.");
   return lines;
 }
-/** A return is confirmation of goods physically back at their original HQ stock area. */
+/** A return is confirmation of goods physically back at their original supplying stock area. */
 export async function returnInternalTradeGoods(actor: AccessProfile, raw: InternalTradeReturnInput) {
   requireAdmin(actor);
   const input = internalTradeReturnInput.parse(raw);
@@ -115,7 +115,7 @@ export async function returnInternalTradeGoods(actor: AccessProfile, raw: Intern
       if (!balance!.exists || balance!.get("organizationId") !== actor.organizationId || balance!.get("branchId") !== branchId || balance!.get("headOfficeBranchId") !== headOfficeBranchId)
         fail("The branch's internal balance needs administrator review.");
       if (!source!.exists || source!.get("organizationId") !== actor.organizationId || source!.get("branchId") !== branchId || source!.get("type") !== "branch" || !destination!.exists || destination!.get("organizationId") !== actor.organizationId)
-        fail("The original branch and HQ locations are no longer valid.");
+        fail("The original buying and supplying locations are no longer valid.");
       const currentSerials = new Map(serials.map(serial => [serial.id, serial]));
       let amountMinor = 0;
       const currentLines = invoiceLines(invoice!);

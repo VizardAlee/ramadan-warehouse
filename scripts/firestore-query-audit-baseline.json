@@ -1,17 +1,17 @@
 {
   "lastLiveAudit": {
     "project": "ramadan-warehouse-staging",
-    "verifiedAt": "2026-11-10T09:31:50.991Z",
-    "queryShapes": 838,
+    "verifiedAt": "2026-11-10T13:15:57.123Z",
+    "queryShapes": 841,
     "unsupportedQueries": 0,
-    "readyIndexes": 296,
-    "indexInventoryVerifiedAt": "2026-11-09T08:19:28.228Z",
+    "readyIndexes": 298,
+    "indexInventoryVerifiedAt": "2026-11-10T13:14:19.403Z",
     "probeMethod": "planner-only (analyze=false), with sentinel-scope missing-index diagnostics; no mutations",
-    "plannerEvidenceSha256": "f9f4815f9c312f4c5f45e5a99e72282d125c0de7a299ff6eeead74e27e644123",
+    "plannerEvidenceSha256": "03d550402fd36a3d11890cba13096eeb56fa21e01c2701a197c0fc550cab8593",
     "priorSingleFieldOverrideEvidence": 0,
-    "reviewedBase": "699c295a5e271a77066dc7c45a70f05f2cbac658"
+    "reviewedBase": "f3cf471f980fda84639e77ee3b952fefc24a55a7"
   },
-  "catalogSha256": "f3666832b8cf191b1ab28a4eeecf6b069745a97818b713deb260c0ea968ae80b",
+  "catalogSha256": "e7441de7ea929b37cb409f58a3afe9a5ded426861d3475e38890efba21af4c73",
   "sourceFingerprints": {
     "functions/src/accounting/bank-lifecycle.ts": "521f428b891e6e26091ad95f6d6d58213a26a2210619c46fc77a8db4cda8d3e9",
     "functions/src/accounting/daily-close.ts": "904fa0dee8c4af98feaf99f17900caa97d86a16560cd3d0d85846ac33cd26e8e",
@@ -22,13 +22,13 @@
     "functions/src/auth/custom-roles.ts": "ae876b742ef6ffbe8f029007b388e33a9123168dadf9d9c8b2f61ca49d888bcf",
     "functions/src/auth/view-scope.ts": "a8c6b3bab6cef20db563a63b9006c24a516731443f698b83c622c7b67df5a700",
     "functions/src/billing/sale-context.ts": "4e3542d870160de4a8458d5699d2450e739d2c4bd044256b5ab9a746a22edf26",
-    "functions/src/branch-trading/payments.ts": "cf80e69b7a8ee220a0ac41f90806df6950851243daa39a5b81b7539f7a07cb9a",
-    "functions/src/branch-trading/receipt.ts": "332918b0c271eefd1ff3abe86a438407108a7be64195afe6a7731b3d4ab3e18a",
-    "functions/src/branch-trading/returns.ts": "8cf5a45a47d3c630d68292fe94e15b75842787c90ed5e461ecf4346a2f76a451",
+    "functions/src/branch-trading/payments.ts": "3e8ce342edb049e41b49c37f100cb1474ed56d0e73e589dbc4d8c7d16ac153b4",
+    "functions/src/branch-trading/receipt.ts": "ca004cd745e8481f972d62d94dcb806ff4e9a08df471c739b3e8727924396545",
+    "functions/src/branch-trading/returns.ts": "b92731205b8700f766f217da975da9485ef7216e9d5c7be28cef9786eb8edf64",
     "functions/src/callable/accounting-close.ts": "c8cbd87c16a31c921ea73c7ab2268637eaac186d65036a4942fa4db2667b805d",
     "functions/src/callable/accounting-journals.ts": "a961fee340bf15ab24bd1a57797f375d9c070a1743d52cd571c2e9f43c4943db",
     "functions/src/callable/aftersales.ts": "1e5a81b0f9c6b7a30d42af511fe1250b5917e5f85a7cebf74f913fd98e90b9d5",
-    "functions/src/callable/bank-reconciliation.ts": "550dce392e4e6a121a7cad9e504a804794e2ef7b99847567977a3ff68056e732",
+    "functions/src/callable/bank-reconciliation.ts": "3fec2c39fab46614b43a2504a2d73cc63bc0d8a09b28c2489f77212a9b4df945",
     "functions/src/callable/billing-controls.ts": "0552c20fc8d61152695e67cce48e913922ac112f310bc8ca0ab436f9b50419b0",
     "functions/src/callable/billing-receipt-corrections.ts": "15b59862e91889a8efa4ae79f22027cf6b4194ee413b0cd74ef1b2e97f3f63b4",
     "functions/src/callable/bootstrap-organization.ts": "b16a45cd7dea7f2070f4de7839514552c0dcb0fc34baeb08e5184a5c4abdadb4",
@@ -60,7 +60,7 @@
     "functions/src/callable/sales.ts": "11e20780d916153f03a262e826531076967c0d58c2f882bf0956b99a9d0a8f22",
     "functions/src/callable/service-billing-case.ts": "d60574eac1572f593c1f3ea44c44419821e83ad0ea34712aac4ca0376fa27f3a",
     "functions/src/callable/stock-counts.ts": "cc25ae2108bc606d887224765c55246e92904a5455260ee94803aed76b7516d3",
-    "functions/src/callable/stock-transfers.ts": "e41d4c21166e35f3a201b411f230d366cb36c5771fb5af612e4d36aabfa0fafb",
+    "functions/src/callable/stock-transfers.ts": "5293d8c9a1cd788b761f7031f9ff33eacc6bf3c6393ad0079c5cda67d3f9f6aa",
     "functions/src/callable/tax-rule-administration.ts": "110f57bc7243fbff7c8f4cd2915bf02ebc123558b59a9677935db2c1a642754c",
     "functions/src/callable/transfers.ts": "c3d872bc377931b846b6352e9997ccf458b502dee52fb906cc8329a9de12b0c1",
     "functions/src/callable/user-activity.ts": "c84e0e1945009a5f6f2434ce51e8c1fea5625d97a7bab97106d9e2ced2d9e80f",
@@ -425,6 +425,8 @@
     "97adfed0b885f1dc7b02e041a82890b8f4708ca383961c930dd1ff4205f28b1a",
     "b42b7ee6c209f4d461d44557666a35baf01d19637b0c7351bba8f59d6b96140d",
     "6fe6a3f0d2041cfae103462bdbad5aab581afe35c9f8020da16dc5edacec8b22",
-    "e67505821d850f12a49fe4768eb85162610445b420ca6b9dd03bdd793d552850"
+    "e67505821d850f12a49fe4768eb85162610445b420ca6b9dd03bdd793d552850",
+    "880af3414832e6dacd23d559ba6dd7e778a763ab671f59665858c632f16d9675",
+    "98ddd8e3f622c12cbccdec827f764977842e572c23f6064e0096314c5440f620"
   ]
 }

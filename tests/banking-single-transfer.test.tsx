@@ -38,3 +38,17 @@ it("keeps one transfer form after workspace loading, repeated refreshes and acco
   expect(state.api.mock.calls.every(call => call[0] === "getBankReconciliationWorkspace")).toBe(true);
   errors.mockRestore();
 });
+
+it("never labels the previous account balance as the newly selected account while loading or after failure", async () => {
+  const accounts = ["one", "two"].map(id => ({id,active:true,bankName:id,accountName:id,accountNumberLast4:"1234",ledgerAccountCode:id==="one"?"1041":"1042",currency:"NGN"}));
+  let rejectSecond!: (reason: Error) => void;
+  state.api.mockImplementation((_name, input) => input.bankAccountId === "two" ? new Promise((_resolve,reject) => {rejectSecond=reject;}) : Promise.resolve({accounts,branches:[],statementTransactions:[],journalLines:[],reconciliations:[],recordedBalance:{debitMinor:123456,creditMinor:0,balanceMinor:123456}}));
+  render(<BankingPage />);
+  await screen.findByText("Recorded account balance");
+  fireEvent.change(screen.getByLabelText("Bank account"), {target:{value:"two"}});
+  expect(screen.queryByText("Recorded account balance")).toBeNull();
+  await waitFor(() => expect(rejectSecond).toBeTypeOf("function"));
+  rejectSecond(new Error("Account load failed"));
+  await screen.findByText("Account load failed");
+  expect(screen.queryByText("Recorded account balance")).toBeNull();
+});

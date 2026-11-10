@@ -379,6 +379,9 @@ describe.sequential("simple manager stock transfers", () => {
       sourceLocationId: h.destinationLocationId,
       destinationLocationId: "simple-second-stock",
     });
+    const unpriced = await read(id);
+    expect(unpriced.tradeAgreement?.pricingStatus).toBe("required");
+    await api(h.creator, {action:"price",transferId:id,version:unpriced.version,lines:unpriced.items.map(line=>({id:line.id,unitPriceMinor:15000})),idempotencyKey:key()});
     await approve(id);
     await expect(receive(id, 4)).rejects.toMatchObject({
       code: "functions/permission-denied",

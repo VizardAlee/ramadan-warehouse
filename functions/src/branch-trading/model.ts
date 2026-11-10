@@ -1,3 +1,5 @@
+// Compatibility: headOfficeBranchId/headOfficeBranchName identify the supplying branch;
+// branchId/branchName identify the buying branch, including on legacy HQ invoices.
 export interface InternalTradeAgreement {
   version: 1;
   headOfficeBranchId: string;
@@ -21,7 +23,7 @@ export interface InternalTradeInvoice {
   currency: "NGN"; lines: InternalTradeInvoiceLine[]; createdAt: string; updatedAt: string;
 }
 export interface InternalTradeBalance {
-  organizationId: string; branchId: string; headOfficeBranchId: string; headOfficeBranchName?:string;
+  organizationId: string; branchId: string; branchName?: string; headOfficeBranchId: string; headOfficeBranchName?:string;
   invoicedMinor: number; paidMinor: number; returnedMinor: number; balanceMinor: number; version: number;
 }
 export interface InternalTradeCapabilities {

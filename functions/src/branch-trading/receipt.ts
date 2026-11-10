@@ -16,18 +16,13 @@ function safeSignedTradeAmount(value:number):number {
   if (!Number.isSafeInteger(value)) throw new HttpsError("failed-precondition", "Internal trading balance is out of range.");
   return value;
 }
-export function isHeadOfficeSupply(config: Record<string, unknown>, source: Record<string, unknown>, destination: Record<string, unknown>): boolean {
-  const hq = config.headOfficeBranchId;
-  return typeof hq === "string" && Boolean(hq) && destination.type === "branch" && destination.branchId !== hq &&
-    (source.type === "branch" && source.branchId === hq || source.type === "warehouse" && Boolean(config.headOfficeSupplyWarehouseId) && source.warehouseId === config.headOfficeSupplyWarehouseId);
-}
 // Read first, return a write-only closure: the existing stock receipt remains the
 // sole inventory movement. No external revenue, payable, VAT or cost is posted.
 export async function prepareInternalTradeReceipt(tx: Transaction, actor: AccessProfile, transfer: StockTransfer,
   receipts: {id:string; received:number; damaged:number; serialItemIds:string[]; damagedSerialItemIds:string[]}[], now: string, key: string): Promise<(evidence:ReceiptInventoryEvidence[])=>void> {
   const agreement = transfer.tradeAgreement;
   if (!agreement) return () => {};
-  if (agreement.version !== 1 || agreement.pricingStatus !== "priced") throw new HttpsError("failed-precondition", "An administrator must price this HQ supply before approval.");
+  if (agreement.version !== 1 || agreement.pricingStatus !== "priced") throw new HttpsError("failed-precondition", "An administrator must price this interbranch supply before approval.");
   const total = safeTradeAmount(receipts.reduce((sum, line) => sum + safeTradeAmount(line.received * safeTradeAmount(agreement.pricesByLineId[line.id]!)), 0));
   // Held damage remains financial evidence even when nothing is charged yet.
   safeTradeAmount(receipts.reduce((sum,line)=>sum+safeTradeAmount(line.damaged*safeTradeAmount(agreement.pricesByLineId[line.id]!)),0));
@@ -41,8 +36,8 @@ export async function prepareInternalTradeReceipt(tx: Transaction, actor: Access
     invoice!.get("headOfficeBranchId") !== agreement.headOfficeBranchId || invoice!.get("sourceLocationId") !== transfer.sourceLocationId ||
     invoice!.get("destinationLocationId") !== transfer.destinationLocationId || invoice!.get("sourceBranchId") !== transfer.sourceBranchId ||
     invoice!.get("sourceWarehouseId") !== transfer.sourceWarehouseId || invoice!.get("currency") !== "NGN"))
-    throw new HttpsError("failed-precondition", "Internal invoice identity or missing HQ balance needs review.");
-  if (balance!.exists && (balance!.get("organizationId") !== actor.organizationId || balance!.get("branchId") !== transfer.destinationBranchId || balance!.get("headOfficeBranchId") !== agreement.headOfficeBranchId)) throw new HttpsError("failed-precondition", "HQ balance identity needs review.");
+    throw new HttpsError("failed-precondition", "Internal invoice identity or missing supplier balance needs review.");
+  if (balance!.exists && (balance!.get("organizationId") !== actor.organizationId || balance!.get("branchId") !== transfer.destinationBranchId || balance!.get("headOfficeBranchId") !== agreement.headOfficeBranchId)) throw new HttpsError("failed-precondition", "Supplier balance identity needs review.");
   if (!invoice!.exists && transfer.items.some(line=>line.received || line.damaged)) throw new HttpsError("failed-precondition","The original receipt invoice is missing; reconcile its evidence before receiving more stock.");
   const old = invoice!.data() as InternalTradeInvoice | undefined;
   const invoiceVersion = safeTradeAmount(safeTradeAmount(old ? old.version : 0) + 1);
@@ -52,7 +47,7 @@ export async function prepareInternalTradeReceipt(tx: Transaction, actor: Access
   const nextBranchBalance = safeSignedTradeAmount(currentBranchBalance + total);
   if (old && (!Array.isArray(old.lines) || old.lines.length!==transfer.items.length || new Set(old.lines.map(line=>line.id)).size!==old.lines.length)) throw new HttpsError("failed-precondition","Original invoice line evidence needs review.");
   if (old && (safeTradeAmount(old.totalMinor)-safeTradeAmount(old.paidMinor)-safeTradeAmount(old.returnedMinor)!==currentInvoiceBalance || old.returnedMinor>old.totalMinor)) throw new HttpsError("failed-precondition","Internal invoice balance requires reconciliation.");
-  if (balance!.exists && (safeTradeAmount(Number(balance!.get("invoicedMinor")))-safeTradeAmount(Number(balance!.get("paidMinor")))-safeTradeAmount(Number(balance!.get("returnedMinor")))!==currentBranchBalance || Number(balance!.get("returnedMinor"))>Number(balance!.get("invoicedMinor")))) throw new HttpsError("failed-precondition","HQ balance requires reconciliation.");
+  if (balance!.exists && (safeTradeAmount(Number(balance!.get("invoicedMinor")))-safeTradeAmount(Number(balance!.get("paidMinor")))-safeTradeAmount(Number(balance!.get("returnedMinor")))!==currentBranchBalance || Number(balance!.get("returnedMinor"))>Number(balance!.get("invoicedMinor")))) throw new HttpsError("failed-precondition","Supplier balance requires reconciliation.");
   const lines: InternalTradeInvoiceLine[] = transfer.items.map(line => {
     const prior = old?.lines.find(item => item.id === line.id);
     const receipt = receipts.find(item => item.id === line.id)!;

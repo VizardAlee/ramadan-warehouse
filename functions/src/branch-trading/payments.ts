@@ -68,7 +68,7 @@ export async function recordInternalTradePayment(access: AccessProfile, raw: Int
     const invoice = await tx.get(db.doc(`internalTradeInvoices/${input.invoiceId}`));
     if (!invoice.exists || invoice.get("organizationId") !== actor.organizationId) throw new HttpsError("not-found", "Internal invoice not found.");
     const branchId = String(invoice.get("branchId")), headOfficeBranchId = String(invoice.get("headOfficeBranchId"));
-    if (branchId === headOfficeBranchId) fail("The invoice must belong to a branch supplied by head office.");
+    if (branchId === headOfficeBranchId) fail("The invoice must belong to a branch supplied by another branch.");
     const [balance, period, branch, hq, sequence] = await tx.getAll(
       db.doc(`internalTradeBalances/${internalTradeBalanceId(actor.organizationId,headOfficeBranchId,branchId)}`),
       accountingPeriodReference(actor.organizationId, effectiveAt),
@@ -76,7 +76,7 @@ export async function recordInternalTradePayment(access: AccessProfile, raw: Int
     );
     assertAccountingPeriodOpen(period!);
     if ([branch!, hq!].some(row => !row.exists || row.get("organizationId") !== actor.organizationId || row.get("status") !== "active"))
-      fail("Both the receiving branch and head office must be active.");
+      fail("Both the buying and supplying branches must be active.");
     if (!balance!.exists || balance!.get("organizationId") !== actor.organizationId || balance!.get("branchId") !== branchId || balance!.get("headOfficeBranchId") !== headOfficeBranchId)
       fail("The branch trading balance requires reconciliation.");
     const invoiceBalance = safe(invoice.get("balanceMinor"), "Invoice balance");
@@ -98,11 +98,11 @@ export async function recordInternalTradePayment(access: AccessProfile, raw: Int
       const allocation = await tx.get(allocationRef);
       const details = existing.get("details");
       if (!existing.exists || existing.get("organizationId") !== actor.organizationId || existing.get("journalType") !== "internal_funds_transfer" || existing.get("referenceType") !== "companyFundsTransfer" || existing.get("referenceId") !== existing.id || existing.get("status") !== "posted" || existing.get("reversalJournalEntryId") || details?.confirmedCompleted !== true || details?.sourceBranchId !== branchId || details?.destinationBranchId !== headOfficeBranchId)
-        fail("Choose the original posted company funds transfer from this branch to head office.");
+        fail("Choose the original posted company funds transfer from this branch to the supplying branch.");
       // One-key query: no new index or new access grant is needed.
       const linked = await tx.get(db.collection("journalEntries").where("referenceId", "==", existing.id).limit(10));
       const counterpart = linked.docs.filter(row => row.id !== existing.id && row.get("organizationId") === actor.organizationId && row.get("branchId") === headOfficeBranchId && row.get("journalType") === "internal_funds_transfer" && row.get("referenceType") === "companyFundsTransfer" && row.get("status") === "posted" && !row.get("reversalJournalEntryId") && row.get("details")?.amountMinor === details.amountMinor);
-      if (counterpart.length !== 1) fail("The matching head-office funds receipt requires reconciliation.");
+      if (counterpart.length !== 1) fail("The matching supplying-branch funds receipt requires reconciliation.");
       const recordedDate = existing.get("effectiveAt");
       if (!(recordedDate instanceof Timestamp) || recordedDate.toMillis() !== effectiveAt.toMillis()) fail("Use the completed funds transfer's original date and time.");
       const allocated = allocation.exists ? safe(allocation.get("allocatedMinor"), "Funds allocation") : 0;

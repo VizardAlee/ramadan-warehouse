@@ -298,7 +298,7 @@ function ManagedStockTransferList() {
           <p className="mt-1 text-sm text-[var(--muted)]">New head-office supplies use internal prices and create a branch invoice when receipt is confirmed.</p>
         </div>
         <div className="flex flex-wrap gap-2">
-          {options?.canReadTrading && <Link href="/transfers/accounts" className="inline-flex min-h-12 items-center rounded-xl border px-4 font-semibold">Head-office accounts</Link>}
+          {options?.canReadTrading && <Link href="/transfers/accounts" className="inline-flex min-h-12 items-center rounded-xl border px-4 font-semibold">Interbranch accounts</Link>}
           {profile && hasPermission(profile, "procurement.read") && <Link href="/procurement" className="inline-flex min-h-12 items-center rounded-xl border px-4 font-semibold">Buy from supplier</Link>}
           {profile &&
             hasPermission(profile, "reports.transfers.export") &&
@@ -1199,7 +1199,7 @@ export function StockTransferDetail({ transferId, embedded = false }: { transfer
               ? "Approved goods become unavailable for other sales or transfers. This does not confirm delivery."
               : "Confirm only after counting the goods. Good stock becomes available for sale; damaged stock is kept separately."}
           </p>
-          {receipt && transfer.tradeAgreement && <p className="text-sm">Good goods are charged to the internal head-office invoice when you confirm receipt. Damaged goods stay separate and their charge is held until an administrator reviews it. Authorized finance staff can record an immediate payment from Head-office accounts, or leave the amount on credit. This action does not send money.</p>}
+          {receipt && transfer.tradeAgreement && <p className="text-sm">Good goods are charged to the internal supplying-branch invoice when you confirm receipt. Damaged goods stay separate and their charge is held until an administrator reviews it. Authorized finance staff can record an immediate payment from Interbranch accounts, or leave the amount on credit. This action does not send money.</p>}
           {approval && pricingRequired && <p role="status" className="text-sm text-amber-900">Ask an administrator to set all internal prices before confirming stock.</p>}
           <FinancialAction financial={Boolean(transfer.tradeAgreement)}><Button
             aria-busy={busy}

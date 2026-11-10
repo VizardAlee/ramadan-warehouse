@@ -32,7 +32,12 @@ const transfer = (id: string) => state.db.row(`stockTransfers/${id}`) as unknown
 const key = () => crypto.randomUUID();
 async function create(quantity = 5, extra: object = {}) {
   state.actor = manager("destination");
-  return (await invoke({ action: "create", sourceLocationId: "source", destinationLocationId: "destination", items: [{ productId: "product", quantity }], idempotencyKey: key(), ...extra })).transferId;
+  const id = (await invoke({ action: "create", sourceLocationId: "source", destinationLocationId: "destination", items: [{ productId: "product", quantity }], idempotencyKey: key(), ...extra })).transferId;
+  // New branch supplies require administrator pricing before stock confirmation.
+  state.actor = {userId:"admin",organizationId:"org",roleId:"system_administrator",roleIds:["system_administrator"],directRoleIds:["system_administrator"],branchIds:[],warehouseIds:[],authorizationVersion:1};
+  await invoke({action:"price",transferId:id,version:transfer(id).version,lines:transfer(id).items.map(line=>({id:line.id,unitPriceMinor:200})),idempotencyKey:key()});
+  state.actor = manager("destination");
+  return id;
 }
 async function approve(id: string, quantity = transfer(id).items[0]!.requested) {
   state.actor = manager("source");
@@ -132,9 +137,9 @@ describe("offline manager transfer workflows", () => {
   it("checks source/destination scope and stale versions before touching stock", async () => {
     const id = await create();
     const line = transfer(id).items[0]!;
-    await expect(invoke({ action: "approve", transferId: id, version: 0, lines: [{ id: line.id, quantity: 5 }], idempotencyKey: key() })).rejects.toMatchObject({ code: "permission-denied" });
+    await expect(invoke({ action: "approve", transferId: id, version: transfer(id).version, lines: [{ id: line.id, quantity: 5 }], idempotencyKey: key() })).rejects.toMatchObject({ code: "permission-denied" });
     await approve(id);
-    await expect(invoke({ action: "receive", transferId: id, version: 1, lines: [{ id: line.id, received: 5, damaged: 0 }], idempotencyKey: key() })).rejects.toMatchObject({ code: "permission-denied" });
+    await expect(invoke({ action: "receive", transferId: id, version: transfer(id).version, lines: [{ id: line.id, received: 5, damaged: 0 }], idempotencyKey: key() })).rejects.toMatchObject({ code: "permission-denied" });
     state.actor = manager("destination");
     await expect(invoke({ action: "receive", transferId: id, version: 0, lines: [{ id: line.id, received: 5, damaged: 0 }], idempotencyKey: key() })).rejects.toMatchObject({ code: "failed-precondition" });
     expect(state.db.row(balance())).toMatchObject({ onHandQuantity: 10, reservedQuantity: 5 });
@@ -145,7 +150,7 @@ describe("offline manager transfer workflows", () => {
     state.db.seed("products/empty", { organizationId: "org", active: true, trackingType: "quantity", name: "Empty", sku: "EMPTY" });
     const multi = await create(5, { items: [{ productId: "product", quantity: 5 }, { productId: "empty", quantity: 1 }] });
     state.actor = manager("source");
-    await expect(invoke({ action: "approve", transferId: multi, version: 0, lines: transfer(multi).items.map(line => ({ id: line.id, quantity: line.requested })), idempotencyKey: key() })).rejects.toMatchObject({ code: "failed-precondition" });
+    await expect(invoke({ action: "approve", transferId: multi, version: transfer(multi).version, lines: transfer(multi).items.map(line => ({ id: line.id, quantity: line.requested })), idempotencyKey: key() })).rejects.toMatchObject({ code: "failed-precondition" });
     expect(state.db.row(balance()).reservedQuantity).toBe(0);
     expect(transfer(multi).status).toBe("requested");
     const a = await create(10), b = await create(10);
@@ -158,7 +163,7 @@ describe("offline manager transfer workflows", () => {
     const id = await create(5);
     await approve(id);
     state.actor = manager("destination");
-    const input = { action: "receive", transferId: id, version: 1, lines: [{ id: transfer(id).items[0]!.id, received: 5, damaged: 0 }], idempotencyKey: key() };
+    const input = { action: "receive", transferId: id, version: transfer(id).version, lines: [{ id: transfer(id).items[0]!.id, received: 5, damaged: 0 }], idempotencyKey: key() };
     state.db.retryNext = true;
     expect(await invoke(input)).toMatchObject({ repeated: false });
     expect(await invoke(input)).toMatchObject({ repeated: true });
@@ -180,7 +185,7 @@ describe("offline manager transfer workflows", () => {
     const id = await create(2, { items: [{ productId: "tracked", quantity: 2, ...(lotId ? { lotId } : {}) }] });
     const lineId = transfer(id).items[0]!.id;
     state.actor = manager("source");
-    const approval = { action: "approve", transferId: id, version: 0, lines: [{ id: lineId, quantity: 2, serialItemIds }], idempotencyKey: key() };
+    const approval = { action: "approve", transferId: id, version: transfer(id).version, lines: [{ id: lineId, quantity: 2, serialItemIds }], idempotencyKey: key() };
     if (trackingType === "serial") {
       await expect(invoke({ ...approval, lines: [{ id: lineId, quantity: 2, serialItemIds: [serialItemIds[0], serialItemIds[0]] }] })).rejects.toMatchObject({ code: "failed-precondition" });
       state.db.seed("serializedItems/serial-one", { ...state.db.row("serializedItems/serial-one"), reservedSaleId: "sale" });
@@ -189,7 +194,7 @@ describe("offline manager transfer workflows", () => {
     }
     await invoke(approval);
     state.actor = manager("destination");
-    await invoke({ action: "receive", transferId: id, version: 1, lines: [{ id: lineId, received: 1, damaged: 0, serialItemIds: serialItemIds.slice(0, 1) }], idempotencyKey: key() });
+    await invoke({ action: "receive", transferId: id, version: transfer(id).version, lines: [{ id: lineId, received: 1, damaged: 0, serialItemIds: serialItemIds.slice(0, 1) }], idempotencyKey: key() });
     await resolve(id, "never_left");
     expect(state.db.row(balance("source", "tracked", lotId))).toMatchObject({ onHandQuantity: 1, reservedQuantity: 0, availableQuantity: 1, totalValueMinor: 100 });
     expect(state.db.row(balance("destination", "tracked", lotId))).toMatchObject({ onHandQuantity: 1, totalValueMinor: 100 });
