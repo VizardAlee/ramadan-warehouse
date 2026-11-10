@@ -255,13 +255,18 @@ describe.sequential("procurement callables", () => {
   });
   it("lets Purchasing Manager complete warehouse purchasing while isolating location and denying payment and direct adjustments", async () => {
     const context = { type: "warehouse", id: warehouseId };
+    // Keep this receipt separate from the shared stock balance asserted by the
+    // later purchasing/AP/payment regression.
+    const warehouseProductId = "purchasing-manager-warehouse-product";
+    await adminDb.doc(`products/${warehouseProductId}`).set({ organizationId, name: "Warehouse purchasing role goods", sku: "WAREHOUSE-ROLE-GOODS", unitOfMeasure: "unit", trackingType: "quantity", active: true, hasLedgerActivity: false });
+    await adminDb.doc(`productCosts/${warehouseProductId}`).set({ organizationId, productId: warehouseProductId, defaultUnitCostMinor: 10000, currency: "NGN" });
     const supplier = await call<{ supplierId: string }>(purchasingManager, "saveSupplier", { name: "Warehouse purchasing supplier", phone: "07011117778", idempotencyKey: crypto.randomUUID() });
     const options = await call<{ warehouses: Array<{ id: string }>; branches: unknown[]; bankAccounts: unknown[] }>(purchasingManager, "getProcurementWorkspace", { view: "options", operatingContext: context });
     expect(options.warehouses.map(row => row.id)).toEqual([warehouseId]);
     expect(options.branches).toEqual([]); expect(options.bankAccounts).toEqual([]);
     const locations = await call<{ rows: Array<{ id: string; type: string }> }>(purchasingManager, "getProcurementWorkspace", { view: "operating_warehouses", operatingContext: { type: "all" } });
     expect(locations.rows).toContainEqual(expect.objectContaining({ id: warehouseId, type: "warehouse" }));
-    const input = { supplierId: supplier.supplierId, warehouseId, receivingLocationId: locationId, lines: [{ productId, quantity: 2, unitCostMinor: 10000 }], idempotencyKey: crypto.randomUUID(), operatingContext: context };
+    const input = { supplierId: supplier.supplierId, warehouseId, receivingLocationId: locationId, lines: [{ productId: warehouseProductId, quantity: 2, unitCostMinor: 10000 }], idempotencyKey: crypto.randomUUID(), operatingContext: context };
     await expect(call(purchasingManager, "createPurchaseOrder", { ...input, operatingContext: { type: "branch", id: headOfficeId } })).rejects.toMatchObject({ code: "functions/failed-precondition" });
     const order = await call<{ purchaseOrderId: string }>(purchasingManager, "createPurchaseOrder", input);
     for (const name of ["submitPurchaseOrder", "approvePurchaseOrder"])
