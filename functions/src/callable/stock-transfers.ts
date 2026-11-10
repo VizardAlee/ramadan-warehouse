@@ -16,6 +16,7 @@ import { loadCustomRoles } from "../auth/custom-roles.js";
 import {
   hasRole,
   hasServerPermission,
+  permissionsForServerRole,
   requireAccess,
   type AccessProfile,
   type Permission,
@@ -132,6 +133,7 @@ const organizationAction = (actor: TransferAccess, permission: Permission) =>
   admin(actor) || Boolean(actor.organizationTransferPermissions?.includes(permission));
 const manager = (actor: AccessProfile) =>
   hasRole(actor, "operations_administrator") ||
+  hasRole(actor, "purchasing_manager") ||
   admin(actor) ||
   hasRole(actor, "warehouse_manager") ||
   hasRole(actor, "branch_manager");
@@ -162,7 +164,6 @@ function permitted(actor: AccessProfile, permission: Permission) {
   const directManager = actor.directRoleIds?.some(role =>
     ["system_administrator", "operations_administrator", "warehouse_manager", "branch_manager"].includes(role));
   return hasServerPermission(actor, permission) || Boolean(directManager && [
-    "transfers.create.direct", "transfers.create.from_request", "transfers.approve",
     "transfers.receive", "transfers.report_discrepancy", "transfers.resolve_discrepancy", "transfers.cancel",
   ].includes(permission));
 }
@@ -205,7 +206,7 @@ function canRead(actor: AccessProfile, transfer: StockTransfer) {
   if (!matchesView(actor, transfer as unknown as Record<string, unknown>, { branch: ["sourceBranchId", "destinationBranchId"], warehouse: ["sourceWarehouseId"] })) return false;
   return (
     (permitted(actor, "transfers.read.all") &&
-      (admin(actor) || hasRole(actor, "operations_administrator") || hasRole(actor, "auditor") || hasRole(actor, "finance_officer"))) ||
+      (admin(actor) || hasRole(actor, "operations_administrator") || hasRole(actor, "auditor") || hasRole(actor, "finance_officer") || hasRole(actor, "purchasing_manager"))) ||
     (permitted(actor, "transfers.read.own_branch") &&
       (owns(actor, { branchId: transfer.sourceBranchId }) || owns(actor, { branchId: transfer.destinationBranchId }))) ||
     (permitted(actor, "transfers.read.assigned_warehouse") && owns(actor, { warehouseId: transfer.sourceWarehouseId }))
@@ -295,7 +296,7 @@ function event(
       referenceNumber: transfer.number,
       recipientRoles:
         action === "created" || action === "report_problem"
-          ? ["system_administrator", "operations_administrator"]
+          ? ["system_administrator", "operations_administrator", "purchasing_manager"]
           : ["branch_manager"],
       recipientIds: [],
       channelPreferences: {},
@@ -310,7 +311,7 @@ function event(
 export const stockTransfers = onCall({ enforceAppCheck }, async (request) => {
   let actor: TransferAccess = await requireAccess(request);
   const financialAccess = await scopedAccess(actor);
-  actor = {...actor,financialPermissions:financialAccess.effectivePermissions,organizationFinancialPermissions:financialAccess.organizationPermissions};
+  actor = {...actor,effectivePermissions:financialAccess.effectivePermissions,financialPermissions:financialAccess.effectivePermissions,organizationFinancialPermissions:financialAccess.organizationPermissions,organizationTransferPermissions:(financialAccess.allBranchPermissions ?? []).filter(permission=>permission.startsWith("transfers."))};
   if (
     !manager(actor) &&
     !hasRole(actor, "auditor") &&
@@ -346,9 +347,9 @@ export const stockTransfers = onCall({ enforceAppCheck }, async (request) => {
     );
   if (hasRole(actor, "operations_administrator") && !admin(actor) && actor.customRoleIds?.length) {
     const customRoles = await loadCustomRoles(actor.organizationId, actor.customRoleIds);
-    actor = { ...actor, organizationTransferPermissions: customRoles
+    actor = { ...actor, organizationTransferPermissions: [...(actor.organizationTransferPermissions ?? []), ...customRoles
       .filter(role => role.baseRoleId === "operations_administrator")
-      .flatMap(role => role.permissionIds) };
+      .flatMap(role => role.permissionIds.filter(permission => permissionsForServerRole(role.baseRoleId).includes(permission)))] };
   }
   if (input.action === "options") {
     // Only location names/identities needed to request stock are discoverable across branches and warehouses.

@@ -32,21 +32,24 @@ export function useLocationInventoryScope(locations: Locations) {
   const { profile, accessProfile, operatingContext } = useAuth();
   const authority = accessProfile ?? profile;
   const canSelectAll = Boolean(authority && hasOrganizationWideOperatingAccess(authority));
+  // Purchasing readers use the callable’s independently authorized view scope,
+  // not raw Firestore location metadata (which remains assignment-restricted).
+  const serverScope = Boolean(authority && (authority.roleIds ?? [authority.roleId]).includes("purchasing_manager"));
   const locationIds = [...new Set(locations.data.filter((location) =>
     operatingContext?.type === "branch" ? location.branchId === operatingContext.id
       : operatingContext?.type === "warehouse" && location.warehouseId === operatingContext.id,
   ).map((location) => location.id))].sort();
   const locationKey = JSON.stringify(locationIds);
   const error = profile && !operatingContext && !canSelectAll ? "Choose a Store/Warehouse to view inventory."
-    : operatingContext ? locations.error : null;
-  const waiting = !profile || Boolean(operatingContext && locations.loading);
-  const empty = Boolean(operatingContext && !waiting && !error && locationIds.length === 0);
+    : operatingContext && !serverScope ? locations.error : null;
+  const waiting = !profile || Boolean(operatingContext && !serverScope && locations.loading);
+  const empty = Boolean(operatingContext && !serverScope && !waiting && !error && locationIds.length === 0);
   const key = JSON.stringify([
     profile?.organizationId, profile?.uid, profile?.authorizationVersion,
     profile?.roleId, profile?.roleIds, profile?.branchIds, profile?.warehouseIds,
     operatingContext?.type, operatingContext?.id, operatingContext ? locationKey : "all", waiting, error,
   ]);
-  return { key, locationKey, selected: Boolean(operatingContext), waiting, error, empty };
+  return { key, locationKey, selected: Boolean(operatingContext && !serverScope), waiting, error, empty };
 }
 
 /** One bounded positions page, plus one whole-scope summary on the first load. */

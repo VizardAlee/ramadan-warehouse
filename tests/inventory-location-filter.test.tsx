@@ -54,6 +54,17 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("selected Store/Warehouse inventory", () => {
+  it("uses server-scoped Purchasing Manager reads without raw location metadata", async () => {
+    const purchasing = { ...administrator, roleId: "purchasing_manager", roleIds: ["purchasing_manager"] } as UserProfile;
+    select("a", "branch", purchasing); mocks.loading = true;
+    const view = render(<InventoryPage />);
+    expect(await screen.findByText("PANEL")).toBeTruthy();
+    expect(mocks.metadata).toHaveBeenCalledWith("inventoryLocations", false, { field: "branchId", id: "a" });
+    expect(mocks.call).toHaveBeenCalledWith("generateStockPositionReport", expect.objectContaining({ locationIds: undefined }));
+    select("b", "branch", purchasing); view.rerender(<InventoryPage />);
+    expect(await screen.findByText("BATTERY")).toBeTruthy();
+    expect(screen.queryByText("PANEL")).toBeNull();
+  });
   it("searches all pages by name, resets pagination and clears search", async () => {
     mocks.balances = Array.from({ length: 26 }, (_, i) => ({ ...balance(`a-${String(i).padStart(2, "0")}`, `panel-${i}`, "stock-a"), productName: i === 25 ? "Rare solar panel" : "Battery", sku: "RARE" }));
     render(<InventoryPage />); expect(await screen.findByText("1–25 of 26 inventory positions")).toBeTruthy();

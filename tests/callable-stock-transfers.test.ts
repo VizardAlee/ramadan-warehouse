@@ -34,7 +34,7 @@ const balance = async (
   ).data();
 async function create(quantity: number, extra: object = {}, actor?: TestActor) {
   return (
-    await api(actor ?? h.receiver, {
+    await api(actor ?? h.purchaser, {
       action: "create",
       sourceLocationId: h.originLocationId,
       destinationLocationId: h.destinationLocationId,
@@ -44,7 +44,7 @@ async function create(quantity: number, extra: object = {}, actor?: TestActor) {
     })
   ).transferId;
 }
-async function approve(id: string, extra: object = {}, actor = h.creator) {
+async function approve(id: string, extra: object = {}, actor = h.purchaser) {
   const t = await read(id);
   return api(actor, {
     action: "approve",
@@ -106,49 +106,58 @@ afterAll(async () => h?.cleanup());
 
 describe.sequential("simple manager stock transfers", () => {
   it("enforces custom-role omissions against real callable actions and permission removal before replay", async () => {
-    const profile = h.db.doc(`users/${h.receiver.uid}`), original = (await profile.get()).data()!;
-    const denied = { roleId: "branch_manager", roleIds: ["branch_manager"], directRoleIds: [], effectivePermissions: ["products.read"] };
+    const profile = h.db.doc(`users/${h.purchaser.uid}`), original = (await profile.get()).data()!;
+    const denied = { roleId: "purchasing_manager", roleIds: ["purchasing_manager"], directRoleIds: [], effectivePermissions: ["products.read"] };
     try {
       await profile.update(denied);
       for (const input of [{ action: "options" }, { action: "list" }, { action: "stock", locationId: h.destinationLocationId }])
-        await expect(api(h.receiver, input)).rejects.toMatchObject({ code: "functions/permission-denied" });
-      await profile.update({ ...denied, effectivePermissions: ["transfers.read.own_branch"] });
-      await expect(api(h.receiver, { action: "create", sourceLocationId: h.originLocationId, destinationLocationId: h.destinationLocationId, items: [{ productId: h.productId, quantity: 1 }], idempotencyKey: key() })).rejects.toMatchObject({ code: "functions/permission-denied" });
-      await profile.update({ ...denied, effectivePermissions: ["transfers.read.own_branch", "transfers.create.direct"] });
+        await expect(api(h.purchaser, input)).rejects.toMatchObject({ code: "functions/permission-denied" });
       const request = { action: "create", sourceLocationId: h.originLocationId, destinationLocationId: h.destinationLocationId, items: [{ productId: h.productId, quantity: 1 }], idempotencyKey: key() };
-      await api(h.receiver, request);
-      await profile.update({ ...denied, effectivePermissions: ["transfers.read.own_branch"] });
-      await expect(api(h.receiver, request)).rejects.toMatchObject({ code: "functions/permission-denied" });
-      await profile.update({ ...denied, branchIds: [], effectivePermissions: ["transfers.read.own_branch", "transfers.create.direct"] });
-      await expect(api(h.receiver, request)).rejects.toMatchObject({ code: "functions/permission-denied" });
+      await profile.update({ ...denied, effectivePermissions: ["transfers.read.all"] });
+      await expect(api(h.purchaser, request)).rejects.toMatchObject({ code: "functions/permission-denied" });
+      await profile.set(original);
+      await api(h.purchaser, request);
+      await profile.update({ ...denied, effectivePermissions: ["transfers.read.all"] });
+      await expect(api(h.purchaser, request)).rejects.toMatchObject({ code: "functions/permission-denied" });
+      await profile.update({ roleId: "branch_manager", roleIds: ["branch_manager"], directRoleIds: ["branch_manager"], effectivePermissions: ["transfers.read.own_branch"], branchIds: ["simple-branch"] });
+      await expect(api(h.purchaser, request)).rejects.toMatchObject({ code: "functions/permission-denied" });
     } finally { await profile.set(original); }
+  });
+
+  it("keeps plain managers receipt-only and purchasing out of banking and stock adjustments", async () => {
+    for (const actor of [h.manager, h.receiver]) {
+      await expect(create(1, {}, actor)).rejects.toMatchObject({ code: "functions/permission-denied" });
+    }
+    await expect(call(h.purchaser, "getBankReconciliationWorkspace", {})).rejects.toMatchObject({ code: "functions/permission-denied" });
+    await expect(call(h.purchaser, "postStockAdjustment", {})).rejects.toMatchObject({ code: "functions/permission-denied" });
   });
 
   it("does not accept a non-stock service as transferable physical goods", async () => {
     const serviceId = "simple-non-stock-service";
     await h.db.doc(`products/${serviceId}`).set({ organizationId: h.organizationId, name: "Installation", sku: serviceId, itemKind: "service", trackingType: "quantity", active: true });
-    await expect(create(1, { items: [{ productId: serviceId, quantity: 1 }] }, h.manager))
+    await expect(create(1, { items: [{ productId: serviceId, quantity: 1 }] }, h.purchaser))
       .rejects.toMatchObject({ code: "functions/failed-precondition" });
     expect((await h.db.collection("inventoryEntries").where("productId", "==", serviceId).get()).empty).toBe(true);
   });
 
   it("finishes in three tasks without logistics records or extra staff", async () => {
     const before = await balance(h.originLocationId);
-    const id = await create(20, {}, h.manager);
+    const id = await create(20, {}, h.purchaser);
     const deliver = async (eventType: string) => {
       const events = await h.db.collection("notificationEvents").where("entityId", "==", id).get();
       const notification = events.docs.find((item) => item.get("eventType") === eventType);
       expect(notification).toBeDefined();
       expect(await deliverInAppNotification({ id: notification!.id, ...notification!.data() } as InboxEvent)).toMatchObject({ delivered: true });
     };
-    const sourceInbox = h.db.doc(`users/${h.manager.uid}/notifications/stockTransfers_${id}`);
+    const sourceInbox = h.db.doc(`users/${h.purchaser.uid}/notifications/stockTransfers_${id}`);
     const destinationInbox = h.db.doc(`users/${h.receiver.uid}/notifications/stockTransfers_${id}`);
     await deliver("stock_transfer.created");
     expect((await sourceInbox.get()).get("actionRequired")).toBe(true);
+    expect((await h.db.doc(`users/${h.manager.uid}/notifications/stockTransfers_${id}`).get()).get("actionRequired")).not.toBe(true);
     expect((await destinationInbox.get()).get("actionRequired")).toBe(false);
-    await approve(id, {}, h.manager); // The assigned source manager can approve their own request.
+    await approve(id, {}, h.purchaser); // Purchasing controls initiation and approval.
     await deliver("stock_transfer.approve");
-    expect((await sourceInbox.get()).get("actionRequired")).toBe(false);
+    expect((await sourceInbox.get()).get("actionRequired")).toBe(true); // Purchasing can also record receipt.
     expect((await destinationInbox.get()).get("actionRequired")).toBe(true);
     expect(await balance(h.originLocationId)).toMatchObject({
       onHandQuantity: before!.onHandQuantity,
@@ -214,6 +223,7 @@ describe.sequential("simple manager stock transfers", () => {
     await expect(
       api(h.unauthorized, { action: "get", transferId: id }),
     ).rejects.toMatchObject({ code: "functions/permission-denied" });
+    await expect(approve(id, {}, h.manager)).rejects.toMatchObject({ code: "functions/permission-denied" });
     await approve(id);
     await expect(receive(id, 3, 0, h.manager)).rejects.toMatchObject({
       code: "functions/permission-denied",
@@ -585,8 +595,8 @@ describe("custom operating stock role", () => {
     expect(saved.affectedUsers).toBe(0);
     const ref = h.db.doc(`users/${h.receiver.uid}`), original = (await ref.get()).data()!;
     const branchId = original.branchIds[0];
-    const transferId = await create(2, {}, h.manager);
-    await approve(transferId, {}, h.manager);
+    const transferId = await create(2, {}, h.purchaser);
+    await approve(transferId, {}, h.purchaser);
     try {
       await ref.update(buildRoleAssignment([], [{ ...template, id: saved.roleId, organizationId: h.organizationId, status: "active" }]));
       const request = await call<{ requestId: string }>(h.receiver, "createBranchRequest", { branchId, requestType: "stock_replenishment", priority: "normal", purpose: "Fictional branch stock replenishment", attachmentMetadata: [], items: [{ productId: h.productId, requestedQuantity: 2 }], idempotencyKey: key() });

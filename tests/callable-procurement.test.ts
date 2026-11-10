@@ -215,7 +215,7 @@ describe.sequential("procurement callables", () => {
       await expect(call(branchManager, action, { branchId: headOfficeId })).rejects.toMatchObject({ code: "functions/permission-denied" });
     await expect(call(branchManager, "saveSupplier", { name: "Not authorized to edit suppliers", idempotencyKey: crypto.randomUUID() })).rejects.toMatchObject({ code: "functions/permission-denied" });
   });
-  it("lets Purchasing Manager complete purchases in a future branch without financial or warehouse powers", async () => {
+  it("lets Purchasing Manager complete purchases in a future branch without payment or direct stock powers", async () => {
     const futureBranch = "purchasing-manager-future", futureLocation = "purchasing-manager-location", futureProduct = "purchasing-manager-product";
     await adminDb.doc(`branches/${futureBranch}`).set({ organizationId, name: "Future branch", code: "FUTURE", branchType: "store", status: "active" });
     await adminDb.doc(`inventoryLocations/${futureLocation}`).set({ organizationId, branchId: futureBranch, name: "Future stock", code: "FUTURE-STOCK", type: "branch", status: "active" });
@@ -234,8 +234,7 @@ describe.sequential("procurement callables", () => {
     expect(options.branches.map(row => row.id)).toEqual([futureBranch]);
     expect(options.bankAccounts).toEqual([]); expect(options.warehouses).toEqual([]);
     await expect(call(purchasingManager, "getProcurementWorkspace", { operatingContext: { type: "all" } })).rejects.toMatchObject({ code: "functions/failed-precondition" });
-    const warehouseInput = { supplierId: input.supplierId, warehouseId, receivingLocationId: locationId, lines: input.lines, idempotencyKey: crypto.randomUUID() };
-    await expect(call(purchasingManager, "createPurchaseOrder", warehouseInput)).rejects.toMatchObject({ code: "functions/permission-denied" });
+
     const order = await call<{ purchaseOrderId: string }>(purchasingManager, "createPurchaseOrder", input);
     await call(purchasingManager, "submitPurchaseOrder", { ...order, idempotencyKey: crypto.randomUUID() });
     await call(purchasingManager, "approvePurchaseOrder", { ...order, idempotencyKey: crypto.randomUUID() });
@@ -253,6 +252,32 @@ describe.sequential("procurement callables", () => {
     for (const name of ["recordSupplierPayment", "postSupplierReturn"])
       await expect(call(purchasingManager, name, { ...invoice, branchId: futureBranch })).rejects.toMatchObject({ code: "functions/permission-denied" });
     expect((await adminDb.doc(`users/${purchasingManager.auth.currentUser!.uid}`).get()).get("branchIds")).toEqual([]);
+  });
+  it("lets Purchasing Manager complete warehouse purchasing while isolating location and denying payment and direct adjustments", async () => {
+    const context = { type: "warehouse", id: warehouseId };
+    const supplier = await call<{ supplierId: string }>(purchasingManager, "saveSupplier", { name: "Warehouse purchasing supplier", phone: "07011117778", idempotencyKey: crypto.randomUUID() });
+    const options = await call<{ warehouses: Array<{ id: string }>; branches: unknown[]; bankAccounts: unknown[] }>(purchasingManager, "getProcurementWorkspace", { view: "options", operatingContext: context });
+    expect(options.warehouses.map(row => row.id)).toEqual([warehouseId]);
+    expect(options.branches).toEqual([]); expect(options.bankAccounts).toEqual([]);
+    const locations = await call<{ rows: Array<{ id: string; type: string }> }>(purchasingManager, "getProcurementWorkspace", { view: "operating_warehouses", operatingContext: { type: "all" } });
+    expect(locations.rows).toContainEqual(expect.objectContaining({ id: warehouseId, type: "warehouse" }));
+    const input = { supplierId: supplier.supplierId, warehouseId, receivingLocationId: locationId, lines: [{ productId, quantity: 2, unitCostMinor: 10000 }], idempotencyKey: crypto.randomUUID(), operatingContext: context };
+    await expect(call(purchasingManager, "createPurchaseOrder", { ...input, operatingContext: { type: "branch", id: headOfficeId } })).rejects.toMatchObject({ code: "functions/failed-precondition" });
+    const order = await call<{ purchaseOrderId: string }>(purchasingManager, "createPurchaseOrder", input);
+    for (const name of ["submitPurchaseOrder", "approvePurchaseOrder"])
+      await call(purchasingManager, name, { ...order, operatingContext: context, idempotencyKey: crypto.randomUUID() });
+    const item = (await adminDb.collection("purchaseOrderItems").where("purchaseOrderId", "==", order.purchaseOrderId).get()).docs[0]!;
+    const receive = { ...order, purchaseOrderItemId: item.id, quantity: 2, receivedAt: new Date().toISOString(), serialNumbers: [], operatingContext: context, idempotencyKey: crypto.randomUUID() };
+    const receipt = await call<{ receiptId: string }>(purchasingManager, "receivePurchaseOrderItem", receive);
+    await expect(call(purchasingManager, "receivePurchaseOrderItem", receive)).resolves.toMatchObject({ receiptId: receipt.receiptId, posted: false });
+    const invoice = await call<{ supplierInvoiceId: string }>(purchasingManager, "submitSupplierInvoice", { ...order, supplierInvoiceNumber: "PURCHASING-WAREHOUSE-INVOICE", invoiceDate: new Date().toISOString().slice(0, 10), lines: [{ purchaseOrderItemId: item.id, quantity: 2 }], operatingContext: context, idempotencyKey: crypto.randomUUID() });
+    await call(purchasingManager, "approveSupplierInvoice", { ...invoice, operatingContext: context, idempotencyKey: crypto.randomUUID() });
+    const workspace = await call<{ purchaseOrders: Array<{ id: string }>; bankAccounts: unknown[] }>(purchasingManager, "getProcurementWorkspace", { operatingContext: context });
+    expect(workspace.purchaseOrders.map(row => row.id)).toContain(order.purchaseOrderId);
+    expect(workspace.bankAccounts).toEqual([]);
+    for (const name of ["recordSupplierPayment", "postSupplierReturn", "postStockAdjustment", "postInventoryReceipt"])
+      await expect(call(purchasingManager, name, { ...invoice, warehouseId, operatingContext: context })).rejects.toMatchObject({ code: "functions/permission-denied" });
+    expect((await adminDb.doc(`users/${purchasingManager.auth.currentUser!.uid}`).get()).get("warehouseIds")).toEqual([]);
   });
   it.each(["operations_administrator", "auditor", "finance_officer"] as const)("keeps a manager plus custom %s reader scoped across procurement writes and retries", async base => {
     // Fresh isolated test identities; no existing user or role is altered.

@@ -17,15 +17,21 @@ export function hasOrganizationProcurementPermission(actor: ProcurementAccess, p
 export function hasAllBranchProcurementPermission(actor: ProcurementAccess, permission: Permission) {
   return actor.allBranchProcurementPermissions?.includes(permission) ?? false;
 }
-function allBranchGrant(actor: ProcurementAccess, scope: { branchId?: string; warehouseId?: string }, permission: Permission) {
-  return Boolean(scope.branchId && !scope.warehouseId) && hasAllBranchProcurementPermission(actor, permission);
+// The purchasing grant is intentionally interpreted here, not by generic
+// financial/inventory authorization. Each custom permission retains provenance.
+const purchasingLocationPermissions: readonly Permission[] = [
+  "procurement.read", "procurement.create", "procurement.approve", "procurement.receive",
+  "payables.read", "payables.create", "payables.approve",
+];
+function allPurchasingLocationGrant(actor: ProcurementAccess, scope: { branchId?: string; warehouseId?: string }, permission: Permission) {
+  return Boolean(scope.branchId) !== Boolean(scope.warehouseId) && purchasingLocationPermissions.includes(permission) && hasAllBranchProcurementPermission(actor, permission);
 }
 
 /** Read projections must use the provenance of the data's own permission. */
 export function hasProcurementScope(actor: ProcurementAccess, scope: { branchId?: string; warehouseId?: string }, permission: Permission) {
   if (!matchesView(actor, scope)) return false;
   if (!hasServerPermission(actor, permission)) return false;
-  if (hasOrganizationProcurementPermission(actor, permission) || allBranchGrant(actor, scope, permission)) return true;
+  if (hasOrganizationProcurementPermission(actor, permission) || allPurchasingLocationGrant(actor, scope, permission)) return true;
   return (actor.assignedProcurementPermissions?.includes(permission) ?? true) && Boolean(scope.branchId || scope.warehouseId) &&
     (!scope.branchId || actor.branchIds.includes(scope.branchId)) &&
     (!scope.warehouseId || actor.warehouseIds.includes(scope.warehouseId));
@@ -37,7 +43,7 @@ export function requireProcurementScope(actor: ProcurementAccess, scope: { branc
   const required = typeof permissions === "string" ? [permissions] : permissions;
   for (const permission of required) {
     requirePermission(actor, permission);
-    if (hasOrganizationProcurementPermission(actor, permission) || allBranchGrant(actor, scope, permission)) continue;
+    if (hasOrganizationProcurementPermission(actor, permission) || allPurchasingLocationGrant(actor, scope, permission)) continue;
     if (((scope.branchId || scope.warehouseId) && actor.assignedProcurementPermissions && !actor.assignedProcurementPermissions.includes(permission)) ||
       (scope.branchId && !actor.branchIds.includes(scope.branchId)) ||
       (scope.warehouseId && !actor.warehouseIds.includes(scope.warehouseId)))

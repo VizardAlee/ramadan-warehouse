@@ -18,12 +18,13 @@ vi.mock("../functions/src/config.js", () => ({ enforceAppCheck: false }));
 import { stockTransfers } from "../functions/src/callable/stock-transfers";
 const invoke = (data: object) => stockTransfers.run({ data } as Parameters<typeof stockTransfers.run>[0]);
 function custom(base: RoleId, permissions: Permission[] = []) {
-  state.actor = { userId: "restricted", organizationId: "org", roleId: base, roleIds: [base],
+  state.customRoles = [{ id: "restricted-role", organizationId: "org", name: "Restricted", baseRoleId: base, permissionIds: permissions, status: "active" }];
+  state.actor = { customRoleIds: ["restricted-role"], userId: "restricted", organizationId: "org", roleId: base, roleIds: [base],
     directRoleIds: [], effectivePermissions: permissions, branchIds: base === "warehouse_manager" ? [] : ["store"], warehouseIds: base === "branch_manager" ? [] : ["warehouse"], authorizationVersion: 1 };
 }
 beforeEach(() => { vi.clearAllMocks(); state.customRoles = []; state.loadRoles.mockImplementation(async () => state.customRoles); state.read.mockResolvedValue({ docs: [] }); });
 describe("simple transfers honor effective permissions", () => {
-  it.each(["branch_manager", "warehouse_manager", "operations_administrator", "auditor", "finance_officer"] as RoleId[])("denies every read route to restricted %s custom bases", async role => {
+  it.each(["purchasing_manager", "branch_manager", "warehouse_manager", "operations_administrator", "auditor", "finance_officer"] as RoleId[])("denies every read route to restricted %s custom bases", async role => {
     custom(role);
     for (const data of [{ action: "options" }, { action: "stock", locationId: "location" }, { action: "list" }, { action: "get", transferId: "transfer" }])
       await expect(invoke(data)).rejects.toMatchObject({ code: "permission-denied" });
@@ -54,12 +55,12 @@ describe("simple transfers honor effective permissions", () => {
     state.get.mockResolvedValue({ exists: true, id: "transfer", get: (key: keyof typeof values) => values[key], data: () => values });
     await expect(invoke({ action: "get", transferId: "transfer" })).rejects.toMatchObject({ code: "not-found" });
   });
-  it("preserves the existing direct branch-manager three-task creation capability", async () => {
-    custom("branch_manager", ["transfers.read.own_branch"]); state.actor = { ...state.actor, directRoleIds: ["branch_manager"] };
+  it.each(["branch_manager", "warehouse_manager"] as const)("denies direct %s creation", async role => {
+    custom(role, ["transfers.read.own_branch"]); state.actor = { ...state.actor, directRoleIds: [role] };
     state.transaction.mockRejectedValue(new Error("Reached authorized transaction"));
     await expect(invoke({ action: "create", sourceLocationId: "source", destinationLocationId: "destination", items: [{ productId: "product", quantity: 1 }], idempotencyKey: crypto.randomUUID() }))
-      .rejects.toThrow("Reached authorized transaction");
-    expect(state.transaction).toHaveBeenCalledOnce();
+      .rejects.toMatchObject({ code: "permission-denied" });
+    expect(state.transaction).not.toHaveBeenCalled();
   });
 });
 
@@ -132,11 +133,11 @@ describe("combined custom global reading and scoped transfer actions", () => {
     ]), create: vi.fn(), update: vi.fn() };
     state.transaction.mockImplementation(async handler => handler(tx));
     await expect(invoke(instruction("create"))).rejects.toMatchObject({ code: "permission-denied" });
-    expect(tx.getAll).toHaveBeenCalledOnce(); expect(tx.create).not.toHaveBeenCalled(); expect(tx.update).not.toHaveBeenCalled();
+    expect(tx.getAll).not.toHaveBeenCalled(); expect(tx.create).not.toHaveBeenCalled(); expect(tx.update).not.toHaveBeenCalled();
   });
-  it("retains assigned manager authority while read-only operations remains read-only", async () => {
+  it("retains assigned manager receipt but not approval", async () => {
     combined("branch_manager"); state.get.mockResolvedValue(transferSnapshot({ sourceBranchId: "store", destinationBranchId: "store" }));
-    await expect(invoke({ action: "get", transferId: "transfer" })).resolves.toMatchObject({ canApprove: true, canReceive: true });
+    await expect(invoke({ action: "get", transferId: "transfer" })).resolves.toMatchObject({ canApprove: false, canReceive: true });
   });
   it("honors only the explicitly granted global action from a custom operations role", async () => {
     combined("branch_manager", ["transfers.read.all", "transfers.approve"]); state.get.mockResolvedValue(transferSnapshot());
@@ -144,19 +145,33 @@ describe("combined custom global reading and scoped transfer actions", () => {
     state.customRoles[0]!.permissionIds = ["transfers.read.all"];
     await expect(invoke({ action: "get", transferId: "transfer" })).resolves.toMatchObject({ canApprove: false, canReceive: false });
   });
-  it("keeps remote serial selection available to an explicitly granted global approver", async () => {
+  it("does not lend stale operations receipt authority to a local branch manager", async () => {
+    combined("branch_manager", ["transfers.read.all", "transfers.receive"]);
+    state.get.mockResolvedValue(transferSnapshot());
+    await expect(invoke({ action: "get", transferId: "transfer" })).resolves.toMatchObject({ canReceive: false });
+    const tx = { get: vi.fn(async (ref: { id: string }) => ref.id === "transfer" ? transferSnapshot() : { exists: false }), getAll: vi.fn(), create: vi.fn(), update: vi.fn() };
+    state.transaction.mockImplementation(async handler => handler(tx));
+    await expect(invoke(instruction("receive"))).rejects.toMatchObject({ code: "permission-denied" });
+    expect(tx.create).not.toHaveBeenCalled(); expect(tx.update).not.toHaveBeenCalled();
+  });
+  it("keeps remote source stock available only to an explicitly granted purchaser", async () => {
     for (const granted of [false, true]) {
-      combined("branch_manager", granted ? ["transfers.read.all", "transfers.approve"] : ["transfers.read.all"]);
+      custom("purchasing_manager", granted ? ["transfers.read.all", "inventory.read", "transfers.create.direct", "transfers.approve"] : ["transfers.read.all"]);
       state.get.mockResolvedValue(transferSnapshot({ type: "warehouse", status: "active", warehouseId: "foreign-warehouse" }));
       state.read.mockClear();
-      await expect(invoke({ action: "stock", locationId: "remote" })).resolves.toEqual({ stock: [] });
-      expect(state.read).toHaveBeenCalledTimes(granted ? 3 : 2);
+      if (granted) {
+        await expect(invoke({ action: "stock", locationId: "remote" })).resolves.toEqual({ stock: [] });
+        expect(state.read).toHaveBeenCalledTimes(3);
+      } else {
+        await expect(invoke({ action: "stock", locationId: "remote" })).rejects.toMatchObject({ code: "permission-denied" });
+        expect(state.read).not.toHaveBeenCalled();
+      }
     }
   });
   it("preserves direct operations-administrator global actions", async () => {
     custom("operations_administrator", ["transfers.read.all"]); state.actor = { ...state.actor, directRoleIds: ["operations_administrator"] }; state.get.mockResolvedValue(transferSnapshot());
     await expect(invoke({ action: "get", transferId: "transfer" })).resolves.toMatchObject({ canApprove: true, canReceive: true });
-    expect(state.loadRoles).not.toHaveBeenCalled();
+    expect(state.loadRoles).toHaveBeenCalled();
   });
 });
 
@@ -186,5 +201,26 @@ describe("receipt-only stock visibility", () => {
     state.get.mockResolvedValue({ exists: true, get: (key: keyof typeof values) => values[key], data: () => values });
     await expect(invoke({ action: "stock", locationId: "foreign-location" })).rejects.toMatchObject({ code: "permission-denied" });
     expect(state.read).not.toHaveBeenCalled();
+  });
+});
+
+
+describe("purchasing transfer authority", () => {
+  it("refreshes custom purchasing grants before approving or replaying", async () => {
+    custom("purchasing_manager", ["transfers.read.all", "transfers.approve"]);
+    const input = instruction("approve");
+    const previous = { actorId: state.actor.userId, action: input.action, transferId: "transfer", fingerprint: createHash("sha256").update(JSON.stringify(input)).digest("hex") };
+    state.transaction.mockImplementation(async handler => handler({ get: async (ref: { id: string }) => ref.id === "transfer" ? transferSnapshot() : { exists: true, get: (key: keyof typeof previous) => previous[key] } }));
+    await expect(invoke(input)).resolves.toMatchObject({ repeated: true });
+    state.customRoles[0]!.permissionIds = ["transfers.read.all"];
+    state.transaction.mockClear();
+    await expect(invoke(input)).rejects.toMatchObject({ code: "permission-denied" });
+    expect(state.transaction).not.toHaveBeenCalled();
+  });
+  it.each(["branch_manager", "warehouse_manager"] as const)("does not restore %s approval through stale effective grants", async role => {
+    custom(role, ["transfers.read.own_branch", "transfers.approve", "transfers.create.direct"]);
+    for (const action of ["create", "approve"] as const)
+      await expect(invoke(instruction(action))).rejects.toMatchObject({ code: "permission-denied" });
+    expect(state.transaction).not.toHaveBeenCalled();
   });
 });

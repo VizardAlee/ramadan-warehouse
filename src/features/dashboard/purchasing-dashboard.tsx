@@ -13,6 +13,8 @@ const purchasingPermissions = new Set<PermissionId>([
   "products.read", "suppliers.read", "suppliers.manage", "procurement.read",
   "procurement.create", "procurement.approve", "procurement.receive",
   "payables.read", "payables.create", "payables.approve",
+  "inventory.read", "transfers.read.all", "transfers.create.direct", "transfers.create.from_request",
+  "transfers.approve", "transfers.receive", "transfers.report_discrepancy", "transfers.resolve_discrepancy", "transfers.cancel",
 ]);
 
 /** Effective grants decide the landing page, so mixed-role users keep their workspace. */
@@ -25,18 +27,18 @@ export function isPurchasingOnlyProfile(profile: Profile): boolean {
 const globalRoles: readonly RoleId[] = ["system_administrator", "operations_administrator", "finance_officer", "auditor"];
 const branchRoles: readonly RoleId[] = ["branch_manager", "branch_requester", "sales_cashier", "logistics_officer"];
 
-/** Use immutable assignments, never the UI profile narrowed to the selected branch.
+/** Use immutable assignments, never the UI profile narrowed to the selected location.
  * Custom-role unions do not prove which role supplied an overlapping permission.
  * Outside assignments, retain the generic dashboard only with independently
  * provable organization-wide grants for every generic data section it will fetch.
  */
 export function shouldShowPurchasingDashboard(profile: Profile, authority: UserProfile | null | undefined, context: OperatingContext | null): boolean {
   if (isPurchasingOnlyProfile(profile)) return true;
-  if (!roleIdsForProfile(profile).includes("purchasing_manager") || !hasPermission(profile, "procurement.read") || context?.type !== "branch") return false;
+  if (!roleIdsForProfile(profile).includes("purchasing_manager") || !hasPermission(profile, "procurement.read") || !context) return false;
   if (!authority) return true;
   const roles = roleIdsForProfile(authority);
-  const local = roles.filter(role => branchRoles.includes(role));
-  if (authority.branchIds.includes(context.id) && [...permissionsForRoles(local)].some(permission => !purchasingPermissions.has(permission) && hasPermission(profile, permission))) return false;
+  const local = roles.filter(role => context.type === "branch" ? branchRoles.includes(role) : role === "warehouse_manager" || role === "warehouse_officer");
+  if ((context.type === "branch" ? authority.branchIds : authority.warehouseIds).includes(context.id) && [...permissionsForRoles(local)].some(permission => !purchasingPermissions.has(permission) && hasPermission(profile, permission))) return false;
 
   const direct = authority.directRoleIds ?? (authority.customRoleIds?.length || authority.effectivePermissions ? [] : roles);
   const directGlobal = permissionsForRoles(direct.filter(role => globalRoles.includes(role)));
@@ -54,7 +56,9 @@ export function shouldShowPurchasingDashboard(profile: Profile, authority: UserP
 }
 
 const workflows: readonly { title: string; detail: string; href: string; permission: PermissionId }[] = [
-  { title: "Purchase orders", detail: "Review drafts, submitted orders and approved purchases for the selected branch.", href: "/procurement#purchase-orders", permission: "procurement.read" },
+  { title: "Stock transfers", detail: "Manage authorized stock transfers between warehouses and branches.", href: "/transfers", permission: "transfers.read.all" },
+  { title: "Stock records", detail: "View stock without making direct adjustments.", href: "/inventory", permission: "inventory.read" },
+  { title: "Purchase orders", detail: "Review drafts, submitted orders and approved purchases for the selected location.", href: "/procurement#purchase-orders", permission: "procurement.read" },
   { title: "Create a purchase order", detail: "Choose the supplier, products and receiving location.", href: "/procurement#new-purchase-order", permission: "procurement.create" },
   { title: "Receive purchased goods", detail: "Open an approved purchase order to record delivered quantities and receiving evidence.", href: "/procurement#purchase-orders", permission: "procurement.receive" },
   { title: "Supplier invoices", detail: "Review and match invoices against received goods. Payment authority remains separate.", href: "/procurement#supplier-invoices", permission: "payables.read" },
@@ -67,11 +71,11 @@ export function PurchasingDashboard() {
   if (!profile) return null;
   return <div className="page-stack">
     <PageHeader eyebrow="Purchasing" title="Purchasing overview" description={`Welcome, ${profile.displayName}. Manage purchase orders, receiving and supplier invoices.`} />
-    <DashboardLocationSwitcher description="Purchasing registers follow the selected branch. Your authorized roles and actions do not change when you switch the view." />
+    <DashboardLocationSwitcher description="Purchasing registers follow the selected location. Your authorized roles and actions do not change when you switch the view." />
     <p className="rounded-xl border bg-white p-4 text-sm text-[var(--muted)]">
-      {operatingContext?.type === "branch"
-        ? "Purchasing registers follow your selected branch. Switch branches above to handle purchases for another store."
-        : "Select a branch above before opening its purchasing registers. All branches, including Head Office, are available."}
+      {operatingContext
+        ? "Purchasing registers follow your selected location. Switch locations above to handle purchases for another store."
+        : "Select a branch or warehouse above before opening its purchasing registers."}
     </p>
     <section aria-label="Purchasing workflows" className="card-grid">
       {workflows.filter(item => hasPermission(profile, item.permission)).map(item =>

@@ -16,20 +16,17 @@ export async function loadOperatingBranches(profile: UserProfile): Promise<Opera
   }
   const roles = roleIdsForProfile(profile);
   if (roles.includes("purchasing_manager") && hasPermission(profile, "procurement.read")) {
-    const rows: OperatingBranch[] = [], seen = new Set<string>();
-    let cursor: string | undefined;
-    do {
-      const response = await httpsCallable<object, { rows: OperatingBranch[]; nextCursor: string | null }>(functions, "getProcurementWorkspace")({ view: "operating_branches", limit: 200, ...(cursor ? { cursor } : {}), operatingContext: { type: "all" } });
-      rows.push(...response.data.rows);
-      cursor = response.data.nextCursor ?? undefined;
-      if (cursor && (seen.has(cursor) || rows.length > 10000)) throw new Error("The complete purchasing branch list could not be loaded.");
-      if (cursor) seen.add(cursor);
-    } while (cursor);
-    // Preserve independently held legacy warehouse access, without letting a
-    // Purchasing Manager assignment or stale IDs create warehouse authority.
-    if (roles.some(role => role === "warehouse_manager" || role === "warehouse_officer")) {
-      const warehouses = await Promise.all([...new Set(profile.warehouseIds)].map(id => getDoc(doc(db, "warehouses", id))));
-      rows.push(...warehouses.filter(item => item.exists() && item.get("organizationId") === profile.organizationId && item.get("status") === "active").map(item => ({ type: "warehouse" as const, id: item.id, name: String(item.get("name") || item.id) })));
+    const rows: OperatingBranch[] = [];
+    for (const view of ["operating_branches", "operating_warehouses"] as const) {
+      const seen = new Set<string>();
+      let cursor: string | undefined;
+      do {
+        const response = await httpsCallable<object, { rows: OperatingBranch[]; nextCursor: string | null }>(functions, "getProcurementWorkspace")({ view, limit: 200, ...(cursor ? { cursor } : {}), operatingContext: { type: "all" } });
+        rows.push(...response.data.rows);
+        cursor = response.data.nextCursor ?? undefined;
+        if (cursor && (seen.has(cursor) || rows.length > 10000)) throw new Error("The complete purchasing location list could not be loaded.");
+        if (cursor) seen.add(cursor);
+      } while (cursor);
     }
     return rows;
   }

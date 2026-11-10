@@ -6,6 +6,7 @@ import { db } from "../admin.js";
 import { enforceAppCheck } from "../config.js";
 import { requireAccess, requirePermission, hasServerPermission, permissionsForServerRole, type AccessProfile, type Permission, type RoleId } from "../auth/authorize.js";
 import { loadCustomRoles } from "../auth/custom-roles.js";
+import { scopedAccess } from "../auth/permission-scope.js";
 import { parseInput } from "../utils/callable.js";
 import { narrowTransferWorkingContext, type TransferActionSide } from "./working-context.js";
 
@@ -18,11 +19,12 @@ export const transferCommandRef = (organizationId: string, key: string) => db.do
 const reviewRetry = (): never => { throw new HttpsError("failed-precondition", "This older transfer retry lacks verified actor and payload binding. Review the original record before continuing; do not change the key to repair historical stock.", { code: "TRANSFER_RETRY_REVIEW_REQUIRED" }); };
 
 async function actionAccess(actor: AccessProfile): Promise<ActionAccess> {
+  actor = await scopedAccess(actor);
   const direct = actor.directRoleIds ?? (actor.effectivePermissions ? [] : actor.roleIds ?? [actor.roleId]);
   const financeActions = (role: RoleId, permission: Permission) => role === "finance_officer" && permission.startsWith("transfers.cost.");
   const organizationActions = direct.flatMap(role => permissionsForServerRole(role).filter(permission => role === "system_administrator" || role === "operations_administrator" || financeActions(role, permission)));
   const custom = actor.customRoleIds?.length ? await loadCustomRoles(actor.organizationId, actor.customRoleIds) : [];
-  organizationActions.push(...custom.flatMap(role => role.permissionIds.filter(permission => role.baseRoleId === "operations_administrator" || financeActions(role.baseRoleId, permission))));
+  organizationActions.push(...custom.flatMap(role => role.permissionIds.filter(permission => permissionsForServerRole(role.baseRoleId).includes(permission) && (role.baseRoleId === "operations_administrator" || financeActions(role.baseRoleId, permission)))));
   return { ...actor, organizationActions };
 }
 
@@ -122,6 +124,11 @@ export function securedTransferCallable<S extends z.ZodType, Result extends Row>
   return onCall({ enforceAppCheck }, async request => {
     const profile = await actionAccess(await requireAccess(request));
     requirePermission(profile, permission);
+    // Purchasing managers use stockTransfers, the supported three-task flow.
+    // Legacy initiation/approval remains administrator-only; do not borrow a
+    // cached grant or a global-reader role to unlock the older dispatch flow.
+    if (["transfers.create.direct", "transfers.create.from_request", "transfers.approve"].includes(permission) && !profile.organizationActions.includes(permission))
+      throw new HttpsError("permission-denied", "An authorized administrator must initiate or approve legacy transfers. Purchasing managers should use Stock transfers.");
     const actor = narrowTransferWorkingContext(profile, request.data, profile.organizationActions.includes(permission), side);
     const input = parseInput(schema, request.data) as Row;
     const key = String(input.idempotencyKey);

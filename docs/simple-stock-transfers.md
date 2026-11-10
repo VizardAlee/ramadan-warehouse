@@ -1,5 +1,13 @@
 # Simple stock transfers
 
+## Pending permission update (not deployed)
+
+The Purchasing Manager and administrators initiate and approve the supported Stock transfers workflow across branches and warehouses. Plain Branch Managers and Warehouse Managers cannot initiate or approve, including through stale permission snapshots; they retain existing location-scoped receipt acknowledgment and completion authority. Administrators continue to set internal trade prices. Purchasing Manager grants do not include bank payments, journal editing, opening stock or direct stock adjustments. Separate existing roles remain additive until the owner approves targeted account changes.
+
+Purchasing Manager can complete the purchase-to-invoice workflow in branches and warehouses, and view branch inventory quantities without a new cost grant. Custom roles retain only their explicitly granted permissions. Inventory reads preserve selected location and permission-specific scope. Igbo Road managers/stock staff use their existing explicit warehouse assignments; branch membership alone grants nothing.
+
+The old detailed transfer workflow remains administrator-only for initiation/approval. Purchasing Managers use the supported simple workflow, without gaining packing/dispatch or unrelated logistics powers. This pending update supersedes older manager-initiation descriptions below only after deployment verification.
+
 Deployment checkpoint: 2026-09-06. Commit `9a3c464` is deployed to the existing production environment.
 
 ## Everyday workflow

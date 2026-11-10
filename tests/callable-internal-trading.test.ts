@@ -12,9 +12,9 @@ const api=<T=Record<string,unknown>>(actor:TestActor,input:object)=>call<T>(acto
 const transfer=async(id:string)=>(await h.db.doc(`stockTransfers/${id}`).get()).data() as StockTransfer;
 const invoice=async(id:string)=>(await h.db.doc(`internalTradeInvoices/${id}`).get()).data() as InternalTradeInvoice;
 const stock=async(locationId:string)=>(await h.db.doc(`inventoryBalances/${balanceDocumentId(h.organizationId,h.productId,locationId)}`).get()).data()!;
-const create=async(qty=4)=> (await api<{transferId:string}>(h.receiver,{action:"create",sourceLocationId:h.originLocationId,destinationLocationId:h.destinationLocationId,items:[{productId:h.productId,quantity:qty}],idempotencyKey:key()})).transferId;
+const create=async(qty=4)=> (await api<{transferId:string}>(h.purchaser,{action:"create",sourceLocationId:h.originLocationId,destinationLocationId:h.destinationLocationId,items:[{productId:h.productId,quantity:qty}],idempotencyKey:key()})).transferId;
 const price=async(id:string,actor=h.creator,value=15000)=>{const t=await transfer(id);return api(actor,{action:"price",transferId:id,version:t.version,lines:t.items.map(l=>({id:l.id,unitPriceMinor:value})),idempotencyKey:key()});};
-const approve=async(id:string)=>{const t=await transfer(id);return api(h.creator,{action:"approve",transferId:id,version:t.version,lines:t.items.map(l=>({id:l.id,quantity:l.requested})),idempotencyKey:key()});};
+const approve=async(id:string)=>{const t=await transfer(id);return api(h.purchaser,{action:"approve",transferId:id,version:t.version,lines:t.items.map(l=>({id:l.id,quantity:l.requested})),idempotencyKey:key()});};
 const receiptInput=async(id:string,qty:number,damaged=0)=>{const t=await transfer(id);return {action:"receive",transferId:id,version:t.version,lines:t.items.map(l=>({id:l.id,received:qty,damaged})),idempotencyKey:key()};};
 const cash=(invoiceId:string,amountMinor:number)=>({action:"record_payment",invoiceId,amountMinor,sourceMethod:"cash",destinationMethod:"cash",paymentDate:new Date().toISOString(),confirmedCompleted:true,reference:"Cash physically delivered to HQ",idempotencyKey:key()});
 let oldId:string, id:string;
@@ -34,6 +34,7 @@ describe.sequential("HQ internal trading",()=>{
   it("requires administrator pricing prospectively and creates no invoice before receipt",async()=>{
     id=await create();expect((await transfer(id)).tradeAgreement?.pricingStatus).toBe("required");
     await expect(approve(id)).rejects.toThrow();await expect(price(id,h.receiver)).rejects.toThrow();
+    await expect(price(id,h.purchaser)).rejects.toMatchObject({code:"functions/permission-denied"});
     await price(id);await approve(id);await expect(price(id)).rejects.toThrow();
     expect((await h.db.doc(`internalTradeInvoices/${id}`).get()).exists).toBe(false);
   });
@@ -52,6 +53,7 @@ describe.sequential("HQ internal trading",()=>{
     const foreign=await api<InternalTradeWorkspace>(h.foreign,{action:"trading_workspace",invoiceId:id});expect(foreign.invoices).toEqual([]);
   });
   it("rejects unauthorized payment, locks, and overpayment without posting money",async()=>{
+    await expect(api(h.purchaser,cash(id,100))).rejects.toMatchObject({code:"functions/permission-denied"});
     await expect(api(h.receiver,cash(id,100))).rejects.toThrow();await expect(api(h.creator,cash(id,30001))).rejects.toThrow();
     const period= new Date().toISOString().slice(0,7),ref=h.db.doc(`accountingPeriods/${uniquenessDocumentId(h.organizationId,period)}`);
     await ref.set({organizationId:h.organizationId,status:"closed",periodKey:period});
@@ -167,7 +169,7 @@ describe.sequential("all-branch transactional supply", () => {
   it("requires prices for ordinary branch supply and invoices partial receipts once", async () => {
     await h.db.doc(`branches/${buyer}`).set({organizationId:h.organizationId,name:"Second branch",status:"active",branchType:"branch"});
     await h.db.doc(`inventoryLocations/${buyer}`).set({organizationId:h.organizationId,name:"Second stock",status:"active",type:"branch",branchId:buyer});
-    tradeId = (await api<{transferId:string}>(h.receiver,{action:"create",sourceLocationId:h.destinationLocationId,destinationLocationId:buyer,items:[{productId:h.productId,quantity:2}],idempotencyKey:key()})).transferId;
+    tradeId = (await api<{transferId:string}>(h.purchaser,{action:"create",operatingContext:{type:"branch",id:buyer},sourceLocationId:h.destinationLocationId,destinationLocationId:buyer,items:[{productId:h.productId,quantity:2}],idempotencyKey:key()})).transferId;
     expect((await transfer(tradeId)).tradeAgreement).toMatchObject({headOfficeBranchId:seller,pricingStatus:"required"});
     await expect(approve(tradeId)).rejects.toThrow();
     await price(tradeId); await approve(tradeId);

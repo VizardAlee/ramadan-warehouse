@@ -192,6 +192,7 @@ export function StockTransferList() {
       [
         "system_administrator",
         "operations_administrator",
+        "purchasing_manager",
         "branch_manager",
         "warehouse_manager",
         "finance_officer",
