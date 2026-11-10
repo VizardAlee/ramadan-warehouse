@@ -1,5 +1,6 @@
 "use client";
 
+import { invoiceAmountDue, isInactiveInvoice } from "./invoice-status";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { CursorTablePagination } from "@/components/ui/table-pagination";
@@ -79,7 +80,7 @@ export function PurchasingList({ kind, scope, suppliers, branches, warehouses, r
     onDismiss(); setPages([null]); setRetry(value => value + 1);
   }
   const records = kind === "orders" ? data?.orders ?? [] : data?.invoices ?? [];
-  const statuses = kind === "orders" ? ["draft", "submitted", "approved", "partially_received", "received"] : ["submitted", "approved", "partially_paid", "paid"];
+  const statuses = kind === "orders" ? ["draft", "submitted", "approved", "partially_received", "received"] : ["submitted", "approved", "partially_paid", "paid", "cancelled", "rejected", "void"];
   return <section id={kind === "orders" ? "purchase-orders" : "supplier-invoices"} aria-label={kind === "orders" ? "Order list" : "Invoice list"} className="space-y-3 rounded-xl border bg-white p-4">
     <div className="flex flex-wrap gap-2" aria-label="Record view">{([["needs_action", "Needs action"], ["history", "History"], ["all", "All records"]] as const).map(([value, label]) => <Button key={value} variant={filters.view === value ? "primary" : "outline"} aria-pressed={filters.view === value} onClick={() => change("view", value)}>{label}</Button>)}</div>
     <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -102,7 +103,7 @@ export function PurchasingList({ kind, scope, suppliers, branches, warehouses, r
           const date = (typeof timestamp === "string" ? timestamp.slice(0, 10) : seconds ? new Intl.DateTimeFormat("en-GB", { timeZone: "Africa/Lagos" }).format(new Date(seconds * 1000)) : "Not recorded");
           const action = order ? order.nextAction ?? ({ draft: "Review & submit", submitted: "Review approval", approved: "Receive goods", partially_received: "Receive / match", received: "Review matching" }[order.status]) : invoice?.status === "submitted" ? canApproveInvoice ? "Review approval" : "View invoice" : invoice?.status === "paid" ? "View settlement" : canPayInvoice && ["approved", "partially_paid"].includes(invoice?.status ?? "") ? "Review payment" : "View invoice";
           const location = order?.operationalLocationName ?? order?.branchName ?? order?.warehouseName ?? branches.find(value => value.id === record.branchId)?.name ?? warehouses.find(value => value.id === record.warehouseId)?.name ?? "Not recorded";
-          return <tr className="border-t" key={record.id}><td className="p-2 font-medium"><FinancialText>{order?.purchaseOrderNumber ?? invoice?.supplierInvoiceNumber}</FinancialText><p className="text-xs font-normal text-[var(--muted)]"><FinancialText>{date}</FinancialText></p></td><td className="p-2"><FinancialText>{record.supplierName}</FinancialText></td><td className="p-2"><FinancialText>{location}</FinancialText></td><td className="whitespace-nowrap p-2"><FinancialValue>{formatNaira(order?.grossAmountMinor ?? invoice?.outstandingAmountMinor ?? 0)}</FinancialValue></td><td className="p-2 capitalize"><FinancialText>{record.status.replaceAll("_", " ")}</FinancialText></td><td className="p-2"><Button size="sm" variant="outline" onClick={() => order ? onOrder(order.id) : invoice && onInvoice(invoice)}>{action}</Button></td></tr>;
+          return <tr className="border-t" key={record.id}><td className="p-2 font-medium"><FinancialText>{order?.purchaseOrderNumber ?? invoice?.supplierInvoiceNumber}</FinancialText><p className="text-xs font-normal text-[var(--muted)]"><FinancialText>{date}</FinancialText></p></td><td className="p-2"><FinancialText>{record.supplierName}</FinancialText></td><td className="p-2"><FinancialText>{location}</FinancialText></td><td className="whitespace-nowrap p-2"><FinancialValue>{formatNaira(order?.grossAmountMinor ?? (invoice ? invoiceAmountDue(invoice) : 0))}</FinancialValue>{invoice && isInactiveInvoice(invoice.status) && <p className="text-xs text-[var(--muted)]">Original <FinancialValue>{formatNaira(invoice.grossAmountMinor)}</FinancialValue></p>}</td><td className="p-2 capitalize"><FinancialText>{record.status.replaceAll("_", " ")}</FinancialText></td><td className="p-2"><Button size="sm" variant="outline" onClick={() => order ? onOrder(order.id) : invoice && onInvoice(invoice)}>{action}</Button></td></tr>;
         })}
         {!records.length && <tr><td colSpan={6} className="p-5 text-center">{data.nextCursor ? "No matches in the records searched so far. Continue search with Next." : "No records match these filters."}</td></tr>}
       </tbody></table></div>

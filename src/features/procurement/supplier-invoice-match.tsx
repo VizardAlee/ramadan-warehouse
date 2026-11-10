@@ -7,6 +7,11 @@ import { FinancialAction, FinancialInput, FinancialText, FinancialValue } from "
 import { formatNaira, nairaToKobo } from "@/features/inventory/format";
 import type { PurchaseOrderItem } from "@/types/domain";
 
+/** Submitted quantities are reserved until approval or rejection, not matchable again. */
+export function availableForMatching(item: PurchaseOrderItem) {
+  return item.matchableQuantity ?? Math.max(0, item.receivedQuantity - (item.invoicedQuantity ?? 0) - (item.pendingInvoiceQuantity ?? 0));
+}
+
 export interface InvoiceMatchInput {
   supplierInvoiceNumber: string;
   invoiceDate: string;
@@ -25,11 +30,11 @@ export function SupplierInvoiceMatch({ items, busy, onMatch }: {
   const [prices, setPrices] = useState<Record<string, string>>({});
   const [confirmed, setConfirmed] = useState(false);
   const submitting = useRef(false);
-  const lines = items.filter(item => item.receivedQuantity > (item.invoicedQuantity ?? 0)).map(item => {
+  const lines = items.filter(item => availableForMatching(item) > 0).map(item => {
     const raw = prices[item.id] ?? "";
     let actual: number | null = null;
     try { if (raw.trim()) actual = nairaToKobo(Number(raw)); } catch { /* Invalid prices cannot match. */ }
-    return { item, actual, quantity: item.receivedQuantity - (item.invoicedQuantity ?? 0) };
+    return { item, actual, quantity: availableForMatching(item) };
   });
   const invalidAmounts = lines.some(({ item, actual, quantity }) =>
     !Number.isSafeInteger(quantity) || quantity <= 0 ||
@@ -56,7 +61,7 @@ export function SupplierInvoiceMatch({ items, busy, onMatch }: {
   }
   return <fieldset disabled={busy} className="mt-4 space-y-3 border-t pt-4">
     <legend className="font-semibold">Check supplier invoice prices</legend>
-    <p className="text-sm text-[var(--muted)]">Enter the actual net unit prices from the supplier invoice, before VAT. This check does not change stock cost or accounting. Only matching prices can be submitted. This action matches all received, uninvoiced quantities shown below; do not proceed if the invoice covers only some of them.</p>
+    <p className="text-sm text-[var(--muted)]">Enter the actual net unit prices from the supplier invoice, before VAT. This check does not change stock cost or accounting. Only matching prices can be submitted. This action matches all received quantities still available for matching shown below, excluding invoices awaiting approval; do not proceed if the invoice covers only some of them.</p>
     <div className="grid gap-3 md:grid-cols-3">
       <label className="text-sm">Supplier invoice number<input maxLength={160} value={number} onChange={event => setNumber(event.target.value)} className="block min-h-10 w-full rounded-lg border px-3" /></label>
       <label className="text-sm">Invoice date<input type="date" value={date} onChange={event => setDate(event.target.value)} className="block min-h-10 w-full rounded-lg border px-3" /></label>

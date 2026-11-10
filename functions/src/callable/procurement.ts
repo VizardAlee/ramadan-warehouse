@@ -1,5 +1,6 @@
 import { editDraftPurchaseOrder } from "../procurement/edit-draft-purchase-order.js";
-import { purchasingPage, purchasingOrderDetail, purchasingPageInput, purchasingDetailInput } from "../procurement/purchasing-pages.js";
+import { pendingOrderMatches, invoiceMatchingLines, matchingFingerprint, matchableQuantity } from "../procurement/invoice-matching.js";
+import { purchasingPage, purchasingOrderDetail, purchasingPageInput, purchasingDetailInput, purchasingInvoiceDetail, purchasingInvoiceDetailInput } from "../procurement/purchasing-pages.js";
 import { selectedPurchasingLocationOptions } from "../procurement/location-options.js";
 import { withRecordActors } from "../audit/record-actors.js";
 import { changeCreditSources, type SupplierCreditSourceMap } from "../procurement/credit-sources.js";
@@ -341,6 +342,7 @@ export const getProcurementWorkspace = onCall(
     requirePermission(actor, "procurement.read");
     if (["orders_page", "invoices_page"].includes(request.data?.view))
       return purchasingPage(actor, parseInput(purchasingPageInput, { ...request.data, view: request.data.workflow ?? "needs_action" }), request.data.view === "orders_page" ? "orders" : "invoices");
+    if (request.data?.view === "invoice_detail") return purchasingInvoiceDetail(actor, parseInput(purchasingInvoiceDetailInput, request.data));
     if (request.data?.view === "order_detail") return purchasingOrderDetail(actor, parseInput(purchasingDetailInput, request.data));
     if (["list_evidence", "read_evidence", "upload_evidence"].includes(request.data?.action))
       return operationalEvidence(actor, request.data?.evidenceKind === "purchase_receipt" ? "purchase_receipt" : request.data?.evidenceKind === "supplier_replacement" ? "supplier_replacement" : "supplier_return", parseInput(operationalEvidenceInput, request.data));
@@ -916,8 +918,12 @@ export const submitSupplierInvoice = onCall(
     const uniqueness = db.doc(
       `supplierInvoiceCodes/${uniquenessDocumentId(actor.organizationId, String(order.get("supplierId")), normalizeInventoryIdentifier(input.supplierInvoiceNumber))}`,
     );
+    const fingerprint = matchingFingerprint(input);
     let result = { supplierInvoiceId: invoice.id, submitted: true };
     await db.runTransaction(async (transaction) => {
+      const currentOrder = await transaction.get(purchaseOrder);
+      if (!currentOrder.exists || currentOrder.get("organizationId") !== actor.organizationId) throw new HttpsError("not-found", "Purchase order not found.");
+      requireProcurementScope(actor, procurementScopeFrom(currentOrder), "payables.create");
       const snapshots = await transaction.getAll(
         operation,
         uniqueness,
@@ -926,41 +932,52 @@ export const submitSupplierInvoice = onCall(
       );
       const previous = snapshots[0]!,
         unique = snapshots[1]!;
-      if (previous.exists) {
-        const original = await transaction.get(db.doc(`supplierInvoices/${previous.get("entityId")}`));
+      if (previous.exists || unique.exists) {
+        const existingId = String(previous.exists ? previous.get("entityId") : unique.get("supplierInvoiceId"));
+        const original = await transaction.get(db.doc(`supplierInvoices/${existingId}`));
         if (!original.exists || original.get("organizationId") !== actor.organizationId)
           throw new HttpsError("not-found", "Original supplier invoice is unavailable.");
         requireProcurementScope(actor, procurementScopeFrom(original), "payables.create");
-        result = {
-          supplierInvoiceId: String(previous.get("entityId")),
-          submitted: false,
-        };
+        const originalLines = await invoiceMatchingLines(actor.organizationId, String(original.get("purchaseOrderId")), original.id, transaction);
+        const originalFingerprint = matchingFingerprint({
+          purchaseOrderId: String(original.get("purchaseOrderId")), supplierInvoiceNumber: String(original.get("supplierInvoiceNumber")),
+          invoiceDate: String(original.get("invoiceDate")), dueDate: original.get("dueDate"), notes: original.get("notes"),
+          lines: originalLines.map(line => ({ purchaseOrderItemId: String(line.get("purchaseOrderItemId")), quantity: Number(line.get("quantity")) })),
+        });
+        if (originalFingerprint !== fingerprint || (previous.get("requestFingerprint") && previous.get("requestFingerprint") !== fingerprint))
+          throw new HttpsError(previous.exists ? "failed-precondition" : "already-exists", "This invoice reference is already recorded with different details. Review the recorded invoice; do not submit it again.");
+        result = { supplierInvoiceId: original.id, submitted: false };
         return;
       }
-      if (unique.exists)
-        throw new HttpsError(
-          "already-exists",
-          "This supplier invoice number has already been recorded.",
-        );
+      // Reading AND updating the shared order serializes concurrent submissions,
+      // including a first-ever invoice with no existing reservation documents.
+      // Approval also updates this order, so a retry sees the latest pending and
+      // approved quantities. Existing submitted invoices are included unchanged.
+      const pending = await pendingOrderMatches(actor.organizationId, purchaseOrder.id, transaction);
       const items = snapshots.slice(2, 2 + itemRefs.length),
         counters = snapshots.slice(2 + itemRefs.length);
       const calculated = input.lines.map((line, index) => {
         const itemSnapshot = items[index]!;
         if (
           !itemSnapshot.exists ||
+          itemSnapshot.get("organizationId") !== actor.organizationId ||
           itemSnapshot.get("purchaseOrderId") !== purchaseOrder.id
         )
           throw new HttpsError(
             "invalid-argument",
             "An invoice line does not belong to this purchase order.",
           );
-        const available =
-          Number(itemSnapshot.get("receivedQuantity") ?? 0) -
-          Number(counters[index]!.get("invoicedQuantity") ?? 0);
+        requireProcurementScope(actor, procurementScopeFrom(itemSnapshot), "payables.create");
+        const available = matchableQuantity(
+          Number(itemSnapshot.get("receivedQuantity") ?? 0),
+          Number(counters[index]!.get("invoicedQuantity") ?? 0),
+          pending.quantities.get(itemSnapshot.id) ?? 0,
+        );
         if (line.quantity > available)
           throw new HttpsError(
             "failed-precondition",
-            "Invoice quantity exceeds received uninvoiced goods.",
+            "These received goods are already matched or awaiting invoice approval. Review the recorded invoices before matching again.",
+            { code: "INVOICE_QUANTITY_ALREADY_MATCHED" },
           );
         const net = line.quantity * Number(itemSnapshot.get("unitCostMinor")),
           vat = Math.round(
@@ -971,6 +988,7 @@ export const submitSupplierInvoice = onCall(
       const net = calculated.reduce((sum, line) => sum + line.net, 0),
         vat = calculated.reduce((sum, line) => sum + line.vat, 0),
         now = FieldValue.serverTimestamp();
+      transaction.update(purchaseOrder, { invoiceMatchingRevision: FieldValue.increment(1) });
       transaction.create(
         invoice,
         clean({
@@ -1033,6 +1051,7 @@ export const submitSupplierInvoice = onCall(
       transaction.create(operation, {
         organizationId: actor.organizationId,
         action: "submitSupplierInvoice",
+        requestFingerprint: fingerprint,
         entityId: invoice.id,
         status: "completed",
         createdAt: now,

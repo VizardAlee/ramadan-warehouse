@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { SupplierInvoiceMatch } from "@/features/procurement/supplier-invoice-match";
+import { availableForMatching, SupplierInvoiceMatch } from "@/features/procurement/supplier-invoice-match";
 import { FinancialPrivacyProvider, privacyStorageKey } from "@/features/finance/financial-privacy";
 import type { PurchaseOrderItem } from "@/types/domain";
 
@@ -94,5 +94,15 @@ describe("supplier invoice price review", () => {
     render(<SupplierInvoiceMatch items={[item]} busy={false} onMatch={onMatch} />);
     fireEvent.change(screen.getByLabelText("Supplier invoice number"), { target: { value: "INV" } }); price("1234.56"); confirm();
     fireEvent.click(button()); fireEvent.click(button()); expect(onMatch).toHaveBeenCalledTimes(1); finish();
+  });
+});
+
+describe("available supplier invoice quantities", () => {
+  it("subtracts pending reservations when explicit matchable evidence is absent", () => {
+    expect(availableForMatching({ ...item, pendingInvoiceQuantity: 2 })).toBe(1);
+    expect(availableForMatching({ ...item, pendingInvoiceQuantity: 4 })).toBe(0);
+  });
+  it("uses the authoritative matchable quantity when supplied", () => {
+    expect(availableForMatching({ ...item, pendingInvoiceQuantity: 1, matchableQuantity: 1 })).toBe(1);
   });
 });

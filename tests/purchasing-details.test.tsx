@@ -10,7 +10,7 @@ vi.mock("@/features/procurement/goods-received-note", () => ({ GoodsReceivedNote
 vi.mock("@/features/procurement/supplier-returns", () => ({ SupplierReturns: () => null }));
 const options = { suppliers: [{ id: "supplier", name: "Supplier", active: true }], branches: [{ id: "store", name: "Store", branchType: "store" }, { id: "other", name: "Other", branchType: "store" }], warehouses: [], locations: [{ id: "stock", branchId: "store" }], products: [], bankAccounts: [] };
 const order = { id: "po", purchaseOrderNumber: "PO-ONE", supplierName: "Supplier", branchId: "store", status: "received", grossAmountMinor: 10000, createdBy: "user", nextAction: "Review invoices" };
-const items = [{ id: "item", purchaseOrderId: "po", productName: "Real product", orderedQuantity: 2, receivedQuantity: 2, invoicedQuantity: 2 }];
+const items = [{ id: "item", purchaseOrderId: "po", productName: "Real product", orderedQuantity: 2, receivedQuantity: 2, invoicedQuantity: 2, unitCostMinor: 5000, vatRateBasisPoints: 0 }];
 afterEach(() => { cleanup(); window.history.replaceState(null, "", "/"); sessionStorage.clear(); state.call.mockReset(); state.auth.operatingContext = { type: "branch", id: "store" }; });
 it("loads only the selected order, hides fully matched forms and links recorded invoices", async () => {
   state.call.mockImplementation((_name, input) => Promise.resolve(input.view === "options" ? options : input.view === "order_detail" ? { order, items } : input.view === "invoices_page" ? { invoices: [], nextCursor: null } : { orders: [order], nextCursor: null }));
@@ -70,4 +70,119 @@ it("opens invoice and new-order workflows from purchasing dashboard links", asyn
   fireEvent.click(screen.getByRole("button", { name: "Invoices & payments" }));
   expect(screen.queryByRole("button", { name: "Create draft order" })).toBeNull();
   expect(state.call.mock.calls.every(([name]) => name === "getProcurementWorkspace")).toBe(true);
+});
+
+const pendingInvoice = { id: "invoice", purchaseOrderId: "po", purchaseOrderNumber: "PO-ONE", supplierInvoiceNumber: "INV-ONE", supplierName: "Supplier", branchId: "store", status: "submitted", grossAmountMinor: 10000, outstandingAmountMinor: 10000, createdBy: "user" };
+function matchingWorkspace(submit: () => Promise<unknown>, pending = false, partiallyPending = false) {
+  state.call.mockImplementation((name, input) => {
+    if (name === "submitSupplierInvoice") return submit();
+    return Promise.resolve(input.view === "options" ? options : input.view === "order_detail" ? { order, pendingInvoiceCount: pending || partiallyPending ? 1 : 0, items: [{ ...items[0], receivedQuantity: partiallyPending ? 5 : 2, invoicedQuantity: partiallyPending ? 1 : 0, pendingInvoiceQuantity: pending || partiallyPending ? 2 : 0, matchableQuantity: pending ? 0 : 2 }] } : input.view === "invoice_detail" ? { invoice: pendingInvoice } : input.view === "invoices_page" ? { invoices: [pendingInvoice], nextCursor: null } : { orders: [order], nextCursor: null });
+  });
+}
+async function openMatchForm() {
+  render(<ProcurementPage />);
+  await screen.findByText("PO-ONE");
+  fireEvent.click(screen.getByRole("button", { name: "Review invoices" }));
+  await screen.findAllByText("Real product");
+}
+it("shows pending quantities and review approval instead of inviting a duplicate match", async () => {
+  matchingWorkspace(async () => { throw new Error("Must not submit"); }, true);
+  await openMatchForm();
+  expect(screen.queryByLabelText("Supplier invoice number")).toBeNull();
+  expect(screen.getByText(/submitted invoice\(s\) are awaiting approval/)).toBeTruthy();
+  expect(screen.getByText(/Awaiting invoice approval:/)).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Review submitted invoices" }));
+  await waitFor(() => expect(state.call).toHaveBeenCalledWith("getProcurementWorkspace", expect.objectContaining({ view: "invoices_page", search: "PO-ONE" })));
+  expect(state.call.mock.calls.some(([name]) => name === "submitSupplierInvoice")).toBe(false);
+});
+it("opens the saved invoice with visible feedback and its approval action", async () => {
+  matchingWorkspace(async () => ({ supplierInvoiceId: "invoice", submitted: true }));
+  await openMatchForm();
+  fireEvent.change(screen.getByLabelText("Supplier invoice number"), { target: { value: "INV-ONE" } });
+  fireEvent.change(screen.getByLabelText("Actual supplier unit price (₦) for Real product"), { target: { value: "50" } });
+  fireEvent.click(screen.getByRole("checkbox"));
+  fireEvent.click(screen.getByRole("button", { name: /Match received goods/ }));
+  await screen.findByRole("button", { name: "Approve invoice" });
+  expect(screen.getByText(/Invoice INV-ONE is saved/)).toBeTruthy();
+  expect(screen.queryByRole("button", { name: /Match received goods/ })).toBeNull();
+  expect(state.call).toHaveBeenCalledWith("getProcurementWorkspace", { view: "invoice_detail", supplierInvoiceId: "invoice", branchId: "store" });
+  expect(state.call.mock.calls.filter(([name]) => name === "submitSupplierInvoice")).toHaveLength(1);
+});
+it("reuses the exact matching key after an interrupted response and shows the error beside the form", async () => {
+  let attempt = 0;
+  matchingWorkspace(async () => { if (!attempt++) throw new Error("Connection interrupted"); return { supplierInvoiceId: "invoice", submitted: false }; });
+  await openMatchForm();
+  fireEvent.change(screen.getByLabelText("Supplier invoice number"), { target: { value: "INV-ONE" } });
+  fireEvent.change(screen.getByLabelText("Actual supplier unit price (₦) for Real product"), { target: { value: "50" } });
+  fireEvent.click(screen.getByRole("checkbox"));
+  fireEvent.click(screen.getByRole("button", { name: /Match received goods/ }));
+  await waitFor(() => expect(screen.getByRole("status").textContent).toContain("Connection interrupted"));
+  fireEvent.click(screen.getByRole("button", { name: /Match received goods/ }));
+  await screen.findByRole("button", { name: "Approve invoice" });
+  const calls = state.call.mock.calls.filter(([name]) => name === "submitSupplierInvoice");
+  expect(calls).toHaveLength(2);
+  expect(calls[0]![1]).toEqual(calls[1]![1]);
+});
+it("does not reopen a saved invoice after the user closes or changes the selected record", async () => {
+  let finish: (value: unknown) => void = () => {};
+  matchingWorkspace(() => new Promise(resolve => { finish = resolve; }));
+  await openMatchForm();
+  fireEvent.change(screen.getByLabelText("Supplier invoice number"), { target: { value: "INV-ONE" } });
+  fireEvent.change(screen.getByLabelText("Actual supplier unit price (₦) for Real product"), { target: { value: "50" } });
+  fireEvent.click(screen.getByRole("checkbox"));
+  fireEvent.click(screen.getByRole("button", { name: /Match received goods/ }));
+  fireEvent.click(screen.getByRole("button", { name: "Close details" }));
+  finish({ supplierInvoiceId: "invoice", submitted: true });
+  await waitFor(() => expect(screen.queryByText("Real product")).toBeNull());
+  expect(screen.queryByText(/Invoice INV-ONE is saved/)).toBeNull();
+  expect(state.call.mock.calls.some(([, input]) => input.view === "invoice_detail")).toBe(false);
+});
+
+it.each(["cancelled", "rejected"])("keeps %s history visible but never offers approval or payment", async status => {
+  const historical = { ...pendingInvoice, status };
+  state.call.mockImplementation((_name, input) => Promise.resolve(input.view === "options" ? options : { invoices: [historical], nextCursor: null }));
+  window.history.replaceState(null, "", "/procurement#supplier-invoices");
+  render(<ProcurementPage />);
+  await screen.findByText("INV-ONE");
+  fireEvent.click(screen.getByRole("button", { name: "View invoice" }));
+  await screen.findByText(/invoice cannot be approved or paid/);
+  expect(screen.queryByRole("button", { name: "Approve invoice" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Record payment / apply advance" })).toBeNull();
+  expect(historical.outstandingAmountMinor).toBe(10000);
+  expect(state.call.mock.calls.every(([name]) => name === "getProcurementWorkspace")).toBe(true);
+});
+
+it("blocks a price variance with pending quantities, then submits only the reviewed available remainder", async () => {
+  matchingWorkspace(async () => ({ supplierInvoiceId: "invoice", submitted: true }), false, true);
+  await openMatchForm();
+  expect(screen.getByText(/Quantity to match:/).textContent).toContain("Quantity to match: 2");
+  fireEvent.change(screen.getByLabelText("Supplier invoice number"), { target: { value: "INV-ONE" } });
+  fireEvent.change(screen.getByLabelText("Actual supplier unit price (₦) for Real product"), { target: { value: "60" } });
+  fireEvent.click(screen.getByRole("checkbox"));
+  const match = screen.getByRole("button", { name: /Match received goods/ });
+  expect((match as HTMLButtonElement).disabled).toBe(true);
+  fireEvent.click(match);
+  expect(state.call.mock.calls.some(([name]) => name === "submitSupplierInvoice")).toBe(false);
+  expect(screen.getByText(/Invoice price review required/)).toBeTruthy();
+  fireEvent.change(screen.getByLabelText("Actual supplier unit price (₦) for Real product"), { target: { value: "50" } });
+  expect((screen.getByRole("checkbox") as HTMLInputElement).checked).toBe(false);
+  fireEvent.click(screen.getByRole("checkbox"));
+  fireEvent.click(match);
+  await screen.findByRole("button", { name: "Approve invoice" });
+  expect(state.call).toHaveBeenCalledWith("submitSupplierInvoice", expect.objectContaining({ lines: [{ purchaseOrderItemId: "item", quantity: 2 }] }));
+  expect(screen.getByText(/Invoice INV-ONE is saved/)).toBeTruthy();
+});
+it("uses a new retry identity when the reviewed invoice payload changes", async () => {
+  matchingWorkspace(async () => { throw new Error("Connection interrupted"); });
+  await openMatchForm();
+  fireEvent.change(screen.getByLabelText("Supplier invoice number"), { target: { value: "INV-ONE" } });
+  fireEvent.change(screen.getByLabelText("Actual supplier unit price (₦) for Real product"), { target: { value: "50" } });
+  fireEvent.click(screen.getByRole("checkbox"));
+  fireEvent.click(screen.getByRole("button", { name: /Match received goods/ }));
+  await waitFor(() => expect(screen.getByRole("status").textContent).toContain("Connection interrupted"));
+  fireEvent.change(screen.getByLabelText("Supplier invoice number"), { target: { value: "INV-TWO" } });
+  fireEvent.click(screen.getByRole("button", { name: /Match received goods/ }));
+  await waitFor(() => expect(state.call.mock.calls.filter(([name]) => name === "submitSupplierInvoice")).toHaveLength(2));
+  const calls = state.call.mock.calls.filter(([name]) => name === "submitSupplierInvoice");
+  expect(calls[0]![1].idempotencyKey).not.toBe(calls[1]![1].idempotencyKey);
 });

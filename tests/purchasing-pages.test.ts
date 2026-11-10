@@ -11,7 +11,7 @@ vi.mock("../functions/src/admin", () => {
   }
   return { db: { collection: query, doc: (path: string) => ({ get: async () => record(path) }) } };
 });
-import { purchasingPage, purchasingOrderDetail, purchasingNeedsAction, purchasingPageInput } from "../functions/src/procurement/purchasing-pages";
+import { purchasingPage, purchasingOrderDetail, purchasingNeedsAction, purchasingPageInput, purchasingInvoiceDetail } from "../functions/src/procurement/purchasing-pages";
 const actor: ProcurementAccess = { userId: "user", organizationId: "org", roleId: "warehouse_manager", branchIds: ["a"], warehouseIds: [], authorizationVersion: 1, effectivePermissions: ["procurement.read", "payables.read"], organizationProcurementPermissions: [] };
 const input = (extras: Record<string,unknown> = {}) => purchasingPageInput.parse({ branchId: "a", view: "all", pageSize: 25, ...extras });
 function add(id: string, data: Record<string, unknown> = {}, collection = "purchaseOrders") { memory.rows.set(`${collection}/${id}`, { organizationId: "org", branchId: "a", status: "draft", createdAt: Timestamp.fromDate(new Date("2026-11-06T23:30:00Z")), ...data }); }
@@ -81,4 +81,34 @@ it("serves a newly added selected branch for purchasing-only managers without le
   await expect(purchasingPage(manager, input({ branchId: undefined }), "orders")).rejects.toMatchObject({ code: "failed-precondition" });
   await expect(purchasingPage(manager, input({ branchId: undefined, warehouseId: "legacy" }), "orders")).rejects.toMatchObject({ code: "permission-denied" });
   await expect(purchasingPage({ ...manager, roleId: "branch_manager", directRoleIds: ["branch_manager"] }, input({ branchId: "new-branch" }), "orders")).rejects.toMatchObject({ code: "permission-denied" });
+});
+
+it("shows existing pending matches and routes the order to invoice approval", async () => {
+  add("pending-order", { status: "received", receivedNetAmountMinor: 100, invoicedNetAmountMinor: 0 });
+  add("pending-line", { purchaseOrderId: "pending-order", orderedQuantity: 2, receivedQuantity: 2, invoicedQuantity: 0 }, "purchaseOrderItems");
+  add("pending-invoice", { purchaseOrderId: "pending-order", status: "submitted" }, "supplierInvoices");
+  add("invoice-line", { purchaseOrderId: "pending-order", supplierInvoiceId: "pending-invoice", purchaseOrderItemId: "pending-line", quantity: 2 }, "supplierInvoiceItems");
+  const page = await purchasingPage(actor, input(), "orders");
+  expect(page.orders?.[0]).toMatchObject({ nextAction: "Review invoice approval" });
+  const detail = await purchasingOrderDetail(actor, { purchaseOrderId: "pending-order", branchId: "a" });
+  expect(detail.pendingInvoiceCount).toBe(1);
+  expect(detail.items[0]).toMatchObject({ pendingInvoiceQuantity: 2, matchableQuantity: 0 });
+});
+it("loads only the saved invoice inside the caller's authorized scope", async () => {
+  add("saved", { purchaseOrderId: "order", status: "submitted" }, "supplierInvoices");
+  add("foreign", { organizationId: "other", status: "submitted" }, "supplierInvoices");
+  const invoice = await purchasingInvoiceDetail(actor, { supplierInvoiceId: "saved", branchId: "a" });
+  expect(invoice.invoice).toMatchObject({ id: "saved" });
+  await expect(purchasingInvoiceDetail(actor, { supplierInvoiceId: "foreign" })).rejects.toMatchObject({ code: "not-found" });
+  await expect(purchasingInvoiceDetail(actor, { supplierInvoiceId: "saved", branchId: "b" })).rejects.toMatchObject({ code: "permission-denied" });
+  await expect(purchasingInvoiceDetail({ ...actor, effectivePermissions: ["procurement.read"] }, { supplierInvoiceId: "saved" })).rejects.toMatchObject({ code: "permission-denied" });
+});
+
+it("keeps cancelled and rejected invoices searchable only as inactive history", async () => {
+  for (const status of ["submitted", "approved", "cancelled", "rejected", "void"]) add(status, { status, outstandingAmountMinor: 10000 }, "supplierInvoices");
+  const actionable = await purchasingPage(actor, input({ view: "needs_action" }), "invoices");
+  expect(actionable.invoices?.map(invoice => invoice.id)).toEqual(["approved", "submitted"]);
+  const history = await purchasingPage(actor, input({ view: "history" }), "invoices");
+  expect(history.invoices?.map(invoice => invoice.id)).toEqual(["cancelled", "rejected", "void"]);
+  expect(memory.rows.get("supplierInvoices/cancelled")?.outstandingAmountMinor).toBe(10000);
 });
