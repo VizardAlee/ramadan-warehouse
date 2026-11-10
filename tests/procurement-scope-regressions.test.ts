@@ -7,7 +7,7 @@ vi.mock("../functions/src/auth/custom-roles.js", async original => ({
   ...await original<typeof import("../functions/src/auth/custom-roles")>(),
   loadCustomRoles: vi.fn(async () => state.roles),
 }));
-import { procurementAccess, requireProcurementScope, hasOrganizationProcurementPermission } from "../functions/src/procurement/authorize";
+import { procurementAccess, requireProcurementScope, hasOrganizationProcurementPermission, hasProcurementScope, purchaseReceiptInventoryActor } from "../functions/src/procurement/authorize";
 
 const writes: Permission[] = ["procurement.create", "procurement.approve", "procurement.receive", "payables.create", "payables.approve", "payables.pay", "inventory.reverse"];
 function actor(direct: RoleId[] = ["warehouse_manager"], base: RoleId = "operations_administrator", permissions: Permission[] = ["procurement.read", "payables.read"]) {
@@ -83,4 +83,41 @@ describe("procurement permission provenance and assigned store scope", () => {
     expect(() => requireProcurementScope(access, {}, "procurement.receive")).toThrow(/no operating location/);
     expect(() => requireProcurementScope(access, { branchId: "own-branch", warehouseId: "remote" }, "procurement.receive")).toThrow(/assigned store/);
   });
+  it("grants Purchasing Manager the purchase workflow in branches and warehouses, not finance or direct stock writes", async () => {
+    const access = await procurementAccess(actor(["purchasing_manager"], "purchasing_manager", []));
+    for (const scope of [{ branchId: "future-branch" }, { warehouseId: "future-warehouse" }]) {
+      for (const permission of ["procurement.read", "procurement.create", "procurement.approve", "procurement.receive", "payables.read", "payables.create", "payables.approve"] as const) {
+        expect(hasProcurementScope(access, scope, permission)).toBe(true);
+        expect(() => requireProcurementScope(access, scope, permission)).not.toThrow();
+      }
+      for (const permission of ["payables.pay", "inventory.adjust", "inventory.reverse", "banking.manage", "finance.journal.create"] as const)
+        expect(() => requireProcurementScope(access, scope, permission)).toThrow();
+    }
+    const receiver = purchaseReceiptInventoryActor(access, { warehouseId: "future-warehouse" });
+    expect(receiver.warehouseIds).toEqual(["future-warehouse"]);
+    expect(receiver.branchIds).toEqual([]);
+    expect(access.warehouseIds).toEqual(["own-warehouse"]);
+  });
+  it("isolates Purchasing Manager's selected warehouse and rejects ambiguous scope", async () => {
+    const access = await procurementAccess(actor(["purchasing_manager"], "purchasing_manager", []));
+    const selected = { ...access, operatingContext: { type: "warehouse" as const, id: "selected" } };
+    expect(() => requireProcurementScope(selected, { warehouseId: "selected" }, "procurement.receive")).not.toThrow();
+    for (const scope of [{ warehouseId: "other" }, { branchId: "other" }]) {
+      expect(hasProcurementScope(selected, scope, "procurement.read")).toBe(false);
+      expect(() => requireProcurementScope(selected, scope, "procurement.receive")).toThrow(/another operating location/);
+    }
+    expect(() => requireProcurementScope(access, { branchId: "remote", warehouseId: "remote" }, "procurement.receive")).toThrow();
+  });
+  it("does not lend custom purchasing read authority to warehouse-manager writes and refreshes revoked grants", async () => {
+    const profile = actor(["warehouse_manager"], "purchasing_manager", ["procurement.read", "procurement.approve"]);
+    const access = await procurementAccess(profile);
+    expect(() => requireProcurementScope(access, { warehouseId: "remote" }, "procurement.read")).not.toThrow();
+    expect(() => requireProcurementScope(access, { warehouseId: "remote" }, "procurement.approve")).not.toThrow();
+    for (const permission of ["procurement.receive", "payables.pay", "inventory.reverse"] as const)
+      expect(() => requireProcurementScope(access, { warehouseId: "remote" }, permission)).toThrow(/assigned store/);
+    state.roles[0]!.permissionIds = ["procurement.read"];
+    const refreshed = await procurementAccess(profile);
+    expect(() => requireProcurementScope(refreshed, { warehouseId: "remote" }, "procurement.approve")).toThrow(/assigned store/);
+  });
+
 });

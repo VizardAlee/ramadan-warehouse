@@ -26,6 +26,11 @@ describe("purchasing-only dashboard", () => {
     expect(mocks.call).not.toHaveBeenCalled();
     expect(mocks.notifications).not.toHaveBeenCalled();
   });
+  it("keeps warehouse purchasing separate from unassigned operational dashboards", () => {
+    const authority = { ...profile(["purchasing_manager", "warehouse_manager"]), warehouseIds: ["own"] };
+    expect(shouldShowPurchasingDashboard(authority, authority, { type: "warehouse", id: "other" })).toBe(true);
+    expect(shouldShowPurchasingDashboard(authority, authority, { type: "warehouse", id: "own" })).toBe(false);
+  });
   it("does not display actions omitted from a restricted custom purchasing role", () => {
     mocks.profile = { ...profile(["purchasing_manager"]), directRoleIds: [], customRoleIds: ["purchasing-reader"], effectivePermissions: ["procurement.read"] };
     render(<DashboardPage />);
@@ -80,9 +85,9 @@ describe("purchasing-only dashboard", () => {
     expect(shouldShowPurchasingDashboard(custom, custom, context)).toBe(true);
     expect(shouldShowPurchasingDashboard(custom, custom, { type: "branch", id: "own-branch" })).toBe(false);
   });
-  it("retains provable custom-only global dashboard grants without granting omitted actions", () => {
+  it("does not treat purchasing transfer reads as generic global dashboard authority", () => {
     const authority = { ...profile(["purchasing_manager", "auditor"]), directRoleIds: ["purchasing_manager"] as RoleId[], customRoleIds: ["sales-reader"], effectivePermissions: [...permissionsForRoles(["purchasing_manager"]), "reports.sales.read", "sales.read.all"] as UserProfile["effectivePermissions"] };
-    expect(shouldShowPurchasingDashboard(authority, authority, { type: "branch", id: "new-branch" })).toBe(false);
+    expect(shouldShowPurchasingDashboard(authority, authority, { type: "branch", id: "new-branch" })).toBe(true);
   });
   it("does not classify inactive purchasing users as authorized", () => {
     expect(isPurchasingOnlyProfile({ ...profile(["purchasing_manager"]), status: "inactive" })).toBe(false);

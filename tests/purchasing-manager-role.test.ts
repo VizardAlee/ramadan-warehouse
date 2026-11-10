@@ -34,26 +34,27 @@ describe("Purchasing Manager permission boundaries", () => {
     expect(canAssignRole("branch_manager", "purchasing_manager")).toBe(false);
     expect(canAssignRole("purchasing_manager", "purchasing_manager")).toBe(false);
   });
-  it("authorizes existing and future branches without assignments, never legacy warehouses", async () => {
+  it("authorizes purchasing in existing and future branches and warehouses without assignments", async () => {
     const access = await procurementAccess({ ...profile(), warehouseIds: ["legacy-assignment"] });
     for (const permission of granted.filter(permission => !permission.startsWith("suppliers."))) {
       expect(hasAllBranchProcurementPermission(access, permission)).toBe(true);
       expect(hasOrganizationProcurementPermission(access, permission)).toBe(false);
       for (const branchId of ["head-office", "new-branch-after-assignment"]) expect(() => requireProcurementScope(access, { branchId }, permission)).not.toThrow();
       for (const warehouseId of ["legacy-assignment", "unassigned-warehouse"]) {
-        expect(() => requireProcurementScope(access, { warehouseId }, permission)).toThrow(/assigned store/);
-        expect(hasProcurementScope(access, { warehouseId }, permission)).toBe(false);
+        expect(() => requireProcurementScope(access, { warehouseId }, permission)).not.toThrow();
+        expect(hasProcurementScope(access, { warehouseId }, permission)).toBe(true);
       }
     }
     expect(() => requireProcurementScope(access, { branchId: "head-office", warehouseId: "legacy-assignment" }, "procurement.create")).toThrow();
     expect(() => requireProcurementScope(access, {}, "procurement.create")).toThrow(/operating location/);
     expect(() => requireBranchScope(access, "new-branch-after-assignment")).toThrow();
   });
-  it("does not lend all-branch scope to independently held local warehouse permissions", async () => {
+  it("keeps independent non-purchasing warehouse actions local", async () => {
     const access = await procurementAccess({ ...profile(["purchasing_manager", "warehouse_officer"]), warehouseIds: ["own"] });
     expect(() => requireProcurementScope(access, { warehouseId: "own" }, "procurement.receive")).not.toThrow();
-    expect(() => requireProcurementScope(access, { warehouseId: "own" }, "procurement.approve")).toThrow();
-    expect(() => requireProcurementScope(access, { warehouseId: "remote" }, "procurement.receive")).toThrow();
+    expect(() => requireProcurementScope(access, { warehouseId: "own" }, "procurement.approve")).not.toThrow();
+    expect(() => requireProcurementScope(access, { warehouseId: "remote" }, "procurement.receive")).not.toThrow();
+    expect(() => requireProcurementScope(access, { warehouseId: "remote" }, "inventory.receive")).toThrow();
   });
   it("refreshes restricted custom grants and does not grant their omitted/self-approval powers", async () => {
     const custom: StoredRole = { id: "read-only", organizationId: "org", name: "Reader", baseRoleId: "purchasing_manager", permissionIds: ["procurement.read"], status: "active" };

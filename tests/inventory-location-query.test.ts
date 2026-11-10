@@ -42,6 +42,38 @@ beforeEach(() => {
   state.reads = []; state.aggregates = 0; state.writes.mockReset();
 });
 describe("bounded location inventory reads", () => {
+  it("bounds scope multiplied by location groups without losing totals or pages", async () => {
+    state.actor = { ...state.actor, roleId: "branch_manager", roleIds: ["branch_manager"], branchIds: ["a", "b", "c"] };
+    const locations = Array.from({ length: 36 }, (_, i) => `area-${i}`);
+    state.rows = locations.map((locationId, i) => ({ ...state.rows[0]!, id: `row-${String(i).padStart(2, "0")}`, branchId: ["a", "b", "c"][i % 3], locationId, onHandQuantity: 1, availableQuantity: 1 }));
+    const first = await invoke({ locationIds: locations, limit: 25 });
+    expect(first.rows).toHaveLength(25);
+    expect(first.summary?.count).toBe(36);
+    const next = await invoke({ locationIds: locations, limit: 25, cursor: first.nextCursor });
+    expect(next.rows).toHaveLength(11);
+    expect(next.nextCursor).toBeNull();
+    expect(new Set([...first.rows, ...next.rows].map(row => row.id)).size).toBe(36);
+    for (const read of state.reads) {
+      const branchCount = (read.filters.find(([key]) => key === "branchId")![2] as string[]).length;
+      const locationCount = (read.filters.find(([key]) => key === "locationId")![2] as string[]).length;
+      expect(branchCount * locationCount).toBeLessThanOrEqual(30);
+    }
+  });
+  it("serves a Purchasing Manager selected branch without costs or write effects", async () => {
+    state.actor = { ...state.actor, roleId: "purchasing_manager", roleIds: ["purchasing_manager"], operatingContext: { type: "branch", id: "branch-a" } };
+    state.rows.push({ ...state.rows[0]!, id: "other-branch", branchId: "branch-b" }, { ...state.rows[0]!, id: "other-org", organizationId: "foreign" }, { ...state.rows[0]!, id: "warehouse", branchId: null, warehouseId: "branch-a" });
+    const first = await invoke({ limit: 100, includeCosts: true });
+    expect(first.rows).toHaveLength(100);
+    expect(first.rows.every(row => row.branchId === "branch-a" && row.organizationId === "org")).toBe(true);
+    expect(first.rows.every(row => !("totalValueMinor" in row) && !("averageUnitCostMinor" in row))).toBe(true);
+    expect(first.summary).toMatchObject({ count: 1001 });
+    expect(first.summary).not.toHaveProperty("valueMinor");
+    expect(first.includeCosts).toBe(false);
+    expect(state.writes).not.toHaveBeenCalled();
+    const next = await invoke({ cursor: first.nextCursor, limit: 100 });
+    expect(next.rows[0]!.id).not.toBe(first.rows[0]!.id);
+  });
+
   it("searches beyond the loaded page by name, never SKU, and returns matching totals and cursors", async () => {
     state.rows = state.rows.map((row, index) => ({ ...row, productName: index >= 990 ? "Solar Panel" : "Battery", sku: "Solar Panel" }));
     const first = await invoke({ locationIds: ["stock-a"], search: "  sOLar  ", limit: 5, includeCosts: true });

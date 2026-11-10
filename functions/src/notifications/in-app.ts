@@ -157,14 +157,15 @@ export function notificationActionFor(
   const destinationManager = Boolean(
     destinationBranch && actor.branchIds.includes(destinationBranch) && hasRole(actor, "branch_manager"),
   );
-  if (!wide && !sourceManager && !destinationManager)
+  const transferManager = hasRole(actor, "purchasing_manager") && hasServerPermission(actor, "transfers.read.all");
+  if (!wide && !transferManager && !sourceManager && !destinationManager)
     return { eligible: false, actionRequired: false };
   return {
     eligible: true,
     actionRequired:
-      event.eventType === "stock_transfer.created" ? wide || sourceManager :
-      event.eventType === "stock_transfer.approve" ? wide || destinationManager :
-      event.eventType === "stock_transfer.report_problem" ? wide || sourceManager : false,
+      event.eventType === "stock_transfer.created" ? (wide || transferManager) && hasServerPermission(actor, "transfers.approve") :
+      event.eventType === "stock_transfer.approve" ? wide || transferManager && hasServerPermission(actor, "transfers.receive") || destinationManager :
+      event.eventType === "stock_transfer.report_problem" ? wide || transferManager && hasServerPermission(actor, "transfers.resolve_discrepancy") || sourceManager : false,
   };
 }
 

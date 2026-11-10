@@ -27,7 +27,8 @@ function InventoryPosition() {
   const { profile, operatingContext } = useAuth();
   const canSelectAll = Boolean(profile && hasOrganizationWideOperatingAccess(profile));
   const canReadCosts = Boolean(profile && hasPermission(profile, "inventory.cost.read"));
-  const locations = useOrganizationCollection<InventoryLocation>("inventoryLocations", true,
+  const serverScope = Boolean(profile && (profile.roleIds ?? [profile.roleId]).includes("purchasing_manager"));
+  const locations = useOrganizationCollection<InventoryLocation>("inventoryLocations", !serverScope,
     operatingContext ? { field: operatingContext.type === "branch" ? "branchId" : "warehouseId", id: operatingContext.id } : undefined);
   const [search, setSearch] = useState("");
   const [pageStarts, setPageStarts] = useState<(string | null)[]>([null]);

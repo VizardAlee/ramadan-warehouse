@@ -210,7 +210,7 @@ beforeAll(async () => {
   );
   approver = await actor(
     "transfer-approver@example.test",
-    "warehouse_manager",
+    "operations_administrator",
     [],
     ["warehouse-a"],
   );

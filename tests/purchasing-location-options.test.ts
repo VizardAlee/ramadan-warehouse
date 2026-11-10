@@ -28,13 +28,23 @@ describe("selected purchasing receiving-location options", () => {
     expect(options.branches.map(row => row.id)).toEqual(["z-future"]); expect(options.warehouses).toEqual([]); expect(options.locations).toHaveLength(501);
     expect(state.queries).toHaveLength(2); expect(state.queries.every(filters => filters.some(([field, value]) => field === "branchId" && value === "z-future"))).toBe(true);
   });
-  it("rejects foreign/inactive branches and warehouse-only scopes before returning metadata", async () => {
+  it("rejects foreign/inactive or missing locations before returning metadata", async () => {
     for (const data of [{ organizationId: "foreign", status: "active" }, { organizationId: "org", status: "inactive" }]) {
       state.rows.set("branches/unavailable", data);
       await expect(selectedPurchasingLocationOptions(buyer, { branchId: "unavailable" })).rejects.toMatchObject({ code: "not-found" });
     }
-    await expect(selectedPurchasingLocationOptions({ ...buyer, warehouseIds: ["old-assignment"] }, { warehouseId: "old-assignment" })).rejects.toMatchObject({ code: "permission-denied" });
+    await expect(selectedPurchasingLocationOptions({ ...buyer, warehouseIds: ["old-assignment"] }, { warehouseId: "old-assignment" })).rejects.toMatchObject({ code: "not-found" });
     await expect(selectedPurchasingLocationOptions(buyer, { branchId: "branch/nested/document" })).rejects.toMatchObject({ code: "invalid-argument" });
     expect(state.queries).toEqual([]);
   });
+  it("loads only the selected warehouse's active receiving locations", async () => {
+    state.rows.set("warehouses/future", { organizationId: "org", status: "active" });
+    state.rows.set("inventoryLocations/receiving", { organizationId: "org", warehouseId: "future", status: "active" });
+    state.rows.set("inventoryLocations/other", { organizationId: "org", warehouseId: "other", status: "active" });
+    const options = await selectedPurchasingLocationOptions(buyer, { warehouseId: "future" });
+    expect(options.warehouses.map(row => row.id)).toEqual(["future"]);
+    expect(options.branches).toEqual([]);
+    expect(options.locations.map(row => row.id)).toEqual(["receiving"]);
+  });
+
 });

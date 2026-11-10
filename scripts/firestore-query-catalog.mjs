@@ -96,6 +96,10 @@ export function queryCatalog() {
   for (const collection of ["journalEntries", "salesOrders", "bankStatementTransactions", "bankReconciliations", "salePayments", "customerPayments", "supplierPayments", "expensePayments", "aftersalesPayments", "providerFundPayments", "saleReturns", "saleRefunds", "sales", "expenses", "purchaseOrders", "internalTradePayments"])
     add("bank lifecycle dependency evidence", collection, [org]);
 
+  // Scoped serial history uses the same per-arm indexes for mixed assignment OR queries.
+  for (const scope of [[], [["branchId", "=="]], [["warehouseId", "=="]], [["branchId", "in"]], [["warehouseId", "in"]]])
+    add("authorized serial item movement history", "inventoryEntries", [org, ...scope, ["serializedItemId", "=="]], dateOrder("effectiveAt"));
+
   for (const scope of scopes) {
     for (const optional of subsets(["productId", "locationId", "transactionType", "serialNumber"])) {
       add("inventory history/movement filters", "inventoryEntries", [org, ...scope, ...eq(optional), ["effectiveAt", ">="], ["effectiveAt", "<="]], dateOrder("effectiveAt"));

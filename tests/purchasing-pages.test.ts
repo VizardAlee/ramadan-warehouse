@@ -73,13 +73,15 @@ describe("purchasing server pages", () => {
   });
 });
 
-it("serves a newly added selected branch for purchasing-only managers without legacy warehouse authority", async () => {
+it("serves selected branches and warehouses for purchasing-only managers", async () => {
   add("new-order", { branchId: "new-branch" });
   const manager: ProcurementAccess = { ...actor, roleId: "purchasing_manager", directRoleIds: ["purchasing_manager"], branchIds: [], warehouseIds: [], allBranchProcurementPermissions: ["procurement.read", "payables.read"], assignedProcurementPermissions: [] };
   const result = await purchasingPage(manager, input({ branchId: "new-branch" }), "orders");
   expect(result.orders?.map(row => row.id)).toEqual(["new-order"]);
   await expect(purchasingPage(manager, input({ branchId: undefined }), "orders")).rejects.toMatchObject({ code: "failed-precondition" });
-  await expect(purchasingPage(manager, input({ branchId: undefined, warehouseId: "legacy" }), "orders")).rejects.toMatchObject({ code: "permission-denied" });
+  add("warehouse-order", { branchId: undefined, warehouseId: "legacy" });
+  const warehouse = await purchasingPage(manager, input({ branchId: undefined, warehouseId: "legacy" }), "orders");
+  expect(warehouse.orders?.map(row => row.id)).toEqual(["warehouse-order"]);
   await expect(purchasingPage({ ...manager, roleId: "branch_manager", directRoleIds: ["branch_manager"] }, input({ branchId: "new-branch" }), "orders")).rejects.toMatchObject({ code: "permission-denied" });
 });
 

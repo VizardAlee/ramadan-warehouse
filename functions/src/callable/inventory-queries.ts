@@ -1,7 +1,9 @@
+import { inventoryReadAccess, inventoryReadScope, inventoryReadCosts, inventoryLocationGroupSize, type InventoryReadAccess } from "../inventory/read-scope.js";
 import { inventoryProductLabels } from "../inventory/product-labels.js";
 import { viewQuery, matchesView } from "../auth/view-scope.js";
 import {
   AggregateField,
+  Filter,
   FieldPath,
   FieldValue,
   Timestamp,
@@ -43,6 +45,19 @@ function organizationWide(actor: AccessProfile) {
 
 function scopedQuery(query: Query, actor: AccessProfile, readOnly = false): Query {
   query = viewQuery(actor, query);
+  if (readOnly && "inventoryReadBranchIds" in actor) {
+    const reader = actor as InventoryReadAccess;
+    const scope = inventoryReadScope(reader);
+    if (scope.organization) return query;
+    const branches = reader.inventoryReadBranchIds;
+    const warehouses = reader.inventoryReadWarehouseIds;
+    if (branches.length + warehouses.length > 30) throw new HttpsError("resource-exhausted", "Choose one location to view inventory.");
+    if (branches.length && !warehouses.length) return query.where("branchId", "in", branches);
+    if (warehouses.length && !branches.length) return query.where("warehouseId", "in", warehouses);
+    const filters = [...branches.map(id => Filter.where("branchId", "==", id)), ...warehouses.map(id => Filter.where("warehouseId", "==", id))];
+    if (!filters.length) throw new HttpsError("permission-denied", "Inventory scope is unavailable.");
+    return query.where(filters.length === 1 ? filters[0]! : Filter.or(...filters));
+  }
   if (organizationWide(actor)) return query;
   // requireAccess has already validated and narrowed the selected context.
   // A branch manager keeps that existing branch authority when also assigned a
@@ -78,6 +93,12 @@ function recordInScope(
   readOnly = false,
 ) {
   if (!matchesView(actor, snapshot.data() ?? {})) return false;
+  if (readOnly && "inventoryReadBranchIds" in actor) {
+    const reader = actor as InventoryReadAccess;
+    const scope = inventoryReadScope(reader);
+    return scope.organization || reader.inventoryReadBranchIds.includes(String(snapshot.get("branchId"))) ||
+      reader.inventoryReadWarehouseIds.includes(String(snapshot.get("warehouseId")));
+  }
   if (organizationWide(actor)) return true;
   const selectedBranchRead = readOnly && hasRole(actor, "branch_manager") &&
     actor.branchIds.length > 0 && actor.warehouseIds.length === 0;
@@ -145,11 +166,11 @@ function applyEntryFilters(
 export const getSkuMovementHistory = onCall(
   { enforceAppCheck },
   async (request) => {
-    const actor = await requireAccess(request);
+    const actor = await inventoryReadAccess(await requireAccess(request));
     requirePermission(actor, "inventory.read");
     const input = parseInput(pageInput, request.data);
     const includeCosts =
-      input.includeCosts && hasServerPermission(actor, "inventory.cost.read");
+      input.includeCosts && inventoryReadCosts(actor);
     let query = applyEntryFilters(
       scopedQuery(db.collection("inventoryEntries"), actor, true),
       input,
@@ -179,7 +200,7 @@ export const getSkuMovementHistory = onCall(
 export const getSerialItemHistory = onCall(
   { enforceAppCheck },
   async (request) => {
-    const actor = await requireAccess(request);
+    const actor = await inventoryReadAccess(await requireAccess(request));
     requirePermission(actor, "inventory.read");
     const input = parseInput(pageInput, request.data);
     if (!input.serialNumber)
@@ -199,9 +220,9 @@ export const getSerialItemHistory = onCall(
     )
       throw new HttpsError("not-found", "Serialized item not found.");
     const includeCosts =
-      input.includeCosts && hasServerPermission(actor, "inventory.cost.read");
-    let query: Query = db
-      .collection("inventoryEntries")
+      input.includeCosts && inventoryReadCosts(actor);
+    let query: Query = scopedQuery(db
+      .collection("inventoryEntries"), actor, true)
       .where("organizationId", "==", actor.organizationId)
       .where("serializedItemId", "==", serializedItemId)
       .orderBy("effectiveAt", "desc")
@@ -233,13 +254,13 @@ export const getSerialItemHistory = onCall(
 export const getProductStockSummary = onCall(
   { enforceAppCheck },
   async (request) => {
-    const actor = await requireAccess(request);
+    const actor = await inventoryReadAccess(await requireAccess(request));
     requirePermission(actor, "inventory.read");
     const input = parseInput(pageInput, request.data);
     if (!input.productId)
       throw new HttpsError("invalid-argument", "Product is required.");
     const includeCosts =
-      input.includeCosts && hasServerPermission(actor, "inventory.cost.read");
+      input.includeCosts && inventoryReadCosts(actor);
     const [product, productCost, balances, serials, lots] = await Promise.all([
       db.collection("products").doc(input.productId).get(),
       db.collection("productCosts").doc(input.productId).get(),
@@ -298,7 +319,7 @@ export const getProductStockSummary = onCall(
       serializedItems: serials.docs.map((document) =>
         serialize(document, includeCosts),
       ),
-      lots: organizationWide(actor)
+      lots: inventoryReadScope(actor).organization
         ? lots.docs.map((document) => serialize(document, includeCosts))
         : [],
       includeCosts,
@@ -310,15 +331,17 @@ export const getProductStockSummary = onCall(
  * a Store/Warehouse mapping is supplied as location IDs, never merged entity IDs.
  * Multiple 30-ID query groups are merged by the same document-ID order. */
 async function stockPositionReport(request: CallableRequest<unknown>) {
-  const actor = await requireAccess(request);
+  const actor = await inventoryReadAccess(await requireAccess(request));
   requirePermission(actor, "inventory.read");
   const input = parseInput(stockPositionInput, request.data);
   const membership = input.view === "membership";
   const includeCosts = !membership && input.includeCosts &&
-    hasServerPermission(actor, "inventory.cost.read");
+    inventoryReadCosts(actor);
   const ids = input.locationIds ? [...new Set(input.locationIds)] : null;
+  // Firestore expands scope ORs multiplied by the location IN list into DNF.
+  const groupSize = inventoryLocationGroupSize(actor);
   const groups: (string[] | null)[] = ids
-    ? Array.from({ length: Math.ceil(ids.length / 30) }, (_, index) => ids.slice(index * 30, index * 30 + 30))
+    ? Array.from({ length: Math.ceil(ids.length / groupSize) }, (_, index) => ids.slice(index * groupSize, index * groupSize + groupSize))
     : [null];
   const pages: { documents: FirebaseFirestore.QueryDocumentSnapshot[]; summary: Record<string, number> | null }[] = [];
   // Bound concurrent reads even for unusually many physical inventory areas.

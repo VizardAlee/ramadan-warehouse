@@ -69,7 +69,7 @@ describe.sequential("serialized transfer callable E2E", () => {
     const transferId = created.transferId;
     const transferItemId = `${transferId}__serial-product`;
     await call(creator, "submitTransfer", { transferId, expectedVersion: 0, idempotencyKey: crypto.randomUUID() });
-    await call(manager, "approveTransfer", { transferId, expectedVersion: 1, idempotencyKey: crypto.randomUUID() });
+    await call(creator, "approveTransfer", { transferId, expectedVersion: 1, idempotencyKey: crypto.randomUUID() });
     const foreignSerialId = uniquenessDocumentId("another-org", "FOREIGN-001");
     const otherProductSerialId = uniquenessDocumentId(organizationId, "OTHER-PRODUCT-001");
     await Promise.all([
@@ -83,7 +83,7 @@ describe.sequential("serialized transfer callable E2E", () => {
 
     const competing = await call<{ transferId: string }>(creator, "createAdminTransfer", { originWarehouseId: "serial-wh", originLocationId: "serial-origin", destinationBranchId: "serial-branch", destinationLocationId: "serial-branch-location", purpose: "Competing serialized allocation", priority: "normal", items: [{ productId: "serial-product", quantity: 1 }], directTransferReason: "Conflict validation transfer", idempotencyKey: crypto.randomUUID() });
     await call(creator, "submitTransfer", { transferId: competing.transferId, expectedVersion: 0, idempotencyKey: crypto.randomUUID() });
-    await call(manager, "approveTransfer", { transferId: competing.transferId, expectedVersion: 1, idempotencyKey: crypto.randomUUID() });
+    await call(creator, "approveTransfer", { transferId: competing.transferId, expectedVersion: 1, idempotencyKey: crypto.randomUUID() });
     await expect(call(manager, "reserveTransferStock", { transferId: competing.transferId, expectedVersion: 1, lines: [{ transferItemId: `${competing.transferId}__serial-product`, productId: "serial-product", quantity: 1, serialItemIds: [serialIds[0]], lotAllocations: [] }], idempotencyKey: crypto.randomUUID() })).rejects.toMatchObject({ code: "functions/failed-precondition" });
 
     await call(picker, "startTransferPicking", { transferId, expectedVersion: 1, idempotencyKey: crypto.randomUUID() });

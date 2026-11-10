@@ -121,11 +121,9 @@ const permissionsByRole: Readonly<Record<RoleId, readonly PermissionId[]>> = {
     "reports.requests.read",
     "reports.requests.export",
     "transfers.read.assigned_warehouse",
-    "transfers.create.from_request",
     "transfers.update_draft",
     "transfers.submit",
     "transfers.review",
-    "transfers.approve",
     "transfers.cancel",
     "transfers.reserve",
     "transfers.release_reservation",
@@ -228,6 +226,9 @@ const permissionsByRole: Readonly<Record<RoleId, readonly PermissionId[]>> = {
     "expenses.pay",
   ],
   purchasing_manager: [
+    "inventory.read", "transfers.read.all",
+    "transfers.create.direct", "transfers.create.from_request", "transfers.approve",
+    "transfers.receive", "transfers.report_discrepancy", "transfers.resolve_discrepancy", "transfers.cancel",
     "products.read", "suppliers.read", "suppliers.manage",
     "procurement.read", "procurement.create", "procurement.approve", "procurement.receive",
     "payables.read", "payables.create", "payables.approve",
@@ -353,7 +354,7 @@ export function hasPermission(
   }
   // Purchasing grants follow the current role definitions, including revocations.
   // Never trust an old Branch Manager effective-permission snapshot.
-  if (permission.startsWith("procurement.") || permission.startsWith("payables.") || permission.startsWith("suppliers.")) {
+  if ((permission.startsWith("transfers.") || permission === "inventory.read") || permission.startsWith("procurement.") || permission.startsWith("payables.") || permission.startsWith("suppliers.")) {
     const direct = profile.directRoleIds ?? (profile.customRoleIds?.length || profile.effectivePermissions ? [] : assignedRoles);
     if (permissionsForRoles(direct).has(permission)) return true;
     return permissionsForRoles(assignedRoles).has(permission) && Boolean(profile.effectivePermissions?.includes(permission));

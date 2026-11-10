@@ -42,7 +42,7 @@ export async function purchasingPage(actor: ProcurementAccess, input: Input, kin
   if (input.branchId || input.warehouseId) requireProcurementScope(actor, input, ["procurement.read", permission]);
   const scope: Scope = actor.operatingContext ? actor.operatingContext.type === "branch" ? { branchId: actor.operatingContext.id } : { warehouseId: actor.operatingContext.id } : { branchId: input.branchId, warehouseId: input.warehouseId };
   if (!scope.branchId && !scope.warehouseId && hasAllBranchProcurementPermission(actor, "procurement.read") && !hasOrganizationProcurementPermission(actor, "procurement.read"))
-    throw new HttpsError("failed-precondition", "Choose a branch to view purchasing. Every branch, including head office, is available.", { code: "PURCHASING_BRANCH_REQUIRED" });
+    throw new HttpsError("failed-precondition", "Choose a branch or warehouse to view purchasing.", { code: "PURCHASING_BRANCH_REQUIRED" });
   const collection = kind === "orders" ? "purchaseOrders" : "supplierInvoices";
   let query: FirebaseFirestore.Query = db.collection(collection).where("organizationId", "==", actor.organizationId);
   if (scope.branchId) query = query.where("branchId", "==", scope.branchId);

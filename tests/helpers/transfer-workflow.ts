@@ -26,6 +26,7 @@ export interface TransferHarness {
   organizationId: string;
   db: ReturnType<typeof getFirestore>;
   creator: TestActor;
+  purchaser: TestActor;
   manager: TestActor;
   picker: TestActor;
   logistics: TestActor;
@@ -129,6 +130,7 @@ export async function setupTransferHarness(options: {
   ]);
 
   const creator = await makeActor("creator", "system_administrator");
+  const purchaser = await makeActor("purchaser", "purchasing_manager");
   const manager = await makeActor("manager", "warehouse_manager", organizationId, [], [warehouseId]);
   const picker = await makeActor("picker", "warehouse_officer", organizationId, [], [warehouseId]);
   const logistics = await makeActor("logistics", "logistics_officer", organizationId, [], [warehouseId]);
@@ -168,7 +170,7 @@ export async function setupTransferHarness(options: {
     const transferId = created.transferId;
     const transferItemId = `${transferId}__${productId}`;
     await call(creator, "submitTransfer", { transferId, expectedVersion: 0, idempotencyKey: crypto.randomUUID() });
-    await call(manager, "approveTransfer", { transferId, expectedVersion: 1, idempotencyKey: crypto.randomUUID() });
+    await call(creator, "approveTransfer", { transferId, expectedVersion: 1, idempotencyKey: crypto.randomUUID() });
     await call(manager, "reserveTransferStock", {
       transferId,
       expectedVersion: 1,
@@ -218,6 +220,7 @@ export async function setupTransferHarness(options: {
     organizationId,
     db,
     creator,
+    purchaser,
     manager,
     picker,
     logistics,

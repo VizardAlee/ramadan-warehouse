@@ -43,9 +43,10 @@ describe("in-app notification recipients", () => {
     expect(notificationActionFor(received, user({ status: "inactive" })).eligible).toBe(false);
   });
 
-  it("sends simplified transfers to the responsible source then destination", () => {
+  it("sends transfer approval to purchasing managers and receipt to destination", () => {
     const transfer = { organizationId: "org-1", sourceBranchId: "branch-1", destinationBranchId: "branch-2" };
-    expect(notificationActionFor({ ...transfer, eventType: "stock_transfer.created" }, user()).actionRequired).toBe(true);
+    expect(notificationActionFor({ ...transfer, eventType: "stock_transfer.created" }, user()).actionRequired).toBe(false);
+    expect(notificationActionFor({ ...transfer, eventType: "stock_transfer.created" }, user({ roleId: "purchasing_manager", branchIds: [] })).actionRequired).toBe(true);
     expect(notificationActionFor({ ...transfer, eventType: "stock_transfer.approve" }, user()).actionRequired).toBe(false);
     expect(notificationActionFor({ ...transfer, eventType: "stock_transfer.approve" }, user({ branchIds: ["branch-2"] })).actionRequired).toBe(true);
     expect(notificationActionFor({ ...transfer, eventType: "stock_transfer.created" }, user({ roleId: "system_administrator", branchIds: [] })).actionRequired).toBe(true);

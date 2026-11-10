@@ -351,18 +351,19 @@ export const getProcurementWorkspace = onCall(
       if (actor.operatingContext.type === "branch") input.branchId = actor.operatingContext.id;
       else input.warehouseId = actor.operatingContext.id;
     }
-    if (input.view === "operating_branches") {
+    if (input.view === "operating_branches" || input.view === "operating_warehouses") {
+      const collection = input.view === "operating_branches" ? "branches" : "warehouses";
       if (!hasOrganizationProcurementPermission(actor, "procurement.read") && !hasAllBranchProcurementPermission(actor, "procurement.read"))
-        throw new HttpsError("permission-denied", "Company-wide purchasing branch access is required.");
-      let query = db.collection("branches").where("organizationId", "==", actor.organizationId).where("status", "==", "active").orderBy(FieldPath.documentId());
+        throw new HttpsError("permission-denied", "Company-wide purchasing location access is required.");
+      let query = db.collection(collection).where("organizationId", "==", actor.organizationId).where("status", "==", "active").orderBy(FieldPath.documentId());
       if (input.cursor) {
-        const anchor = await db.doc(`branches/${input.cursor}`).get();
+        const anchor = await db.doc(`${collection}/${input.cursor}`).get();
         if (!anchor.exists || anchor.get("organizationId") !== actor.organizationId || anchor.get("status") !== "active")
-          throw new HttpsError("invalid-argument", "Restart purchasing branch selection.");
+          throw new HttpsError("invalid-argument", "Restart purchasing location selection.");
         query = query.startAfter(anchor);
       }
       const page = await query.limit(input.limit + 1).get(), visible = page.docs.slice(0, input.limit);
-      return { rows: visible.map(branch => ({ id: branch.id, name: branch.get("name"), branchType: branch.get("branchType") ?? "store" })), nextCursor: page.size > input.limit ? visible.at(-1)!.id : null };
+      return { rows: visible.map(branch => ({ id: branch.id, name: branch.get("name"), ...(collection === "warehouses" ? { type: "warehouse" } : { branchType: branch.get("branchType") ?? "store" }) })), nextCursor: page.size > input.limit ? visible.at(-1)!.id : null };
     }
     if (input.view === "supplier_directory") return supplierDirectory(actor, input);
     if (input.view === "supplier_profile") return supplierProfile(actor, input);
@@ -454,7 +455,7 @@ export const getProcurementWorkspace = onCall(
       }
     }
     if (!input.branchId && !input.warehouseId && !actor.operatingContext && hasAllBranchProcurementPermission(actor, "procurement.read") && !hasOrganizationProcurementPermission(actor, "procurement.read"))
-      throw new HttpsError("failed-precondition", "Choose a branch to view purchasing. Every branch, including head office, is available.", { code: "PURCHASING_BRANCH_REQUIRED" });
+      throw new HttpsError("failed-precondition", "Choose a branch or warehouse to view purchasing.", { code: "PURCHASING_BRANCH_REQUIRED" });
     const scopedQuery = (collection: string, limit: number) => {
       let query: FirebaseFirestore.Query = db
         .collection(collection)
@@ -538,7 +539,7 @@ export const getProcurementWorkspace = onCall(
       warehouses: warehouses.docs
         .filter(
           (document) =>
-            organizationWide || Boolean(actor.assignedProcurementPermissions?.includes("procurement.read") && actor.warehouseIds.includes(document.id)),
+            hasProcurementScope(actor, { warehouseId: document.id }, "procurement.read"),
         )
         .map((document) => ({
           id: document.id,

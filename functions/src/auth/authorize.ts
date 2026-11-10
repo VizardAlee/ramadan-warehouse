@@ -352,11 +352,9 @@ const rolePermissions: Readonly<Record<RoleId, readonly Permission[]>> = {
     "reports.requests.read",
     "reports.requests.export",
     "transfers.read.assigned_warehouse",
-    "transfers.create.from_request",
     "transfers.update_draft",
     "transfers.submit",
     "transfers.review",
-    "transfers.approve",
     "transfers.cancel",
     "transfers.reserve",
     "transfers.release_reservation",
@@ -456,6 +454,9 @@ const rolePermissions: Readonly<Record<RoleId, readonly Permission[]>> = {
     "expenses.pay",
   ],
   purchasing_manager: [
+    "inventory.read", "transfers.read.all",
+    "transfers.create.direct", "transfers.create.from_request", "transfers.approve",
+    "transfers.receive", "transfers.report_discrepancy", "transfers.resolve_discrepancy", "transfers.cancel",
     "products.read", "suppliers.read", "suppliers.manage",
     "procurement.read", "procurement.create", "procurement.approve", "procurement.receive",
     "payables.read", "payables.create", "payables.approve",
@@ -900,7 +901,7 @@ export function hasServerPermission(
   if ((permission === "sales.stock.release" || permission === "banking.transfer" || permission === "finance.journal.create" || permission === "finance.journal.reverse" || permission === "finance.accounts.manage" || permission === "finance.tax.manage" || permission === "finance.budget.manage" || permission.startsWith("daily.close.")) && actor.directRoleIds?.some((roleId) => rolePermissions[roleId].includes(permission))) return true;
   // Revoke stale built-in/custom Branch Manager purchasing grants while keeping
   // the permissions of separately assigned legitimate roles.
-  if (permission.startsWith("procurement.") || permission.startsWith("payables.") || permission.startsWith("suppliers.")) {
+  if ((permission.startsWith("transfers.") || permission === "inventory.read") || permission.startsWith("procurement.") || permission.startsWith("payables.") || permission.startsWith("suppliers.")) {
     const assigned = accessRoleIds(actor);
     const direct = actor.directRoleIds ?? (actor.customRoleIds?.length || actor.effectivePermissions ? [] : assigned);
     if (direct.some(role => rolePermissions[role].includes(permission))) return true;
