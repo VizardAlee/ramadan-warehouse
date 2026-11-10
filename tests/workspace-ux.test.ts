@@ -28,6 +28,13 @@ describe("task-first workspaces", () => {
     expect(pos).toContain('confirmOrderPayment(order.id, "later")');
   });
 
+  it("distinguishes payment confirmation from physical handover in the POS heading", () => {
+    const pos = source("src/app/(protected)/pos/page.tsx").replace(/\s+/g, " ");
+    expect(pos).toContain("Confirming payment records the sale and reserves goods.");
+    expect(pos).toContain("Authorized staff record physical handover to release stock and post its cost.");
+    expect(pos).not.toContain("every confirmed sale posts inventory and accounts together");
+  });
+
   it("reuses the audited transfer detail action in a quick-view panel", () => {
     const transfers = source("src/features/transfers/stock-transfer-workspace.tsx");
     expect(transfers).toContain("<StockTransferDetail transferId={quickTransferId} embedded />");
