@@ -1,15 +1,15 @@
 {
   "lastLiveAudit": {
     "project": "ramadan-warehouse-staging",
-    "verifiedAt": "2026-11-10T08:04:00.683Z",
+    "verifiedAt": "2026-11-10T09:31:50.991Z",
     "queryShapes": 838,
     "unsupportedQueries": 0,
     "readyIndexes": 296,
     "indexInventoryVerifiedAt": "2026-11-09T08:19:28.228Z",
     "probeMethod": "planner-only (analyze=false), with sentinel-scope missing-index diagnostics; no mutations",
-    "plannerEvidenceSha256": "09151ebfecea6edd69c7b357f5e7766613212a026071f179173bcd623bfa2155",
+    "plannerEvidenceSha256": "f9f4815f9c312f4c5f45e5a99e72282d125c0de7a299ff6eeead74e27e644123",
     "priorSingleFieldOverrideEvidence": 0,
-    "reviewedBase": "999886de07158db0240e748a3902992f759acc2e"
+    "reviewedBase": "699c295a5e271a77066dc7c45a70f05f2cbac658"
   },
   "catalogSha256": "f3666832b8cf191b1ab28a4eeecf6b069745a97818b713deb260c0ea968ae80b",
   "sourceFingerprints": {
@@ -108,7 +108,7 @@
     "src/app/(protected)/hr/page.tsx": "e3d4a906a37b466f57daf4ce71ee06017d197e7366c38084e8176722aead86a2",
     "src/app/(protected)/inventory/counts/page.tsx": "7f8a47d608d0c83eb396d5862822eac9675e1b8ecd5991d72caf1252a857541b",
     "src/app/(protected)/inventory/page.tsx": "c5c3bada35396ac7f5320f3478691754a40dd0b53188a52f97e80d6e62c0c771",
-    "src/app/(protected)/pos/page.tsx": "64b8af94f2fdf733d92dd8e9e131856179356f43074d15d077ab65acc80009a8",
+    "src/app/(protected)/pos/page.tsx": "0727084651ef9b46ba7e90f388cd6ba404ed529d6e4ad36f6e0ebe297e550cd6",
     "src/app/(protected)/products/[product_id]/page.tsx": "fe1d0d90b565eda40f0683c608bf0871e88b1f70953ab106cffacea5f70c6920",
     "src/app/(protected)/products/categories/page.tsx": "825f82bca475cc5200fc2784bd8acf166ee06bbbe9eccee26aa7ef6bec1599f3",
     "src/app/(protected)/products/page.tsx": "1bea34c36469c4735485e66efdd6ed5d428dde8568e14953733518b6ba64423b",

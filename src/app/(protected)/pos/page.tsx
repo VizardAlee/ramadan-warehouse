@@ -1192,8 +1192,9 @@ export default function PosPage() {
             Point of sale
           </h1>
           <p className="mt-2 max-w-2xl text-sm leading-6 text-emerald-50">
-            Sell from branch stock. VAT is shown separately and every confirmed
-            sale posts inventory and accounts together.
+            Sell from branch stock. VAT is shown separately. Confirming payment
+            records the sale and reserves goods. Authorized staff record physical
+            handover to release stock and post its cost.
           </p>
           <span
             className={`mt-4 inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-semibold ${online ? "bg-white/15 text-white" : "bg-amber-300 text-amber-950"}`}
