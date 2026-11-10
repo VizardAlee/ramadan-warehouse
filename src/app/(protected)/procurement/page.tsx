@@ -1,4 +1,5 @@
 "use client";
+import { SupplierInvoiceMatch } from "@/features/procurement/supplier-invoice-match";
 import { PurchasingList } from "@/features/procurement/purchasing-list";
 import { AmountInput } from "@/components/ui/amount-input";
 import { SearchableItemSelect } from "@/components/ui/searchable-item-select";
@@ -7,7 +8,6 @@ import { FinancialAction, FinancialActionScope, FinancialInput, FinancialMessage
 
 import {
   CheckCircle2,
-  PackagePlus,
   RefreshCw,
   ShoppingBasket,
   Truck,
@@ -169,15 +169,9 @@ function ProcurementWorkspace() {
   const [receiveValues, setReceiveValues] = useState<
     Record<string, { quantity: string; serials: string; lotNumber: string; supplierReference?: string; notes?: string }>
   >({});
-  const [invoiceNumbers, setInvoiceNumbers] = useState<Record<string, string>>(
-    {},
-  );
   const [paymentInvoice, setPaymentInvoice] = useState<SupplierInvoice | null>(null);
-  const [invoiceIssueDates, setInvoiceIssueDates] = useState<Record<string, string>>({});
-  const [invoiceDueDates, setInvoiceDueDates] = useState<Record<string, string>>({});
   const [receiptOrderId, setReceiptOrderId] = useState<string | null>(null);
   const [returnInvoiceId, setReturnInvoiceId] = useState<string | null>(null);
-  const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Lagos", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
   const can = (permission: Parameters<typeof hasPermission>[1]) =>
     Boolean(profile && hasPermission(profile, permission));
   const canApproveOwnWork = Boolean(profile && canSelfAuthorizePurchasing(profile));
@@ -927,69 +921,11 @@ function ProcurementWorkspace() {
               </div>
               {can("payables.create") &&
                 ["partially_received", "received"].includes(order.status) && (itemsByOrder.get(order.id) ?? []).some(item => item.receivedQuantity > (item.invoicedQuantity ?? 0)) && (
-                  <div className="mt-4 grid items-end gap-3 border-t pt-4 md:grid-cols-2 xl:grid-cols-[minmax(0,1fr)_10rem_12rem_auto]">
-                    <label className="min-w-0 flex-1 text-sm">Supplier invoice number
-                    <input
-                      value={invoiceNumbers[order.id] ?? ""}
-                      onChange={(event) =>
-                        setInvoiceNumbers({
-                          ...invoiceNumbers,
-                          [order.id]: event.target.value,
-                        })
-                      }
-                      placeholder="Supplier invoice number"
-                      className="block min-h-10 w-full rounded-lg border px-3"
-                    />
-                    </label>
-                    <label className="text-sm">Invoice date<input type="date" value={invoiceIssueDates[order.id] ?? today} onChange={(event) => setInvoiceIssueDates({ ...invoiceIssueDates, [order.id]: event.target.value })} className="block min-h-10 w-full rounded-lg border px-3" /></label>
-                    <label className="text-sm">Payment due date (optional)<input type="date" min={invoiceIssueDates[order.id] ?? today} value={invoiceDueDates[order.id] ?? ""} onChange={(event) => setInvoiceDueDates({ ...invoiceDueDates, [order.id]: event.target.value })} className="block min-h-10 w-full rounded-lg border px-3" /></label>
-                    <FinancialAction><Button aria-busy={busy} disabledReason={firstBlocker([
-                      [!(invoiceNumbers[order.id] ?? "").trim(), "Enter the supplier's actual invoice number."],
-                      [!(invoiceIssueDates[order.id] ?? today), "Enter the supplier invoice date."],
-                      [invoiceDueDates[order.id] && (invoiceDueDates[order.id] ?? "") < (invoiceIssueDates[order.id] ?? today), "Payment due date cannot be before the supplier invoice date."],
-                      [!(itemsByOrder.get(order.id) ?? []).some(item => item.receivedQuantity > (item.invoicedQuantity ?? 0)), (itemsByOrder.get(order.id) ?? []).some(item => item.receivedQuantity > 0) ? "All received goods are already matched to invoices. Review recorded invoices; do not create a duplicate." : "Record physically delivered PO goods first. Ask authorized receiving staff; undelivered goods cannot be invoiced."]
-                    ])}
-                      disabled={
-                        busy ||
-                        !(invoiceIssueDates[order.id] ?? today) ||
-                        Boolean(invoiceDueDates[order.id] && (invoiceDueDates[order.id] ?? "") < (invoiceIssueDates[order.id] ?? today)) ||
-                        !(invoiceNumbers[order.id] ?? "").trim() ||
-                        !(itemsByOrder.get(order.id) ?? []).some(
-                          (item) =>
-                            item.receivedQuantity >
-                            (item.invoicedQuantity ?? 0),
-                        )
-                      }
-                      onClick={() =>
-                        void run(
-                          () =>
-                            callAdministration("submitSupplierInvoice", {
-                              purchaseOrderId: order.id,
-                              supplierInvoiceNumber: invoiceNumbers[order.id],
-                              invoiceDate: invoiceIssueDates[order.id] ?? today,
-                              dueDate: invoiceDueDates[order.id] || undefined,
-                              lines: (itemsByOrder.get(order.id) ?? [])
-                                .filter(
-                                  (item) =>
-                                    item.receivedQuantity >
-                                    (item.invoicedQuantity ?? 0),
-                                )
-                                .map((item) => ({
-                                  purchaseOrderItemId: item.id,
-                                  quantity:
-                                    item.receivedQuantity -
-                                    (item.invoicedQuantity ?? 0),
-                                })),
-                              idempotencyKey: crypto.randomUUID(),
-                            }),
-                          `Invoice ${invoiceNumbers[order.id]} submitted for approval.`,
-                        )
-                      }
-                    >
-                      <PackagePlus className="mr-2 size-4" /> Match received
-                      goods to invoice
-                    </Button></FinancialAction>
-                  </div>
+                  <SupplierInvoiceMatch key={JSON.stringify([order.id, (itemsByOrder.get(order.id) ?? []).map(item => [item.id, item.receivedQuantity, item.invoicedQuantity, item.unitCostMinor, item.vatRateBasisPoints])])}
+                    items={itemsByOrder.get(order.id) ?? []} busy={busy}
+                    onMatch={input => run(() => callAdministration("submitSupplierInvoice", {
+                      purchaseOrderId: order.id, ...input, idempotencyKey: crypto.randomUUID(),
+                    }), `Invoice ${input.supplierInvoiceNumber} submitted for approval.`)} />
                 )}
               {["partially_received", "received"].includes(order.status) && !(itemsByOrder.get(order.id) ?? []).some(item => item.receivedQuantity > (item.invoicedQuantity ?? 0)) && <div className="mt-4 rounded-lg bg-emerald-50 p-3 text-sm">All received goods are already matched to invoices. No new invoice is needed for these goods. {can("payables.read") && <Button variant="outline" className="ml-2" onClick={() => { setInvoiceSearch(order.purchaseOrderNumber); dismissDetail(); setTab("invoices"); }}>View recorded invoices</Button>}</div>}
             </article></FinancialActionScope>

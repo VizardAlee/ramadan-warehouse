@@ -25,7 +25,9 @@ it("uses the shared amount input at every financial entry site while keeping rat
     visit(source);
   }
   expect(unexpected).toEqual([]);
-  expect(amounts).toHaveLength(46);
-  expect(new Set(amounts).size).toBe(31);
+  // Supplier invoice review adds one actual-price entry site in its own component.
+  expect(amounts.filter(file => file === "src/features/procurement/supplier-invoice-match.tsx")).toHaveLength(1);
+  expect(amounts).toHaveLength(47);
+  expect(new Set(amounts).size).toBe(32);
   expect(rates).toHaveLength(4);
 });
