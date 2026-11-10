@@ -69,10 +69,10 @@ async function ready(qty=5) { const id=await create(qty);await price(id);await a
 const payment=(invoiceId:string,amountMinor:number)=>({action:"record_payment",invoiceId,amountMinor,sourceMethod:"cash",destinationMethod:"cash",paymentDate:new Date().toISOString(),confirmedCompleted:true,reference:"Cash delivered to HQ",idempotencyKey:key()});
 const returnInput=(id:string,quantity:number)=>({action:"return_goods",confirmedReceived:true,confirmedResellable:true,invoiceId:id,lines:[{id:invoice(id).lines[0]!.id,quantity}],note:"Goods physically received at HQ",idempotencyKey:key()});
 describe("internal trade actual callable with atomic transaction fixture",()=>{
- it("applies to future HQ supplies, not existing unreceived transfers or peer-store transfers",async()=>{
-  state.db.seed("organizations/org",{});const legacy=await create(2);state.db.seed("organizations/org",{headOfficeBranchId:"source-branch"});await approve(legacy);await receive(legacy,2);
+ it("applies to future HQ and peer-store supplies without charging existing unreceived transfers",async()=>{
+  state.db.seed("organizations/org",{});const legacy=await create(2);const legacyRow={...state.db.row(`stockTransfers/${legacy}`)};delete legacyRow.tradeAgreement;state.db.seed(`stockTransfers/${legacy}`,legacyRow);state.db.seed("organizations/org",{headOfficeBranchId:"source-branch"});await approve(legacy);await receive(legacy,2);
   expect(invoice(legacy)).toBeUndefined();const fresh=await create(2);expect(transfer(fresh).tradeAgreement?.pricingStatus).toBe("required");
-  state.db.seed("organizations/org",{headOfficeBranchId:"different-hq"});const peer=await create(2);expect(transfer(peer).tradeAgreement).toBeUndefined();
+  state.db.seed("organizations/org",{headOfficeBranchId:"different-hq"});const peer=await create(2);expect(transfer(peer).tradeAgreement).toMatchObject({headOfficeBranchId:"source-branch",pricingStatus:"required"});
  });
  it("rejects unpriced approval, unauthorized pricing, injected prices, and post-approval repricing",async()=>{
   const id=await create();await expect(approve(id)).rejects.toThrow(/price/);
@@ -142,7 +142,7 @@ describe("internal trade actual callable with atomic transaction fixture",()=>{
   }
   state.db.rows.delete(invoicePath);let missingBefore=new Map(state.db.rows);await expect(receive(id,1)).rejects.toThrow(/invoice is missing/);expect(state.db.rows).toEqual(missingBefore);
   state.db.seed(invoicePath,{...originalInvoice,lines:[{...((originalInvoice.lines as object[])[0]),receivedQuantity:0}]});missingBefore=new Map(state.db.rows);await expect(receive(id,1)).rejects.toThrow(/line evidence/);expect(state.db.rows).toEqual(missingBefore);
-  state.db.seed(invoicePath,originalInvoice);state.db.rows.delete(balancePath);let before=new Map(state.db.rows);await expect(receive(id,1)).rejects.toThrow(/missing HQ balance/);expect(state.db.rows).toEqual(before);
+  state.db.seed(invoicePath,originalInvoice);state.db.rows.delete(balancePath);let before=new Map(state.db.rows);await expect(receive(id,1)).rejects.toThrow(/missing supplier balance/);expect(state.db.rows).toEqual(before);
   for (const field of ["organizationId","branchId","headOfficeBranchId"]) {
    state.db.seed(balancePath,{...originalBalance,[field]:"corrupt"});before=new Map(state.db.rows);await expect(receive(id,1)).rejects.toThrow(/identity/);expect(state.db.rows).toEqual(before);
   }

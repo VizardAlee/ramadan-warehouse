@@ -46,6 +46,10 @@ export function queryCatalog() {
   const org = ["organizationId", "=="];
   const scopes = [[], [["branchId", "in"]], [["warehouseId", "in"]]];
   const dateOrder = (field, direction = "DESCENDING") => [[field, direction], ["__name__", direction]];
+  for (const scope of [[], [["branchId", "=="]]]) {
+    add("bank account latest movement history", "journalLines", [org, ...scope, ["accountCode", "=="]], dateOrder("effectiveAt"));
+    for (const field of ["debitMinor", "creditMinor"]) add("bank account full recorded balance", "journalLines", [org, ...scope, ["accountId", "=="]], [], [field]);
+  }
   add("stock count posting variance pages", "stockCountItems", [["stockCountId", "=="], ["variance", "!="]], [["variance", "ASCENDING"], ["__name__", "ASCENDING"]]);
   add("stock count workspace pages", "stockCountItems", [["stockCountId", "=="]], [["__name__", "ASCENDING"]]);
   add("stock count incomplete submission guard", "stockCountItems", [["stockCountId", "=="], ["countedQuantity", "=="]]);

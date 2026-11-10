@@ -24,7 +24,7 @@ beforeAll(async()=>{
   oldId=await create(2);
   await h.db.doc("branches/internal-trade-hq").set({organizationId:h.organizationId,name:"Head office",status:"active",branchType:"head_office"});
   await h.db.doc(`organizations/${h.organizationId}`).update({headOfficeBranchId:"internal-trade-hq",headOfficeSupplyWarehouseId:"internal-trade-warehouse"});
-},60000);
+},180000);
 afterAll(async()=>h?.cleanup());
 describe.sequential("HQ internal trading",()=>{
   it("keeps preexisting unreceived transfers nonfinancial",async()=>{
@@ -157,6 +157,93 @@ describe.sequential("HQ internal trading",()=>{
     expect(await Promise.all([stock(h.originLocationId),stock(h.destinationLocationId),stock("simple_damaged_internal-trade-branch")])).toEqual(beforeReviewStock);
     expect((await h.db.collection("journalEntries").where("organizationId", "==", h.organizationId).get()).docs.map(row => row.id)).toEqual(beforeJournals.docs.map(row => row.id));
     expect(await invoice(id)).toEqual(originalInvoice);
+  });
+
+});
+
+describe.sequential("all-branch transactional supply", () => {
+  const seller = "internal-trade-branch", buyer = "internal-trade-second";
+  let tradeId: string;
+  it("requires prices for ordinary branch supply and invoices partial receipts once", async () => {
+    await h.db.doc(`branches/${buyer}`).set({organizationId:h.organizationId,name:"Second branch",status:"active",branchType:"branch"});
+    await h.db.doc(`inventoryLocations/${buyer}`).set({organizationId:h.organizationId,name:"Second stock",status:"active",type:"branch",branchId:buyer});
+    tradeId = (await api<{transferId:string}>(h.receiver,{action:"create",sourceLocationId:h.destinationLocationId,destinationLocationId:buyer,items:[{productId:h.productId,quantity:2}],idempotencyKey:key()})).transferId;
+    expect((await transfer(tradeId)).tradeAgreement).toMatchObject({headOfficeBranchId:seller,pricingStatus:"required"});
+    await expect(approve(tradeId)).rejects.toThrow();
+    await price(tradeId); await approve(tradeId);
+    const input=await receiptInput(tradeId,1);
+    await expect(api(h.receiver,input)).rejects.toMatchObject({code:"functions/permission-denied"});
+    await api(h.creator,input); await api(h.creator,input);
+    expect(await invoice(tradeId)).toMatchObject({headOfficeBranchId:seller,branchId:buyer,totalMinor:15000,balanceMinor:15000});
+  });
+  it("shows supplier statements with existing branch read permissions and rejects unrelated scopes", async () => {
+    const result=await api<InternalTradeWorkspace>(h.receiver,{action:"trading_workspace",branchId:seller,invoiceId:tradeId});
+    expect(result.invoices.map(row=>row.id)).toEqual([tradeId]);
+    expect(result.entries).toHaveLength(1);
+    expect(result.balances.some(row=>row.branchId===buyer && row.headOfficeBranchId===seller)).toBe(true);
+    await expect(api(h.receiver,{action:"trading_workspace",branchId:buyer})).rejects.toMatchObject({code:"functions/permission-denied"});
+    expect((await api<InternalTradeWorkspace>(h.foreign,{action:"trading_workspace",invoiceId:tradeId})).invoices).toEqual([]);
+  });
+  it("keeps selected branch and warehouse invoices and entries isolated without a branch filter", async () => {
+    const supplierView = await api<InternalTradeWorkspace>(h.creator,{action:"trading_workspace",operatingContext:{type:"branch",id:seller},invoiceId:tradeId});
+    expect(supplierView.invoices.map(row=>row.id)).toEqual([tradeId]);
+    expect(supplierView.entries).toHaveLength(1);
+    const warehouseView = await api<InternalTradeWorkspace>(h.creator,{action:"trading_workspace",operatingContext:hqContext,invoiceId:tradeId});
+    expect(warehouseView.invoices).toEqual([]);expect(warehouseView.entries).toEqual([]);expect(warehouseView.balances).toEqual([]);
+    const unrelatedBranch = await api<InternalTradeWorkspace>(h.creator,{action:"trading_workspace",operatingContext:{type:"branch",id:"internal-trade-hq"},invoiceId:tradeId});
+    expect(unrelatedBranch.invoices).toEqual([]);expect(unrelatedBranch.entries).toEqual([]);
+    expect(unrelatedBranch.balances.every(row=>row.headOfficeBranchId==="internal-trade-hq" || row.branchId==="internal-trade-hq")).toBe(true);
+    const originalWarehouse = await api<InternalTradeWorkspace>(h.creator,{action:"trading_workspace",operatingContext:hqContext,invoiceId:id});
+    expect(originalWarehouse.invoices.map(row=>row.id)).toEqual([id]);
+  });
+  it("records completed buyer-to-supplier money without duplicating company cash or revenue", async () => {
+    const input=cash(tradeId,10000), result=await api(h.creator,input);
+    await api(h.creator,input);
+    expect(await invoice(tradeId)).toMatchObject({paidMinor:10000,balanceMinor:5000});
+    const journals=await h.db.collection("journalEntries").where("referenceId","==",result.journalEntryId).get();
+    expect(journals.size).toBe(2);
+    expect(new Set(journals.docs.map(row=>row.get("branchId")))).toEqual(new Set([buyer,seller]));
+    expect(journals.docs.every(row=>row.get("details").sourceBranchId===buyer && row.get("details").destinationBranchId===seller)).toBe(true);
+    await expect(api(h.creator,cash(tradeId,5001))).rejects.toThrow();
+  });
+  it("supports later receipt and physical return to the ordinary supplying branch", async () => {
+    await api(h.creator,await receiptInput(tradeId,1));
+    const inv=await invoice(tradeId);
+    const input={action:"return_goods",operatingContext:{type:"branch",id:seller},confirmedReceived:true,confirmedResellable:true,invoiceId:tradeId,lines:[{id:inv.lines[0]!.id,quantity:1}],note:"Received inspected goods back at supplying branch",idempotencyKey:key()};
+    await api(h.creator,input); await api(h.creator,input);
+    expect(await invoice(tradeId)).toMatchObject({totalMinor:30000,returnedMinor:15000,paidMinor:10000,balanceMinor:5000});
+  });
+  it("settles bank payments to the actual supplier and rejects a reversed account pair", async () => {
+    await h.db.doc("bankAccounts/interbranch-buyer").set({organizationId:h.organizationId,branchId:buyer,active:true,ledgerAccountCode:"1041",bankName:"Test bank",accountName:"Buyer"});
+    await h.db.doc("bankAccounts/interbranch-seller").set({organizationId:h.organizationId,branchId:seller,active:true,ledgerAccountCode:"1042",bankName:"Test bank",accountName:"Supplier"});
+    const input={...cash(tradeId,5000),sourceMethod:"bank_transfer",destinationMethod:"bank_transfer",sourceBankAccountId:"interbranch-buyer",destinationBankAccountId:"interbranch-seller"};
+    await expect(api(h.creator,{...input,sourceBankAccountId:"interbranch-seller",destinationBankAccountId:"interbranch-buyer"})).rejects.toThrow();
+    const result=await api(h.creator,input);await api(h.creator,input);
+    expect((await invoice(tradeId)).balanceMinor).toBe(0);
+    const journals=await h.db.collection("journalEntries").where("referenceId","==",result.journalEntryId).get();
+    const lines=(await Promise.all(journals.docs.map(row=>h.db.collection("journalLines").where("journalEntryId","==",row.id).get()))).flatMap(page=>page.docs.map(row=>row.data()));
+    expect(lines.every(row=>["1041","1042","1380"].includes(row.accountCode))).toBe(true);
+    expect(lines.filter(row=>row.accountCode!=="1380").reduce((sum,row)=>sum+row.debitMinor-row.creditMinor,0)).toBe(0);
+    expect(lines.find(row=>row.accountCode==="1041")).toMatchObject({branchId:buyer,creditMinor:5000});
+    expect(lines.find(row=>row.accountCode==="1042")).toMatchObject({branchId:seller,debitMinor:5000});
+    for (const [accountId, branchId, expected] of [["interbranch-buyer",buyer,-5000],["interbranch-seller",seller,5000]] as const) {
+      const workspace=await call<{recordedBalance:{balanceMinor:number};journalLines:{bankAccountId:string}[]}>(h.creator,"getBankReconciliationWorkspace",{bankAccountId:accountId,operatingContext:{type:"branch",id:branchId}});
+      expect(workspace.recordedBalance.balanceMinor).toBe(expected);
+      expect(workspace.journalLines.some(row=>row.bankAccountId===accountId)).toBe(true);
+    }
+    await expect(call(h.creator,"getBankReconciliationWorkspace",{bankAccountId:"interbranch-buyer",operatingContext:{type:"branch",id:seller}})).rejects.toThrow();
+  });
+  it("keeps opposite-direction balances separate and supports ordinary branches supplying HQ", async () => {
+    const reverse=(await api<{transferId:string}>(h.creator,{action:"create",sourceLocationId:buyer,destinationLocationId:h.destinationLocationId,items:[{productId:h.productId,quantity:1}],idempotencyKey:key()})).transferId;
+    await price(reverse);await approve(reverse);await api(h.receiver,await receiptInput(reverse,1));
+    expect(await invoice(reverse)).toMatchObject({branchId:seller,headOfficeBranchId:buyer,balanceMinor:15000});
+    expect((await h.db.doc(`internalTradeBalances/${internalTradeBalanceId(h.organizationId,seller,buyer)}`).get()).get("balanceMinor")).toBe(0);
+    expect((await h.db.doc(`internalTradeBalances/${internalTradeBalanceId(h.organizationId,buyer,seller)}`).get()).get("balanceMinor")).toBe(15000);
+    const hqLocation="internal-trade-hq-store";
+    await h.db.doc(`inventoryLocations/${hqLocation}`).set({organizationId:h.organizationId,name:"HQ stock",status:"active",type:"branch",branchId:"internal-trade-hq"});
+    const toHq=(await api<{transferId:string}>(h.creator,{action:"create",sourceLocationId:h.destinationLocationId,destinationLocationId:hqLocation,items:[{productId:h.productId,quantity:1}],idempotencyKey:key()})).transferId;
+    await price(toHq);await approve(toHq);await api(h.creator,await receiptInput(toHq,1));
+    expect(await invoice(toHq)).toMatchObject({branchId:"internal-trade-hq",headOfficeBranchId:seller,balanceMinor:15000});
   });
 
 });

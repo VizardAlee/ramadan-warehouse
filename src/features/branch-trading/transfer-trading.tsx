@@ -35,8 +35,8 @@ function PricingForm({ transfer, canPrice, disabled, onPrice }: Parameters<typeo
     catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to save prices."); }
     finally { setBusy(false); }
   }
-  return <FinancialActionScope><section className={tradingPanel} aria-label="Head-office transfer pricing">
-    <h3 className="font-semibold">Head-office internal prices</h3>
+  return <FinancialActionScope><section className={tradingPanel} aria-label="Interbranch transfer pricing">
+    <h3 className="font-semibold">Interbranch internal prices</h3>
     <p className="mt-2 text-sm">Good units are charged at these prices when receipt is confirmed. Damaged-unit charges wait for administrator review. Prices cannot change after source confirmation.</p>
     <p className="text-sm">This is internal purchasing, not an external sale or VAT invoice.</p>
     {agreement.pricingStatus === "required" && <p className="mt-2 text-amber-900">Prices are required before source confirmation.</p>}
@@ -51,5 +51,5 @@ export function TradeInvoiceAmounts({ invoice }: {invoice: InternalTradeInvoice}
   return <dl className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">{[["Invoiced", invoice.totalMinor], ["Returned goods credit", invoice.returnedMinor], ["Paid", invoice.paidMinor], [invoice.balanceMinor < 0 ? "Branch credit" : "Outstanding", Math.abs(invoice.balanceMinor)]].map(([label, value]) => <div key={label}><dt>{label}</dt><dd className="font-semibold"><FinancialValue>{tradeMoney(Number(value))}</FinancialValue></dd></div>)}</dl>;
 }
 export function InternalTradeInvoiceCard({ invoice }: {invoice: InternalTradeInvoice}) {
-  return <section className={tradingPanel}><h3 className="font-semibold"><Link href={`/transfers/accounts?invoice=${encodeURIComponent(invoice.id)}`} className="underline">Internal invoice {invoice.number}</Link></h3><p className="my-2 text-sm">{invoice.branchName} · Internal branch purchase, not an external sale or VAT invoice.</p><TradeInvoiceAmounts invoice={invoice} />{invoice.lines.some(line => (line.pendingDamagedQuantity ?? 0) > 0) && <p className="mt-3 text-sm text-amber-900">Damaged arrivals are awaiting administrator review. Their charges are held and excluded from the outstanding balance.</p>}</section>;
+  return <section className={tradingPanel}><h3 className="font-semibold"><Link href={`/transfers/accounts?invoice=${encodeURIComponent(invoice.id)}`} className="underline">Internal invoice {invoice.number}</Link></h3><p className="my-2 text-sm">{invoice.headOfficeBranchName ?? invoice.headOfficeBranchId} → {invoice.branchName} · Internal branch purchase, not an external sale or VAT invoice.</p><TradeInvoiceAmounts invoice={invoice} />{invoice.lines.some(line => (line.pendingDamagedQuantity ?? 0) > 0) && <p className="mt-3 text-sm text-amber-900">Damaged arrivals are awaiting administrator review. Their charges are held and excluded from the outstanding balance.</p>}</section>;
 }

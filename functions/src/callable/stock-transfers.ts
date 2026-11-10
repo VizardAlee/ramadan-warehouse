@@ -30,7 +30,8 @@ import {
   type StockTransferLine,
 } from "../transfers/simple-model.js";
 
-import { isHeadOfficeSupply, prepareInternalTradeReceipt, safeTradeAmount, type ReceiptInventoryEvidence } from "../branch-trading/receipt.js";
+import { internalTradeSupplier } from "../branch-trading/identity.js";
+import { prepareInternalTradeReceipt, safeTradeAmount, type ReceiptInventoryEvidence } from "../branch-trading/receipt.js";
 import type { InternalTradeInvoice, InternalTradeWorkspace } from "../branch-trading/model.js";
 import { internalTradePaymentSchema, recordInternalTradePayment, canRecordInternalTradePayment } from "../branch-trading/payments.js";
 import { internalTradeDamageReviewInput, reviewInternalTradeDamage } from "../branch-trading/damage-review.js";
@@ -152,7 +153,7 @@ function visibleInvoice(invoice:InternalTradeInvoice):InternalTradeInvoice {
   return {...invoice,createdAt:tradingDate(invoice.createdAt),updatedAt:tradingDate(invoice.updatedAt)};
 }
 function visibleTransfer(actor:TransferAccess,transfer:StockTransfer):StockTransfer {
-  if (!transfer.tradeAgreement || canReadTradingAt(actor,transfer.destinationBranchId) || canPrice(actor)) return transfer;
+  if (!transfer.tradeAgreement || canReadTradingAt(actor,transfer.destinationBranchId) || canReadTradingAt(actor,transfer.tradeAgreement.headOfficeBranchId) || canPrice(actor)) return transfer;
   return {...transfer,tradeAgreement:{...transfer.tradeAgreement,pricesByLineId:{}}};
 }
 function permitted(actor: AccessProfile, permission: Permission) {
@@ -500,7 +501,7 @@ export const stockTransfers = onCall({ enforceAppCheck }, async (request) => {
     const invoiceSnapshot = transfer.tradeAgreement ? await db.doc(`internalTradeInvoices/${transfer.id}`).get() : null;
     return {
       transfer: visibleTransfer(actor,transfer),
-      invoice: invoiceSnapshot?.exists && canReadTradingAt(actor,transfer.destinationBranchId) ? visibleInvoice(invoiceSnapshot.data() as InternalTradeInvoice) : null,
+      invoice: invoiceSnapshot?.exists && (canReadTradingAt(actor,transfer.destinationBranchId) || canReadTradingAt(actor,transfer.tradeAgreement?.headOfficeBranchId)) ? visibleInvoice(invoiceSnapshot.data() as InternalTradeInvoice) : null,
       canPrice: canPrice(actor),
       canReviewDamage: canPrice(actor),
       canReadTrading: hasTradingRead(actor),
@@ -627,12 +628,12 @@ export const stockTransfers = onCall({ enforceAppCheck }, async (request) => {
         }) as unknown as StockTransferLine;
       });
       const organization = await tx.get(db.doc(`organizations/${actor.organizationId}`));
-      const eligibleTrade = isHeadOfficeSupply(organization.data() ?? {}, source!.data()!, destination!.data()!);
+      const supplierBranchId = internalTradeSupplier(organization.data() ?? {}, source!.data()!, destination!.data()!);
       let headOfficeBranchName:string|undefined;
-      if (eligibleTrade) {
-        const hq = await tx.get(db.doc(`branches/${organization.get("headOfficeBranchId")}`));
-        headOfficeBranchName = String(hq.get("name") ?? organization.get("headOfficeBranchId"));
-        if (!hq.exists || hq.get("organizationId") !== actor.organizationId || hq.get("status") !== "active" || hq.get("branchType") !== "head_office") fail("The configured head office needs administrator review.");
+      if (supplierBranchId) {
+        const hq = await tx.get(db.doc(`branches/${supplierBranchId}`));
+        headOfficeBranchName = String(hq.get("name") ?? supplierBranchId);
+        if (!hq.exists || hq.get("organizationId") !== actor.organizationId || hq.get("status") !== "active" || (source!.get("type") === "warehouse" && hq.get("branchType") !== "head_office")) fail("The supplying branch needs administrator review.");
       }
       const requestWrite = input.sourceRequestId
         ? await linkRequest(
@@ -658,7 +659,7 @@ export const stockTransfers = onCall({ enforceAppCheck }, async (request) => {
         sourceWarehouseId: source!.get("warehouseId"),
         destinationBranchId: destination!.get("branchId"),
         sourceRequestId: input.sourceRequestId,
-        ...(eligibleTrade ? {tradeAgreement:{version:1,headOfficeBranchId:organization.get("headOfficeBranchId"),headOfficeBranchName,pricingStatus:"required",pricesByLineId:{}}}:{}),
+        ...(supplierBranchId ? {tradeAgreement:{version:1,headOfficeBranchId:supplierBranchId,headOfficeBranchName,pricingStatus:"required",pricesByLineId:{}}}:{}),
         note: input.note,
         problemNote: "",
         createdBy: actor.userId,
@@ -684,7 +685,7 @@ export const stockTransfers = onCall({ enforceAppCheck }, async (request) => {
         fail("This transfer is already finished.");
       requireTransferScope(actor, transfer, input);
       if (input.action === "price") {
-        if (!transfer.tradeAgreement || transfer.status !== "requested") fail("Only an unapproved HQ supply can be priced.");
+        if (!transfer.tradeAgreement || transfer.status !== "requested") fail("Only an unapproved interbranch supply can be priced.");
         if (input.lines.length !== transfer.items.length || new Set(input.lines.map(line => line.id)).size !== input.lines.length || input.lines.some(line => !transfer.items.some(item => item.id === line.id))) fail("Set one price for every transfer line.");
         safeTradeAmount(input.lines.reduce((sum,line)=>sum+safeTradeAmount(transfer.items.find(item=>item.id===line.id)!.requested*line.unitPriceMinor),0));
         tx.update(ref, {tradeAgreement:{...transfer.tradeAgreement,pricingStatus:"priced",pricesByLineId:Object.fromEntries(input.lines.map(line => [line.id,line.unitPriceMinor])),pricedBy:actor.userId,pricedAt:now},version:transfer.version+1,updatedAt:now});
@@ -1400,6 +1401,12 @@ async function tradingWorkspace(actor: TransferAccess, input: {branchId?:string;
   if (!canReadTrading) return {...capabilities,invoices:[],entries:[],nextEntriesCursor:null,balances:[],branches:[],accounts:[],nextCursor:null};
   const globalRead = permitted(actor,"transfers.read.all") && (admin(actor) || hasRole(actor,"operations_administrator") || hasRole(actor,"finance_officer") || hasRole(actor,"auditor"));
   const branchRead = (branchId:string) => canReadTradingAt(actor,branchId) && (globalRead || permitted(actor,"transfers.read.own_branch") && owns(actor,{branchId}));
+  // A branch may see only pairs it participates in, under its existing financial
+  // and transfer read grants. A filter never grants access to another branch.
+  const pairRead = (buyer: string, supplier: string) =>
+    (branchRead(buyer) || branchRead(supplier)) && (!input.branchId || input.branchId === buyer || input.branchId === supplier);
+  const invoiceView = (record: Record<string, unknown>) => matchesView(actor, record,
+    {branch:["branchId","headOfficeBranchId"],warehouse:["sourceWarehouseId"]});
   if (input.branchId && !branchRead(input.branchId)) throw new HttpsError("permission-denied","This branch trading statement is outside your authority.");
   let query = db.collection("internalTradeInvoices").where("organizationId","==",actor.organizationId).orderBy(FieldPath.documentId()).limit(100);
   if (input.cursor) query = query.startAfter(input.cursor);
@@ -1411,7 +1418,7 @@ async function tradingWorkspace(actor: TransferAccess, input: {branchId?:string;
     input.invoiceId ? db.doc(`internalTradeInvoices/${input.invoiceId}`).get() : null,
   ]);
   let entries:InternalTradeWorkspace["entries"] = [], nextEntriesCursor:string|null = null;
-  if (selectedInvoice?.exists && selectedInvoice.get("organizationId") === actor.organizationId && branchRead(selectedInvoice.get("branchId"))) {
+  if (selectedInvoice?.exists && selectedInvoice.get("organizationId") === actor.organizationId && pairRead(selectedInvoice.get("branchId"), selectedInvoice.get("headOfficeBranchId")) && invoiceView(selectedInvoice.data()!)) {
     let entryQuery = db.collection("internalTradeEntries").where("invoiceId","==",selectedInvoice.id).orderBy(FieldPath.documentId()).limit(100);
     if (input.entriesCursor) entryQuery = entryQuery.startAfter(input.entriesCursor);
     const entryPage = await entryQuery.get();
@@ -1421,8 +1428,8 @@ async function tradingWorkspace(actor: TransferAccess, input: {branchId?:string;
   }
   // Full persisted balances are independent of the invoice page and are never derived from a truncated scan.
   return {...capabilities,entries,nextEntriesCursor,
-    invoices:(selectedInvoice ? (selectedInvoice.exists && selectedInvoice.get("organizationId") === actor.organizationId ? [selectedInvoice] : []) : page.docs).map(row=>visibleInvoice({...row.data(),id:row.id} as InternalTradeInvoice)).filter(row=> (!input.branchId || row.branchId===input.branchId) && canReadTradingAt(actor,row.branchId) && canRead(actor,{...row,destinationBranchId:row.branchId} as unknown as StockTransfer)),
-    balances:balances.docs.filter(row=>branchRead(row.get("branchId")) && (!input.branchId || row.get("branchId")===input.branchId)).map(row=>({...row.data(),headOfficeBranchName:String(branches.docs.find(branch=>branch.id===row.get("headOfficeBranchId"))?.get("name") ?? row.get("headOfficeBranchId"))}) as InternalTradeWorkspace["balances"][number]),
+    invoices:(selectedInvoice ? (selectedInvoice.exists && selectedInvoice.get("organizationId") === actor.organizationId ? [selectedInvoice] : []) : page.docs).map(row=>visibleInvoice({...row.data(),id:row.id} as InternalTradeInvoice)).filter(row=> pairRead(row.branchId, row.headOfficeBranchId) && invoiceView(row as unknown as Record<string, unknown>)),
+    balances:balances.docs.filter(row=>actor.operatingContext?.type !== "warehouse" && pairRead(row.get("branchId"), row.get("headOfficeBranchId")) && invoiceView(row.data())).map(row=>({...row.data(),branchName:String(branches.docs.find(branch=>branch.id===row.get("branchId"))?.get("name") ?? row.get("branchId")),headOfficeBranchName:String(branches.docs.find(branch=>branch.id===row.get("headOfficeBranchId"))?.get("name") ?? row.get("headOfficeBranchId"))}) as InternalTradeWorkspace["balances"][number]),
     branches:branches.docs.filter(row=>branchRead(row.id) && row.get("status")==="active").map(row=>({id:row.id,name:String(row.get("name"))})),
     accounts:accounts?.docs.filter(row=>row.get("status")!=="inactive" && row.get("active")!==false).map(row=>({id:row.id,name:String(row.get("name") ?? row.get("accountName") ?? "Company account"),branchId:row.get("branchId") ?? null})) ?? [],
     nextCursor:!input.invoiceId && page.size===100 ? page.docs.at(-1)!.id : null,

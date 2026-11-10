@@ -38,6 +38,10 @@ interface JournalLine {
   bankReconciliationId?: string;
 }
 interface Workspace {
+  loadedAccountId?: string;
+  loadedScope?: string;
+  recordedBalance?: {debitMinor: number; creditMinor: number; balanceMinor: number};
+  historyLimitReached?: boolean;
   branches?: Array<{ id: string; name: string }>;
   accounts: BankAccount[];
   statementTransactions: BankStatementTransaction[];
@@ -97,6 +101,7 @@ function parseStatementRows(value: string) {
 
 export default function BankingPage() {
   const { user, profile, operatingContext } = useAuth();
+  const scopeKey = operatingContext ? `${operatingContext.type}:${operatingContext.id}` : "organization";
   const can = (permission: Parameters<typeof hasPermission>[1]) =>
     Boolean(profile && hasPermission(profile, permission));
   const canApproveOwnWork = Boolean(profile && canSelfAuthorize(profile));
@@ -141,7 +146,7 @@ export default function BankingPage() {
           bankAccountId: accountId || undefined,
         });
         if (sequence !== loadSequence.current) return;
-        setWorkspace(result);
+        setWorkspace({...result, loadedAccountId:accountId, loadedScope:scopeKey});
         if (!accountId && result.accounts.length)
           setSelectedAccountId(result.accounts.find(account => account.active)?.id ?? "");
       } catch (cause) {
@@ -155,7 +160,7 @@ export default function BankingPage() {
         if (sequence === loadSequence.current) setBusy(false);
       }
     },
-    [profile],
+    [profile, scopeKey],
   );
   const invalidateLoad = useCallback(() => { loadSequence.current++; }, []);
   useEffect(() => {
@@ -416,6 +421,16 @@ export default function BankingPage() {
           )}
         </div>
       </section>
+
+      {selectedAccount && workspace?.recordedBalance && workspace.loadedAccountId === selectedAccountId && workspace.loadedScope === scopeKey && <section className="rounded-xl border bg-white p-5">
+        <h2 className="text-lg font-semibold">Recorded account balance</h2>
+        <p className="text-sm text-[var(--muted)]">All posted ledger movements, including recorded interbranch payments and posted opening balances. This is not a live bank balance; unrecorded bank activity is excluded.</p>
+        <p className="mt-3 text-2xl font-semibold"><FinancialValue>{formatNaira(workspace.recordedBalance.balanceMinor)}</FinancialValue></p>
+        <details className="mt-4"><summary className="cursor-pointer font-semibold">Account movement history</summary>
+          {workspace.historyLimitReached && <p className="mt-2 text-sm">Showing the latest 500 ledger movements. The balance above includes the full ledger.</p>}
+          <div className="mt-3 overflow-x-auto"><table className="w-full text-left text-sm"><thead><tr><th className="p-2">Journal</th><th className="p-2">Money in</th><th className="p-2">Money out</th></tr></thead><tbody>{workspace.journalLines.map(line => <tr className="border-t" key={line.id}><td className="p-2">{line.journalNumber}</td><td className="p-2"><FinancialValue>{formatNaira(line.debitMinor)}</FinancialValue></td><td className="p-2"><FinancialValue>{formatNaira(line.creditMinor)}</FinancialValue></td></tr>)}</tbody></table>{!workspace.journalLines.length && <p>No posted account movements.</p>}</div>
+        </details>
+      </section>}
 
       <BankAccountManagement key={`account-management:${profile.organizationId}:${profile.uid}`} ownerKey={`${profile.organizationId}:${profile.uid}`} account={selectedAccount} branchId={operatingContext?.type === "branch" ? operatingContext.id : profile.branchIds.length === 1 ? profile.branchIds[0] : undefined} canManage={can("banking.manage")} managementScopeReady={!operatingContext} canPostOpening={can("finance.journal.create") && can("banking.manage")} onSaved={accountId => { setShowInactive(true); setSelectedAccountId(accountId); void load(accountId); }} />
 

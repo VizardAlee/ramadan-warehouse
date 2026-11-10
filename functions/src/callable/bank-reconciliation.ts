@@ -1,7 +1,7 @@
 import { bankLifecycle, bankReviewRequired, bankLedgerEvidence } from "../accounting/bank-lifecycle.js";
 import { matchesView, viewQuery, requireAllLocations } from "../auth/view-scope.js";
 import { createHash } from "node:crypto";
-import { FieldValue, Timestamp } from "firebase-admin/firestore";
+import { AggregateField, FieldValue, Timestamp } from "firebase-admin/firestore";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
 import { db } from "../admin.js";
 import { scopedAccess, requirePermissionScope } from "../auth/permission-scope.js";
@@ -205,6 +205,18 @@ export const getBankReconciliationWorkspace = onCall(
       (document) => document.id === input.bankAccountId,
     );
     if (!account || !matchesView(actor, account.data())) throw new HttpsError("not-found", "Bank account not found in the selected location. Shared company accounts require All locations.");
+    // Full ledger totals are independent of the bounded history below. Use the
+    // existing chart-account identity and its deployed debit/credit indexes.
+    const balanceQuery = viewQuery(actor, db.collection("journalLines")
+      .where("organizationId", "==", actor.organizationId))
+      .where("accountId", "==", uniquenessDocumentId(actor.organizationId, String(account.get("ledgerAccountCode"))));
+    const [debits, credits] = await db.runTransaction(async tx => Promise.all([
+      tx.get(balanceQuery.aggregate({amount: AggregateField.sum("debitMinor")})),
+      tx.get(balanceQuery.aggregate({amount: AggregateField.sum("creditMinor")})),
+    ]), {readOnly:true});
+    const debitMinor = debits.data().amount, creditMinor = credits.data().amount;
+    if (![debitMinor, creditMinor, debitMinor - creditMinor].every(Number.isSafeInteger))
+      bankReviewRequired("The recorded account balance requires accountant review.");
     const [statements, lines, reconciliations] = await Promise.all([
       db
         .collection("bankStatementTransactions")
@@ -216,6 +228,7 @@ export const getBankReconciliationWorkspace = onCall(
         .collection("journalLines")
         .where("organizationId", "==", actor.organizationId))
         .where("accountCode", "==", String(account.get("ledgerAccountCode")))
+        .orderBy("effectiveAt", "desc")
         .limit(500)
         .get(),
       db
@@ -227,6 +240,8 @@ export const getBankReconciliationWorkspace = onCall(
     ]);
     return {
       accounts, branches,
+      recordedBalance: { debitMinor, creditMinor, balanceMinor: debitMinor - creditMinor },
+      historyLimitReached: lines.size === 500,
       statementTransactions: statements.docs
         .sort((a, b) =>
           String(b.get("transactionDate")).localeCompare(
