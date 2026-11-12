@@ -1,4 +1,5 @@
 "use client";
+import { StockHandoverCard } from "@/features/pos/stock-handover-card";
 import { FinancialAttributes, FinancialText, FinancialValue } from "@/features/finance/financial-privacy";
 
 import {
@@ -116,6 +117,7 @@ function OperationsDashboard() {
         description={`Welcome, ${profile?.displayName ?? "administrator"}. Priorities and operational queues appear here as real master data and stock are configured.`}
       /></FinancialAttributes>
       <DashboardLocationSwitcher />
+      <StockHandoverCard />
       <section aria-label="Needs your attention" className="space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>

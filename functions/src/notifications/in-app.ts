@@ -128,7 +128,7 @@ export function notificationActionFor(
   if (event.eventType === "sale.collection_waiting") {
     const inScope = wide || Boolean(event.branchId && actor.branchIds.includes(event.branchId));
     const canRead = (["reports.sales.read", "sales.read.own_branch", "sales.read.all"] as const).some(permission => hasServerPermission(actor, permission));
-    const eligible = inScope && canRead && hasServerPermission(actor, "sales.stock.release");
+    const eligible = inScope && ((canRead && hasServerPermission(actor, "sales.stock.release")) || hasServerPermission(actor, "sales.handover"));
     return { eligible, actionRequired: eligible };
   }
   if (event.eventType.startsWith("customer.debt_")) {
@@ -174,7 +174,7 @@ function display(event: InboxEvent): { title: string; body: string; href: string
   const entityId = encodeURIComponent(event.entityId);
   switch (event.eventType) {
     case "sale.collection_waiting":
-      return { title: "Goods still awaiting collection", body: `${reference} has reserved goods waiting at least seven days. Review the collection queue and contact the customer if appropriate. Reservations are not cancelled automatically.`, href: "/pos" };
+      return { title: "Goods still awaiting collection", body: `${reference} has reserved goods waiting at least seven days. Review the collection queue and contact the customer if appropriate. Reservations are not cancelled automatically.`, href: "/collections" };
     case "customer.debt_due":
     case "customer.debt_overdue":
       return { title: event.eventType === "customer.debt_due" ? "Customer payment due today" : "Customer payment overdue", body: `${reference} still has an unpaid balance. Open the customer account to review and record repayment.`, href: `/customers/${encodeURIComponent(event.customerId!)}` };

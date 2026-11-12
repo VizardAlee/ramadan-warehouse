@@ -17,8 +17,8 @@ export const operatingRoles = [
   {
     name: "Branch Stock Manager",
     baseRoleId: "branch_manager",
-    description: "Count branch stock, request replenishment, receive transfers and report discrepancies.",
-    permissionIds: ["products.read", "inventory.read", "inventory.count", "requests.read.own_branch", "requests.create", "requests.update_draft", "requests.submit", "transfers.read.own_branch", "transfers.receive", "transfers.report_discrepancy"],
+    description: "Count branch stock, receive transfers, report discrepancies and record branch customer handovers.",
+    permissionIds: ["sales.handover", "products.read", "inventory.read", "inventory.count", "requests.read.own_branch", "requests.create", "requests.update_draft", "requests.submit", "transfers.read.own_branch", "transfers.receive", "transfers.report_discrepancy"],
   },
   {
     name: "Cash & Bank Reconciliation Officer",

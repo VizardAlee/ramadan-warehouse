@@ -1,12 +1,11 @@
 import { initializeApp, deleteApp, type FirebaseApp } from "firebase/app";
 import { getAuth, connectAuthEmulator, signInWithEmailAndPassword } from "firebase/auth";
 import { getFunctions, connectFunctionsEmulator, httpsCallable } from "firebase/functions";
-import { getFirestore as clientDb, connectFirestoreEmulator, doc, getDoc } from "firebase/firestore";
+import { getFirestore as clientDb, connectFirestoreEmulator } from "firebase/firestore";
 import { getApps, initializeApp as adminApp } from "firebase-admin/app";
 import { getAuth as adminAuth } from "firebase-admin/auth";
-import { getFirestore, Timestamp } from "firebase-admin/firestore";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { uniquenessDocumentId } from "../functions/src/inventory/calculations";
+import { getFirestore } from "firebase-admin/firestore";
+import { afterAll, beforeAll, expect, it } from "vitest";
 const projectId = process.env.TEST_FIREBASE_PROJECT_ID ?? "demo-ramadan-warehouse";
 if (!projectId.startsWith("demo-") || !/^127\.0\.0\.1:/.test(process.env.FIRESTORE_EMULATOR_HOST ?? "") || !/^127\.0\.0\.1:/.test(process.env.FIREBASE_AUTH_EMULATOR_HOST ?? "")) throw Error("Fast-moving tests require owned local demo emulators.");
 const admin = getApps().find(a => a.name === "bank-options-tests") ?? adminApp({ projectId }, "bank-options-tests");

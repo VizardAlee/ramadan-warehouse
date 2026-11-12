@@ -43,7 +43,7 @@ describe("purchasing-only dashboard", () => {
     expect(isPurchasingOnlyProfile(mocks.profile)).toBe(false);
     mocks.call.mockResolvedValue({ summary: { requests: null, transfers: null, products: 1, discrepancies: null }, pipeline: [], sales: null, trend: [], paymentMix: [] });
     render(<DashboardPage />);
-    await waitFor(() => expect(mocks.call).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(mocks.call.mock.calls.filter(([name]) => name !== "getSaleDocument")).toHaveLength(2));
     expect(screen.queryByRole("heading", { name: "Purchasing overview" })).toBeNull();
   });
   it("uses purchasing-only outside the manager assignment despite a narrowed UI profile", () => {
@@ -61,20 +61,20 @@ describe("purchasing-only dashboard", () => {
     mocks.context = { type: "branch", id: "own-branch" };
     mocks.call.mockResolvedValue({ summary: { requests: 7, transfers: 2, products: 1, discrepancies: 0 }, pipeline: [], sales: null, trend: [], paymentMix: [] });
     const { rerender } = render(<DashboardPage />);
-    await waitFor(() => expect(mocks.call).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(mocks.call.mock.calls.filter(([name]) => name !== "getSaleDocument")).toHaveLength(2));
     mocks.profile = { ...mocks.authority, branchIds: ["new-branch"] };
     mocks.context = { type: "branch", id: "new-branch" };
     rerender(<DashboardPage />);
     expect(screen.getByRole("heading", { name: "Purchasing overview" })).toBeTruthy();
     expect(screen.queryByText("Open branch requests")).toBeNull();
-    expect(mocks.call).toHaveBeenCalledTimes(2);
+    expect(mocks.call.mock.calls.filter(([name]) => name !== "getSaleDocument")).toHaveLength(2);
   });
   it.each(["system_administrator", "operations_administrator", "finance_officer", "auditor"] as RoleId[])("retains independent organization-wide dashboard for %s", async role => {
     mocks.authority = profile(["purchasing_manager", "branch_manager", role]);
     mocks.profile = { ...mocks.authority, branchIds: ["new-branch"] };
     mocks.call.mockResolvedValue({ summary: { requests: null, transfers: null, products: 1, discrepancies: null }, pipeline: [], sales: null, trend: [], paymentMix: [] });
     render(<DashboardPage />);
-    await waitFor(() => expect(mocks.call).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(mocks.call.mock.calls.filter(([name]) => name !== "getSaleDocument")).toHaveLength(2));
     expect(screen.queryByRole("heading", { name: "Purchasing overview" })).toBeNull();
   });
   it("does not borrow unassigned warehouse scope or an ambiguous custom global role base", () => {

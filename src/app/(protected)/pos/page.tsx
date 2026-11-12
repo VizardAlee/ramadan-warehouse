@@ -368,11 +368,11 @@ export default function PosPage() {
       { branchId: string; bankOptionsOnly: true }, Pick<PosWorkspace, "bankAccounts">
     >("getPosWorkspace", { branchId: selectedBranchId, bankOptionsOnly: true });
     return result.bankAccounts;
-  }, [selectedBranchId, user?.uid, profile?.organizationId, profile?.authorizationVersion]);
+  }, [selectedBranchId]);
   const applyBankOptions = useCallback((accounts: PosWorkspace["bankAccounts"]) => {
     setWorkspace(current => current?.branch.id === selectedBranchId
       ? { ...current, bankAccounts: accounts } : current);
-  }, [selectedBranchId, user?.uid, profile?.organizationId]);
+  }, [selectedBranchId]);
   useBankOptionsRefresh(Boolean(online && user && selectedBranchId && workspace?.branch.id === selectedBranchId), fetchBankOptions, applyBankOptions);
 
   // Reconcile both ordinary and split-payment drafts on any fresh workspace.
@@ -380,12 +380,17 @@ export default function PosPage() {
   useEffect(() => {
     if (!workspace || workspace.branch.id !== selectedBranchId) return;
     const accounts = workspace.bankAccounts;
-    setPaymentBankAccountId(current => retainAvailableBank(current, accounts));
-    setSplitPayments(current => {
+    let active = true;
+    queueMicrotask(() => {
+      if (!active) return;
+      setPaymentBankAccountId(current => retainAvailableBank(current, accounts));
+      setSplitPayments(current => {
       const updated = current.map(payment => ({ ...payment, bankAccountId: retainAvailableBank(payment.bankAccountId, accounts) }));
       return updated.some((payment, index) => payment.bankAccountId !== current[index]!.bankAccountId) ? updated : current;
+      });
     });
-  }, [workspace?.bankAccounts, workspace?.branch.id, selectedBranchId]);
+    return () => { active = false; };
+  }, [workspace, selectedBranchId]);
 
   const syncQueue = useCallback(async () => {
     if (!online || !selectedBranchId) return;

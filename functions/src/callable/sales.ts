@@ -1,4 +1,5 @@
 import { readPosCatalogue } from "../sales/pos-catalogue.js";
+import { readStockCollection } from "../sales/stock-collection-workspace.js";
 import { requireCustomerBranch } from "../sales/customer-scope.js";
 import { resolveDeviceShift } from "../sales/shift-session.js";
 import { assignedBranchQuery } from "../auth/view-scope.js";
@@ -597,6 +598,7 @@ export const getSaleDocument = onCall(
   { enforceAppCheck },
   async (request) => {
     const actor = await requireAccess(request);
+    if (["stock_collections", "stock_collection_detail"].includes(request.data?.action)) return readStockCollection(actor, request.data);
     if (request.data?.action === "get_sales_voucher") {
       if (!["sales.order.create", "sales.read.all", "sales.read.own_branch"].some(permission => hasServerPermission(actor, permission as Parameters<typeof hasServerPermission>[1]))) throw new HttpsError("permission-denied", "Sales voucher access requires existing sales authority.");
       const { orderId } = parseInput(z.object({ action: z.literal("get_sales_voucher"), orderId: z.string().regex(/^[A-Za-z0-9_-]{1,160}$/) }), request.data);

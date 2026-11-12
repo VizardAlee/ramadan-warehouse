@@ -3111,3 +3111,23 @@ describe.sequential("Civic-only sales handover", () => {
     await expect(call(staff, "confirmPosSaleOrder", collect)).rejects.toMatchObject({code: "functions/permission-denied"});
   }, 120000);
 });
+
+describe.sequential("branch stock collection workspace", () => {
+  it("lists only the selected branch and returns non-financial handover details", async () => {
+    const id = "stock-queue-release-test";
+    await adminDb.doc(`sales/${id}`).set({ organizationId, branchId, saleNumber: "QUEUE-TEST", customerName: "Fixture customer", status: "completed", collectionTracked: true, collectionStatus: "awaiting_collection", physicalQuantity: 2, collectedQuantity: 0, recordedAt: Timestamp.now(), grossAmountMinor: 99999 });
+    await adminDb.doc(`saleItems/${id}`).set({ organizationId, branchId, saleId: id, productName: "Fixture panel", quantity: 2, collectedQuantity: 0, trackingType: "quantity", unitPriceMinor: 99999, costAmountMinor: 1234 });
+    const context = { type: "branch", id: branchId };
+    const result = await call<{rows: {id: string}[]}>(branchManager, "getSaleDocument", {action: "stock_collections", branchId, operatingContext: context});
+    expect(result.rows.some(row => row.id === id)).toBe(true);
+    const detail = await call<{items: Record<string,unknown>[]}>(branchManager, "getSaleDocument", {action: "stock_collection_detail", branchId, saleId: id, operatingContext: context});
+    expect(detail.items).toHaveLength(1);
+    expect(detail.items[0]).toMatchObject({productName: "Fixture panel", remaining: 2});
+    expect(detail.items[0]).not.toHaveProperty("unitPriceMinor");
+    expect(detail.items[0]).not.toHaveProperty("costAmountMinor");
+    await expect(call(branchManager, "getSaleDocument", {action: "stock_collection_detail", branchId: "not-assigned", saleId: id, operatingContext: context})).rejects.toMatchObject({code: "functions/permission-denied"});
+    await expect(call(cashier, "getSaleDocument", {action: "stock_collections", branchId, operatingContext: context})).rejects.toMatchObject({code: "functions/permission-denied"});
+    await adminDb.doc(`sales/${id}`).update({collectionStatus: "collected"});
+    await expect(call(branchManager, "getSaleDocument", {action: "stock_collection_detail", branchId, saleId: id, operatingContext: context})).rejects.toMatchObject({code: "functions/failed-precondition"});
+  }, 120000);
+});

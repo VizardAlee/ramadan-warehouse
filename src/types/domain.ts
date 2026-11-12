@@ -104,6 +104,7 @@ export const permissionIds = [
   "sales.payment.accept",
   "sales.payment.confirm",
   "sales.stock.release",
+    "sales.handover",
   "sales.shift.manage",
   "sales.price.base.manage",
   "sales.price.branch.manage",

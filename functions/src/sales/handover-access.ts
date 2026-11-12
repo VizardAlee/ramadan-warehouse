@@ -10,6 +10,7 @@ export const CIVIC_BRANCH_ID = "gMaHGJYDkRodEfBjET6V";
 type Branch = { exists: boolean; id: string; get(field: string): unknown };
 export function canCollectPhysicalHandover(actor: AccessProfile, branch: Branch): boolean {
   if (hasServerPermission(actor, "sales.stock.release")) return true;
+  if (hasServerPermission(actor, "sales.handover") && branch.exists && branch.get("organizationId") === actor.organizationId && branch.get("status") === "active" && actor.branchIds.includes(branch.id) && actor.operatingContext?.type === "branch" && actor.operatingContext.id === branch.id) return true;
   return branch.exists && branch.id === CIVIC_BRANCH_ID &&
     actor.organizationId === CIVIC_ORGANIZATION_ID && branch.get("organizationId") === actor.organizationId &&
     branch.get("status") === "active" && actor.branchIds.includes(branch.id) &&

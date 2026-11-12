@@ -18,6 +18,8 @@ describe("in-app notification recipients", () => {
     expect(notificationActionFor(event, user({ roleIds: ["sales_cashier", "branch_manager"] })).eligible).toBe(true);
     expect(notificationActionFor(event, user({ effectivePermissions: ["sales.stock.release", "sales.read.own_branch"] })).eligible).toBe(true);
     expect(notificationActionFor(event, user({ effectivePermissions: ["sales.stock.release"] })).eligible).toBe(false);
+    expect(notificationActionFor(event, user({ effectivePermissions: ["sales.handover"] })).eligible).toBe(true);
+    expect(notificationActionFor(event, user({ roleIds: ["finance_officer"], effectivePermissions: ["sales.handover"], branchIds: ["branch-2"] })).eligible).toBe(false);
     expect(notificationActionFor(event, user({ roleId: "system_administrator", branchIds: [] })).eligible).toBe(true);
     for (const overrides of [{ status: "inactive" }, { authDisabled: true }, { branchIds: ["branch-2"] }, { organizationId: "other" }, { effectivePermissions: ["customers.read"] as InboxCandidate["effectivePermissions"] }])
       expect(notificationActionFor(event, user(overrides)).eligible).toBe(false);

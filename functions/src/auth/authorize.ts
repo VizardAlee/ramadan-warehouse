@@ -95,6 +95,7 @@ export type Permission =
   | "sales.payment.accept"
   | "sales.payment.confirm"
   | "sales.stock.release"
+  | "sales.handover"
   | "sales.shift.manage"
   | "sales.price.base.manage"
   | "sales.price.branch.manage"
@@ -218,6 +219,7 @@ const rolePermissions: Readonly<Record<RoleId, readonly Permission[]>> = {
     "sales.payment.accept",
     "sales.payment.confirm",
     "sales.stock.release",
+    "sales.handover",
     "sales.shift.manage",
     "sales.price.base.manage",
     "sales.price.branch.manage",
@@ -296,6 +298,7 @@ const rolePermissions: Readonly<Record<RoleId, readonly Permission[]>> = {
     "sales.payment.accept",
     "sales.payment.confirm",
     "sales.stock.release",
+    "sales.handover",
     "sales.shift.manage",
     "sales.price.branch.manage",
     "customers.read",
@@ -442,6 +445,7 @@ const rolePermissions: Readonly<Record<RoleId, readonly Permission[]>> = {
     "sales.payment.accept",
     "sales.payment.confirm",
     "sales.stock.release",
+    "sales.handover",
     "sales.shift.manage",
     "sales.price.branch.manage",
     "customers.read",
