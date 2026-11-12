@@ -13,6 +13,7 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { BankAccountManagement, bankLifecycleLabel } from "@/features/banking/bank-account-management";
+import { BankAccountDetails } from "@/features/banking/bank-account-details";
 import { BankOwner } from "@/features/banking/bank-owner";
 import { CompanyFundsTransfer } from "@/features/banking/company-funds-transfer";
 import { callAdministration } from "@/features/administration/api";
@@ -39,6 +40,7 @@ interface JournalLine {
 }
 interface Workspace {
   loadedAccountId?: string;
+  loadedRevision?: number;
   loadedScope?: string;
   recordedBalance?: {debitMinor: number; creditMinor: number; balanceMinor: number};
   historyLimitReached?: boolean;
@@ -146,7 +148,7 @@ export default function BankingPage() {
           bankAccountId: accountId || undefined,
         });
         if (sequence !== loadSequence.current) return;
-        setWorkspace({...result, loadedAccountId:accountId, loadedScope:scopeKey});
+        setWorkspace({...result, loadedAccountId:accountId, loadedScope:scopeKey, loadedRevision:sequence});
         if (!accountId && result.accounts.length)
           setSelectedAccountId(result.accounts.find(account => account.active)?.id ?? "");
       } catch (cause) {
@@ -385,6 +387,7 @@ export default function BankingPage() {
         </details></FinancialActionScope>
       )}
 
+      {selectedAccount && workspace?.loadedAccountId === selectedAccountId && workspace.loadedScope === scopeKey && <BankAccountDetails key={`bank-details:${profile.organizationId}:${profile.uid}:${scopeKey}:${selectedAccountId}:${selectedAccount.bankName}:${selectedAccount.accountName}:${selectedAccount.accountNumberLast4}:${workspace.loadedRevision}`} account={selectedAccount} canManage={can("banking.manage")} disabled={busy} allLocations={!operatingContext} onSaved={updated => { if (updated) setMessage("Bank details updated. Ledger, opening reference and transaction history are unchanged."); void load(selectedAccountId); }} />}
       {can("banking.manage") && selectedAccount?.active && <BankOwner key={selectedAccountId} account={selectedAccount} branches={workspace?.branches ?? []} onSaved={() => void load(selectedAccountId)} />}
       <section className="rounded-xl border bg-white p-5">
         <label className="mb-3 flex items-center gap-2 text-sm"><input type="checkbox" checked={showInactive} onChange={event => { setShowInactive(event.target.checked); if (!event.target.checked && selectedAccount && !selectedAccount.active) setSelectedAccountId(""); }} />Show archived / deleted accounts</label>

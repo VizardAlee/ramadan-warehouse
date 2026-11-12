@@ -99,3 +99,16 @@ enter a reason and confirm the specific action:
 Mutations recheck the server state and retain their audit trail. An uncertain result
 must be checked with **Retry saved bank instructions** before starting another
 instruction. Changes in the selected account do not change the saved retry.
+
+## Correct existing bank details
+
+With `banking.manage` access, choose **All locations**, select the active bank
+account in **Banking**, then choose **Bank account details → Edit bank details**.
+Correct only its bank name, account name or last four digits and save. The
+existing account identifier, owner, ledger code, opening reference and financial
+history are retained. This action does not move money or alter bank balances.
+Create a separate account instead when the real bank account itself is different.
+Archived or removed accounts must be restored through the existing reviewed flow
+before editing. If a save result is uncertain, refresh and inspect the saved
+account before retrying; the form blocks repeat submission until a successful
+workspace refresh.
