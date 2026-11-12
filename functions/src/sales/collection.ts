@@ -3,7 +3,8 @@ import { createHash } from "node:crypto";
 import { HttpsError } from "firebase-functions/v2/https";
 import type { z } from "zod";
 import { db } from "../admin.js";
-import { requireAccess, requireBranchViewScope as requireBranchScope, requirePermission } from "../auth/authorize.js";
+import { requireAccess, requireBranchViewScope as requireBranchScope } from "../auth/authorize.js";
+import { requirePhysicalHandover } from "./handover-access.js";
 import { accountingPeriodReference, assertAccountingPeriodOpen } from "../accounting/period-lock.js";
 import { writeAuditLog } from "../audit/write-audit-log.js";
 import { balanceDocumentId, issueCost, uniquenessDocumentId } from "../inventory/calculations.js";
@@ -17,13 +18,14 @@ export async function collectReservedSale(
   actor: Awaited<ReturnType<typeof requireAccess>>,
   input: z.infer<typeof collectSaleInput>,
 ) {
-  requirePermission(actor, "sales.stock.release");
   const saleRef = db.doc(`sales/${input.saleId}`);
   const initial = await saleRef.get();
   if (!initial.exists || initial.get("organizationId") !== actor.organizationId)
     throw new HttpsError("not-found", "Sale not found.");
   const branchId = String(initial.get("branchId"));
   requireBranchScope(actor, branchId);
+  const branchRef = db.doc(`branches/${branchId}`);
+  requirePhysicalHandover(actor, await branchRef.get());
   const itemRefs = input.lines.map((line) => db.doc(`saleItems/${line.saleItemId}`));
   const collection = db.collection("saleCollections").doc();
   const movement = db.collection("inventoryTransactions").doc();
@@ -40,10 +42,11 @@ export async function collectReservedSale(
   const fingerprint = createHash("sha256").update(JSON.stringify({ saleId: input.saleId, lines: [...input.lines].sort((a, b) => a.saleItemId.localeCompare(b.saleItemId)), collector: input.collector, notes: input.notes ?? null, ...dispatchDetails, ...(evidenceRefs.length ? { evidenceIds: [...input.evidenceIds!].sort() } : {}) })).digest("hex");
   let result = { saleId: saleRef.id, collectionId: collection.id, collectionStatus: "collected", recorded: true };
   await db.runTransaction(async (transaction) => {
-    const [previous, sale, inventorySequence, journalSequence, periodSnapshot, location, ...items] = await transaction.getAll(
-      operation, saleRef, inventoryCounter, journalCounter, period,
+    const [previous, sale, branch, inventorySequence, journalSequence, periodSnapshot, location, ...items] = await transaction.getAll(
+      operation, saleRef, branchRef, inventoryCounter, journalCounter, period,
       db.doc(`inventoryLocations/${initial.get("locationId")}`), ...itemRefs,
     );
+    requirePhysicalHandover(actor, branch!);
     if (previous!.exists) {
       if (previous!.get("saleId") !== input.saleId)
         throw new HttpsError("invalid-argument", "This collection reference belongs to another sale.");

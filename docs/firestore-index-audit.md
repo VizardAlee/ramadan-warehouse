@@ -161,3 +161,10 @@ authorization changes. Index signatures are unchanged. The existing 272-index
 inventory timestamp is historical, not a new inventory check. No live records,
 indexes, permissions or security settings were changed by this audit.
 Planner evidence SHA-256: f1ae65514f272b9ce03fdb1f12d409c50a0b09a521f66652321a9e4ac3f4f5e1.
+
+Civic handover permission verification (12 November 2026): The change adds direct
+branch-document reads and a server-computed POS capability; it does not change
+any Firestore query shapes. The production planner-only audit passed all 845
+catalogued shapes with zero missing indexes before the source fingerprints were
+refreshed. The recorded index inventory timestamp remains historical. No live
+business data, stock, rules, or indexes were modified by this audit.

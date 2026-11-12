@@ -1,15 +1,15 @@
 {
   "lastLiveAudit": {
     "project": "ramadan-warehouse-staging",
-    "verifiedAt": "2026-11-10T16:34:22.696Z",
+    "verifiedAt": "2026-11-12T09:05:29.772Z",
     "queryShapes": 845,
     "unsupportedQueries": 0,
     "readyIndexes": 298,
     "indexInventoryVerifiedAt": "2026-11-10T13:14:19.403Z",
     "probeMethod": "planner-only (analyze=false), with sentinel-scope missing-index diagnostics; no mutations",
-    "plannerEvidenceSha256": "dd7004e3ae6168b19f9186d55cdc2878aefe1a462083900852f46ba3ac4fc52b",
+    "plannerEvidenceSha256": "c6d7da26cb8e278413d6de93da533aa1414da7288a375b2d911b0c8029320668",
     "priorSingleFieldOverrideEvidence": 0,
-    "reviewedBase": "b9596d27cacea90d3752a300baf92db3c9474050"
+    "reviewedBase": "3f7879961e2a4337baff1936a994b9a30957f1fd"
   },
   "catalogSha256": "90164939dfdb0ca3bbc6db1746cfe382f37e3f054ef822fa691b35356d918a28",
   "sourceFingerprints": {
@@ -57,7 +57,7 @@
     "functions/src/callable/reset-organization.ts": "ef008e650d39213d23c35d3d801015dccad8ad7ea78edf9d62b6b5c230d53a5c",
     "functions/src/callable/sales-corrections.ts": "30795efb70775a3e2dce60d4f782bc84faa3ff572cfee746c36daa8319f1a96b",
     "functions/src/callable/sales-returns.ts": "1329389a2c017ab6a3514efd3a1871711bad97023b15d46525e14d9a0c223b0f",
-    "functions/src/callable/sales.ts": "11e20780d916153f03a262e826531076967c0d58c2f882bf0956b99a9d0a8f22",
+    "functions/src/callable/sales.ts": "eaa69da6d351b84c77d76f18e983b2b76f58ccd694bc62b11139f87ec7bffd0b",
     "functions/src/callable/service-billing-case.ts": "d60574eac1572f593c1f3ea44c44419821e83ad0ea34712aac4ca0376fa27f3a",
     "functions/src/callable/stock-counts.ts": "cc25ae2108bc606d887224765c55246e92904a5455260ee94803aed76b7516d3",
     "functions/src/callable/stock-transfers.ts": "18235ba5772684059520231781a7e23838013c541e6f93d3602ff2fd6652e002",
@@ -83,7 +83,7 @@
     "functions/src/procurement/supplier-workspace.ts": "8e3fc73c5d89bce688745965eef884b631dfe50e08bcebc235b763afbda0d8f5",
     "functions/src/reconciliation/warehouse-operations.ts": "333261c86082284f4702f50a7c67bc6b987d1f4691d96fd6ea04b9e577b1ac3b",
     "functions/src/requests/apply-transfer-fulfilment.ts": "c7649d49875bcdeb732173544376d7f1891318ec141647bd5c9a465ec4c91d4e",
-    "functions/src/sales/collection.ts": "2c406421c0bba2622d9556cf8fa2a38466f6e0a8c4ff188ecb00353c0720a804",
+    "functions/src/sales/collection.ts": "ead0fb9803e5da183d6822b588623f525b64562cb44aff8801aca081500a0da6",
     "functions/src/sales/customer-ownership.ts": "65bfbfe6a2ef53b4f4d795891c178ea24f7eb87774b0f42b6197ff3b44b2a277",
     "functions/src/sales/operational-evidence.ts": "425a9e1e4ad817c8ccc7934a32e03a848312aa46cf0cbfc1912b939967aa3fea",
     "functions/src/sales/pos-customer-search.ts": "5d407f196776d709645ecab25087837182722d256db6eb8d4d38f7602641883c",
@@ -109,7 +109,7 @@
     "src/app/(protected)/hr/page.tsx": "e3d4a906a37b466f57daf4ce71ee06017d197e7366c38084e8176722aead86a2",
     "src/app/(protected)/inventory/counts/page.tsx": "7f8a47d608d0c83eb396d5862822eac9675e1b8ecd5991d72caf1252a857541b",
     "src/app/(protected)/inventory/page.tsx": "c9da4f04411cdc52856812fc23e9aa7648e2181369c82959ccdb8b6334517d97",
-    "src/app/(protected)/pos/page.tsx": "0727084651ef9b46ba7e90f388cd6ba404ed529d6e4ad36f6e0ebe297e550cd6",
+    "src/app/(protected)/pos/page.tsx": "ee29ada43527dfbb71891a083a8690d011ecd3af9f50d871ef53bc448737389b",
     "src/app/(protected)/products/[product_id]/page.tsx": "fe1d0d90b565eda40f0683c608bf0871e88b1f70953ab106cffacea5f70c6920",
     "src/app/(protected)/products/categories/page.tsx": "825f82bca475cc5200fc2784bd8acf166ee06bbbe9eccee26aa7ef6bec1599f3",
     "src/app/(protected)/products/page.tsx": "1bea34c36469c4735485e66efdd6ed5d428dde8568e14953733518b6ba64423b",

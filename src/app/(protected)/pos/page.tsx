@@ -1,4 +1,6 @@
 "use client";
+
+import { hasCurrentHandoverGrant } from "@/features/pos/handover-access";
 import { AmountInput } from "@/components/ui/amount-input";
 import { PosActiveShift, PosShiftAccess } from "@/features/pos/shift-controls";
 import { SalesVoucher } from "@/features/pos/sales-voucher";
@@ -209,7 +211,8 @@ export default function PosPage() {
   );
   const canManageShifts = Boolean(profile && hasPermission(profile, "sales.shift.manage"));
   const signedInAccount = profile?.email ?? user?.email ?? profile?.displayName ?? "Account unavailable";
-  const canReleaseStock = Boolean(profile && hasPermission(profile, "sales.stock.release"));
+  const canReleaseStock = Boolean(profile && (hasPermission(profile, "sales.stock.release") ||
+    hasCurrentHandoverGrant(online, selectedBranchId, workspace)));
   const canUsePos = canReceiveOrder || canAcceptPayment || canConfirmPayment || canReleaseStock;
   const canRejectOrder = canReceiveOrder || canAcceptPayment || canConfirmPayment;
   const canManageBranchPrice = Boolean(

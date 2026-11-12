@@ -4,7 +4,8 @@ import { getStorage } from "firebase-admin/storage";
 import { HttpsError } from "firebase-functions/v2/https";
 import { z } from "zod";
 import { db } from "../admin.js";
-import { requireBranchViewScope as requireBranchScope, requirePermission, type AccessProfile } from "../auth/authorize.js";
+import { requireBranchViewScope as requireBranchScope, type AccessProfile } from "../auth/authorize.js";
+import { requirePhysicalHandover } from "./handover-access.js";
 import { writeAuditLog } from "../audit/write-audit-log.js";
 import { uniquenessDocumentId } from "../inventory/calculations.js";
 import { correlationId } from "../utils/callable.js";
@@ -58,12 +59,13 @@ function assertUploadScope(actor: AccessProfile, sale: DocumentSnapshot, item: D
 }
 
 export async function uploadCollectionPhoto(actor: AccessProfile, input: z.infer<typeof uploadCollectionPhotoInput>) {
-  requirePermission(actor, "sales.stock.release");
   const saleRef = db.doc(`sales/${input.saleId}`), itemRef = db.doc(`saleItems/${input.saleItemId}`);
   const [sale, item] = await db.getAll(saleRef, itemRef);
   // Check access even on a retry; never return another store's evidence reference.
   if (!sale!.exists || sale!.get("organizationId") !== actor.organizationId) throw new HttpsError("not-found", "Sale not found.");
   requireBranchScope(actor, String(sale!.get("branchId")));
+  const branchRef = db.doc(`branches/${sale!.get("branchId")}`);
+  requirePhysicalHandover(actor, await branchRef.get());
   const photo = decodeCollectionPhoto(input.base64, input.contentType);
   const fingerprint = createHash("sha256").update(JSON.stringify([input.saleId, input.saleItemId, input.contentType, photo.sha256])).digest("hex");
   const evidenceId = uniquenessDocumentId(actor.organizationId, actor.userId, "collectionPhoto", input.idempotencyKey);
@@ -86,7 +88,10 @@ export async function uploadCollectionPhoto(actor: AccessProfile, input: z.infer
   if (metadata.metadata?.fingerprint !== fingerprint || Number(metadata.size) !== photo.bytes.length)
     throw new HttpsError("failed-precondition", "The uploaded photo reference is inconsistent. Choose a new upload reference.");
   await db.runTransaction(async transaction => {
-    const [current, currentSale, currentItem] = await transaction.getAll(reference, saleRef, itemRef);
+    const [current, currentSale, currentItem, branch] = await transaction.getAll(reference, saleRef, itemRef, branchRef);
+    if (!currentSale!.exists || currentSale!.get("organizationId") !== actor.organizationId || currentSale!.get("branchId") !== branchRef.id)
+      throw new HttpsError("permission-denied", "Sale scope changed.");
+    requirePhysicalHandover(actor, branch!);
     if (current!.exists) {
       if (current!.get("fingerprint") !== fingerprint) throw new HttpsError("invalid-argument", "Retry the same photo without changes.");
       return;

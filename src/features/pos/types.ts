@@ -93,6 +93,7 @@ export interface PosPendingOrder {
 }
 
 export interface PosWorkspace {
+  canCollectPhysicalHandover?: boolean;
   shiftRecovery?: { status: "none" | "ready" | "other_user" | "needs_review"; message: string };
   providerNextCursorId?: string | null;
   providers?: Array<{ id: string; name: string; supplierType: string }>;

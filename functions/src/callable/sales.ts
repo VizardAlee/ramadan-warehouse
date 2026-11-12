@@ -23,6 +23,7 @@ import { db } from "../admin.js";
 import { requestFingerprint } from "../utils/request-fingerprint.js";
 import { accountingPeriodReference, assertAccountingPeriodOpen } from "../accounting/period-lock.js";
 import { collectReservedSale } from "../sales/collection.js";
+import { canCollectPhysicalHandover } from "../sales/handover-access.js";
 import { readSaleSerials, changeSaleSerials, writeSaleSerialEntries } from "../sales/serials.js";
 import { uploadCollectionPhoto, uploadCollectionPhotoInput, readCollectionPhoto, readCollectionPhotoInput } from "../sales/collection-evidence.js";
 import { centralSalesPrice, resolveCatalogPrice, resolveCatalogVatRate } from "../sales/pricing.js";
@@ -502,6 +503,7 @@ export const getPosWorkspace = onCall(
       providerNextCursorId: providerDocs.size > 100 ? providerDocs.docs[99]!.id : null,
       providers: providerDocs.docs.slice(0, 100).map(doc => ({ id: doc.id, name: doc.get("name"), supplierType: doc.get("supplierType") ?? "goods" })),
       branch: { id: branch.id, name: branch.get("name"), code: branch.get("code") },
+      canCollectPhysicalHandover: canCollectPhysicalHandover(actor, branch),
       location: { id: location.id, name: location.get("name") },
       products: products.docs
         .filter(

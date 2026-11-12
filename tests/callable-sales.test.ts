@@ -3047,3 +3047,38 @@ describe.sequential("explicit POS handover workflow boundaries", () => {
     expect((await adminDb.doc(`posShifts/${shift.shiftId}`).get()).get("cashSalesMinor")).toBe(2000);
   }, 120000);
 });
+
+describe.sequential("Civic-only sales handover", () => {
+  it("permits actual Civic handover exactly once while denying other-branch collection and reservation cancellation", async () => {
+    const org = "I2wgZly4jehKd5Fjr4UJ", civic = "gMaHGJYDkRodEfBjET6V", other = "civic-other-test", location = "civic-test-location";
+    const authUser = await adminAuth.createUser({email: "civic-release@example.test", password: "Password!234567", displayName: "Civic sales fixture"});
+    await adminDb.doc(`users/${authUser.uid}`).set({ uid: authUser.uid, organizationId: org, displayName: "Civic sales fixture", roleIds: ["sales_cashier", "finance_officer"], roleId: "sales_cashier", directRoleIds: ["sales_cashier", "finance_officer"], branchIds: [civic, other], warehouseIds: [], status: "active", authDisabled: false, authorizationVersion: 1 });
+    const staff = client("civic-release");
+    await signInWithEmailAndPassword(staff.auth, "civic-release@example.test", "Password!234567");
+    await Promise.all([
+      adminDb.doc(`organizations/${org}`).set({status: "active"}),
+      adminDb.doc(`branches/${civic}`).set({organizationId: org, name: "Civic Center Branch", code: "CCB", status: "active"}),
+      adminDb.doc(`branches/${other}`).set({organizationId: org, name: "Other", code: "OTHER", status: "active"}),
+      adminDb.doc(`inventoryLocations/${location}`).set({organizationId: org, branchId: civic, name: "Civic stock", type: "branch", status: "active"}),
+      adminDb.doc("inventoryLocations/other-location").set({organizationId: org, branchId: other, name: "Other stock", type: "branch", status: "active"}),
+      adminDb.doc("sales/civic-sale").set({organizationId: org, branchId: civic, locationId: location, saleNumber: "CIVIC-TEST", status: "completed", collectionTracked: true, collectionStatus: "awaiting_collection", physicalQuantity: 2, totalQuantity: 2, collectedQuantity: 0, costAmountMinor: 0}),
+      adminDb.doc("saleItems/civic-item").set({organizationId: org, saleId: "civic-sale", productId: "civic-product", productName: "Test panel", sku: "TEST", trackingType: "quantity", quantity: 2, collectedQuantity: 0, costAmountMinor: 0}),
+      adminDb.doc(`inventoryBalances/${balanceDocumentId(org, "civic-product", location)}`).set({organizationId: org, branchId: civic, locationId: location, productId: "civic-product", onHandQuantity: 2, reservedQuantity: 2, availableQuantity: 0, totalValueMinor: 200, averageUnitCostMinor: 100}),
+      adminDb.doc("sales/other-civic-sale").set({organizationId: org, branchId: other, locationId: "other-location", status: "completed", collectionTracked: true, collectionStatus: "awaiting_collection"}),
+      adminDb.doc("saleReturns/civic-cancel").set({organizationId: org, branchId: civic, saleId: "civic-sale", kind: "reservation_cancellation", status: "submitted"}),
+      adminDb.doc("saleReturnItems/civic-cancel-item").set({organizationId: org, returnId: "civic-cancel", saleItemId: "civic-item"}),
+    ]);
+    await expect(call(staff, "getPosWorkspace", {branchId: civic, operatingContext: {type: "branch", id: civic}})).resolves.toMatchObject({canCollectPhysicalHandover: true});
+    await expect(call(staff, "getPosWorkspace", {branchId: other, operatingContext: {type: "branch", id: other}})).resolves.toMatchObject({canCollectPhysicalHandover: false});
+    const collect = {action: "collect", saleId: "civic-sale", lines: [{saleItemId: "civic-item", quantity: 1}], collector: "Fixture collector", idempotencyKey: crypto.randomUUID(), operatingContext: {type: "branch", id: civic}};
+    await expect(call(staff, "confirmPosSaleOrder", {...collect, saleId: "other-civic-sale", operatingContext: {type: "branch", id: other}})).rejects.toMatchObject({code: "functions/permission-denied"});
+    await expect(call(staff, "approveSaleReturn", {returnId: "civic-cancel", action: "approve", idempotencyKey: crypto.randomUUID(), operatingContext: {type: "branch", id: civic}})).rejects.toMatchObject({code: "functions/permission-denied"});
+    const posted = await call<{collectionId: string; recorded: boolean}>(staff, "confirmPosSaleOrder", collect);
+    expect(posted.recorded).toBe(true);
+    await expect(call(staff, "confirmPosSaleOrder", collect)).resolves.toMatchObject({collectionId: posted.collectionId, recorded: false});
+    expect((await adminDb.doc(`inventoryBalances/${balanceDocumentId(org, "civic-product", location)}`).get()).data()).toMatchObject({onHandQuantity: 1, reservedQuantity: 1, availableQuantity: 0, totalValueMinor: 100});
+    expect((await adminDb.doc("sales/civic-sale").get()).get("collectionStatus")).toBe("partially_collected");
+    await adminDb.doc(`branches/${civic}`).update({status: "inactive"});
+    await expect(call(staff, "confirmPosSaleOrder", collect)).rejects.toMatchObject({code: "functions/permission-denied"});
+  }, 120000);
+});
