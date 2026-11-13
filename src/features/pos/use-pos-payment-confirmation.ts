@@ -49,7 +49,8 @@ export function usePosPaymentConfirmation(scope: string) {
       return { ...result, choice: saved.choice };
     } catch (cause) {
       const diagnostic = cause as { diagnosticCode?: string; code?: string };
-      if (!wasPending && ["functions/invalid-argument", "functions/permission-denied", "functions/failed-precondition", "functions/not-found"].includes(diagnostic?.diagnosticCode ?? diagnostic?.code ?? "")) {
+      if (diagnostic?.diagnosticCode === "POS_REJECTED_UNPOSTED" ||
+        !wasPending && ["functions/invalid-argument", "functions/permission-denied", "functions/failed-precondition", "functions/not-found"].includes(diagnostic?.diagnosticCode ?? diagnostic?.code ?? "")) {
         try { sessionStorage.removeItem(storageKey); if (currentKey.current === storageKey) setPending(null); } catch { /* Preserve the original reference if storage is unavailable. */ }
       }
       throw cause;

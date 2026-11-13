@@ -2390,6 +2390,32 @@ export const confirmPosSaleOrder = onCall(
         status: "completed" as const,
         posted: false,
       };
+    if (current.get("status") === "rejected") {
+      // Never discard a browser retry on status alone: older postings may have
+      // succeeded without completing the order. Prove absence in one snapshot.
+      const rejectedWithoutPosting = await db.runTransaction(async (transaction) => {
+        const latest = await transaction.get(order);
+        if (!latest.exists || latest.get("organizationId") !== actor.organizationId ||
+          latest.get("branchId") !== branchId || latest.get("status") !== "rejected") return false;
+        requireBranchScope(actor, String(latest.get("branchId")));
+        if (["saleId", "saleNumber", "receiptNumber", "paymentConfirmedAt", "completedAt"]
+          .some(field => latest.get(field) != null)) return false;
+        const checkoutKey = z.string().uuid().safeParse(latest.get("payload.idempotencyKey"));
+        if (!checkoutKey.success) return false;
+        const operation = await transaction.get(db.doc(
+          `idempotencyKeys/${actor.organizationId}_commitPosSale_${checkoutKey.data}`,
+        ));
+        const linkedSales = await transaction.get(db.collection("sales")
+          .where("salesOrderId", "==", order.id).limit(1));
+        return !operation.exists && linkedSales.empty;
+      });
+      if (rejectedWithoutPosting)
+        throw new HttpsError("failed-precondition",
+          "This order was rejected without posting a sale. Its saved payment retry can be cleared.",
+          { code: "POS_REJECTED_UNPOSTED", orderId: order.id });
+      throw new HttpsError("failed-precondition",
+        "This rejected order has uncertain posting evidence. Keep its retry reference and ask an administrator to reconcile it.");
+    }
     if (current.get("status") !== "payment_accepted")
       throw new HttpsError(
         "failed-precondition",

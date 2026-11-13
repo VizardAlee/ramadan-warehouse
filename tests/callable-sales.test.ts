@@ -1516,6 +1516,34 @@ describe.sequential("sales callables", () => {
     });
   });
 
+  it("clears rejected confirmation recovery only with scoped absence of posting evidence", async () => {
+    const checkoutKey = crypto.randomUUID();
+    const order = adminDb.collection("salesOrders").doc();
+    await order.set({ organizationId, branchId, status: "rejected", payload: { idempotencyKey: checkoutKey } });
+    const request = { orderId: order.id, idempotencyKey: crypto.randomUUID(), operatingContext: { type: "branch", id: branchId } };
+    const safe = { details: { code: "POS_REJECTED_UNPOSTED", orderId: order.id } };
+    await expect(call(branchManager, "confirmPosSaleOrder", request)).rejects.toMatchObject(safe);
+    const operation = adminDb.doc(`idempotencyKeys/${organizationId}_commitPosSale_${checkoutKey}`);
+    await operation.set({ entityId: "historical-sale" });
+    await expect(call(branchManager, "confirmPosSaleOrder", request)).rejects.not.toMatchObject(safe);
+    await operation.delete();
+    const sale = adminDb.collection("sales").doc();
+    await sale.set({ salesOrderId: order.id, organizationId });
+    await expect(call(branchManager, "confirmPosSaleOrder", request)).rejects.not.toMatchObject(safe);
+    await sale.delete();
+    await order.update({ receiptNumber: "historical-receipt" });
+    await expect(call(branchManager, "confirmPosSaleOrder", request)).rejects.not.toMatchObject(safe);
+    await order.update({ receiptNumber: FieldValue.delete(), "payload.idempotencyKey": "broken" });
+    await expect(call(branchManager, "confirmPosSaleOrder", request)).rejects.not.toMatchObject(safe);
+    await order.update({ "payload.idempotencyKey": checkoutKey, branchId: "foreign-branch" });
+    await expect(call(branchManager, "confirmPosSaleOrder", request)).rejects.not.toMatchObject(safe);
+    await order.update({ branchId, organizationId: "foreign-org" });
+    await expect(call(branchManager, "confirmPosSaleOrder", request)).rejects.not.toMatchObject(safe);
+    expect((await adminDb.collection("sales").where("salesOrderId", "==", order.id).get()).empty).toBe(true);
+    expect((await operation.get()).exists).toBe(false);
+    await order.delete();
+  });
+
   it("records split tender components and permits any sales-stage user to reject an unposted order", async () => {
     const deviceId = crypto.randomUUID();
     const shift = await call<{ shiftId: string }>(cashier, "openPosShift", {
@@ -1554,6 +1582,7 @@ describe.sequential("sales callables", () => {
     })).rejects.toMatchObject({ code: "functions/failed-precondition" });
     const audit = await adminDb.collection("auditLogs").where("entityId", "==", order.orderId).get();
     expect(audit.docs.some((record) => record.get("action") === "sales_order.rejected")).toBe(true);
+
   });
 
   it("splits a discounted sale return without exceeding the actual receipt and exposes customer history", async () => {

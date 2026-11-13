@@ -1353,9 +1353,11 @@ export default function PosPage() {
               <span className="mt-1 block">Authorized store staff confirm actual quantities and collector. This releases stock and records its cost.</span>
             </div>
           </div>
+          {error && cartOpen && <p role="alert" className="mt-3 text-red-700"><FinancialMessage>{error}</FinancialMessage></p>}
           {paymentConfirmation.error && <p role="alert" className="mt-3 text-red-700">{paymentConfirmation.error}</p>}
           {paymentConfirmation.pending && <div role="status" className="mt-3 rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm">
-            <p>A payment confirmation is unresolved. Retry its original reference to recover the existing receipt before confirming another payment.</p>
+            <p>A saved payment confirmation needs checking. Retry its original reference to recover a posted receipt or safely clear an order confirmed rejected without posting.</p>
+            {(!online || busy || handoverLocked || !canConfirmPayment || !paymentConfirmation.ready) && <p role="alert" className="mt-2">{!online ? "Reconnect to check the saved confirmation." : busy ? "Another POS action is still running. Wait before retrying." : handoverLocked ? "Resolve the pending physical handover or storage warning in Physical goods handover below before retrying payment." : !canConfirmPayment ? "Your current access cannot confirm payments. Refresh authorization or ask your administrator to review it." : "Wait for the saved payment confirmation check to finish."}</p>}
             <Button className="mt-2" disabled={!online || busy || handoverLocked || !canConfirmPayment || !paymentConfirmation.ready} onClick={() => void confirmOrderPayment(paymentConfirmation.pending!.orderId, paymentConfirmation.pending!.choice)}>Retry same payment confirmation</Button>
           </div>}
           {workspace.pendingOrders.length > 0 ? (

@@ -15,7 +15,7 @@ import { StockTransferForm, StockTransferList } from "../src/features/transfers/
 beforeEach(() => {
   state.profile = { uid: "fixture-admin", status: "active", roleId: "system_administrator", organizationId: "fixture-org", branchIds: [], warehouseIds: [] } as unknown as UserProfile;
   state.call.mockReset();
-  state.call.mockImplementation(async (name, input) => name === "getAssignableRolePermissions" ? { roles: ["sales_cashier", "branch_manager", "branch_requester"].map(roleId => ({ roleId, permissionIds: [...permissionsForRoles([roleId as "sales_cashier"]) ] })) } : name === "stockTransfers" ? input.action === "list" ? { rows: [], nextCursor: null } : { locations: [], canApprove: false } : { roleId: "fixture-new-role" });
+  state.call.mockImplementation(async (name, input) => name === "getAssignableRolePermissions" ? { roles: ["sales_cashier", "branch_manager", "branch_requester", "finance_officer"].map(roleId => ({ roleId, permissionIds: [...permissionsForRoles([roleId as "sales_cashier"]) ] })) } : name === "stockTransfers" ? input.action === "list" ? { rows: [], nextCursor: null } : { locations: [], canApprove: false } : { roleId: "fixture-new-role" });
 });
 afterEach(cleanup);
 async function open() {

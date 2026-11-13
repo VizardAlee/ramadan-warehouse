@@ -206,3 +206,5 @@ export { getServiceBillingCase } from "./callable/service-billing-case.js";
 export { billingReceiptCorrections } from "./callable/billing-receipt-corrections.js";
 
 export { getUserActivity } from "./callable/user-activity.js";
+
+export { staffAdvances } from "./callable/staff-advances.js";

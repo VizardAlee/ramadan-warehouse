@@ -256,6 +256,7 @@ const permissionsByRole: Readonly<Record<RoleId, readonly PermissionId[]>> = {
     "reports.transfers.read",
   ],
   finance_officer: [
+    "cash.advances.read", "cash.advances.issue", "cash.advances.retire", "cash.advances.return",
     "finance.journal.create", "finance.journal.reverse", "finance.accounts.manage", "finance.tax.manage", "finance.budget.manage",
     "banking.transfer",
     "daily.close.read", "daily.close.prepare", "daily.close.approve",
@@ -304,6 +305,7 @@ const permissionsByRole: Readonly<Record<RoleId, readonly PermissionId[]>> = {
     "accounting.close.approve",
   ],
   auditor: [
+    "cash.advances.read",
     "daily.close.read",
     "audit.read",
     "report.read",
@@ -348,7 +350,7 @@ export function hasPermission(
   if (profile.status !== "active") return false;
   const assignedRoles = roleIdsForProfile(profile);
   if (assignedRoles.includes("system_administrator")) return true;
-  if (permission === "sales.stock.release" || permission === "banking.transfer" || permission === "finance.journal.create" || permission === "finance.journal.reverse" || permission === "finance.accounts.manage" || permission === "finance.tax.manage" || permission === "finance.budget.manage" || permission.startsWith("daily.close.")) {
+  if (permission === "sales.stock.release" || permission === "banking.transfer" || permission === "finance.journal.create" || permission === "finance.journal.reverse" || permission === "finance.accounts.manage" || permission === "finance.tax.manage" || permission === "finance.budget.manage" || permission.startsWith("daily.close.") || permission.startsWith("cash.advances.")) {
     const direct = profile.directRoleIds ?? (profile.customRoleIds?.length ? [] : assignedRoles);
     if (permissionsForRoles(direct).has(permission)) return true;
   }

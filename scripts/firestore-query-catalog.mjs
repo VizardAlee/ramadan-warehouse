@@ -44,6 +44,13 @@ export function queryCatalog() {
   }
   const eq = (fields) => fields.map((field) => [field, "=="]);
   const org = ["organizationId", "=="];
+  add("rejected POS retry posting evidence", "sales", eq(["salesOrderId"]));
+  add("staff advance branch choices", "branches", [org], [["__name__", "ASCENDING"]]);
+  add("staff advance account choices", "bankAccounts", [org], [["__name__", "ASCENDING"]]);
+  add("staff advance scoped register", "staffAdvances", eq(["organizationId", "branchId"]), [["__name__", "ASCENDING"]]);
+  add("staff advance event history", "events", [], [["__name__", "ASCENDING"]], null, "staffAdvances/index-audit-probe");
+  add("staff advance unique asset account", "chartOfAccounts", eq(["organizationId", "code"]));
+
   const scopes = [[], [["branchId", "in"]], [["warehouseId", "in"]]];
   const dateOrder = (field, direction = "DESCENDING") => [[field, direction], ["__name__", direction]];
   for (const scope of [[], [["branchId", "=="]]]) {
