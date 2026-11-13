@@ -11,7 +11,7 @@
     "priorSingleFieldOverrideEvidence": 0,
     "reviewedBase": "8c1de7a0f632427bc490e23b2f2c23ad18fd6e31"
   },
-  "catalogSha256": "40dd9c8c9b6b73162bba56833c47d731519f2745be0320a2b9292a01e1748738",
+  "catalogSha256": "5fabea9e340e16245214b7bbc49d86b6d3b6b55e798c855e69506efdf5512d42",
   "sourceFingerprints": {
     "functions/src/accounting/bank-lifecycle.ts": "521f428b891e6e26091ad95f6d6d58213a26a2210619c46fc77a8db4cda8d3e9",
     "functions/src/accounting/daily-close.ts": "904fa0dee8c4af98feaf99f17900caa97d86a16560cd3d0d85846ac33cd26e8e",
@@ -50,7 +50,7 @@
     "functions/src/callable/manage-roles.ts": "49701ae3e28f7ece7f3819bda47a097b747f26ab685467a54ed75541c3a02b56",
     "functions/src/callable/manage-users.ts": "4ad7cb1e8b5b660b9342bc0c2495e696b221444fc60666350e5a81b9d2e09eb4",
     "functions/src/callable/operational-readiness.ts": "5710f7b794dc5560f44a60fa86e21dc96c9591066d6996ca0119ba7615e11279",
-    "functions/src/callable/procurement.ts": "574f555470f3c3fa85533cfb83e1958dc81a4c022706f1c9cac9c80191a4d78d",
+    "functions/src/callable/procurement.ts": "f9a1ce407c9c74b43798ea7003888327d56f85aa78e5ea31dd0a779e7248f356",
     "functions/src/callable/product-margins.ts": "26a37eba73eebf0c98439de659ed4c29cb958f3b674d084d45b9729c0d3abe2e",
     "functions/src/callable/product-movement.ts": "22981f519e028ebc3c20606f3e2ccbc302e8a9e5d01669b99842b30255ee0d33",
     "functions/src/callable/provider-funds.ts": "b0a7011a898309352b7ee49b61dcdcdd482799eb0d73f6441ee9563e2f4a5344",
@@ -69,12 +69,13 @@
     "functions/src/inventory/held-supplier-credit.ts": "76a07b0fd445ca88aa847c50439ec2dce45c1684bf36691215c45f5db5dff43f",
     "functions/src/inventory/post-inventory-transaction.ts": "1d63a5ba49574e164a0f92cf512dd3683c139fbbd355649b921bfadda107e02c",
     "functions/src/inventory/read-scope.ts": "e35a9c7537334c0b0f12732b3235492ee49008dce20e570fd0db31ce5a2e48c5",
-    "functions/src/inventory/reverse-inventory-posting.ts": "905ddd67653dea31a783b1953a65ccf75e036d63e989252b6c72fe86ea796a85",
+    "functions/src/inventory/reverse-inventory-posting.ts": "78fc922e3fdf8e8104e1dd10ed2c91cde08eb8ecf124a6aab7af51cbb6017f1d",
     "functions/src/jobs/delivery-jobs.ts": "5d7386985e3543c933950a8c722d40b6c37e0817c27a059fdf107a8408271484",
     "functions/src/notifications/collection-reminders.ts": "6f8f3b36d50a2eb7e645c509d57a2f74f2bc8c74207ba1c78e5beb58a527496f",
     "functions/src/notifications/debt-reminders.ts": "c69fa232df0f3d3ad39cb47685ad0bd169c513f59bfc23e27ce160081efff70f",
     "functions/src/notifications/in-app.ts": "f0e1c9e2c9d3e807f25985bc1879d7f216e9867c95376c7b5fa87ebb708a7306",
     "functions/src/notifications/web-push.ts": "f0645af68419cf9f25cff8a9e5e8eec84e3fb09fa982c671e55080609053176e",
+    "functions/src/procurement/correct-invoice-cost.ts": "f9e828fa46015d39118b46fc957b63cfd986c022efb28b15beea1e48a2e9fcb0",
     "functions/src/procurement/edit-draft-purchase-order.ts": "483bf20d91a0726d6c0d3993a086c4abdcd83629eee567981485214d1b1c48df",
     "functions/src/procurement/invoice-matching.ts": "074bd3201732897a73efe55dadc4108ce485b605fc92c9bd1ac9d03e9ea275e4",
     "functions/src/procurement/location-options.ts": "c590c6189e8fc9b902c6ef7223e1358f1db70a7f40cc60438b73f891a0e3441c",
@@ -430,5 +431,6 @@
     "e67505821d850f12a49fe4768eb85162610445b420ca6b9dd03bdd793d552850",
     "880af3414832e6dacd23d559ba6dd7e778a763ab671f59665858c632f16d9675",
     "98ddd8e3f622c12cbccdec827f764977842e572c23f6064e0096314c5440f620"
-  ]
+  ],
+  "verifiedAt": "2026-11-13T20:23:35.474Z"
 }

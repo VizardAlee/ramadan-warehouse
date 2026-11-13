@@ -1398,3 +1398,60 @@ describe("supplier invoice pending matching guards", () => {
     await expect(submit(input)).rejects.toBeDefined();
   });
  });
+
+describe.sequential("submitted invoice cost correction", () => {
+  async function fixture() {
+    const suffix = crypto.randomUUID(), product = `cost-correction-${suffix}`;
+    await adminDb.doc(`products/${product}`).create({ organizationId, name: "Cost correction controller", sku: product, active: true, trackingType: "quantity", unitOfMeasure: "unit", hasLedgerActivity: false });
+    await adminDb.doc(`productCosts/${product}`).create({ organizationId, productId: product, defaultUnitCostMinor: 1500000, currency: "NGN" });
+    const supplier = await call<{supplierId: string}>(administrator, "saveSupplier", { name: `Cost supplier ${suffix}`, phone: "07011114444", idempotencyKey: crypto.randomUUID() });
+    const order = await call<{purchaseOrderId: string}>(administrator, "createPurchaseOrder", { ...supplier, branchId: headOfficeId, receivingLocationId: headOfficeLocationId, lines: [{ productId: product, quantity: 2, unitCostMinor: 1500000, vatRateBasisPoints: 0 }], idempotencyKey: crypto.randomUUID() });
+    await call(administrator, "submitPurchaseOrder", { ...order, idempotencyKey: crypto.randomUUID() });
+    await call(administrator, "approvePurchaseOrder", { ...order, idempotencyKey: crypto.randomUUID() });
+    const item = (await adminDb.collection("purchaseOrderItems").where("purchaseOrderId", "==", order.purchaseOrderId).get()).docs[0]!;
+    const receipt = await call<{receiptId: string; inventoryTransactionId: string}>(administrator, "receivePurchaseOrderItem", { ...order, purchaseOrderItemId: item.id, quantity: 2, receivedAt: new Date().toISOString(), serialNumbers: [], idempotencyKey: crypto.randomUUID() });
+    const invoice = await call<{supplierInvoiceId: string}>(administrator, "submitSupplierInvoice", { ...order, supplierInvoiceNumber: `COST-${suffix}`, invoiceDate: new Date().toISOString().slice(0, 10), lines: [{ purchaseOrderItemId: item.id, quantity: 2 }], idempotencyKey: crypto.randomUUID() });
+    const input = { command: "correct_cost", supplierInvoiceId: invoice.supplierInvoiceId, purchaseOrderItemId: item.id, expectedUnitCostMinor: 1500000, unitCostMinor: 1200000, expectedGrossAmountMinor: 3000000, reason: "Owner supplied corrected supplier cost", idempotencyKey: crypto.randomUUID() };
+    const balance = adminDb.doc(`inventoryBalances/${balanceDocumentId(organizationId, product, headOfficeLocationId)}`);
+    return { product, order, item, receipt, invoice, input, balance };
+  }
+  it("corrects once, retains evidence and quantity, and approves only the corrected value", async () => {
+    const f = await fixture();
+    const result = await call<{correctionId: string}>(administrator, "approveSupplierInvoice", f.input);
+    expect((await f.balance.get()).data()).toMatchObject({ onHandQuantity: 2, totalValueMinor: 2400000, averageUnitCostMinor: 1200000 });
+    expect((await adminDb.doc(`supplierInvoices/${f.invoice.supplierInvoiceId}`).get()).data()).toMatchObject({ status: "submitted", grossAmountMinor: 2400000, outstandingAmountMinor: 2400000 });
+    expect((await adminDb.doc(`purchaseReceipts/${f.receipt.receiptId}`).get()).data()).toMatchObject({ originalUnitCostMinor: 1500000, unitCostMinor: 1200000, quantity: 2 });
+    const originalEntries = await adminDb.collection("inventoryEntries").where("transactionId", "==", f.receipt.inventoryTransactionId).get();
+    expect(originalEntries.docs.find(row => row.get("locationId"))!.get("valueDeltaMinor")).toBe(3000000);
+    const correctionEntries = await adminDb.collection("inventoryEntries").where("transactionId", "==", result.correctionId).get();
+    expect(correctionEntries.size).toBe(2);
+    expect(correctionEntries.docs.every(row => row.get("quantityDelta") === 0)).toBe(true);
+    expect(correctionEntries.docs.reduce((sum, row) => sum + row.get("valueDeltaMinor"), 0)).toBe(0);
+    expect(await call(administrator, "approveSupplierInvoice", f.input)).toMatchObject({ corrected: false });
+    await expect(call(administrator, "approveSupplierInvoice", { ...f.input, unitCostMinor: 1100000 })).rejects.toMatchObject({ code: "functions/failed-precondition" });
+    await expect(call(administrator, "approveSupplierInvoice", { supplierInvoiceId: f.invoice.supplierInvoiceId, command: "typo", idempotencyKey: crypto.randomUUID() })).rejects.toMatchObject({ code: "functions/invalid-argument" });
+    await expect(call(administrator, "approveSupplierInvoice", { ...f.invoice, expectedGrossAmountMinor: 3000000, idempotencyKey: crypto.randomUUID() })).rejects.toMatchObject({ code: "functions/failed-precondition" });
+    await call(administrator, "approveSupplierInvoice", { ...f.invoice, expectedGrossAmountMinor: 2400000, idempotencyKey: crypto.randomUUID() });
+    const posted = await adminDb.doc(`supplierInvoices/${f.invoice.supplierInvoiceId}`).get();
+    expect(posted.get("status")).toBe("approved");
+    expect((await adminDb.doc(`journalEntries/${posted.get("journalEntryId")}`).get()).get("totalDebitMinor")).toBe(2400000);
+    expect((await f.balance.get()).get("onHandQuantity")).toBe(2);
+    const grns = await adminDb.collection("purchaseReceipts").where("purchaseOrderId", "==", f.order.purchaseOrderId).get();
+    expect(grns.size).toBe(1);
+    await expect(call(administrator, "approveSupplierInvoice", { ...f.input, idempotencyKey: crypto.randomUUID() })).rejects.toMatchObject({ code: "functions/failed-precondition" });
+  }, 120000);
+  it("fails closed for intervening movements without changing stock or invoice", async () => {
+    const f = await fixture();
+    await f.balance.update({ lastTransactionId: "subsequent-sale" });
+    await expect(call(administrator, "approveSupplierInvoice", f.input)).rejects.toMatchObject({ code: "functions/failed-precondition" });
+    expect((await f.balance.get()).get("totalValueMinor")).toBe(3000000);
+    expect((await adminDb.doc(`supplierInvoices/${f.invoice.supplierInvoiceId}`).get()).get("grossAmountMinor")).toBe(3000000);
+  }, 120000);
+  it("rejects missing authority, stale cost and unsafe input before writes", async () => {
+    const f = await fixture();
+    await expect(call(branchManager, "approveSupplierInvoice", f.input)).rejects.toMatchObject({ code: "functions/permission-denied" });
+    await expect(call(administrator, "approveSupplierInvoice", { ...f.input, expectedUnitCostMinor: 1400000 })).rejects.toMatchObject({ code: "functions/failed-precondition" });
+    await expect(call(administrator, "approveSupplierInvoice", { ...f.input, unitCostMinor: -1 })).rejects.toMatchObject({ code: "functions/invalid-argument" });
+    expect((await f.balance.get()).get("totalValueMinor")).toBe(3000000);
+  }, 120000);
+});

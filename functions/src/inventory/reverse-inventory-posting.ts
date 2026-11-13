@@ -172,6 +172,7 @@ export async function reverseInventoryPosting<State = undefined>(
       }
       if (!original) throw new HttpsError("not-found", "Inventory transaction was not found.");
       authorizeOriginal(actor, original);
+      if (original.get("costCorrectionId") || original.get("transactionType") === "purchase_cost_correction") throw new HttpsError("failed-precondition", "Cost-corrected purchase evidence requires its linked accounting reconciliation.");
       if (original.get("referenceType") === "internalTradeInvoice" || original.get("internalTradeInvoiceId"))
         throw new HttpsError("failed-precondition", "This stock movement has a linked head-office invoice or credit. Use the original internal-trading workflow; a stock-only reversal would invalidate the branch balance.");
       if (extension?.sourceFunction === "reverseSupplierReturn" && original.get("transactionType") !== "supplier_return")

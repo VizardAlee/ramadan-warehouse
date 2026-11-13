@@ -1,4 +1,5 @@
 "use client";
+import { InvoiceCostCorrection } from "@/features/procurement/invoice-cost-correction";
 import { SupplierInvoiceMatch, availableForMatching, type InvoiceMatchInput } from "@/features/procurement/supplier-invoice-match";
 import { invoiceAmountDue, isInactiveInvoice } from "@/features/procurement/invoice-status";
 import { PurchasingList } from "@/features/procurement/purchasing-list";
@@ -105,6 +106,7 @@ function ProcurementWorkspace() {
   const [revision, setRevision] = useState(0);
   const [invoiceSearch, setInvoiceSearch] = useState("");
   const [detail, setDetail] = useState<{ order: PurchaseOrder; items: PurchaseOrderItem[]; pendingInvoiceCount?: number } | null>(null);
+  const [costCorrectionLocked, setCostCorrectionLocked] = useState(true);
   const [selectedInvoice, setSelectedInvoice] = useState<SupplierInvoice | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const detailSequence = useRef(0);
@@ -1007,6 +1009,7 @@ function ProcurementWorkspace() {
                       <FinancialText>{invoice.status === "paid" && invoice.creditedAmountMinor ? "settled (includes credit note)" : invoice.status.replaceAll("_", " ")}</FinancialText>
                     </span>
                   </p>
+                  {invoice.status === "submitted" && can("payables.approve") && can("procurement.create") && can("procurement.receive") && can("procurement.read") && (invoice.createdBy !== user?.uid || canApproveOwnWork) && <InvoiceCostCorrection key={invoice.id} invoice={invoice} onLock={setCostCorrectionLocked} ownerKey={`${profile?.organizationId}:${user?.uid}`} onComplete={() => { setSelectedInvoice(null); setRevision(value => value + 1); setMessage("Cost corrected with audit evidence. Reopen the invoice to review and approve it."); void load(); }} />}
                   {isInactiveInvoice(invoice.status) && <p className="mt-2 text-sm text-[var(--muted)]">Original invoice amount: <FinancialValue>{formatNaira(invoice.grossAmountMinor)}</FinancialValue>. This <FinancialText>{invoice.status}</FinancialText> invoice cannot be approved or paid. Its original record is retained.</p>}
                 </div>
                 <div className="flex flex-col gap-2 sm:flex-row">
@@ -1015,12 +1018,13 @@ function ProcurementWorkspace() {
                     can("payables.approve") &&
                     (invoice.createdBy !== user?.uid || canApproveOwnWork) && (
                       <FinancialAction><Button
-                        disabled={busy}
+                        disabled={busy || (can("procurement.create") && can("procurement.receive") && can("procurement.read") && costCorrectionLocked)}
                         onClick={() =>
                           void run(
                             () =>
                               callAdministration("approveSupplierInvoice", {
                                 supplierInvoiceId: invoice.id,
+                                expectedGrossAmountMinor: invoice.grossAmountMinor,
                                 idempotencyKey: crypto.randomUUID(),
                               }),
                             `Invoice ${invoice.supplierInvoiceNumber} approved and posted to Accounts Payable.`,

@@ -147,6 +147,10 @@ export function queryCatalog() {
   for (const collection of ["purchaseOrderItems", "purchaseReceipts", "supplierInvoices", "supplierInvoiceItems", "purchaseInvoiceItemCounters", "supplierReturns"])
     add("draft purchase order downstream evidence", collection, [["purchaseOrderId", "=="]]);
   add("draft purchase order inventory evidence", "inventoryTransactions", [["referenceId", "=="]]);
+  add("submitted invoice cost correction", "supplierInvoiceItems", [["supplierInvoiceId", "=="]]);
+  add("submitted invoice cost correction", "purchaseReceipts", [["purchaseOrderItemId", "=="]]);
+  add("submitted invoice cost correction", "supplierInvoices", [["purchaseOrderId", "=="]]);
+  add("submitted invoice cost correction", "inventoryEntries", [["transactionId", "=="]]);
   add("purchase receipt history", "purchaseReceipts", [org, ["purchaseOrderId", "=="]], dateOrder("receivedAt"));
   add("supplier return original receipts", "purchaseReceipts", [org, ["purchaseOrderItemId", "=="]], dateOrder("receivedAt"));
   add("supplier return history", "supplierReturns", [org, ["supplierInvoiceId", "=="]], dateOrder("createdAt"));

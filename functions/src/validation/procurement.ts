@@ -138,6 +138,7 @@ export const submitSupplierInvoiceInput = z.object({
 
 export const supplierInvoiceActionInput = z.object({
   supplierInvoiceId: id,
+  expectedGrossAmountMinor: z.number().int().positive().optional(),
   notes: optionalText(500),
   idempotencyKey: z.string().uuid(),
 });

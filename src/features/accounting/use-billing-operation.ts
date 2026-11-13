@@ -1,10 +1,10 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import { callAdministration } from "@/features/administration/api";
-type Instruction = { name: "billingControls" | "providerFunds" | "billingReceiptCorrections"; input: Record<string, unknown> };
+type Instruction = { name: "billingControls" | "providerFunds" | "billingReceiptCorrections" | "approveSupplierInvoice"; input: Record<string, unknown> };
 export function useBillingOperation(ownerKey: string) {
   const key = `warehouse-billing-operation:${ownerKey}`, [pending, setPending] = useState<Instruction | null>(null), [ready, setReady] = useState(false), [busy, setBusy] = useState(false), [error, setError] = useState(""), flight = useRef(false), mounted = useRef(true);
-  useEffect(() => { mounted.current = true; const timer = window.setTimeout(() => { try { const saved = sessionStorage.getItem(key), value = saved ? JSON.parse(saved) : null; if (value && (!["billingControls", "providerFunds", "billingReceiptCorrections"].includes(value.name) || typeof value.input !== "object" || !value.input.idempotencyKey)) throw new Error(); setPending(value); setReady(true); } catch { setError("Saved billing instructions could not be read. Restore browser storage before another operation."); } }, 0); return () => { mounted.current = false; window.clearTimeout(timer); }; }, [key]);
+  useEffect(() => { mounted.current = true; const timer = window.setTimeout(() => { try { const saved = sessionStorage.getItem(key), value = saved ? JSON.parse(saved) : null; if (value && (!["billingControls", "providerFunds", "billingReceiptCorrections", "approveSupplierInvoice"].includes(value.name) || typeof value.input !== "object" || !value.input.idempotencyKey)) throw new Error(); setPending(value); setReady(true); } catch { setError("Saved billing instructions could not be read. Restore browser storage before another operation."); } }, 0); return () => { mounted.current = false; window.clearTimeout(timer); }; }, [key]);
   async function run(name: Instruction["name"], input: Record<string, unknown>) {
     if (flight.current || !ready) return false;
     flight.current = true; setBusy(true); setError("");
