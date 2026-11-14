@@ -1,15 +1,15 @@
 {
   "lastLiveAudit": {
     "project": "ramadan-warehouse-staging",
-    "verifiedAt": "2026-11-14T22:55:49.051Z",
+    "verifiedAt": "2026-11-14T23:06:42.162Z",
     "queryShapes": 855,
     "unsupportedQueries": 0,
     "readyIndexes": 298,
     "indexInventoryVerifiedAt": "2026-11-10T13:14:19.403Z",
     "probeMethod": "planner-only (analyze=false), with sentinel-scope missing-index diagnostics; no mutations",
-    "plannerEvidenceSha256": "ff4af1b683a669892707e2201ae5920e606755db596a57329b6678ac2dc81e7c",
+    "plannerEvidenceSha256": "ede45be31fc96ccf256ca294bbf502923cca2007fb87043ccfbd1c83fb796a67",
     "priorSingleFieldOverrideEvidence": 0,
-    "reviewedBase": "94c53bb plus explicit freight and original-return query catalog"
+    "reviewedBase": "e137c61"
   },
   "catalogSha256": "3513069719c48d2d297bbe0bce7822de16d89ca8211fd7f939f15ff68bbf0093",
   "sourceFingerprints": {
@@ -24,7 +24,7 @@
     "functions/src/billing/sale-context.ts": "4e3542d870160de4a8458d5699d2450e739d2c4bd044256b5ab9a746a22edf26",
     "functions/src/branch-trading/payments.ts": "3e8ce342edb049e41b49c37f100cb1474ed56d0e73e589dbc4d8c7d16ac153b4",
     "functions/src/branch-trading/receipt.ts": "ff83918530b18876cd40f27f341626b1c0e669d6ee25237f4c2a4bd74c5f5476",
-    "functions/src/branch-trading/returns.ts": "277be432f6f51af12666da5fea750de34b827082947ab7f816e89051a68dcbd9",
+    "functions/src/branch-trading/returns.ts": "ff7b9d41afab982dbf9c8a9734d98693679b3bd0c6db58c9f073ad6a8e8190ec",
     "functions/src/branch-trading/transport-expense.ts": "cd0a3899494bee67170f5e75670b660003d6ef9a141839781b21d989b139958a",
     "functions/src/callable/accounting-close.ts": "c8cbd87c16a31c921ea73c7ab2268637eaac186d65036a4942fa4db2667b805d",
     "functions/src/callable/accounting-journals.ts": "a961fee340bf15ab24bd1a57797f375d9c070a1743d52cd571c2e9f43c4943db",
