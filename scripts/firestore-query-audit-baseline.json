@@ -1,17 +1,17 @@
 {
   "lastLiveAudit": {
     "project": "ramadan-warehouse-staging",
-    "verifiedAt": "2026-11-14T11:55:11.417Z",
-    "queryShapes": 852,
+    "verifiedAt": "2026-11-14T13:58:55.761Z",
+    "queryShapes": 853,
     "unsupportedQueries": 0,
     "readyIndexes": 298,
     "indexInventoryVerifiedAt": "2026-11-10T13:14:19.403Z",
     "probeMethod": "planner-only (analyze=false), with sentinel-scope missing-index diagnostics; no mutations",
-    "plannerEvidenceSha256": "838498d1fa73a585e55429ce088976db134741273d59a43365f3d6bb58c3d5eb",
+    "plannerEvidenceSha256": "c675bb59ea50bed13364502066839cccb2a1febf5383aa1506fd14070261d6f4",
     "priorSingleFieldOverrideEvidence": 0,
-    "reviewedBase": "6b9d67d"
+    "reviewedBase": "5c117ec"
   },
-  "catalogSha256": "5fabea9e340e16245214b7bbc49d86b6d3b6b55e798c855e69506efdf5512d42",
+  "catalogSha256": "e2c0b9bed521b6fe4043ceb3959d7c7cf7664f589057bc5738b131fc9d3c0a6b",
   "sourceFingerprints": {
     "functions/src/accounting/bank-lifecycle.ts": "521f428b891e6e26091ad95f6d6d58213a26a2210619c46fc77a8db4cda8d3e9",
     "functions/src/accounting/daily-close.ts": "904fa0dee8c4af98feaf99f17900caa97d86a16560cd3d0d85846ac33cd26e8e",
@@ -57,7 +57,7 @@
     "functions/src/callable/reset-organization.ts": "ef008e650d39213d23c35d3d801015dccad8ad7ea78edf9d62b6b5c230d53a5c",
     "functions/src/callable/sales-corrections.ts": "30795efb70775a3e2dce60d4f782bc84faa3ff572cfee746c36daa8319f1a96b",
     "functions/src/callable/sales-returns.ts": "1329389a2c017ab6a3514efd3a1871711bad97023b15d46525e14d9a0c223b0f",
-    "functions/src/callable/sales.ts": "91d815430b6a8bd7c87a317a86ac5284f09791ed0b7be4e7df5ba1e1373cf6e4",
+    "functions/src/callable/sales.ts": "959fdd3a464a96b1e96da8d0013171b93b9c5bef55c60a2789a9f4c75342f79c",
     "functions/src/callable/service-billing-case.ts": "d60574eac1572f593c1f3ea44c44419821e83ad0ea34712aac4ca0376fa27f3a",
     "functions/src/callable/staff-advances.ts": "e758ad16c9c26252ee7420d1de9c1ae233fa931f4c01ef7c7d0c21aa6bec9ab2",
     "functions/src/callable/stock-counts.ts": "cc25ae2108bc606d887224765c55246e92904a5455260ee94803aed76b7516d3",
@@ -88,6 +88,7 @@
     "functions/src/sales/collection.ts": "ead0fb9803e5da183d6822b588623f525b64562cb44aff8801aca081500a0da6",
     "functions/src/sales/customer-ownership.ts": "65bfbfe6a2ef53b4f4d795891c178ea24f7eb87774b0f42b6197ff3b44b2a277",
     "functions/src/sales/operational-evidence.ts": "425a9e1e4ad817c8ccc7934a32e03a848312aa46cf0cbfc1912b939967aa3fea",
+    "functions/src/sales/pos-catalogue.ts": "66057458b67d5d4fac98c74c22c2801c44b90db4f8cdfc95e5ca3462b612679c",
     "functions/src/sales/pos-customer-search.ts": "5d407f196776d709645ecab25087837182722d256db6eb8d4d38f7602641883c",
     "functions/src/sales/pos-fast-moving-store.ts": "370661d6dc98a87065f04c5de721f8a561e17f270399e531994f47f9a8da81c3",
     "functions/src/sales/proforma.ts": "af62fbe6fb7a699b0f6602b0a384c668d6882ead9b21801822f0208d280b9a49",
@@ -111,7 +112,7 @@
     "src/app/(protected)/hr/page.tsx": "e3d4a906a37b466f57daf4ce71ee06017d197e7366c38084e8176722aead86a2",
     "src/app/(protected)/inventory/counts/page.tsx": "7f8a47d608d0c83eb396d5862822eac9675e1b8ecd5991d72caf1252a857541b",
     "src/app/(protected)/inventory/page.tsx": "ba212f930319ffe41af5a60d5a42bab23a76c0fe3d8bd262d9f226edf3aa2dcb",
-    "src/app/(protected)/pos/page.tsx": "aa51e9ed387d72e885c182080f94b3bb423fc8f8297ead3bacd89fee70f49b52",
+    "src/app/(protected)/pos/page.tsx": "b355f145b9c9596a66bcdbf1a43dcc4fb76f8bf54f1f655b654282d03f39b01c",
     "src/app/(protected)/products/[product_id]/page.tsx": "fe1d0d90b565eda40f0683c608bf0871e88b1f70953ab106cffacea5f70c6920",
     "src/app/(protected)/products/categories/page.tsx": "825f82bca475cc5200fc2784bd8acf166ee06bbbe9eccee26aa7ef6bec1599f3",
     "src/app/(protected)/products/page.tsx": "581abbffe8a7d92894cff86b5e3b9fbc746aaf112a9f9ec5e82865d9931f07d6",

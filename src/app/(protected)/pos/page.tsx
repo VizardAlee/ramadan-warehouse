@@ -1,5 +1,6 @@
 "use client";
 
+import { useBankOptionsRefresh, retainAvailableBank } from "@/features/pos/use-bank-options-refresh";
 import { hasCurrentHandoverGrant } from "@/features/pos/handover-access";
 import { AmountInput } from "@/components/ui/amount-input";
 import { PosActiveShift, PosShiftAccess } from "@/features/pos/shift-controls";
@@ -361,6 +362,30 @@ export default function PosPage() {
     const timeout = window.setTimeout(() => void loadWorkspace(), 0);
     return () => window.clearTimeout(timeout);
   }, [selectedBranchId, loadWorkspace]);
+
+  const fetchBankOptions = useCallback(async () => {
+    const result = await callAdministration<
+      { branchId: string; bankOptionsOnly: true }, Pick<PosWorkspace, "bankAccounts">
+    >("getPosWorkspace", { branchId: selectedBranchId, bankOptionsOnly: true });
+    return result.bankAccounts;
+  }, [selectedBranchId, user?.uid, profile?.organizationId, profile?.authorizationVersion]);
+  const applyBankOptions = useCallback((accounts: PosWorkspace["bankAccounts"]) => {
+    setWorkspace(current => current?.branch.id === selectedBranchId
+      ? { ...current, bankAccounts: accounts } : current);
+  }, [selectedBranchId, user?.uid, profile?.organizationId]);
+  useBankOptionsRefresh(Boolean(online && user && selectedBranchId && workspace?.branch.id === selectedBranchId), fetchBankOptions, applyBankOptions);
+
+  // Reconcile both ordinary and split-payment drafts on any fresh workspace.
+  // Never choose a replacement bank silently, or modify already queued sales.
+  useEffect(() => {
+    if (!workspace || workspace.branch.id !== selectedBranchId) return;
+    const accounts = workspace.bankAccounts;
+    setPaymentBankAccountId(current => retainAvailableBank(current, accounts));
+    setSplitPayments(current => {
+      const updated = current.map(payment => ({ ...payment, bankAccountId: retainAvailableBank(payment.bankAccountId, accounts) }));
+      return updated.some((payment, index) => payment.bankAccountId !== current[index]!.bankAccountId) ? updated : current;
+    });
+  }, [workspace?.bankAccounts, workspace?.branch.id, selectedBranchId]);
 
   const syncQueue = useCallback(async () => {
     if (!online || !selectedBranchId) return;

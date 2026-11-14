@@ -14,18 +14,35 @@ vi.mock("@/features/pos/collection-queue", () => ({ CollectionQueue: () => null 
 vi.mock("@/features/pos/service-line-options", () => ({ ServiceLineOptions: () => null }));
 vi.mock("@/components/ui/use-dialog-focus", () => ({ useDialogFocus: () => ({ current: null }) }));
 vi.mock("@/features/pos/offline-store", () => ({ listQueuedSales: async () => [], listHeldSales: async () => state.held, saveCachedWorkspace: async () => {}, readCachedWorkspace: async () => null, saveHeldSale: async (held: HeldPosSale) => { state.held.push(held); }, removeHeldSale: async (id: string) => { state.held = state.held.filter(held => held.id !== id); }, removeQueuedSale: async () => {}, queueOfflineSale: async () => {}, updateQueuedSale: async () => {} }));
-const product = { id: "demo-product", name: "Demo battery", sku: "DEMO-BAT", unitOfMeasure: "unit", trackingType: "quantity" as const, unitPriceMinor: 85_000_000, basePriceMinor: 85_000_000, wholesalePriceMinor: 75_000_000, centralPriceVersion: 2, priceVersion: 2, priceSource: "central" as const, availableQuantity: 20, vatRateBasisPoints: 0 };
+const product = { id: "demo-product", name: "Demo battery", sku: "SKU-00981", unitOfMeasure: "unit", trackingType: "quantity" as const, unitPriceMinor: 85_000_000, basePriceMinor: 85_000_000, wholesalePriceMinor: 75_000_000, centralPriceVersion: 2, priceVersion: 2, priceSource: "central" as const, availableQuantity: 20, vatRateBasisPoints: 0 };
 const workspace = { branch: { id: "demo-store", name: "Demo Store", code: "DEMO" }, location: { id: "demo-location", name: "Demo Stock" }, products: [product], customers: [{ id: "demo-customer", name: "Demo Buyer", customerNumber: "CUS-DEMO", creditStatus: "pending", availableCreditMinor: 0, outstandingBalanceMinor: 0 }], bankAccounts: [], salesCredits: [], pendingOrders: [], openShift: { id: "demo-shift", deviceId: "demo-device", status: "open" }, refreshedAt: new Date().toISOString() };
 beforeEach(() => { HTMLElement.prototype.scrollIntoView = vi.fn(); state.held = []; state.online = true; localStorage.clear(); sessionStorage.clear(); state.call.mockImplementation(name => Promise.resolve(name === "getPosWorkspace" ? workspace : { orderId: "demo-order", orderNumber: "ORD-DEMO", created: true })); });
 afterEach(() => { cleanup(); sessionStorage.clear(); vi.clearAllMocks(); });
 async function basket() { render(<PosPage />); const add = await screen.findByRole("button", { name: "Add", exact: true }); await waitFor(() => expect((add as HTMLButtonElement).disabled).toBe(false)); fireEvent.click(add); await screen.findByLabelText("Price level for Demo battery"); }
 describe("POS client complaint regressions", () => {
+  it.each(["bank_transfer", "split"])("clears a disabled account from an open %s payment draft", async (method) => {
+    let accounts = [{ id: "old-bank", bankName: "Demo bank", accountName: "Branch", accountNumberLast4: "1234" }];
+    state.call.mockImplementation((name, input) => Promise.resolve(name === "getPosWorkspace" ? input.bankOptionsOnly ? { bankAccounts: accounts } : { ...workspace, bankAccounts: accounts } : {}));
+    await basket();
+    fireEvent.change(screen.getByLabelText("Payment method"), { target: { value: method } });
+    const select = screen.getByLabelText("Company bank account") as HTMLSelectElement;
+    fireEvent.change(select, { target: { value: "old-bank" } });
+    expect(select.value).toBe("old-bank");
+    accounts = [];
+    const clock = vi.spyOn(Date, "now").mockReturnValue(Date.now() + 20000);
+    fireEvent.focus(window);
+    await waitFor(() => expect(select.value).toBe(""));
+    expect(screen.queryByRole("option", { name: /Demo bank/ })).toBeNull();
+    expect(state.call.mock.calls.some(call => call[0] === "createPosSaleOrder")).toBe(false);
+    clock.mockRestore();
+  });
+
   it("searches only product names without changing the basket or matching a SKU", async () => {
     await basket();
     const search = screen.getByRole("textbox", { name: "Search product name" });
     fireEvent.change(search, { target: { value: "  DEMO    battery  " } });
     expect(screen.getByRole("heading", { name: "Demo battery" })).toBeTruthy();
-    fireEvent.change(search, { target: { value: "DEMO-BAT" } });
+    fireEvent.change(search, { target: { value: "SKU-00981" } });
     expect(screen.queryByRole("heading", { name: "Demo battery" })).toBeNull();
     expect((screen.getByLabelText("Quantity for Demo battery") as HTMLInputElement).value).toBe("1");
     fireEvent.change(search, { target: { value: "battery" } });

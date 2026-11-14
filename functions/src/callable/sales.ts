@@ -397,6 +397,15 @@ export const getPosWorkspace = onCall(
     const input = parseInput(posWorkspaceInput, request.data);
     requireBranchScope(actor, input.branchId);
     const location = await activeBranchLocation(actor.organizationId, input.branchId);
+    if (input.bankOptionsOnly) {
+      const branch = await db.doc(`branches/${input.branchId}`).get();
+      if (!branch.exists || branch.get("organizationId") !== actor.organizationId || branch.get("status") !== "active")
+        throw new HttpsError("failed-precondition", "Branch is unavailable.");
+      const accounts = await db.collection("bankAccounts")
+        .where("organizationId", "==", actor.organizationId)
+        .where("active", "==", true).limit(100).get();
+      return { bankAccounts: accounts.docs.filter(bank => !bank.get("branchId") || bank.get("branchId") === input.branchId).map(bankAccountSummary) };
+    }
     if (input.fastMoving) {
       const branch = await db.doc(`branches/${input.branchId}`).get();
       if (!branch.exists || branch.get("organizationId") !== actor.organizationId || branch.get("status") !== "active")
