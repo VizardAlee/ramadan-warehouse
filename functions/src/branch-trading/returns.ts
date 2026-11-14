@@ -132,7 +132,7 @@ export async function returnInternalTradeGoods(actor: AccessProfile, raw: Intern
     transferContext: { transferId: input.invoiceId },
   }));
   const result = await postInventoryTransactionGroup(actor, { idempotencyKey: postingKey, requestFingerprint: fingerprint }, postings, {
-    async prepare(reader, movements) {
+    async prepare(reader) {
       if (landed) {
         const currentEvidence = await reader.getAll(...costEvidence.map(doc=>doc.ref));
         if(currentEvidence.some((doc,index)=>!doc.exists || evidenceFingerprint(doc)!==evidenceFingerprint(costEvidence[index]!))) fail("Original cost evidence changed. Refresh and retry the return.");

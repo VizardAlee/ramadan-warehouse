@@ -2,7 +2,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { AccessProfile } from "../functions/src/auth/authorize";
 import { balanceDocumentId, uniquenessDocumentId, normalizeInventoryIdentifier } from "../functions/src/inventory/calculations";
 import type { StockTransfer } from "../functions/src/transfers/simple-model";
-import { evaluateSimpleTransfer } from "../functions/src/transfers/validate-simple-transfer";
 import { TransferFirestoreFixture } from "./helpers/transfer-firestore-fixture";
 
 const state = vi.hoisted(() => ({ db: null as unknown as TransferFirestoreFixture, actor: null as unknown as AccessProfile }));
@@ -47,14 +46,6 @@ async function approve(id: string, quantity = transfer(id).items[0]!.requested) 
 async function receive(id: string, received: number, damaged = 0) {
   state.actor = manager("destination");
   return invoke({ action: "receive", transferId: id, version: transfer(id).version, lines: [{ id: transfer(id).items[0]!.id, received, damaged }], idempotencyKey: key() });
-}
-async function resolve(id: string, disposition: "never_left" | "lost" | "still_expected") {
-  state.actor = manager("source");
-  return invoke({ action: "resolve", transferId: id, version: transfer(id).version, disposition, note: "Fixture verified decision", idempotencyKey: key() });
-}
-function evidence(id: string) {
-  const records = (collection: string) => state.db.all(collection).filter(row => row.transferId === id).map((row, index) => ({ ...row, id: String(index) }));
-  return evaluateSimpleTransfer(transfer(id), records("stockTransferReceipts"), records("inventoryEntries"));
 }
 beforeEach(() => {
   state.db = new TransferFirestoreFixture();
