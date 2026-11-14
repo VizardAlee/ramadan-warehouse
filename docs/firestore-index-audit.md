@@ -168,3 +168,5 @@ any Firestore query shapes. The production planner-only audit passed all 845
 catalogued shapes with zero missing indexes before the source fingerprints were
 refreshed. The recorded index inventory timestamp remains historical. No live
 business data, stock, rules, or indexes were modified by this audit.
+
+Stock/product exports verification (2026-11-14T11:55:11.417Z): reviewed inventory and product page exports and branch-price formatting; no query shapes, indexes, or access rules changed. The fresh read-only planner audit passed 852/852 shapes with zero missing indexes. Source fingerprints refreshed only after verification. Index inventory timestamp remains historical. Evidence SHA-256: 838498d1fa73a585e55429ce088976db134741273d59a43365f3d6bb58c3d5eb.

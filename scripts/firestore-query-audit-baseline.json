@@ -1,15 +1,15 @@
 {
   "lastLiveAudit": {
     "project": "ramadan-warehouse-staging",
-    "verifiedAt": "2026-11-13T16:15:12.579Z",
-    "queryShapes": 851,
+    "verifiedAt": "2026-11-14T11:55:11.417Z",
+    "queryShapes": 852,
     "unsupportedQueries": 0,
     "readyIndexes": 298,
     "indexInventoryVerifiedAt": "2026-11-10T13:14:19.403Z",
     "probeMethod": "planner-only (analyze=false), with sentinel-scope missing-index diagnostics; no mutations",
-    "plannerEvidenceSha256": "498113700957aead25868b4cba222550c232836719dc9a406fc46ac71554c145",
+    "plannerEvidenceSha256": "838498d1fa73a585e55429ce088976db134741273d59a43365f3d6bb58c3d5eb",
     "priorSingleFieldOverrideEvidence": 0,
-    "reviewedBase": "8c1de7a0f632427bc490e23b2f2c23ad18fd6e31"
+    "reviewedBase": "6b9d67d"
   },
   "catalogSha256": "5fabea9e340e16245214b7bbc49d86b6d3b6b55e798c855e69506efdf5512d42",
   "sourceFingerprints": {
@@ -110,11 +110,11 @@
     "src/app/(protected)/customers/page.tsx": "12a6e992cc2c0818cf9e018d433d23e19a1d4f53348d13e4708b1e9633585ed2",
     "src/app/(protected)/hr/page.tsx": "e3d4a906a37b466f57daf4ce71ee06017d197e7366c38084e8176722aead86a2",
     "src/app/(protected)/inventory/counts/page.tsx": "7f8a47d608d0c83eb396d5862822eac9675e1b8ecd5991d72caf1252a857541b",
-    "src/app/(protected)/inventory/page.tsx": "c9da4f04411cdc52856812fc23e9aa7648e2181369c82959ccdb8b6334517d97",
+    "src/app/(protected)/inventory/page.tsx": "ba212f930319ffe41af5a60d5a42bab23a76c0fe3d8bd262d9f226edf3aa2dcb",
     "src/app/(protected)/pos/page.tsx": "aa51e9ed387d72e885c182080f94b3bb423fc8f8297ead3bacd89fee70f49b52",
     "src/app/(protected)/products/[product_id]/page.tsx": "fe1d0d90b565eda40f0683c608bf0871e88b1f70953ab106cffacea5f70c6920",
     "src/app/(protected)/products/categories/page.tsx": "825f82bca475cc5200fc2784bd8acf166ee06bbbe9eccee26aa7ef6bec1599f3",
-    "src/app/(protected)/products/page.tsx": "1bea34c36469c4735485e66efdd6ed5d428dde8568e14953733518b6ba64423b",
+    "src/app/(protected)/products/page.tsx": "581abbffe8a7d92894cff86b5e3b9fbc746aaf112a9f9ec5e82865d9931f07d6",
     "src/app/(protected)/proformas/page.tsx": "ae7a5a59f55fcbae1f4f6ccc3e6cfe1fc88da0062600111bc8d7daa02f4e5e8e",
     "src/app/(protected)/reports/page.tsx": "714c8d76d1178eab5fc4be5a5945f836bd54d665bb116af868119325ec2673a0",
     "src/app/(protected)/returns/page.tsx": "9ba57da1ae8c085e4884cf14f3b19d0e10545f35d92eadbed854e0b708f24143",
@@ -125,7 +125,7 @@
     "src/features/auth/operating-context-metadata.ts": "f89c5989cb4f61e664c47f17a0c52e805ba38e1153aeb6863c04e62b29d7a454",
     "src/features/inventory/posting-form.tsx": "b612ef3a94c95aae8695b8df7b5abf58da626cece89f9c39042dd3e08766764b",
     "src/features/notifications/use-notifications.ts": "6a148e074e1f6ef1e5079ed506fb160be666054b15dd064475b65b659d8dc1bb",
-    "src/features/products/branch-price-columns.tsx": "dac1e2acfc354760bf4951313fb71cdde9826f3c55d70f2556bcb633b05c0b2f",
+    "src/features/products/branch-price-columns.tsx": "6001b7ab876cca42ec7216877d1246578414cbb6fd207398907adbaf63b44ba9",
     "src/features/products/branch-prices.tsx": "442290e9290cd7b1071e7f54da14514a5f704cc3fe6319115bff775680771f45",
     "src/features/products/catalog-import-dialog.tsx": "a16911eb7b9633a9b417ad9ebad36aee744a0d8b44680ae22773a9a8d1d96057",
     "src/features/requests/request-form.tsx": "a6326813757616000f2eca111cd8ac02691a5ae634e9fb64ca66fc1bee455f62",
