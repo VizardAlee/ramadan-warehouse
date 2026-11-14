@@ -4,5 +4,6 @@ export function normalizeProductName(value: string): string {
 }
 
 export function matchesProductName(name: string, query: string): boolean {
-  return normalizeProductName(name).includes(normalizeProductName(query));
+  const compact = (value: string) => normalizeProductName(value).replace(/[\s\p{P}]+/gu, "");
+  return compact(name).includes(compact(query));
 }

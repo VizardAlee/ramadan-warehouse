@@ -1,3 +1,4 @@
+import { readPosCatalogue } from "../sales/pos-catalogue.js";
 import { requireCustomerBranch } from "../sales/customer-scope.js";
 import { resolveDeviceShift } from "../sales/shift-session.js";
 import { assignedBranchQuery } from "../auth/view-scope.js";
@@ -415,10 +416,7 @@ export const getPosWorkspace = onCall(
     const selectedCustomer = input.customerId ? await readPosCustomer(actor.organizationId, input.customerId, input.branchId) : null;
     const [
       branch,
-      products,
-      prices,
-      branchPrices,
-      balances,
+      catalogue,
       shifts,
       customers,
       salesCredits,
@@ -428,28 +426,7 @@ export const getPosWorkspace = onCall(
     ] =
       await Promise.all([
         db.doc(`branches/${input.branchId}`).get(),
-        db
-          .collection("products")
-          .where("organizationId", "==", actor.organizationId)
-          .limit(input.limit)
-          .get(),
-        db
-          .collection("productSalesPrices")
-          .where("organizationId", "==", actor.organizationId)
-          .limit(input.limit)
-          .get(),
-        db
-          .collection("branchSalesPrices")
-          .where("organizationId", "==", actor.organizationId)
-          .where("branchId", "==", input.branchId)
-          .limit(input.limit)
-          .get(),
-        db
-          .collection("inventoryBalances")
-          .where("organizationId", "==", actor.organizationId)
-          .where("locationId", "==", location.id)
-          .limit(input.limit)
-          .get(),
+        readPosCatalogue(db, actor.organizationId, input.branchId, location.id),
         db
           .collection("posShifts")
           .where("organizationId", "==", actor.organizationId)
@@ -487,6 +464,7 @@ export const getPosWorkspace = onCall(
     const lockShiftId = shiftLock?.get("shiftId");
     const linkedShift = input.deviceId && typeof lockShiftId === "string" && /^[A-Za-z0-9_-]{1,160}$/.test(lockShiftId) ? await db.doc(`posShifts/${lockShiftId}`).get() : null;
     const deviceSession = input.deviceId ? resolveDeviceShift({ organizationId: actor.organizationId, branchId: input.branchId, deviceId: input.deviceId, userId: actor.userId }, shiftLock?.exists ? shiftLock.data()! : null, linkedShift?.exists ? { id: linkedShift.id, ...linkedShift.data() } : null, shifts.docs.map(shift => ({ id: shift.id, ...shift.data() }))) : null;
+    const { products, prices, branchPrices, balances } = catalogue;
     const centralByProduct = new Map(
       prices.docs.map((document) => [document.get("productId"), document]),
     );
