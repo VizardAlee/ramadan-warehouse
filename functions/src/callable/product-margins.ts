@@ -64,5 +64,5 @@ export const getProductMargins = onCall({ enforceAppCheck, timeoutSeconds: 300 }
     throw cause;
   }
   if (input.productId) { const row = totals.get(input.productId); providerFunds.originalMinor = row?.providerOriginalMinor ?? 0; providerFunds.creditedMinor = row?.providerCreditedMinor ?? 0; providerFunds.netMinor = row?.providerNetMinor ?? 0; }
-  return { productId: input.productId ?? null, selectedInvoiceCount, providerFunds, rows: [...totals.values()].sort((a, b) => a.sku.localeCompare(b.sku) || a.productId.localeCompare(b.productId)), invoiceCount, startedAt, completedAt: new Date().toISOString(), branchId: branchId ?? null };
+  return { valuationBasis: "company" as const, productId: input.productId ?? null, selectedInvoiceCount, providerFunds, rows: [...totals.values()].sort((a, b) => a.sku.localeCompare(b.sku) || a.productId.localeCompare(b.productId)), invoiceCount, startedAt, completedAt: new Date().toISOString(), branchId: branchId ?? null };
 });

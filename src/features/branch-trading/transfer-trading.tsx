@@ -19,7 +19,7 @@ export function moneyInputMinor(value: string) {
   return Number.isSafeInteger(minor) ? minor : null;
 }
 export interface TransportPricing { totalMinor:number; payer:"source"|"destination"; payee:string; reference:string; expenseNumber:string; allocationByLineId?:Record<string,number> }
-export function HQTransferPricing(props: { transfer: StockTransfer; canPrice: boolean; disabled: boolean; onPrice: (lines: { id: string; unitPriceMinor: number }[], transport:TransportPricing) => Promise<void> }) {
+export function HQTransferPricing(props: { transfer: StockTransfer; canPrice: boolean; disabled: boolean; onPrice: (lines: { id: string; unitPriceMinor: number }[], transport?:TransportPricing) => Promise<void> }) {
   if (!props.transfer.tradeAgreement) return null;
   return <PricingForm key={`${props.transfer.id}:${props.transfer.version}`} {...props} />;
 }
@@ -53,7 +53,11 @@ function PricingForm({ transfer, canPrice, disabled, onPrice }: Parameters<typeo
     const totalMinor=moneyInputMinor(transportAmount)!;
     if(totalMinor>0 && (!payee.trim() || !reference.trim() || !expenseNumber.trim())) {setError("Enter the transporter, external reference and approved expense number.");return;}
     setBusy(true); setError("");
-    try { await onPrice(lines as {id: string; unitPriceMinor: number}[],{totalMinor,payer,payee:payee.trim(),reference:reference.trim(),expenseNumber:expenseNumber.trim(),...(manual?{allocationByLineId:preview}:{})}); }
+    try {
+      const pricedLines = lines as {id: string; unitPriceMinor: number}[];
+      if (totalMinor > 0) await onPrice(pricedLines,{totalMinor,payer,payee:payee.trim(),reference:reference.trim(),expenseNumber:expenseNumber.trim(),...(manual?{allocationByLineId:preview}:{})});
+      else await onPrice(pricedLines);
+    }
     catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to save prices."); }
     finally { setBusy(false); }
   }

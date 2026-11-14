@@ -17,7 +17,7 @@ export interface InternalTradeAgreement {
 }
 export interface InternalTradeInvoiceLine {
   id: string; productId: string; productName: string; sku: string; trackingType: string;
-  lotId?: string; unitPriceMinor: number; receivedQuantity: number; returnedQuantity: number;
+  lotId?: string; unitPriceMinor: number; receivedQuantity: number; returnedQuantity: number; returnedManagementValueMinor?: number;
   serialItemIds: string[]; returnedSerialItemIds: string[]; serialNumbers?:Record<string,string>;
   damagedQuantity?:number; pendingDamagedQuantity?:number; chargedDamagedQuantity?:number; waivedDamagedQuantity?:number; damagedSerialItemIds?:string[];
 }

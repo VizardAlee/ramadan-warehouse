@@ -50,6 +50,7 @@ export interface PostingRequest {
   /** Trusted internal original valuation, never exposed by callable input schemas. */
   readonly managementValueMinor?: number;
   readonly destinationManagementValueMinor?: number;
+  readonly destinationSerialManagementValues?: Readonly<Record<string, number>>;
   readonly serialNumbers: readonly string[];
   readonly lotId?: string;
   readonly lot?: {
@@ -667,7 +668,11 @@ async function executeInventoryPosting<State = undefined>(
       managementMovementValue = input.managementValueMinor ?? movementValue;
       if (!Number.isSafeInteger(managementMovementValue) || managementMovementValue < 0) throw new HttpsError("invalid-argument", "Invalid management valuation.");
     }
-    if (input.destinationManagementValueMinor !== undefined && (!Number.isSafeInteger(input.destinationManagementValueMinor) || input.destinationManagementValueMinor < 0 || trackingType === "serial")) throw new HttpsError("failed-precondition", "Destination managerial override requires valid non-serial valuation.");
+    if (input.destinationManagementValueMinor !== undefined && (!Number.isSafeInteger(input.destinationManagementValueMinor) || input.destinationManagementValueMinor < 0 || !destination || !input.preserveInternalTransferValue)) throw new HttpsError("failed-precondition", "Destination managerial override requires a trusted internal return.");
+    if (input.destinationSerialManagementValues) {
+      const amounts = Object.values(input.destinationSerialManagementValues);
+      if (trackingType !== "serial" || !input.preserveInternalTransferValue || !destination || amounts.length !== serialReferences.length || amounts.some(value => !Number.isSafeInteger(value) || value < 0) || serialReferences.some(ref => input.destinationSerialManagementValues![ref.id] === undefined) || amounts.reduce((sum,value)=>sum+value,0) !== input.destinationManagementValueMinor) throw new HttpsError("failed-precondition", "Original serial managerial evidence does not reconcile.");
+    } else if (trackingType === "serial" && input.destinationManagementValueMinor !== undefined) throw new HttpsError("failed-precondition", "Exact original serial managerial evidence is required.");
     if (!source && trackingType === "serial" && managementMovementValue % input.quantity !== 0) throw new HttpsError("failed-precondition", "Serialized receipt requires exact per-unit managerial cost.");
     if (destination && !Number.isSafeInteger(destination.managementTotalValueMinor + (input.destinationManagementValueMinor ?? managementMovementValue))) throw new HttpsError("failed-precondition", "Management valuation exceeds safe range.");
     if (destination) {
@@ -843,7 +848,7 @@ async function executeInventoryPosting<State = undefined>(
             counterpartyLocationId: sourceLocation?.id,
             quantityDelta: 1,
             valueDeltaMinor: cost,
-            managementValueDeltaMinor: item?.managementCost ?? Math.floor(managementMovementValue/input.quantity),
+            managementValueDeltaMinor: input.destinationSerialManagementValues?.[serialReference.id] ?? item?.managementCost ?? Math.floor(managementMovementValue/input.quantity),
             serializedItemId: serialReference.id,
             serialNumber: source
               ? item!.snapshot.get("serialNumber")
@@ -875,7 +880,7 @@ async function executeInventoryPosting<State = undefined>(
                 : input.transactionType === "supplier_return" ? "returned_to_supplier" : "written_off",
               active: Boolean(destinationLocation),
               currentUnitCostMinor: cost,
-              managementUnitCostMinor: item?.managementCost ?? Math.floor(managementMovementValue/input.quantity),
+              managementUnitCostMinor: input.destinationSerialManagementValues?.[serialReference.id] ?? item?.managementCost ?? Math.floor(managementMovementValue/input.quantity),
               lastTransactionId: transactionReference.id,
               lastMovementAt: effectiveAt,
               updatedAt: now,
@@ -954,6 +959,11 @@ async function executeInventoryPosting<State = undefined>(
           balanceAfter: 0,
         });
     }
+    if (input.destinationManagementValueMinor !== undefined && input.destinationManagementValueMinor !== managementMovementValue) createEntry({
+      externalAccount: "internal_return_management_variance", quantityDelta: 0, valueDeltaMinor: 0,
+      managementValueDeltaMinor: managementMovementValue - input.destinationManagementValueMinor,
+      balanceBefore: 0, balanceAfter: 0,
+    });
     if (lotReference) {
       const locations = {
         ...(lotSnapshot?.get("locationQuantities") as

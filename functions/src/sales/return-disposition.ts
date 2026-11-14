@@ -7,7 +7,7 @@ import { writeAuditLog } from "../audit/write-audit-log.js";
 import { requireAccess, requirePermission } from "../auth/authorize.js";
 import { balanceDocumentId, normalizeInventoryIdentifier, uniquenessDocumentId } from "../inventory/calculations.js";
 import { approveSaleReturnInput } from "../validation/sales.js";
-import { assertBalancedJournal } from "./calculations.js";
+import { assertDualJournal } from "../accounting/write-journal.js";
 
 type Request = NonNullable<z.infer<typeof approveSaleReturnInput>["disposition"]>;
 function integer(value: unknown, label: string) {
@@ -96,7 +96,7 @@ export async function receiveHeldSupplierReplacement(tx: Transaction, actor: Awa
   if (journalRef) {
     const journalSequence = integer(Number(journalCounter!.get("value") ?? 0) + 1, "journal sequence"), journalNumber = `JRN-${year}-${String(journalSequence).padStart(6, "0")}`;
     const lines = [{ accountCode: "1200", accountName: "Inventory", debitMinor: cost, creditMinor: 0, managementDebitMinor: managementCost, managementCreditMinor: 0 }, { accountCode: "5000", accountName: "Cost of sales", debitMinor: 0, creditMinor: cost, managementDebitMinor: 0, managementCreditMinor: managementCost }];
-    assertBalancedJournal(lines);
+    assertDualJournal(lines);
     tx.set(journalCounterRef, { organizationId: actor.organizationId, kind: "journalEntry", value: journalSequence, updatedAt: now }, { merge: true });
     tx.create(journalRef, { ...base, journalNumber, journalType: transactionType, status: "posted", referenceType: "inventoryTransaction", referenceId: transactionRef.id, referenceNumber: transactionNumber, description: request.reason, totalDebitMinor: cost, totalCreditMinor: cost, postedAt: now });
     for (const line of lines) {
@@ -201,7 +201,7 @@ export async function disposeHeldReturn(tx: Transaction, actor: Awaited<ReturnTy
     const journalSequence = integer(Number(journalCounter!.get("value") ?? 0) + 1, "journal sequence");
     const journalNumber = `JRN-${effectiveAt.toDate().getUTCFullYear()}-${String(journalSequence).padStart(6, "0")}`;
     const lines = [{ accountCode: "1200", accountName: "Inventory", debitMinor: cost, creditMinor: 0, managementDebitMinor: managementCost, managementCreditMinor: 0 }, { accountCode: "5000", accountName: "Cost of sales", debitMinor: 0, creditMinor: cost, managementDebitMinor: 0, managementCreditMinor: managementCost }];
-    assertBalancedJournal(lines);
+    assertDualJournal(lines);
     tx.set(journalCounterRef, { organizationId: actor.organizationId, kind: "journalEntry", value: journalSequence, updatedAt: now }, { merge: true });
     tx.create(journalRef, { organizationId: actor.organizationId, branchId: record.get("branchId"), journalNumber, journalType: transactionType, status: "posted", referenceType: "inventoryTransaction", referenceId: transactionRef.id, referenceNumber: transactionNumber, aftersalesCaseId: service.id, saleReturnId: record.id, description: request.reason, totalDebitMinor: cost, totalCreditMinor: cost, currency: "NGN", effectiveAt, postedAt: now, postedBy: actor.userId, createdAt: now });
     for (const line of lines) {

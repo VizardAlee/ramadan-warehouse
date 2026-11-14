@@ -20,3 +20,10 @@
 
 ## Required before release
 Complete above paths with regression tests, rebase onto current main carefully, run full emulator authorization/idempotency/concurrency/inventory/journal reconciliation and predeploy gates, UI verification, independent review. No live transfers, prices or financial data changed by this work. No feature push or deployment performed.
+
+## Follow-up completion pass, 14 November
+Implemented the previously identified gaps: managerial POS persistence, dual-basis journal validation (including zero-company/nonzero-manager lines), stock accounting and supplier-return reversal evidence, correct receiving inventory scope for freight, and report basis labels. Generic serial reversal now restores both bases; management-only linked accounting cannot bypass its journal.
+Internal returns now reconstruct and revalidate original receipt costs, retain actual freight without refund, restore original supplier managerial basis, and record markup elimination in non-P&L account3990 rather than inventing an expense. Persisted returned managerial amounts prevent later partial receipts from repricing earlier returns. Quantity and serial transaction tests cover this.
+Fixed pricing UI so zero freight omits optional transport payload; positive freight requires approved expense details.
+Tests: focused group had61/62 passing, only remaining failure was outdated UI fixture missing mandatory requested quantity; corrected and rerun separately. Internal-return8 tests and backend typecheck passed. Full offline run was interrupted by HP disconnect; saw unrelated expense-scope UI failure. Emulator initialized but runtime failed loading saveProductSalesPrice during disconnection/resource pressure; no successful integration gate claimed.
+**Still unreleased.** Must rerun complete integration/full unit gates on stable environment, rebase onto current production main and review conflict resolution, perform visual UI QA and independent final financial review before merge/deploy. Main896d60b production release is separately coordinated.

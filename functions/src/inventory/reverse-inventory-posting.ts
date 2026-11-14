@@ -178,7 +178,7 @@ export async function reverseInventoryPosting<State = undefined>(
         throw new HttpsError("failed-precondition", "This financial correction only supports an original supplier stock return.");
       if (extension?.sourceFunction === "reverseInventoryTransaction" && !["opening_balance", "stock_adjustment", "stock_count_correction"].includes(String(original.get("transactionType"))))
         throw new HttpsError("failed-precondition", "This stock correction requires its original operational workflow.");
-      if (original.get("accountingVersion") === 2 && Number(original.get("accountingValueMinor")) > 0 && !extension)
+      if (original.get("accountingVersion") === 2 && (Number(original.get("accountingValueMinor")) > 0 || Number(original.get("accountingManagementValueMinor") ?? 0) > 0) && !extension)
         throw new HttpsError("failed-precondition", "This stock posting requires its linked journal reversal.");
       if (original.get("transactionType") === "supplier_return" && !extension)
         throw new HttpsError("failed-precondition", "Supplier returns have linked credit notes and journals. A stock-only reversal is not allowed; record an authorized financial and stock correction.");
@@ -381,6 +381,8 @@ export async function reverseInventoryPosting<State = undefined>(
             "Serialized reversal history is incomplete.",
           );
         const originalSourceEntry = matching.find(entry => Number(entry.get("quantityDelta")) < 0 && entry.get("locationId"));
+        const originalCompanyCost = Math.abs(Number((originalSourceEntry ?? currentEntry).get("valueDeltaMinor")));
+        if (!Number.isSafeInteger(originalCompanyCost)) throw new HttpsError("failed-precondition", "Original serial company cost is invalid.");
         const originalManagementCost = Math.abs(Number((originalSourceEntry ?? currentEntry).get("managementValueDeltaMinor") ?? (originalSourceEntry ?? currentEntry).get("valueDeltaMinor")));
         if (!Number.isSafeInteger(originalManagementCost)) throw new HttpsError("failed-precondition", "Original serial management cost is invalid.");
         const restoreLocationId =
@@ -390,6 +392,7 @@ export async function reverseInventoryPosting<State = undefined>(
         if (typeof restoreLocationId !== "string")
           transaction.update(serial.ref, {
             managementUnitCostMinor: originalManagementCost,
+            currentUnitCostMinor: originalCompanyCost,
             status: "written_off",
             active: false,
             lastTransactionId: reversalReference.id,
@@ -408,6 +411,7 @@ export async function reverseInventoryPosting<State = undefined>(
             serial.ref,
             clean({
               managementUnitCostMinor: originalManagementCost,
+            currentUnitCostMinor: originalCompanyCost,
               currentLocationId: restoreLocationId,
               warehouseId: restoredLocation.get("warehouseId"),
               branchId: restoredLocation.get("branchId"),

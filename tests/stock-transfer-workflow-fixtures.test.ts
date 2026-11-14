@@ -108,11 +108,11 @@ describe("offline manager transfer workflows", () => {
     expect(evidence(id).status).toBe("clean");
   });
 
-  it("capitalizes freight once across partial receipts and preserves separate management valuation", async () => {
+  it.each(["source", "destination"] as const)("capitalizes %s-paid freight once across partial receipts and preserves separate management valuation", async payer => {
     const id = await create(10);
-    state.db.seed("expenses/freight", { organizationId: "org", status: "approved", branchId: "branch", expenseNumber: "EXP-FREIGHT", payeeName: "Carrier", supplierDocumentNumber: "WAYBILL-1", netAmountMinor: 7 });
+    state.db.seed("expenses/freight", { organizationId: "org", status: "approved", branchId: payer === "source" ? "source-branch" : "branch", expenseNumber: "EXP-FREIGHT", payeeName: "Carrier", supplierDocumentNumber: "WAYBILL-1", netAmountMinor: 7 });
     state.actor = {userId:"admin",organizationId:"org",roleId:"system_administrator",roleIds:["system_administrator"],directRoleIds:["system_administrator"],branchIds:[],warehouseIds:[],authorizationVersion:1};
-    await invoke({action:"price",transferId:id,version:transfer(id).version,lines:transfer(id).items.map(line=>({id:line.id,unitPriceMinor:200})),transport:{totalMinor:7,payer:"destination",payee:"Carrier",reference:"WAYBILL-1",expenseNumber:"EXP-FREIGHT"},idempotencyKey:key()});
+    await invoke({action:"price",transferId:id,version:transfer(id).version,lines:transfer(id).items.map(line=>({id:line.id,unitPriceMinor:200})),transport:{totalMinor:7,payer,payee:"Carrier",reference:"WAYBILL-1",expenseNumber:"EXP-FREIGHT"},idempotencyKey:key()});
     await approve(id);
     await receive(id, 3);
     await receive(id, 7);
@@ -121,6 +121,11 @@ describe("offline manager transfer workflows", () => {
     expect(state.db.row("expenses/freight")).toMatchObject({transportTransferId:id,transportCapitalizedMinor:7});
     const freight = state.db.all("journalEntries").filter(row => row.journalType === "transport_capitalization");
     expect(freight.reduce((sum,row)=>sum+Number(row.totalDebitMinor),0)).toBe(7);
+    const journals = new Set([...state.db.rows].filter(([path,row])=>path.startsWith("journalEntries/") && row.journalType === "transport_capitalization").map(([path])=>path.split("/").at(-1)));
+    const capitalizedLines = state.db.all("journalLines").filter(row => journals.has(String(row.journalEntryId)));
+    expect(capitalizedLines).toHaveLength(4);
+    expect(capitalizedLines.filter(row=>row.accountCode === "1200").every(row=>row.branchId === "branch")).toBe(true);
+    expect(capitalizedLines.filter(row=>row.accountCode === "6000").every(row=>row.branchId === (payer === "source" ? "source-branch" : "branch"))).toBe(true);
     expect(evidence(id).status).toBe("clean");
   });
 

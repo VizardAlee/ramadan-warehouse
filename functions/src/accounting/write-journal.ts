@@ -19,6 +19,19 @@ export const accountNames: Readonly<Record<string, string>> = {
 function clean(values: Record<string, unknown>) {
   return Object.fromEntries(Object.entries(values).filter(([, value]) => value !== undefined && value !== ""));
 }
+export interface ValuedJournalLine { debitMinor: number; creditMinor: number; managementDebitMinor?: number; managementCreditMinor?: number }
+/** Each basis balances independently; a line may be zero in just one basis. */
+export function assertDualJournal(lines: readonly ValuedJournalLine[]) {
+  if (!lines.length) throw new Error("A journal requires lines.");
+  for (const line of lines) {
+    const amounts = [line.debitMinor, line.creditMinor, line.managementDebitMinor ?? line.debitMinor, line.managementCreditMinor ?? line.creditMinor];
+    if (amounts.some(value => !Number.isSafeInteger(value) || value < 0) || amounts.every(value => value === 0)) throw new Error("Invalid journal valuation.");
+  }
+  for (const management of [false, true]) {
+    const basis = lines.map(line => ({ debitMinor: management ? line.managementDebitMinor ?? line.debitMinor : line.debitMinor, creditMinor: management ? line.managementCreditMinor ?? line.creditMinor : line.creditMinor })).filter(line => line.debitMinor || line.creditMinor);
+    if (basis.length) assertSafeJournal(basis);
+  }
+}
 export function writeJournal(
   transaction: Pick<FirebaseFirestore.Transaction, "create" | "set">,
   actor: AccessProfile,
@@ -42,12 +55,14 @@ export function writeJournal(
       accountId?: string;
       bankAccountId?: string;
       accountName?: string;
+      managementDebitMinor?: number;
+      managementCreditMinor?: number;
       debitMinor: number;
       creditMinor: number;
     }>;
   },
 ) {
-  assertSafeJournal(values.lines);
+  assertDualJournal(values.lines);
   if (!Number.isSafeInteger(values.journalCounterValue) || values.journalCounterValue < 1)
     throw new HttpsError("failed-precondition", "The journal counter requires reconciliation.");
   const now = FieldValue.serverTimestamp();
@@ -81,6 +96,8 @@ export function writeJournal(
         (sum, line) => sum + line.creditMinor,
         0,
       ),
+      totalManagementDebitMinor: values.lines.reduce((sum, line) => sum + (line.managementDebitMinor ?? line.debitMinor), 0),
+      totalManagementCreditMinor: values.lines.reduce((sum, line) => sum + (line.managementCreditMinor ?? line.creditMinor), 0),
       currency: "NGN",
       effectiveAt: values.effectiveAt,
       postedAt: now,
@@ -120,6 +137,8 @@ export function writeJournal(
         bankAccountId: line.bankAccountId,
         debitMinor: line.debitMinor,
         creditMinor: line.creditMinor,
+        managementDebitMinor: line.managementDebitMinor ?? line.debitMinor,
+        managementCreditMinor: line.managementCreditMinor ?? line.creditMinor,
         currency: "NGN",
         effectiveAt: values.effectiveAt,
         createdAt: now,

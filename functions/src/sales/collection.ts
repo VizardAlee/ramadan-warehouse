@@ -10,7 +10,7 @@ import { accountingPeriodReference, assertAccountingPeriodOpen } from "../accoun
 import { writeAuditLog } from "../audit/write-audit-log.js";
 import { balanceDocumentId, issueCost, uniquenessDocumentId } from "../inventory/calculations.js";
 import { correlationId } from "../utils/callable.js";
-import { assertBalancedJournal } from "./calculations.js";
+import { assertDualJournal } from "../accounting/write-journal.js";
 import type { collectSaleInput } from "../validation/sales.js";
 import { readSaleSerials, serialCost, changeSaleSerials, writeSaleSerialEntries } from "./serials.js";
 
@@ -121,7 +121,7 @@ export async function collectReservedSale(
     });
     if (cost > 0 || managementCost > 0) {
       const lines = [{ accountCode: "5000", accountName: "Cost of goods sold", debitMinor: cost, creditMinor: 0, managementDebitMinor: managementCost, managementCreditMinor: 0 }, { accountCode: "1200", accountName: "Inventory asset", debitMinor: 0, creditMinor: cost, managementDebitMinor: 0, managementCreditMinor: managementCost }];
-      assertBalancedJournal(lines);
+      assertDualJournal(lines);
       transaction.set(journalCounter, { organizationId: actor.organizationId, value: journalNumberSequence, updatedAt: now }, { merge: true });
       transaction.create(journal, { organizationId: actor.organizationId, branchId, journalNumber, journalType: "customer_collection", status: "posted", referenceType: "saleCollection", referenceId: collection.id, referenceNumber, saleId: saleRef.id, inventoryTransactionId: movement.id, totalDebitMinor: cost, totalCreditMinor: cost, currency: "NGN", effectiveAt, postedAt: now, postedBy: actor.userId, createdAt: now, createdBy: actor.userId, correlationId: cid });
       lines.forEach((line) => {

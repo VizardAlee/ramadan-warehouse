@@ -37,7 +37,7 @@ export async function prepareTransportCapitalization(tx:Transaction, actor:Acces
     const base={organizationId:actor.organizationId,...scope,currency:"NGN",effectiveAt,postedAt:FieldValue.serverTimestamp(),createdAt:FieldValue.serverTimestamp()};
     tx.create(journal,{...base,journalNumber,journalType:"transport_capitalization",status:"posted",referenceType:"stockTransfer",referenceId:transfer.id,referenceNumber:transfer.number,expenseId:plan.expenseId,expenseNumber:plan.expenseNumber,totalDebitMinor:amountMinor,totalCreditMinor:amountMinor,postedBy:actor.userId,createdBy:actor.userId,idempotencyKey:key});
     for(const line of [{accountCode:"1200",accountName:"Inventory asset",debitMinor:amountMinor,creditMinor:0},{accountCode:"6000",accountName:"Operating expenses",debitMinor:0,creditMinor:amountMinor}]) {
-      tx.create(db.collection("journalLines").doc(),{...base,...line,journalEntryId:journal.id,journalNumber,managementDebitMinor:line.debitMinor,managementCreditMinor:line.creditMinor});
+      tx.create(db.collection("journalLines").doc(),{...base,...(line.accountCode === "1200" ? {branchId:transfer.destinationBranchId, ...(scope.warehouseId ? {warehouseId:null} : {})} : {}),...line,journalEntryId:journal.id,journalNumber,managementDebitMinor:line.debitMinor,managementCreditMinor:line.creditMinor});
     }
   };
 }

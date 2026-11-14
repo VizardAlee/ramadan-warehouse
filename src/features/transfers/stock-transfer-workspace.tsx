@@ -1020,7 +1020,7 @@ export function StockTransferDetail({ transferId, embedded = false }: { transfer
         <Notice text={`Reported problem: ${transfer.problemNote}`} />
       )}
       <fieldset disabled={locked} className="contents">
-      {transfer.tradeAgreement && <HQTransferPricing transfer={transfer} canPrice={Boolean(detail.canPrice)} disabled={locked || !online} onPrice={(lines, transport) => act("price", {lines, transport})} />}
+      {transfer.tradeAgreement && <HQTransferPricing transfer={transfer} canPrice={Boolean(detail.canPrice)} disabled={locked || !online} onPrice={(lines, transport) => act("price", {lines, ...(transport ? {transport} : {})})} />}
       {transfer.note && <p className={panel}>Request note: {transfer.note}</p>}
       {receipt && (
         <div className="flex flex-wrap gap-3">

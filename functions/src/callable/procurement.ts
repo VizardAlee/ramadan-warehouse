@@ -20,7 +20,7 @@ import {
 } from "../accounting/period-lock.js";
 import { bankAccountSummary } from "../accounting/settlement-account.js";
 import { paymentTenders, resolvePaymentTenders } from "../accounting/payment-tenders.js";
-import { accountNames, writeJournal } from "../accounting/write-journal.js";
+import { accountNames, writeJournal, assertDualJournal } from "../accounting/write-journal.js";
 import { writeAuditLog } from "../audit/write-audit-log.js";
 import {
   canSelfAuthorizePurchasing,
@@ -1384,10 +1384,15 @@ async function reverseSupplierReturn(actor: Awaited<ReturnType<typeof procuremen
       const quantity = supplierMoney(record!.get("quantity")), net = supplierMoney(record!.get("netAmountMinor")), vat = supplierMoney(record!.get("vatAmountMinor"));
       const gross = supplierMoney(record!.get("grossAmountMinor")), debt = supplierMoney(record!.get("payableReductionMinor")), credit = supplierMoney(record!.get("supplierCreditMinor"));
       const value = supplierMoney(record!.get("inventoryValueMinor"));
+      const managementValue = supplierMoney(record!.get("managementInventoryValueMinor") ?? value);
+      if (record!.get("managementValuationVarianceMinor") !== undefined && record!.get("managementValuationVarianceMinor") !== net - managementValue)
+        throw new HttpsError("failed-precondition", "Original managerial return variance requires reconciliation.");
       const physical = movement.entries.filter(entry => entry.get("locationId") === locationRef.id);
       if (!quantity || !gross || gross !== net + vat || gross !== debt + credit || movement.entries.some(entry => entry.get("organizationId") !== actor.organizationId || entry.get("productId") !== record!.get("productId") || entry.get("locationId") && entry.get("locationId") !== locationRef.id)
         || physical.reduce((sum, entry) => sum + Number(entry.get("quantityDelta")), 0) !== -quantity
         || physical.reduce((sum, entry) => sum + Number(entry.get("valueDeltaMinor")), 0) !== -value
+        || physical.reduce((sum, entry) => sum + Number(entry.get("managementValueDeltaMinor") ?? entry.get("valueDeltaMinor")), 0) !== -managementValue
+        || movement.entries.reduce((sum, entry) => sum + Number(entry.get("managementValueDeltaMinor") ?? entry.get("valueDeltaMinor")), 0) !== 0
         || movement.entries.reduce((sum, entry) => sum + Number(entry.get("quantityDelta")), 0) !== 0
         || movement.entries.reduce((sum, entry) => sum + Number(entry.get("valueDeltaMinor")), 0) !== 0)
         throw new HttpsError("failed-precondition", "Original return quantities and ledger values need reconciliation.");
@@ -1412,8 +1417,11 @@ async function reverseSupplierReturn(actor: Awaited<ReturnType<typeof procuremen
       const snapshots = await reader.get(originalLines);
       if (snapshots.empty || snapshots.size > 100 || snapshots.docs.some(entry => entry.get("organizationId") !== actor.organizationId))
         throw new HttpsError("failed-precondition", "Original journal lines need reconciliation.");
-      const lines = snapshots.docs.map(entry => ({ accountCode: String(entry.get("accountCode")), accountName: String(entry.get("accountName") ?? entry.get("accountCode")), debitMinor: supplierMoney(entry.get("creditMinor")), creditMinor: supplierMoney(entry.get("debitMinor")) }));
-      assertBalancedJournal(lines);
+      const lines = snapshots.docs.map(entry => ({ accountCode: String(entry.get("accountCode")), accountName: String(entry.get("accountName") ?? entry.get("accountCode")), debitMinor: supplierMoney(entry.get("creditMinor")), creditMinor: supplierMoney(entry.get("debitMinor")), managementDebitMinor: supplierMoney(entry.get("managementCreditMinor") ?? entry.get("creditMinor")), managementCreditMinor: supplierMoney(entry.get("managementDebitMinor") ?? entry.get("debitMinor")) }));
+      assertDualJournal(lines);
+      const originalInventory = snapshots.docs.filter(entry => entry.get("accountCode") === "1200");
+      if (originalInventory.reduce((sum,entry)=>sum + supplierMoney(entry.get("managementCreditMinor") ?? entry.get("creditMinor")) - supplierMoney(entry.get("managementDebitMinor") ?? entry.get("debitMinor")),0) !== managementValue)
+        throw new HttpsError("failed-precondition", "Original supplier-return managerial journal value requires reconciliation.");
       if (lines.reduce((sum, entry) => sum + entry.debitMinor, 0) !== originalJournal!.get("totalCreditMinor") || lines.reduce((sum, entry) => sum + entry.creditMinor, 0) !== originalJournal!.get("totalDebitMinor"))
         throw new HttpsError("failed-precondition", "Original journal totals need reconciliation.");
       return { quantity, debt, credit, gross, returnedQuantity, returnedNet, returnedVat, receiptReturned, itemReturned, invoiceCredited, invoiceOutstanding,
@@ -1510,14 +1518,15 @@ async function prepareSupplierReturn(actor: Awaited<ReturnType<typeof procuremen
       const creditProvenance = supplierCreditChange(shared?.current?.sources ?? supplier.get("advanceSourceBalancesByLocation"), scopeKey, supplierMoney(advances[scopeKey]), amounts.supplierCreditMinor, "returnCreditMinor");
       advances[scopeKey] = supplierMoney(supplierMoney(advances[scopeKey]) + amounts.supplierCreditMinor);
       const nextAdvance = supplierMoney(currentAdvance + amounts.supplierCreditMinor);
+      const managementVariance = amounts.netMinor - supplierMoney(movement.managementMovementValueMinor);
       const lines = [
         { accountCode: "2000", debitMinor: amounts.payableReductionMinor, creditMinor: 0 },
         { accountCode: "1250", debitMinor: amounts.supplierCreditMinor, creditMinor: 0 },
-        { accountCode: input.heldHandoverId ? "5000" : "1200", debitMinor: 0, creditMinor: movement.movementValueMinor },
+        { accountCode: input.heldHandoverId ? "5000" : "1200", debitMinor: 0, creditMinor: movement.movementValueMinor, managementDebitMinor: 0, managementCreditMinor: movement.managementMovementValueMinor },
         { accountCode: "1300", debitMinor: 0, creditMinor: amounts.vatMinor },
-        { accountCode: "5010", debitMinor: Math.max(0, -amounts.valuationVarianceMinor), creditMinor: Math.max(0, amounts.valuationVarianceMinor) },
-      ].filter((entry) => entry.debitMinor || entry.creditMinor);
-      assertBalancedJournal(lines);
+        { accountCode: "5010", debitMinor: Math.max(0, -amounts.valuationVarianceMinor), creditMinor: Math.max(0, amounts.valuationVarianceMinor), managementDebitMinor: Math.max(0, -managementVariance), managementCreditMinor: Math.max(0, managementVariance) },
+      ].filter((entry) => entry.debitMinor || entry.creditMinor || entry.managementDebitMinor || entry.managementCreditMinor);
+      assertDualJournal(lines);
       const state = { amounts, receiptReturnedQuantity, balance: balance - amounts.payableReductionMinor, nextAdvance, advances, creditSources: creditProvenance.balances, lines,
         counterValue: (shared?.current?.counter ?? Number(counter.get("value") ?? 0)) + 1,
         productName: String(line.get("productName")), invoiceStatus: invoice.get("status"),
@@ -1538,7 +1547,7 @@ async function prepareSupplierReturn(actor: Awaited<ReturnType<typeof procuremen
         writer.set(journalRef, { heldHandoverId: input.heldHandoverId }, { merge: true });
         writeAuditLog(writer, actor, { action: "supplier.held_handover_credited", entityType: "supplierReturn", entityId: returnRef.id, sourceFunction: "postSupplierReturn", correlationId: correlation, reason: input.reason, after: { heldHandoverId: input.heldHandoverId, quantity: input.quantity, originalCostRecoveredMinor: movement.movementValueMinor, journalEntryId: journalRef.id } });
       }
-      writer.create(returnRef, clean({ organizationId: actor.organizationId, ...scope, requestHash, creditProvenanceVersion: 1, returnNumber: referenceNumber, supplierId: supplierRef.id, supplierInvoiceId: invoiceRef.id, supplierInvoiceItemId: lineRef.id, purchaseOrderId: orderRef.id, purchaseOrderItemId: orderItemRef.id, receiptId: receiptRef.id, productId: movement.productId, productName: state.productName, quantity: input.quantity, serialNumbers: input.serialNumbers, lotId, sourceLocationId: movement.sourceLocationId, creditNoteReference: input.creditNoteReference, reason: input.reason, netAmountMinor: state.amounts.netMinor, vatAmountMinor: state.amounts.vatMinor, grossAmountMinor: state.amounts.grossMinor, payableReductionMinor: state.amounts.payableReductionMinor, supplierCreditMinor: state.amounts.supplierCreditMinor, inventoryValueMinor: movement.movementValueMinor, valuationVarianceMinor: state.amounts.valuationVarianceMinor, inventoryTransactionId: movement.transactionId, inventoryTransactionNumber: movement.transactionNumber, journalEntryId: journalRef.id, journalNumber, effectiveAt, createdAt: now, createdBy: actor.userId, correlationId: correlation, status: "posted", currency: "NGN" }));
+      writer.create(returnRef, clean({ organizationId: actor.organizationId, ...scope, requestHash, creditProvenanceVersion: 1, returnNumber: referenceNumber, supplierId: supplierRef.id, supplierInvoiceId: invoiceRef.id, supplierInvoiceItemId: lineRef.id, purchaseOrderId: orderRef.id, purchaseOrderItemId: orderItemRef.id, receiptId: receiptRef.id, productId: movement.productId, productName: state.productName, quantity: input.quantity, serialNumbers: input.serialNumbers, lotId, sourceLocationId: movement.sourceLocationId, creditNoteReference: input.creditNoteReference, reason: input.reason, netAmountMinor: state.amounts.netMinor, vatAmountMinor: state.amounts.vatMinor, grossAmountMinor: state.amounts.grossMinor, payableReductionMinor: state.amounts.payableReductionMinor, supplierCreditMinor: state.amounts.supplierCreditMinor, inventoryValueMinor: movement.movementValueMinor, managementInventoryValueMinor: movement.managementMovementValueMinor, managementValuationVarianceMinor: state.amounts.netMinor - movement.managementMovementValueMinor, valuationVarianceMinor: state.amounts.valuationVarianceMinor, inventoryTransactionId: movement.transactionId, inventoryTransactionNumber: movement.transactionNumber, journalEntryId: journalRef.id, journalNumber, effectiveAt, createdAt: now, createdBy: actor.userId, correlationId: correlation, status: "posted", currency: "NGN" }));
       writer.create(creditLock, { organizationId: actor.organizationId, returnId: returnRef.id, createdAt: now });
       if (documentId) writer.set(returnRef, { creditDocumentId: documentId }, { merge: true });
       if (input.heldHandoverId) writer.set(returnRef, { heldHandoverId: input.heldHandoverId, settlementKind: "held_goods_credit", physicalStockIssued: false }, { merge: true });

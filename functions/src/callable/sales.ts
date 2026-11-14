@@ -1,3 +1,4 @@
+import { assertDualJournal } from "../accounting/write-journal.js";
 import { requireCustomerBranch } from "../sales/customer-scope.js";
 import { resolveDeviceShift } from "../sales/shift-session.js";
 import { assignedBranchQuery } from "../auth/view-scope.js";
@@ -45,7 +46,6 @@ import {
   uniquenessDocumentId,
 } from "../inventory/calculations.js";
 import {
-  assertBalancedJournal,
   assertPaymentsEqualTotal,
   calculateSale,
 } from "../sales/calculations.js";
@@ -1824,7 +1824,7 @@ async function postPosSale(
         ...(billing && providerFundsMinor ? [{ accountCode: billing.mapping.providerPayable.code, accountId: billing.mapping.providerPayable.id, accountName: billing.mapping.providerPayable.name, debitMinor: 0, creditMinor: providerFundsMinor }] : []),
       ].filter(line => line.debitMinor > 0 || line.creditMinor > 0 || ("managementDebitMinor" in line && Number(line.managementDebitMinor) > 0) || ("managementCreditMinor" in line && Number(line.managementCreditMinor) > 0));
       try {
-        if (journalLines.length) assertBalancedJournal(journalLines);
+        if (journalLines.length) assertDualJournal(journalLines);
       } catch {
         throw new HttpsError(
           "internal",
@@ -2258,6 +2258,8 @@ async function postPosSale(
           accountName: line.accountName,
           debitMinor: line.debitMinor,
           creditMinor: line.creditMinor,
+          managementDebitMinor: line.managementDebitMinor ?? line.debitMinor,
+          managementCreditMinor: line.managementCreditMinor ?? line.creditMinor,
           currency: "NGN",
           effectiveAt: recordedAt,
           createdAt: now,

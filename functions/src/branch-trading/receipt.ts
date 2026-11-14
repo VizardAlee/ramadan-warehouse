@@ -63,6 +63,7 @@ export async function prepareInternalTradeReceipt(tx: Transaction, actor: Access
       damagedQuantity:(prior?.damagedQuantity ?? 0)+receipt.damaged,pendingDamagedQuantity:(prior?.pendingDamagedQuantity ?? 0)+receipt.damaged,
       chargedDamagedQuantity:prior?.chargedDamagedQuantity ?? 0,waivedDamagedQuantity:prior?.waivedDamagedQuantity ?? 0,damagedSerialItemIds:[...(prior?.damagedSerialItemIds ?? []),...receipt.damagedSerialItemIds],
       receivedQuantity:(prior?.receivedQuantity ?? 0)+receipt.received, returnedQuantity:prior?.returnedQuantity ?? 0,
+      ...(prior?.returnedManagementValueMinor !== undefined ? {returnedManagementValueMinor:prior.returnedManagementValueMinor} : {}),
       serialItemIds:[...(prior?.serialItemIds ?? []), ...receipt.serialItemIds], returnedSerialItemIds:prior?.returnedSerialItemIds ?? [], ...(line.serialNumbers?{serialNumbers:line.serialNumbers}:{}) };
   });
   const totalMinor = safeTradeAmount((old?.totalMinor ?? 0) + total);

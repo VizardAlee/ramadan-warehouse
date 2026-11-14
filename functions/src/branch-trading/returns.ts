@@ -1,6 +1,7 @@
+import { originalReturnManagementCost, type ReturnReceiptCost } from "./return-valuation.js";
 import { internalTradeBalanceId } from "./identity.js";
 import { createHash } from "node:crypto";
-import { FieldValue, type DocumentSnapshot } from "firebase-admin/firestore";
+import { FieldValue, Timestamp, type DocumentSnapshot } from "firebase-admin/firestore";
 import { HttpsError } from "firebase-functions/v2/https";
 import { z } from "zod";
 import { db } from "../admin.js";
@@ -65,7 +66,7 @@ export async function returnInternalTradeGoods(actor: AccessProfile, raw: Intern
     return { returnId: returnRef.id, invoiceId: input.invoiceId, amountMinor: record.get("amountMinor") as number, posted: false, inventoryTransactionIds: record.get("inventoryTransactionIds") as string[] };
   };
   if (previous!.exists) return replay(previous!);
-  if (initial!.get("managementCostVersion")) fail("This supply uses landed branch costs. Internal supplier returns require administrator cost reconciliation; do not use a normal transfer as a substitute. No stock or financial record was changed.");
+  const landed = Boolean(initial!.get("managementCostVersion"));
   const originals = invoiceLines(initial!);
   const selected = input.lines.map(requested => {
     const original = originals.find(line => line.id === requested.id);
@@ -86,7 +87,36 @@ export async function returnInternalTradeGoods(actor: AccessProfile, raw: Intern
   const headOfficeBranchId = String(initial!.get("headOfficeBranchId"));
   const balanceRef = db.doc(`internalTradeBalances/${internalTradeBalanceId(actor.organizationId,headOfficeBranchId,branchId)}`);
   const postingKey = `internalTradeReturn_${input.idempotencyKey}`;
+  const costEvidence: DocumentSnapshot[] = [];
+  const costByLine = new Map<string, ReturnType<typeof originalReturnManagementCost>>();
+  if (landed) {
+    const receipts = await db.collection("internalTradeEntries").where("invoiceId", "==", input.invoiceId).limit(1001).get();
+    if (receipts.size > 1000) fail("This invoice has too many receipt records for a safe single return. Contact an administrator.");
+    const values = new Map<string, ReturnReceiptCost[]>();
+    for (const receipt of receipts.docs) {
+      if (receipt.get("organizationId") !== actor.organizationId) fail("Original receipt belongs to another organization.");
+      if (!["invoice","damage_hold"].includes(String(receipt.get("kind")))) continue;
+      costEvidence.push(receipt);
+      for (const row of receipt.get("receiptLines") ?? []) {
+        if (!selected.some(s => s.original.id === row.lineId)) continue;
+        if (!row.transactionId || row.productId !== selected.find(s=>s.original.id===row.lineId)!.original.productId) fail("Original receipt cost evidence is incomplete.");
+        const movement=await db.doc(`inventoryTransactions/${row.transactionId}`).get();
+        if(!movement.exists || movement.get("organizationId")!==actor.organizationId || movement.get("internalTradeInvoiceId")!==input.invoiceId || movement.get("status")!=="posted") fail("Original receipt stock transaction is not valid for this invoice.");
+        costEvidence.push(movement);
+        const entries = await db.collection("inventoryEntries").where("transactionId","==",row.transactionId).limit(5001).get();
+        if (entries.size > 5000 || entries.empty) fail("Original receipt stock ledger evidence is incomplete.");
+        if (entries.docs.some(entry=>entry.get("organizationId")!==actor.organizationId || entry.get("productId")!==row.productId)) fail("Original stock evidence does not match this receipt.");
+        costEvidence.push(...entries.docs);
+        const rows = (location:string, sign:number) => entries.docs.filter(e=>e.get("locationId")===location).map(e=>({quantity:sign*Number(e.get("quantityDelta")),companyMinor:sign*Number(e.get("valueDeltaMinor")),managementMinor:sign*Number(e.get("managementValueDeltaMinor") ?? e.get("valueDeltaMinor")),serialId:e.get("serializedItemId") as string|undefined}));
+        values.set(row.lineId,[...(values.get(row.lineId) ?? []),{received:Number(row.received),damaged:Number(row.damaged),unitPriceMinor:Number(row.unitPriceMinor),source:rows(destinationLocationId,-1),destination:rows(sourceLocationId,1)}]);
+      }
+    }
+    try { for (const {original,requested} of selected) costByLine.set(original.id,originalReturnManagementCost(values.get(original.id) ?? [],original.receivedQuantity,original.returnedQuantity ?? 0,requested.quantity,original.trackingType === "serial" ? requested.serialItemIds : undefined,original.returnedManagementValueMinor)); }
+    catch (error) { fail(error instanceof Error ? error.message : "Original return valuation requires reconciliation."); }
+  }
+  const evidenceFingerprint = (doc:DocumentSnapshot) => JSON.stringify(doc.data());
   const postings: PostingRequest[] = selected.map(({ original, requested }, index) => ({
+    ...(landed ? {destinationManagementValueMinor:costByLine.get(original.id)!.valueMinor,...(costByLine.get(original.id)!.serialValues ? {destinationSerialManagementValues:costByLine.get(original.id)!.serialValues} : {})} : {}),
     transactionType: "transfer_receipt", preserveInternalTransferValue: true, productId: original.productId, quantity: requested.quantity,
     sourceLocationId, destinationLocationId, lotId: original.lotId,
     serialNumbers: requested.serialItemIds.map(serialId => {
@@ -102,13 +132,18 @@ export async function returnInternalTradeGoods(actor: AccessProfile, raw: Intern
     transferContext: { transferId: input.invoiceId },
   }));
   const result = await postInventoryTransactionGroup(actor, { idempotencyKey: postingKey, requestFingerprint: fingerprint }, postings, {
-    async prepare(reader) {
+    async prepare(reader, movements) {
+      if (landed) {
+        const currentEvidence = await reader.getAll(...costEvidence.map(doc=>doc.ref));
+        if(currentEvidence.some((doc,index)=>!doc.exists || evidenceFingerprint(doc)!==evidenceFingerprint(costEvidence[index]!))) fail("Original cost evidence changed. Refresh and retry the return.");
+      }
       const [invoice, balance, period, existing, source, destination, ...serials] = await reader.getAll(
         invoiceRef, balanceRef, accountingPeriodReference(actor.organizationId, effectiveAt), returnRef,
         db.doc(`inventoryLocations/${sourceLocationId}`), db.doc(`inventoryLocations/${destinationLocationId}`),
         ...serialIds.map(serialId => db.doc(`serializedItems/${serialId}`)),
       );
       requireInvoice(invoice!, actor);
+      if (landed && invoice!.get("version")!==initial!.get("version")) fail("Invoice changed while preparing its original cost evidence. Refresh and retry.");
       assertAccountingPeriodOpen(period!);
       if (existing!.exists) fail("This return was already posted. Retry to retrieve its original result.");
       if (invoice!.get("branchId") !== branchId || invoice!.get("headOfficeBranchId") !== headOfficeBranchId || invoice!.get("sourceLocationId") !== destinationLocationId || invoice!.get("destinationLocationId") !== sourceLocationId)
@@ -141,7 +176,7 @@ export async function returnInternalTradeGoods(actor: AccessProfile, raw: Intern
           }
         } else if (requested.serialItemIds.length) fail("This return product does not use serial numbers.");
         amountMinor = integer(amountMinor + integer(unitPrice * requested.quantity));
-        return { ...line, returnedQuantity: returned + requested.quantity, returnedSerialItemIds: [...returnedIds, ...requested.serialItemIds] };
+        return { ...line, ...(landed ? {returnedManagementValueMinor:integer((line.returnedManagementValueMinor ?? 0)+costByLine.get(line.id)!.valueMinor)} : {}), returnedQuantity: returned + requested.quantity, returnedSerialItemIds: [...returnedIds, ...requested.serialItemIds] };
       });
       const total = integer(invoice!.get("totalMinor")), paid = integer(invoice!.get("paidMinor")), returned = integer(invoice!.get("returnedMinor"));
       if (integer(invoice!.get("balanceMinor"), false) !== total - paid - returned || returned + amountMinor > total)
@@ -155,7 +190,25 @@ export async function returnInternalTradeGoods(actor: AccessProfile, raw: Intern
       const now = FieldValue.serverTimestamp();
       writer.update(invoiceRef, { lines: state.lines, returnedMinor: state.invoiceReturned, balanceMinor: state.invoiceBalance, version: state.invoiceVersion + 1, updatedAt: now });
       writer.update(balanceRef, { returnedMinor: state.balanceReturned, balanceMinor: state.balanceBalance, version: state.balanceVersion + 1, updatedAt: now });
-      const entry = { organizationId: actor.organizationId, invoiceId: input.invoiceId, branchId, headOfficeBranchId,
+      const valuation = movements.map((movement,index)=>({productId:movement.productId,companyCarryingMinor:movement.movementValueMinor,sourceManagementMinor:movement.managementMovementValueMinor,destinationManagementMinor:landed ? costByLine.get(selected[index]!.original.id)!.valueMinor : movement.managementMovementValueMinor,managementVarianceMinor:landed ? movement.managementMovementValueMinor-costByLine.get(selected[index]!.original.id)!.valueMinor : 0}));
+      if(landed) {
+        const outgoing=valuation.reduce((sum,line)=>sum+line.sourceManagementMinor,0);
+        const incoming=valuation.reduce((sum,line)=>sum+line.destinationManagementMinor,0);
+        const variance=outgoing-incoming;
+        if(![outgoing,incoming,variance].every(Number.isSafeInteger)) fail("Return managerial variance exceeds safe range.");
+        if(outgoing || incoming) {
+          const journal=db.doc(`journalEntries/internal_return_${returnRef.id}`);
+          const journalBase={organizationId:actor.organizationId,journalNumber:`IRV-${returnRef.id}`,currency:"NGN",effectiveAt:Timestamp.fromDate(new Date(effectiveAt)),createdAt:now};
+          writer.create(journal,{...journalBase,journalType:"internal_return_management_valuation",referenceType:"internalTradeReturn",referenceId:returnRef.id,status:"posted",totalDebitMinor:0,totalCreditMinor:0,totalManagementDebitMinor:Math.max(outgoing,incoming),totalManagementCreditMinor:Math.max(outgoing,incoming),createdBy:actor.userId,description:"Internal return managerial stock relocation and non-P&L markup elimination; freight retained, no cash or freight refund"});
+          const lines=[
+            {accountCode:"1200",accountName:"Inventory asset",branchId,managementDebitMinor:0,managementCreditMinor:outgoing},
+            {accountCode:"1200",accountName:"Inventory asset",...(initial!.get("sourceBranchId") ? {branchId:initial!.get("sourceBranchId")} : {warehouseId:initial!.get("sourceWarehouseId")}),managementDebitMinor:incoming,managementCreditMinor:0},
+            {accountCode:"3990",accountName:"Internal transfer managerial valuation clearing",managementDebitMinor:Math.max(0,variance),managementCreditMinor:Math.max(0,-variance)},
+          ];
+          for(const line of lines.filter(line=>line.managementDebitMinor||line.managementCreditMinor)) writer.create(db.collection("journalLines").doc(),{...journalBase,journalEntryId:journal.id,debitMinor:0,creditMinor:0,...line});
+        }
+      }
+      const entry = { ...(landed ? {managementCostVersion:1,valuationBasis:"original_supplier_management_plus_retained_freight",freightRefundMinor:0,valuation} : {}), organizationId: actor.organizationId, invoiceId: input.invoiceId, branchId, headOfficeBranchId,
         confirmedReceived: true, confirmedResellable:true, amountMinor: state.amountMinor, actorUserId: actor.userId, createdAt: now, effectiveAt, currency: "NGN", returnId: returnRef.id,
         inventoryTransactionIds: movements.map(movement => movement.transactionId) };
       writer.create(returnRef, { ...entry, lines: input.lines, note: input.note, fingerprint, status: "posted" });

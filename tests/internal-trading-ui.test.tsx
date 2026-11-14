@@ -12,7 +12,7 @@ vi.mock("@/features/administration/api", () => ({callAdministration: mocks.api})
 vi.mock("@/features/auth/auth-context", () => ({useAuth: () => mocks.auth}));
 const invoice: InternalTradeInvoice = {id: "inv-1", transferId: "t-1", number: "IT-1", organizationId: "org", branchId: "branch", branchName: "Branch One", headOfficeBranchId: "hq", sourceLocationId: "hq-store", destinationLocationId: "branch-store", totalMinor: 100000, paidMinor: 20000, returnedMinor: 0, balanceMinor: 80000, version: 1, currency: "NGN", createdAt: "2026-10-01T10:00:00Z", updatedAt: "2026-10-01T10:00:00Z", lines: [{id: "line", productId: "product", productName: "Fan", sku: "F1", trackingType: "bulk", unitPriceMinor: 50000, receivedQuantity: 2, returnedQuantity: 0, serialItemIds: [], returnedSerialItemIds: []}]};
 const workspace: InternalTradeWorkspace = {entries: [], nextEntriesCursor: null, invoices: [invoice], balances: [{organizationId: "org", branchId: "branch", headOfficeBranchId: "hq", invoicedMinor: 9990000, paidMinor: 20000, returnedMinor: 0, balanceMinor: 9970000, version: 1}], branches: [{id: "branch", name: "Branch One"}], accounts: [{id: "source", name: "Branch Bank", branchId: "branch"}, {id: "dest", name: "HQ Bank", branchId: "hq"}], nextCursor: null, canReadTrading: true, canPrice: true, canReviewDamage: true, canRecordPayment: true, canReturn: true};
-const transfer = {id: "t-1", version: 1, status: "requested", tradeAgreement: {version: 1, headOfficeBranchId: "hq", pricingStatus: "required", pricesByLineId: {}}, items: [{id: "line", productName: "Fan", sku: "F1"}]} as StockTransfer;
+const transfer = {id: "t-1", version: 1, status: "requested", tradeAgreement: {version: 1, headOfficeBranchId: "hq", pricingStatus: "required", pricesByLineId: {}}, items: [{id: "line", productName: "Fan", sku: "F1", requested: 3}]} as StockTransfer;
 afterEach(() => {cleanup(); vi.resetAllMocks(); sessionStorage.clear(); localStorage.clear(); mocks.auth.operatingContext = null;});
 beforeEach(() => {Object.defineProperty(navigator, "onLine", {value: true, configurable: true});});
 describe("internal branch trading UI", () => {
@@ -21,16 +21,16 @@ describe("internal branch trading UI", () => {
     const view = render(<HQTransferPricing transfer={{...transfer, tradeAgreement: undefined}} canPrice disabled={false} onPrice={onPrice} />);
     expect(screen.queryByText("Interbranch internal prices")).toBeNull();
     view.rerender(<HQTransferPricing transfer={{...transfer, status: "awaiting_receipt"}} canPrice disabled={false} onPrice={onPrice} />);
-    expect(screen.queryByRole("button", {name: "Save internal prices"})).toBeNull();
+    expect(screen.queryByRole("button", {name: "Save prices and transport plan"})).toBeNull();
   });
   it("requires exact positive prices and sends minor units", async () => {
     const onPrice = vi.fn().mockResolvedValue(undefined);
     render(<HQTransferPricing transfer={transfer} canPrice disabled={false} onPrice={onPrice} />);
     fireEvent.change(screen.getByLabelText("Internal unit price for Fan (₦)"), {target: {value: "12.345"}});
-    fireEvent.click(screen.getByRole("button", {name: "Save internal prices"}));
+    fireEvent.click(screen.getByRole("button", {name: "Save prices and transport plan"}));
     expect(onPrice).not.toHaveBeenCalled();
     fireEvent.change(screen.getByLabelText("Internal unit price for Fan (₦)"), {target: {value: "12.35"}});
-    fireEvent.click(screen.getByRole("button", {name: "Save internal prices"}));
+    fireEvent.click(screen.getByRole("button", {name: "Save prices and transport plan"}));
     await waitFor(() => expect(onPrice).toHaveBeenCalledWith([{id: "line", unitPriceMinor: 1235}]));
   });
   it("labels overpaid returned invoices as branch credit, not negative outstanding", () => {

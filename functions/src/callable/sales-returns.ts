@@ -22,7 +22,7 @@ import {
   balanceDocumentId,
   uniquenessDocumentId,
 } from "../inventory/calculations.js";
-import { assertBalancedJournal } from "../sales/calculations.js";
+import { assertDualJournal } from "../accounting/write-journal.js";
 import { followUpSaleReturn } from "../sales/return-follow-up.js";
 import { operationalEvidence, operationalEvidenceInput } from "../sales/operational-evidence.js";
 import { readSaleSerials, serialCost, changeSaleSerials, writeSaleSerialEntries } from "../sales/serials.js";
@@ -724,7 +724,7 @@ export const approveSaleReturn = onCall(
             ]
           : []),
       ].filter((line) => line.debitMinor || line.creditMinor || ("managementDebitMinor" in line && line.managementDebitMinor) || ("managementCreditMinor" in line && line.managementCreditMinor));
-      assertBalancedJournal(journalLines);
+      assertDualJournal(journalLines);
       const now = FieldValue.serverTimestamp(),
         year = new Date().getUTCFullYear();
       const journalSequence =
