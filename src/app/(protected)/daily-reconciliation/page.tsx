@@ -5,6 +5,7 @@ import { Banknote, ClipboardCheck, Landmark, ScanSearch } from "lucide-react";
 import { useAuth } from "@/features/auth/auth-context";
 import { hasPermission } from "@/lib/permissions/roles";
 import type { PermissionId } from "@/types/domain";
+import { StaffAdvancePanel } from "@/features/reconciliation/staff-advance-panel";
 import { DailyClosePanel } from "@/features/reconciliation/daily-close-panel";
 
 const steps: Array<{
@@ -62,6 +63,7 @@ export default function DailyReconciliationPage() {
         </p>
       </header>
       <DailyClosePanel />
+      <StaffAdvancePanel />
       {visibleSteps.length ? (
         <div className="grid gap-4 md:grid-cols-2">
           {visibleSteps.map((step, index) => (

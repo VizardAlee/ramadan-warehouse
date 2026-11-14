@@ -69,8 +69,9 @@ const navigation = [
   { href: "/accounting", label: "Month close", icon: Scale, permissions: ["accounting.close.read"] },
   { href: "/tax", label: "Tax Centre", icon: Calculator, permissions: ["finance.journal.read"] },
   { href: "/products", label: "Products", icon: Boxes, permissions: ["products.read"] },
+  { href: "/collections", label: "Goods awaiting collection", icon: PackageCheck, permissions: ["sales.handover", "sales.stock.release"] },
   { href: "/inventory", label: "Inventory", icon: Archive, permissions: ["inventory.read"] },
-  { href: "/daily-reconciliation", label: "Daily checks", icon: ClipboardCheck, permissions: ["daily.close.read", "inventory.count", "inventory.reconcile", "sales.shift.manage", "banking.read"] },
+  { href: "/daily-reconciliation", label: "Daily checks", icon: ClipboardCheck, permissions: ["cash.advances.read", "daily.close.read", "inventory.count", "inventory.reconcile", "sales.shift.manage", "banking.read"] },
   { href: "/requests", label: "Requests", icon: ClipboardList, permissions: ["requests.read.all", "requests.read.own_branch", "requests.create"] },
   { href: "/transfers", label: "Transfers", icon: Truck, permissions: ["transfers.read.all", "transfers.read.assigned_warehouse", "transfers.read.own_branch"] },
   { href: "/costs", label: "Costs", icon: ReceiptText, permissions: ["transfers.cost.read", "transfers.cost.create", "transfers.cost.approve", "transfers.cost.reconcile"] },
@@ -82,7 +83,7 @@ const navigation = [
 ] as const;
 const navigationGroups = [
   { label: "Sales & customers", hrefs: ["/pos", "/proformas", "/invoices", "/waybills", "/customers", "/returns", "/aftersales"] },
-  { label: "Stock & movement", hrefs: ["/products", "/inventory", "/requests", "/transfers", "/daily-reconciliation"] },
+  { label: "Stock & movement", hrefs: ["/products", "/inventory", "/collections", "/requests", "/transfers", "/daily-reconciliation"] },
   { label: "Purchasing", hrefs: ["/suppliers", "/procurement", "/costs"] },
   { label: "Money & accounts", hrefs: ["/expenses", "/banking", "/finance", "/accounting", "/tax"] },
   { label: "Insights", hrefs: ["/reports", "/audit"] },

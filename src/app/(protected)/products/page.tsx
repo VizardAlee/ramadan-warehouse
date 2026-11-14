@@ -1,4 +1,7 @@
 "use client";
+import { ListExportActions } from "@/features/exports/list-export-actions";
+import type { ExportRow } from "@/features/exports/list-export";
+import { useOperatingContextOptions } from "@/features/auth/use-operating-context-options";
 import { AmountInput } from "@/components/ui/amount-input";
 import { FinancialInput, FinancialMessage, FinancialText, FinancialValue } from "@/features/finance/financial-privacy";
 
@@ -110,6 +113,8 @@ export default function ProductsPage() {
 
 function ProductCatalogue() {
   const { profile, operatingContext } = useAuth();
+  const { activeOption } = useOperatingContextOptions();
+  const canExport = Boolean(profile && hasPermission(profile, "reports.inventory.export"));
   const stockCosts = useBranchStockCosts();
   const branchPriceColumns = useBranchPriceColumns(stockCosts);
   const canReadCost = Boolean(profile && hasPermission(profile, "inventory.cost.read"));
@@ -174,6 +179,24 @@ function ProductCatalogue() {
     [products.data, search, tracking, locationScoped, localProductIds, showAllForPricing],
   );
   const pagination = useTablePagination(filtered);
+  async function loadExport() {
+    return { title: "Products catalogue", scope: activeOption?.name ?? (operatingContext ? `${operatingContext.type}: ${operatingContext.id}` : "All authorized locations"),
+      filters: [`Name: ${search.trim() || "all"}`, `Tracking: ${tracking || "all"}`, showAllForPricing ? "Includes catalogue items without local stock" : "Current catalogue view"].join("; "),
+      rows: filtered.flatMap(product => {
+        const central = productSalesPrices.data.find(price => price.productId === product.id || price.id === product.id) ?? null;
+        const cost = productCosts.data.find(row => row.productId === product.id || row.id === product.id)?.defaultUnitCostMinor;
+        const branches = branchPriceColumns.exportPrices(product.id, central);
+        return (branches.length ? branches : [{ branch: "No branch selected", retail: "Not applicable", wholesale: "Not applicable", stockCost: "Not applicable" }]).map(branch => ({
+          Product: product.name, SKU: product.sku, Brand: product.brand ?? "", Model: product.model ?? "", Unit: product.unitOfMeasure,
+          Tracking: product.trackingType, Status: product.active ? "Active" : "Inactive", Branch: branch.branch,
+          "Central retail (NGN)": central?.basePriceMinor == null ? "Not configured" : central.basePriceMinor / 100,
+          "Branch retail (NGN)": branch.retail, "Branch wholesale (NGN)": branch.wholesale,
+          ...(canReadCost ? { "Saved default cost (NGN)": cost == null ? "Unknown" : cost / 100,
+            "Branch weighted stock cost (NGN)": product.itemKind === "service" ? "Not applicable (service)" : branch.stockCost } : {}),
+        }) as ExportRow);
+      }),
+    };
+  }
   function edit(product?: Product) {
     setEditing(product ?? null);
     const configuredCost = product
@@ -290,6 +313,9 @@ function ProductCatalogue() {
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
+          {canExport && <ListExportActions scopeKey={JSON.stringify([operatingContext, search, tracking, showAllForPricing, canReadCost])}
+            disabled={loading || Boolean(inventoryError || products.error || productSalesPrices.error || branchPriceColumns.exportError) || productSalesPrices.loading || branchPriceColumns.exportLoading || (canReadCost && (productCosts.loading || Boolean(productCosts.error) || stockCosts.status === "loading"))}
+            load={loadExport} />}
           <Button variant="secondary" onClick={scopedInventory.refresh}>Refresh catalogue</Button>
         {canCreate && (
           <div className="flex flex-wrap gap-2">

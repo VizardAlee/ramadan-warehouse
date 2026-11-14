@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/table-pagination";
 import { useDialogFocus } from "@/components/ui/use-dialog-focus";
 import { useAuth } from "@/features/auth/auth-context";
+import { passwordSetupLink } from "@/features/auth/password-setup-link";
 import { callAdministration } from "@/features/administration/api";
 import { useOrganizationCollection } from "@/features/administration/use-organization-collection";
 import { hasPermission, roleIdsForProfile } from "@/lib/permissions/roles";
@@ -161,7 +162,7 @@ export default function UsersPage() {
           ...values,
           idempotencyKey: crypto.randomUUID(),
         });
-        setInvitationLink(result.invitationLink);
+        setInvitationLink(passwordSetupLink(result.invitationLink, window.location.origin));
         setMessage(
           result.invitationLink
             ? "Invitation created. Send the one-time link below through an approved channel. The user cannot sign in until they set their password."
@@ -189,7 +190,7 @@ export default function UsersPage() {
         userId: user.id,
         idempotencyKey: crypto.randomUUID(),
       });
-      setInvitationLink(result.invitationLink);
+      setInvitationLink(passwordSetupLink(result.invitationLink, window.location.origin));
       setMessage(
         result.invitationLink
           ? `A fresh one-time invitation link was issued for ${user.displayName}. Send it through an approved channel; the previous expired link should not be reused.`

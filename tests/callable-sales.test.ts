@@ -1516,6 +1516,34 @@ describe.sequential("sales callables", () => {
     });
   });
 
+  it("clears rejected confirmation recovery only with scoped absence of posting evidence", async () => {
+    const checkoutKey = crypto.randomUUID();
+    const order = adminDb.collection("salesOrders").doc();
+    await order.set({ organizationId, branchId, status: "rejected", payload: { idempotencyKey: checkoutKey } });
+    const request = { orderId: order.id, idempotencyKey: crypto.randomUUID(), operatingContext: { type: "branch", id: branchId } };
+    const safe = { details: { code: "POS_REJECTED_UNPOSTED", orderId: order.id } };
+    await expect(call(branchManager, "confirmPosSaleOrder", request)).rejects.toMatchObject(safe);
+    const operation = adminDb.doc(`idempotencyKeys/${organizationId}_commitPosSale_${checkoutKey}`);
+    await operation.set({ entityId: "historical-sale" });
+    await expect(call(branchManager, "confirmPosSaleOrder", request)).rejects.not.toMatchObject(safe);
+    await operation.delete();
+    const sale = adminDb.collection("sales").doc();
+    await sale.set({ salesOrderId: order.id, organizationId });
+    await expect(call(branchManager, "confirmPosSaleOrder", request)).rejects.not.toMatchObject(safe);
+    await sale.delete();
+    await order.update({ receiptNumber: "historical-receipt" });
+    await expect(call(branchManager, "confirmPosSaleOrder", request)).rejects.not.toMatchObject(safe);
+    await order.update({ receiptNumber: FieldValue.delete(), "payload.idempotencyKey": "broken" });
+    await expect(call(branchManager, "confirmPosSaleOrder", request)).rejects.not.toMatchObject(safe);
+    await order.update({ "payload.idempotencyKey": checkoutKey, branchId: "foreign-branch" });
+    await expect(call(branchManager, "confirmPosSaleOrder", request)).rejects.not.toMatchObject(safe);
+    await order.update({ branchId, organizationId: "foreign-org" });
+    await expect(call(branchManager, "confirmPosSaleOrder", request)).rejects.not.toMatchObject(safe);
+    expect((await adminDb.collection("sales").where("salesOrderId", "==", order.id).get()).empty).toBe(true);
+    expect((await operation.get()).exists).toBe(false);
+    await order.delete();
+  });
+
   it("records split tender components and permits any sales-stage user to reject an unposted order", async () => {
     const deviceId = crypto.randomUUID();
     const shift = await call<{ shiftId: string }>(cashier, "openPosShift", {
@@ -1554,6 +1582,7 @@ describe.sequential("sales callables", () => {
     })).rejects.toMatchObject({ code: "functions/failed-precondition" });
     const audit = await adminDb.collection("auditLogs").where("entityId", "==", order.orderId).get();
     expect(audit.docs.some((record) => record.get("action") === "sales_order.rejected")).toBe(true);
+
   });
 
   it("splits a discounted sale return without exceeding the actual receipt and exposes customer history", async () => {
@@ -3080,5 +3109,25 @@ describe.sequential("Civic-only sales handover", () => {
     expect((await adminDb.doc("sales/civic-sale").get()).get("collectionStatus")).toBe("partially_collected");
     await adminDb.doc(`branches/${civic}`).update({status: "inactive"});
     await expect(call(staff, "confirmPosSaleOrder", collect)).rejects.toMatchObject({code: "functions/permission-denied"});
+  }, 120000);
+});
+
+describe.sequential("branch stock collection workspace", () => {
+  it("lists only the selected branch and returns non-financial handover details", async () => {
+    const id = "stock-queue-release-test";
+    await adminDb.doc(`sales/${id}`).set({ organizationId, branchId, saleNumber: "QUEUE-TEST", customerName: "Fixture customer", status: "completed", collectionTracked: true, collectionStatus: "awaiting_collection", physicalQuantity: 2, collectedQuantity: 0, recordedAt: Timestamp.now(), grossAmountMinor: 99999 });
+    await adminDb.doc(`saleItems/${id}`).set({ organizationId, branchId, saleId: id, productName: "Fixture panel", quantity: 2, collectedQuantity: 0, trackingType: "quantity", unitPriceMinor: 99999, costAmountMinor: 1234 });
+    const context = { type: "branch", id: branchId };
+    const result = await call<{rows: {id: string}[]}>(branchManager, "getSaleDocument", {action: "stock_collections", branchId, operatingContext: context});
+    expect(result.rows.some(row => row.id === id)).toBe(true);
+    const detail = await call<{items: Record<string,unknown>[]}>(branchManager, "getSaleDocument", {action: "stock_collection_detail", branchId, saleId: id, operatingContext: context});
+    expect(detail.items).toHaveLength(1);
+    expect(detail.items[0]).toMatchObject({productName: "Fixture panel", remaining: 2});
+    expect(detail.items[0]).not.toHaveProperty("unitPriceMinor");
+    expect(detail.items[0]).not.toHaveProperty("costAmountMinor");
+    await expect(call(branchManager, "getSaleDocument", {action: "stock_collection_detail", branchId: "not-assigned", saleId: id, operatingContext: context})).rejects.toMatchObject({code: "functions/permission-denied"});
+    await expect(call(cashier, "getSaleDocument", {action: "stock_collections", branchId, operatingContext: context})).rejects.toMatchObject({code: "functions/permission-denied"});
+    await adminDb.doc(`sales/${id}`).update({collectionStatus: "collected"});
+    await expect(call(branchManager, "getSaleDocument", {action: "stock_collection_detail", branchId, saleId: id, operatingContext: context})).rejects.toMatchObject({code: "functions/failed-precondition"});
   }, 120000);
 });

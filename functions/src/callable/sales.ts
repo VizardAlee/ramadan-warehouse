@@ -1,4 +1,6 @@
 import { assertDualJournal } from "../accounting/write-journal.js";
+import { readPosCatalogue } from "../sales/pos-catalogue.js";
+import { readStockCollection } from "../sales/stock-collection-workspace.js";
 import { requireCustomerBranch } from "../sales/customer-scope.js";
 import { resolveDeviceShift } from "../sales/shift-session.js";
 import { assignedBranchQuery } from "../auth/view-scope.js";
@@ -396,6 +398,15 @@ export const getPosWorkspace = onCall(
     const input = parseInput(posWorkspaceInput, request.data);
     requireBranchScope(actor, input.branchId);
     const location = await activeBranchLocation(actor.organizationId, input.branchId);
+    if (input.bankOptionsOnly) {
+      const branch = await db.doc(`branches/${input.branchId}`).get();
+      if (!branch.exists || branch.get("organizationId") !== actor.organizationId || branch.get("status") !== "active")
+        throw new HttpsError("failed-precondition", "Branch is unavailable.");
+      const accounts = await db.collection("bankAccounts")
+        .where("organizationId", "==", actor.organizationId)
+        .where("active", "==", true).limit(100).get();
+      return { bankAccounts: accounts.docs.filter(bank => !bank.get("branchId") || bank.get("branchId") === input.branchId).map(bankAccountSummary) };
+    }
     if (input.fastMoving) {
       const branch = await db.doc(`branches/${input.branchId}`).get();
       if (!branch.exists || branch.get("organizationId") !== actor.organizationId || branch.get("status") !== "active")
@@ -415,10 +426,7 @@ export const getPosWorkspace = onCall(
     const selectedCustomer = input.customerId ? await readPosCustomer(actor.organizationId, input.customerId, input.branchId) : null;
     const [
       branch,
-      products,
-      prices,
-      branchPrices,
-      balances,
+      catalogue,
       shifts,
       customers,
       salesCredits,
@@ -428,28 +436,7 @@ export const getPosWorkspace = onCall(
     ] =
       await Promise.all([
         db.doc(`branches/${input.branchId}`).get(),
-        db
-          .collection("products")
-          .where("organizationId", "==", actor.organizationId)
-          .limit(input.limit)
-          .get(),
-        db
-          .collection("productSalesPrices")
-          .where("organizationId", "==", actor.organizationId)
-          .limit(input.limit)
-          .get(),
-        db
-          .collection("branchSalesPrices")
-          .where("organizationId", "==", actor.organizationId)
-          .where("branchId", "==", input.branchId)
-          .limit(input.limit)
-          .get(),
-        db
-          .collection("inventoryBalances")
-          .where("organizationId", "==", actor.organizationId)
-          .where("locationId", "==", location.id)
-          .limit(input.limit)
-          .get(),
+        readPosCatalogue(db, actor.organizationId, input.branchId, location.id),
         db
           .collection("posShifts")
           .where("organizationId", "==", actor.organizationId)
@@ -487,6 +474,7 @@ export const getPosWorkspace = onCall(
     const lockShiftId = shiftLock?.get("shiftId");
     const linkedShift = input.deviceId && typeof lockShiftId === "string" && /^[A-Za-z0-9_-]{1,160}$/.test(lockShiftId) ? await db.doc(`posShifts/${lockShiftId}`).get() : null;
     const deviceSession = input.deviceId ? resolveDeviceShift({ organizationId: actor.organizationId, branchId: input.branchId, deviceId: input.deviceId, userId: actor.userId }, shiftLock?.exists ? shiftLock.data()! : null, linkedShift?.exists ? { id: linkedShift.id, ...linkedShift.data() } : null, shifts.docs.map(shift => ({ id: shift.id, ...shift.data() }))) : null;
+    const { products, prices, branchPrices, balances } = catalogue;
     const centralByProduct = new Map(
       prices.docs.map((document) => [document.get("productId"), document]),
     );
@@ -610,6 +598,7 @@ export const getSaleDocument = onCall(
   { enforceAppCheck },
   async (request) => {
     const actor = await requireAccess(request);
+    if (["stock_collections", "stock_collection_detail"].includes(request.data?.action)) return readStockCollection(actor, request.data);
     if (request.data?.action === "get_sales_voucher") {
       if (!["sales.order.create", "sales.read.all", "sales.read.own_branch"].some(permission => hasServerPermission(actor, permission as Parameters<typeof hasServerPermission>[1]))) throw new HttpsError("permission-denied", "Sales voucher access requires existing sales authority.");
       const { orderId } = parseInput(z.object({ action: z.literal("get_sales_voucher"), orderId: z.string().regex(/^[A-Za-z0-9_-]{1,160}$/) }), request.data);
@@ -2395,6 +2384,32 @@ export const confirmPosSaleOrder = onCall(
         status: "completed" as const,
         posted: false,
       };
+    if (current.get("status") === "rejected") {
+      // Never discard a browser retry on status alone: older postings may have
+      // succeeded without completing the order. Prove absence in one snapshot.
+      const rejectedWithoutPosting = await db.runTransaction(async (transaction) => {
+        const latest = await transaction.get(order);
+        if (!latest.exists || latest.get("organizationId") !== actor.organizationId ||
+          latest.get("branchId") !== branchId || latest.get("status") !== "rejected") return false;
+        requireBranchScope(actor, String(latest.get("branchId")));
+        if (["saleId", "saleNumber", "receiptNumber", "paymentConfirmedAt", "completedAt"]
+          .some(field => latest.get(field) != null)) return false;
+        const checkoutKey = z.string().uuid().safeParse(latest.get("payload.idempotencyKey"));
+        if (!checkoutKey.success) return false;
+        const operation = await transaction.get(db.doc(
+          `idempotencyKeys/${actor.organizationId}_commitPosSale_${checkoutKey.data}`,
+        ));
+        const linkedSales = await transaction.get(db.collection("sales")
+          .where("salesOrderId", "==", order.id).limit(1));
+        return !operation.exists && linkedSales.empty;
+      });
+      if (rejectedWithoutPosting)
+        throw new HttpsError("failed-precondition",
+          "This order was rejected without posting a sale. Its saved payment retry can be cleared.",
+          { code: "POS_REJECTED_UNPOSTED", orderId: order.id });
+      throw new HttpsError("failed-precondition",
+        "This rejected order has uncertain posting evidence. Keep its retry reference and ask an administrator to reconcile it.");
+    }
     if (current.get("status") !== "payment_accepted")
       throw new HttpsError(
         "failed-precondition",

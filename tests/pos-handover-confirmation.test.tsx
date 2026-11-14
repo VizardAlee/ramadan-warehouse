@@ -92,3 +92,19 @@ describe("confirmation navigation recovery", () => {
     expect(state.call).not.toHaveBeenCalled();
   });
 });
+
+
+describe("rejected payment retry recovery", () => {
+  it.each(["POS_REJECTED_UNPOSTED", "functions/failed-precondition", "functions/not-found", "functions/unavailable"])("clears only server-proven rejected/unposted evidence (%s)", async code => {
+    const saved = { orderId: "rejected-order", choice: "now", idempotencyKey: crypto.randomUUID() };
+    const key = "abr-pos-payment-confirmation:recovery";
+    sessionStorage.setItem(key, JSON.stringify(saved));
+    state.call.mockRejectedValue(Object.assign(new Error("server result"), { diagnosticCode: code }));
+    const view = renderHook(() => usePosPaymentConfirmation("recovery"));
+    await waitFor(() => expect(view.result.current.ready).toBe(true));
+    await act(async () => { await expect(view.result.current.run(saved.orderId, "now")).rejects.toThrow("server result"); });
+    expect(state.call).toHaveBeenCalledWith("confirmPosSaleOrder", { orderId: saved.orderId, idempotencyKey: saved.idempotencyKey, deferCollection: true });
+    expect(view.result.current.pending).toEqual(code === "POS_REJECTED_UNPOSTED" ? null : saved);
+    expect(sessionStorage.getItem(key)).toBe(code === "POS_REJECTED_UNPOSTED" ? null : JSON.stringify(saved));
+  });
+});

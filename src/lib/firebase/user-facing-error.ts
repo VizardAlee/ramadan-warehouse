@@ -1,4 +1,5 @@
 const messages: Record<string, string> = {
+  POS_REJECTED_UNPOSTED: "This order was rejected and no sale was posted. The old payment retry has been cleared. Review the intended sale before entering it once.",
   CUSTOMER_OWNERSHIP_STALE: "Customer or financial activity changed. Refresh the ownership review before assigning a branch.",
   CUSTOMER_OWNERSHIP_REVIEW_REQUIRED: "Recorded history or balances require accounting review. No ownership or posted record was changed.",
   CUSTOMER_OWNERSHIP_ADMIN_REQUIRED: "Only a System Administrator may review or assign customer ownership.",

@@ -21,6 +21,8 @@ import {
 
 import { refreshPurchasingPermissions, safeOfflinePurchasingPermissions } from "./refresh-purchasing-permissions";
 import { loadOperatingBranches } from "./operating-context-metadata";
+import { IdleSessionBoundary } from "./idle-session-boundary";
+import { idleSessionKey } from "./idle-session";
 
 interface AuthContextValue {
   user: User | null;
@@ -169,6 +171,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try { await detachBrowserPush(); } catch { /* Sign-out must remain available offline. */ }
     return signOut(getFirebaseServices().auth);
   }, []);
+  const expireIdleSession = useCallback(async () => {
+    const auth = getFirebaseServices().auth;
+    const current = auth.currentUser;
+    if (current) {
+      try { window.localStorage.removeItem(offlineProfileKey(current.uid)); } catch { /* Still sign out. */ }
+    }
+    // Never wait for a network/push unsubscribe before closing an idle session.
+    void detachBrowserPush().catch(() => undefined);
+    await signOut(auth);
+  }, []);
   const refreshAuthorization = useCallback(async () => {
     const current = getFirebaseServices().auth.currentUser;
     if (!current) return;
@@ -245,7 +257,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       refreshAuthorization,
     ],
   );
-  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+  return <AuthContext.Provider value={value}>{user ? (
+    <IdleSessionBoundary
+      key={idleSessionKey(user.uid, user.metadata.lastSignInTime ?? "unknown")}
+      sessionKey={idleSessionKey(user.uid, user.metadata.lastSignInTime ?? "unknown")}
+      onExpire={expireIdleSession}
+    >{children}</IdleSessionBoundary>
+  ) : children}</AuthContext.Provider>;
 }
 
 export function useAuth(): AuthContextValue {

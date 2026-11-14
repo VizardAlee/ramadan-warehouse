@@ -1,5 +1,6 @@
 "use client";
 
+import { useBankOptionsRefresh, retainAvailableBank } from "@/features/pos/use-bank-options-refresh";
 import { hasCurrentHandoverGrant } from "@/features/pos/handover-access";
 import { AmountInput } from "@/components/ui/amount-input";
 import { PosActiveShift, PosShiftAccess } from "@/features/pos/shift-controls";
@@ -361,6 +362,35 @@ export default function PosPage() {
     const timeout = window.setTimeout(() => void loadWorkspace(), 0);
     return () => window.clearTimeout(timeout);
   }, [selectedBranchId, loadWorkspace]);
+
+  const fetchBankOptions = useCallback(async () => {
+    const result = await callAdministration<
+      { branchId: string; bankOptionsOnly: true }, Pick<PosWorkspace, "bankAccounts">
+    >("getPosWorkspace", { branchId: selectedBranchId, bankOptionsOnly: true });
+    return result.bankAccounts;
+  }, [selectedBranchId]);
+  const applyBankOptions = useCallback((accounts: PosWorkspace["bankAccounts"]) => {
+    setWorkspace(current => current?.branch.id === selectedBranchId
+      ? { ...current, bankAccounts: accounts } : current);
+  }, [selectedBranchId]);
+  useBankOptionsRefresh(Boolean(online && user && selectedBranchId && workspace?.branch.id === selectedBranchId), fetchBankOptions, applyBankOptions);
+
+  // Reconcile both ordinary and split-payment drafts on any fresh workspace.
+  // Never choose a replacement bank silently, or modify already queued sales.
+  useEffect(() => {
+    if (!workspace || workspace.branch.id !== selectedBranchId) return;
+    const accounts = workspace.bankAccounts;
+    let active = true;
+    queueMicrotask(() => {
+      if (!active) return;
+      setPaymentBankAccountId(current => retainAvailableBank(current, accounts));
+      setSplitPayments(current => {
+      const updated = current.map(payment => ({ ...payment, bankAccountId: retainAvailableBank(payment.bankAccountId, accounts) }));
+      return updated.some((payment, index) => payment.bankAccountId !== current[index]!.bankAccountId) ? updated : current;
+      });
+    });
+    return () => { active = false; };
+  }, [workspace, selectedBranchId]);
 
   const syncQueue = useCallback(async () => {
     if (!online || !selectedBranchId) return;
@@ -1353,9 +1383,11 @@ export default function PosPage() {
               <span className="mt-1 block">Authorized store staff confirm actual quantities and collector. This releases stock and records its cost.</span>
             </div>
           </div>
+          {error && cartOpen && <p role="alert" className="mt-3 text-red-700"><FinancialMessage>{error}</FinancialMessage></p>}
           {paymentConfirmation.error && <p role="alert" className="mt-3 text-red-700">{paymentConfirmation.error}</p>}
           {paymentConfirmation.pending && <div role="status" className="mt-3 rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm">
-            <p>A payment confirmation is unresolved. Retry its original reference to recover the existing receipt before confirming another payment.</p>
+            <p>A saved payment confirmation needs checking. Retry its original reference to recover a posted receipt or safely clear an order confirmed rejected without posting.</p>
+            {(!online || busy || handoverLocked || !canConfirmPayment || !paymentConfirmation.ready) && <p role="alert" className="mt-2">{!online ? "Reconnect to check the saved confirmation." : busy ? "Another POS action is still running. Wait before retrying." : handoverLocked ? "Resolve the pending physical handover or storage warning in Physical goods handover below before retrying payment." : !canConfirmPayment ? "Your current access cannot confirm payments. Refresh authorization or ask your administrator to review it." : "Wait for the saved payment confirmation check to finish."}</p>}
             <Button className="mt-2" disabled={!online || busy || handoverLocked || !canConfirmPayment || !paymentConfirmation.ready} onClick={() => void confirmOrderPayment(paymentConfirmation.pending!.orderId, paymentConfirmation.pending!.choice)}>Retry same payment confirmation</Button>
           </div>}
           {workspace.pendingOrders.length > 0 ? (

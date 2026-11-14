@@ -95,6 +95,7 @@ export type Permission =
   | "sales.payment.accept"
   | "sales.payment.confirm"
   | "sales.stock.release"
+  | "sales.handover"
   | "sales.shift.manage"
   | "sales.price.base.manage"
   | "sales.price.branch.manage"
@@ -135,12 +136,17 @@ export type Permission =
   | "accounting.close.read"
   | "accounting.close.prepare"
   | "accounting.close.approve"
+  | "cash.advances.read"
+  | "cash.advances.issue"
+  | "cash.advances.retire"
+  | "cash.advances.return"
   | "daily.close.read"
   | "daily.close.prepare"
   | "daily.close.approve";
 
 const rolePermissions: Readonly<Record<RoleId, readonly Permission[]>> = {
   system_administrator: [
+    "cash.advances.read", "cash.advances.issue", "cash.advances.retire", "cash.advances.return",
     "finance.journal.create", "finance.journal.reverse", "finance.accounts.manage", "finance.tax.manage", "finance.budget.manage",
     "banking.transfer",
     "daily.close.read", "daily.close.prepare", "daily.close.approve",
@@ -213,6 +219,7 @@ const rolePermissions: Readonly<Record<RoleId, readonly Permission[]>> = {
     "sales.payment.accept",
     "sales.payment.confirm",
     "sales.stock.release",
+    "sales.handover",
     "sales.shift.manage",
     "sales.price.base.manage",
     "sales.price.branch.manage",
@@ -291,6 +298,7 @@ const rolePermissions: Readonly<Record<RoleId, readonly Permission[]>> = {
     "sales.payment.accept",
     "sales.payment.confirm",
     "sales.stock.release",
+    "sales.handover",
     "sales.shift.manage",
     "sales.price.branch.manage",
     "customers.read",
@@ -437,6 +445,7 @@ const rolePermissions: Readonly<Record<RoleId, readonly Permission[]>> = {
     "sales.payment.accept",
     "sales.payment.confirm",
     "sales.stock.release",
+    "sales.handover",
     "sales.shift.manage",
     "sales.price.branch.manage",
     "customers.read",
@@ -482,6 +491,7 @@ const rolePermissions: Readonly<Record<RoleId, readonly Permission[]>> = {
     "reports.transfers.read",
   ],
   finance_officer: [
+    "cash.advances.read", "cash.advances.issue", "cash.advances.retire", "cash.advances.return",
     "finance.journal.create", "finance.journal.reverse", "finance.accounts.manage", "finance.tax.manage", "finance.budget.manage",
     "banking.transfer",
     "daily.close.read", "daily.close.prepare", "daily.close.approve",
@@ -527,6 +537,7 @@ const rolePermissions: Readonly<Record<RoleId, readonly Permission[]>> = {
     "accounting.close.approve",
   ],
   auditor: [
+    "cash.advances.read",
     "daily.close.read",
     "audit.read",
     "products.read",
@@ -898,7 +909,7 @@ export function hasServerPermission(
   if (hasRole(actor, "system_administrator")) return true;
   // Additive capability for existing directly assigned built-in manager roles.
   // Custom-role bases must not gain a permission their administrator omitted.
-  if ((permission === "sales.stock.release" || permission === "banking.transfer" || permission === "finance.journal.create" || permission === "finance.journal.reverse" || permission === "finance.accounts.manage" || permission === "finance.tax.manage" || permission === "finance.budget.manage" || permission.startsWith("daily.close.")) && actor.directRoleIds?.some((roleId) => rolePermissions[roleId].includes(permission))) return true;
+  if ((permission === "sales.stock.release" || permission === "banking.transfer" || permission === "finance.journal.create" || permission === "finance.journal.reverse" || permission === "finance.accounts.manage" || permission === "finance.tax.manage" || permission === "finance.budget.manage" || permission.startsWith("daily.close.") || permission.startsWith("cash.advances.")) && actor.directRoleIds?.some((roleId) => rolePermissions[roleId].includes(permission))) return true;
   // Revoke stale built-in/custom Branch Manager purchasing grants while keeping
   // the permissions of separately assigned legitimate roles.
   if (((permission.startsWith("transfers.") && !permission.startsWith("transfers.cost.")) || permission === "inventory.read") || permission.startsWith("procurement.") || permission.startsWith("payables.") || permission.startsWith("suppliers.")) {

@@ -44,6 +44,13 @@ export function queryCatalog() {
   }
   const eq = (fields) => fields.map((field) => [field, "=="]);
   const org = ["organizationId", "=="];
+  add("rejected POS retry posting evidence", "sales", eq(["salesOrderId"]));
+  add("staff advance branch choices", "branches", [org], [["__name__", "ASCENDING"]]);
+  add("staff advance account choices", "bankAccounts", [org], [["__name__", "ASCENDING"]]);
+  add("staff advance scoped register", "staffAdvances", eq(["organizationId", "branchId"]), [["__name__", "ASCENDING"]]);
+  add("staff advance event history", "events", [], [["__name__", "ASCENDING"]], null, "staffAdvances/index-audit-probe");
+  add("staff advance unique asset account", "chartOfAccounts", eq(["organizationId", "code"]));
+
   const scopes = [[], [["branchId", "in"]], [["warehouseId", "in"]]];
   const dateOrder = (field, direction = "DESCENDING") => [[field, direction], ["__name__", direction]];
   for (const scope of [[], [["branchId", "=="]]]) {
@@ -140,6 +147,10 @@ export function queryCatalog() {
   for (const collection of ["purchaseOrderItems", "purchaseReceipts", "supplierInvoices", "supplierInvoiceItems", "purchaseInvoiceItemCounters", "supplierReturns"])
     add("draft purchase order downstream evidence", collection, [["purchaseOrderId", "=="]]);
   add("draft purchase order inventory evidence", "inventoryTransactions", [["referenceId", "=="]]);
+  add("submitted invoice cost correction", "supplierInvoiceItems", [["supplierInvoiceId", "=="]]);
+  add("submitted invoice cost correction", "purchaseReceipts", [["purchaseOrderItemId", "=="]]);
+  add("submitted invoice cost correction", "supplierInvoices", [["purchaseOrderId", "=="]]);
+  add("submitted invoice cost correction", "inventoryEntries", [["transactionId", "=="]]);
   add("purchase receipt history", "purchaseReceipts", [org, ["purchaseOrderId", "=="]], dateOrder("receivedAt"));
   add("supplier return original receipts", "purchaseReceipts", [org, ["purchaseOrderItemId", "=="]], dateOrder("receivedAt"));
   add("supplier return history", "supplierReturns", [org, ["supplierInvoiceId", "=="]], dateOrder("createdAt"));

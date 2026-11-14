@@ -58,3 +58,28 @@ describe("custom operating roles", () => {
     expect(canCreateStockTransfer({ ...user, status: "inactive" })).toBe(false);
   });
 });
+
+
+describe("cash reconciliation role boundaries", () => {
+  it("permits preparation and return only, never broad finance mutation", () => {
+    const index = operatingRoles.findIndex(role => role.name === "Cash & Bank Reconciliation Officer");
+    expect(index).toBeGreaterThan(-1);
+    const user = profile([index]);
+    const server = accessProfileFromRecord(user.uid, { ...user });
+    for (const permission of ["cash.advances.read", "cash.advances.return", "daily.close.prepare", "banking.reconcile"] as const) {
+      expect(hasPermission(user, permission)).toBe(true);
+      expect(hasServerPermission(server, permission)).toBe(true);
+    }
+    for (const permission of ["cash.advances.issue", "cash.advances.retire", "daily.close.approve", "banking.approve", "banking.manage", "banking.transfer", "finance.journal.reverse", "finance.journal.create", "expenses.pay", "payables.pay", "inventory.adjust", "user.manage"] as const) {
+      expect(hasPermission(user, permission)).toBe(false);
+      expect(hasServerPermission(server, permission)).toBe(false);
+    }
+  });
+  it("keeps Auditor read-only for advances", () => {
+    expect(permissionsForRoles(["auditor"]).has("cash.advances.read")).toBe(true);
+    for (const permission of ["cash.advances.issue", "cash.advances.retire", "cash.advances.return"] as const) {
+      expect(permissionsForRoles(["auditor"]).has(permission)).toBe(false);
+      expect(permissionsForServerRole("auditor")).not.toContain(permission);
+    }
+  });
+});

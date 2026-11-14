@@ -1,3 +1,4 @@
+import { correctSubmittedInvoiceCost, correctInvoiceCostInput } from "../procurement/correct-invoice-cost.js";
 import { editDraftPurchaseOrder } from "../procurement/edit-draft-purchase-order.js";
 import { pendingOrderMatches, invoiceMatchingLines, matchingFingerprint, matchableQuantity } from "../procurement/invoice-matching.js";
 import { purchasingPage, purchasingOrderDetail, purchasingPageInput, purchasingDetailInput, purchasingInvoiceDetail, purchasingInvoiceDetailInput } from "../procurement/purchasing-pages.js";
@@ -1080,6 +1081,8 @@ export const approveSupplierInvoice = onCall(
   async (request) => {
     const actor = await procurementAccess(await requireAccess(request));
     requirePermission(actor, "payables.approve");
+    if (request.data?.command === "correct_cost") return correctSubmittedInvoiceCost(actor, parseInput(correctInvoiceCostInput, request.data));
+    if (request.data?.command !== undefined) throw new HttpsError("invalid-argument", "Unknown invoice command.");
     const input = parseInput(supplierInvoiceActionInput, request.data);
     const invoice = db.doc(`supplierInvoices/${input.supplierInvoiceId}`),
       initial = await invoice.get();
@@ -1144,6 +1147,7 @@ export const approveSupplierInvoice = onCall(
           "failed-precondition",
           "Only a submitted supplier invoice can be approved.",
         );
+      if (input.expectedGrossAmountMinor !== undefined && current.get("grossAmountMinor") !== input.expectedGrossAmountMinor) throw new HttpsError("failed-precondition", "The invoice amount changed. Reload and review it before approval.");
       assertAccountingPeriodOpen(accountingPeriodSnapshot);
       if (current.get("createdBy") === actor.userId && !canSelfAuthorizePurchasing(actor))
         throw new HttpsError(
