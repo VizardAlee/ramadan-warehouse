@@ -462,7 +462,8 @@ describe.sequential("aftersales and ledger-derived reports", () => {
   });
   it("includes more than 10,000 ledger lines, 1,000 journals and 100 company accounts", async () => {
     const effectiveAt = Timestamp.now();
-    const date = effectiveAt.toDate().toISOString().slice(0, 10);
+    // Match the report API business-day boundary, including 23:00–00:00 UTC.
+    const date = new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Lagos", year: "numeric", month: "2-digit", day: "2-digit" }).format(effectiveAt.toDate());
     const period = { fromDate: date, toDate: date, branchId };
     const beforeCash = await call<{ netCashMovementMinor: number }>("generateFinancialStatement", { ...period, reportType: "cash_flow" });
     const beforeTax = await call<{ vat: { calculatedLiabilityMinor: number } }>("getTaxWorkspace", period);

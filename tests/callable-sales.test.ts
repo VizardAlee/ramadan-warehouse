@@ -2149,7 +2149,9 @@ describe.sequential("sales callables", () => {
     await invoice.set({ organizationId, branchId, customerId: customer.id, receivableOutstandingMinor: 500, receivableStatus: "open" });
     const balance = adminDb.doc(`inventoryBalances/${balanceDocumentId(organizationId, productId, locationId)}`);
     const stockBefore = (await balance.get()).data();
-    const reportScope = { branchId, fromDate: "2020-01-01", toDate: new Date().toISOString().slice(0, 10) };
+    // Financial statement date boundaries are Africa/Lagos, not UTC.
+    const reportDate = new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Lagos", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+    const reportScope = { branchId, fromDate: "2020-01-01", toDate: reportDate };
     const cashBefore = await call<{ netCashMovementMinor: number }>(administrator, "generateFinancialStatement", { ...reportScope, reportType: "cash_flow" });
     const incomeBefore = await call<{ profitMinor: number }>(administrator, "generateFinancialStatement", { ...reportScope, reportType: "income_statement" });
     const positionBefore = await call<{ assetsMinor: number; liabilitiesMinor: number }>(administrator, "generateFinancialStatement", { ...reportScope, reportType: "balance_sheet" });
