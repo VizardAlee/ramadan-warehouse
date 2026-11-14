@@ -1,11 +1,17 @@
 // Compatibility: headOfficeBranchId/headOfficeBranchName identify the supplying branch;
 // branchId/branchName identify the buying branch, including on legacy HQ invoices.
+export interface TransferTransportPlan {
+  version: 1; totalMinor: number; payer: "source" | "destination"; payee: string; reference: string;
+  expenseNumber: string; expenseId: string; allocationByLineId: Record<string, number>;
+}
 export interface InternalTradeAgreement {
   version: 1;
   headOfficeBranchId: string;
   headOfficeBranchName?: string;
   pricingStatus: "required" | "priced";
   pricesByLineId: Record<string, number>;
+  transport?: TransferTransportPlan;
+  managementCostVersion?: 1;
   pricedBy?: string;
   pricedAt?: string;
 }
@@ -19,6 +25,7 @@ export interface InternalTradeInvoice {
   id: string; transferId: string; number: string; organizationId: string;
   branchId: string; branchName: string; headOfficeBranchId: string; headOfficeBranchName?:string;
   sourceLocationId: string; destinationLocationId: string; sourceWarehouseId?: string; sourceBranchId?: string;
+  managementCostVersion?: 1; transportMinor?: number;
   totalMinor: number; paidMinor: number; returnedMinor: number; balanceMinor: number; version: number;
   currency: "NGN"; lines: InternalTradeInvoiceLine[]; createdAt: string; updatedAt: string;
 }

@@ -1,11 +1,12 @@
+import { issueManagementCost } from "../sales/management-issue.js";
 import { HttpsError } from "firebase-functions/v2/https";
 import type { z } from "zod";
 import { db } from "../admin.js";
 import { balanceDocumentId, issueCost, normalizeInventoryIdentifier } from "../inventory/calculations.js";
 import { readSaleSerials, serialCost } from "../sales/serials.js";
 import type { commitSaleInput } from "../validation/sales.js";
-export interface StockState { product: FirebaseFirestore.DocumentSnapshot; snapshot: FirebaseFirestore.DocumentSnapshot; balance: ReturnType<typeof issueCost>["balance"]; reserved: number }
-export interface PartIssue { parentIndex: number; product: FirebaseFirestore.DocumentSnapshot; quantity: number; serials: FirebaseFirestore.DocumentSnapshot[]; beforeQuantity: number; issued: ReturnType<typeof issueCost> }
+export interface StockState { product: FirebaseFirestore.DocumentSnapshot; snapshot: FirebaseFirestore.DocumentSnapshot; balance: ReturnType<typeof issueCost>["balance"]; reserved: number; managementBalance: ReturnType<typeof issueCost>["balance"] }
+export interface PartIssue { parentIndex: number; product: FirebaseFirestore.DocumentSnapshot; quantity: number; serials: FirebaseFirestore.DocumentSnapshot[]; beforeQuantity: number; issued: ReturnType<typeof issueCost>; managementIssued: ReturnType<typeof issueCost> }
 export async function prepareIncludedStock(tx: FirebaseFirestore.Transaction, scope: { organizationId: string; locationId: string; saleId: string }, input: z.infer<typeof commitSaleInput>) {
   const parts = input.lines.flatMap((line, parentIndex) => (line.includedParts ?? []).map(part => ({ ...part, parentIndex })));
   const allSerials = input.lines.flatMap(line => [...line.serialNumbers ?? [], ...line.includedParts?.flatMap(part => part.serialNumbers ?? []) ?? []]).map(normalizeInventoryIdentifier);
@@ -19,7 +20,7 @@ export function planStock(states: Map<string, StockState>, scope: { organization
   if (!product.exists || product.get("organizationId") !== scope.organizationId || product.get("active") !== true || product.get("itemKind") === "service" || !["quantity", "serial"].includes(product.get("trackingType"))) throw new HttpsError("failed-precondition", "Select active physical quantity/serial goods for charged or included parts.");
   let state = states.get(product.id);
   if (!state) {
-    state = { product, snapshot, balance: { quantity: Number(snapshot.get("onHandQuantity") ?? 0), totalValueMinor: Number(snapshot.get("totalValueMinor") ?? 0), averageUnitCostMinor: Number(snapshot.get("averageUnitCostMinor") ?? 0) }, reserved: Number(snapshot.get("reservedQuantity") ?? 0) };
+    state = { product, snapshot, managementBalance: { quantity: Number(snapshot.get("onHandQuantity") ?? 0), totalValueMinor: Number(snapshot.get("managementTotalValueMinor") ?? snapshot.get("totalValueMinor") ?? 0), averageUnitCostMinor: 0 }, balance: { quantity: Number(snapshot.get("onHandQuantity") ?? 0), totalValueMinor: Number(snapshot.get("totalValueMinor") ?? 0), averageUnitCostMinor: Number(snapshot.get("averageUnitCostMinor") ?? 0) }, reserved: Number(snapshot.get("reservedQuantity") ?? 0) };
     if (!snapshot.exists || snapshot.get("organizationId") !== scope.organizationId || snapshot.get("locationId") !== scope.locationId || snapshot.get("productId") !== product.id || ![...Object.values(state.balance), state.reserved].every(value => Number.isSafeInteger(value) && value >= 0)) throw new HttpsError("failed-precondition", "Stock evidence requires reconciliation before billing.");
     states.set(product.id, state);
   }
@@ -27,6 +28,7 @@ export function planStock(states: Map<string, StockState>, scope: { organization
   const beforeQuantity = state.balance.quantity, reservedBefore = state.reserved;
   const issued = issueCost(state.balance, quantity, serials.length ? serialCost(serials) : undefined);
   if (serials.length && quantity === state.balance.quantity && issued.movementValueMinor !== state.balance.totalValueMinor) throw new HttpsError("failed-precondition", "Serial costs and stock valuation disagree. Reconcile before billing.");
-  if (reserve) state.reserved += quantity; else state.balance = issued.balance;
-  return { issued, beforeQuantity, reservedBefore };
+  const managementIssued = issueManagementCost(state.managementBalance.quantity, state.managementBalance.totalValueMinor, quantity, serials.length ? serials.map(s => Number(s.get("managementUnitCostMinor") ?? s.get("currentUnitCostMinor"))) : undefined);
+  if (reserve) state.reserved += quantity; else { state.balance = issued.balance; state.managementBalance = managementIssued.balance; }
+  return { issued, managementIssued, beforeQuantity, reservedBefore };
 }

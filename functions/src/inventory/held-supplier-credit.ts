@@ -53,7 +53,7 @@ export async function postSupplierStockOrHeldCredit<State>(actor: AccessProfile,
     const effectiveAt = Timestamp.fromDate(new Date(input.effectiveAt));
     if (!(handover.get("effectiveAt") instanceof Timestamp) || effectiveAt.toMillis() < handover.get("effectiveAt").toMillis()) throw new HttpsError("invalid-argument", "Credit date must follow a verified physical handover date.");
     const cost = allocatedHeldCost(originalCost, total, settled, input.quantity);
-    const context = { transactionId: handover.id, transactionNumber: String(handover.get("transactionNumber")), productId: input.productId, quantity: input.quantity, movementValueMinor: cost, movementUnitCostMinor: Math.round(cost / input.quantity), sourceLocationId: location.id, sourceBranchId: branchId, effectiveAt };
+    const context = { transactionId: handover.id, transactionNumber: String(handover.get("transactionNumber")), productId: input.productId, quantity: input.quantity, movementValueMinor: cost, managementMovementValueMinor: allocatedHeldCost(count(handover.get("managementOriginalCostMinor") ?? originalCost), total, settled, input.quantity), movementUnitCostMinor: Math.round(cost / input.quantity), sourceLocationId: location.id, sourceBranchId: branchId, effectiveAt };
     const state = await extension.prepare({ get: tx.get.bind(tx), getAll: tx.getAll.bind(tx) }, context);
     extension.apply(tx, state, context);
     tx.update(handoverRef, { supplierSettledQuantity: settled + input.quantity, supplierSettledOriginalCostMinor: settledCost + cost, supplierSettlementStatus: settled + input.quantity === total ? "settled" : "partially_settled", latestSupplierReturnId: input.referenceId, updatedAt: FieldValue.serverTimestamp(), updatedBy: actor.userId });

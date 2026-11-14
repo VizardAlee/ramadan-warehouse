@@ -298,6 +298,8 @@ export async function reverseInventoryPosting<State = undefined>(
           const totalValue =
             Number(balance.get("totalValueMinor")) -
             Number(entry.get("valueDeltaMinor"));
+          const managementValue = Number(balance.get("managementTotalValueMinor") ?? balance.get("totalValueMinor")) - Number(entry.get("managementValueDeltaMinor") ?? entry.get("valueDeltaMinor"));
+          if (!Number.isSafeInteger(managementValue) || managementValue < 0 || (after === 0 && managementValue !== 0)) throw new HttpsError("failed-precondition", "Reversal managerial valuation requires reconciliation.");
           if (after < Number(balance.get("reservedQuantity") ?? 0) || totalValue < 0)
             throw new HttpsError(
               "failed-precondition",
@@ -308,6 +310,7 @@ export async function reverseInventoryPosting<State = undefined>(
             onHandQuantity: after,
             availableQuantity: after - reserved,
             totalValueMinor: after === 0 ? 0 : totalValue,
+            managementTotalValueMinor: managementValue,
             averageUnitCostMinor:
               after === 0 ? 0 : Math.round(totalValue / after),
             lastTransactionId: reversalReference.id,
@@ -325,7 +328,7 @@ export async function reverseInventoryPosting<State = undefined>(
                   ? after === 0
                     ? 0
                     : totalValue
-                  : balance.get(field),
+                  : field === "managementTotalValueMinor" ? managementValue : balance.get(field),
           } as typeof balance);
         }
         transaction.create(
@@ -347,6 +350,7 @@ export async function reverseInventoryPosting<State = undefined>(
             quantityDelta: -Number(entry.get("quantityDelta")),
             unitCostMinor: Number(entry.get("unitCostMinor")),
             valueDeltaMinor: -Number(entry.get("valueDeltaMinor")),
+            managementValueDeltaMinor: -Number(entry.get("managementValueDeltaMinor") ?? entry.get("valueDeltaMinor")),
             currency: "NGN",
             lotId: entry.get("lotId"),
             serializedItemId: entry.get("serializedItemId"),
@@ -376,12 +380,16 @@ export async function reverseInventoryPosting<State = undefined>(
             "failed-precondition",
             "Serialized reversal history is incomplete.",
           );
+        const originalSourceEntry = matching.find(entry => Number(entry.get("quantityDelta")) < 0 && entry.get("locationId"));
+        const originalManagementCost = Math.abs(Number((originalSourceEntry ?? currentEntry).get("managementValueDeltaMinor") ?? (originalSourceEntry ?? currentEntry).get("valueDeltaMinor")));
+        if (!Number.isSafeInteger(originalManagementCost)) throw new HttpsError("failed-precondition", "Original serial management cost is invalid.");
         const restoreLocationId =
           Number(currentEntry.get("quantityDelta")) > 0
             ? currentEntry.get("counterpartyLocationId")
             : currentEntry.get("locationId");
         if (typeof restoreLocationId !== "string")
           transaction.update(serial.ref, {
+            managementUnitCostMinor: originalManagementCost,
             status: "written_off",
             active: false,
             lastTransactionId: reversalReference.id,
@@ -399,6 +407,7 @@ export async function reverseInventoryPosting<State = undefined>(
           transaction.update(
             serial.ref,
             clean({
+              managementUnitCostMinor: originalManagementCost,
               currentLocationId: restoreLocationId,
               warehouseId: restoredLocation.get("warehouseId"),
               branchId: restoredLocation.get("branchId"),

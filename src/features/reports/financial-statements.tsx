@@ -30,6 +30,7 @@ interface StatementRow {
   amountMinor?: number;
 }
 interface StatementResult {
+  valuationBasis?: "company" | "branch_management";
   reportType: StatementType;
   fromDate: string;
   toDate: string;
@@ -101,7 +102,7 @@ function StatementDocument({ statement, scope }: { statement: StatementResult; s
         <div className="financial-statement-brand"><Image src="/abr-logo.jpg" alt="AB Ramadan logo" width={36} height={36} /><span>AB Ramadan</span></div>
         <div className="financial-statement-eyebrow">Financial report · Draft</div>
         <h2><FinancialText>{labels[statement.reportType]}</FinancialText></h2>
-        <p><FinancialText>{period}</FinancialText></p>
+        <p><FinancialText>{period}</FinancialText></p><p>{statement.valuationBasis === "branch_management" ? "Branch management basis: transfer price plus external transport. Not consolidated company profit. Legacy entries retain company cost." : "Company carrying-cost basis; internal markup excluded."}</p>
         <div className="financial-statement-meta"><span><FinancialText>{scope}</FinancialText></span><span>Amounts in Nigerian naira (NGN)</span></div>
       </header>
       <div className="financial-statement-body">
@@ -145,6 +146,8 @@ export function FinancialStatements() {
   const preferredBranch = (operatingContext?.type === "branch" ? operatingContext.id : selectedBranchId);
   const branchId = preferredBranch && (canReadOrganization || access?.branchIds.includes(preferredBranch)) ? preferredBranch : "";
   const [reportType, setReportType] = useState<StatementType>("income_statement");
+  const [selectedBasis, setSelectedBasis] = useState<"company"|"branch_management">("company");
+  const valuationBasis = branchId && reportType === "income_statement" ? selectedBasis : "company";
   const [period, setPeriod] = useState<ReportPeriod>("monthly");
   const [fromDate, setFromDate] = useState(() => reportDateRange("monthly").fromDate);
   const [toDate, setToDate] = useState(() => reportDateRange("monthly").toDate);
@@ -154,7 +157,7 @@ export function FinancialStatements() {
   const [error, setError] = useState<string | null>(null);
   const [errorKey, setErrorKey] = useState<string | null>(null);
   const requestVersion = useRef(0);
-  const reportKey = JSON.stringify([identity, access?.organizationPermissions, reportType, fromDate, toDate, branchId]);
+  const reportKey = JSON.stringify([identity, access?.organizationPermissions, reportType, fromDate, toDate, branchId, valuationBasis]);
   const currentResult = access && loadedReportKey === reportKey && result?.reportType === reportType && result.fromDate === fromDate && result.toDate === toDate && (result.branchId ?? "") === branchId ? result : null;
   const validDates = Boolean(access && fromDate && toDate && fromDate <= toDate && (canReadOrganization || (branchId ? access.branchIds.includes(branchId) : access.branchIds.length > 0)));
 
@@ -169,7 +172,7 @@ export function FinancialStatements() {
         setBusy(true);
         setError(null);
         try {
-          const statement: StatementResult = await callAdministration("generateFinancialStatement", { reportType, fromDate, toDate, branchId: branchId || undefined });
+          const statement: StatementResult = await callAdministration("generateFinancialStatement", { reportType, fromDate, toDate, branchId: branchId || undefined, valuationBasis });
           if (version === requestVersion.current) { setResult(statement); setLoadedReportKey(reportKey); }
         } catch (cause) {
           if (version !== requestVersion.current) return;
@@ -184,7 +187,7 @@ export function FinancialStatements() {
       window.clearTimeout(timer);
       requestVersion.current += 1;
     };
-  }, [branchId, fromDate, reportKey, reportType, toDate, validDates]);
+  }, [branchId, fromDate, reportKey, reportType, toDate, validDates, valuationBasis]);
   function download() {
     if (!currentResult) return;
     const rows = currentResult.rows.map((row) => [
@@ -213,6 +216,7 @@ export function FinancialStatements() {
     ] as const).flatMap(([label, amount]) => amount === undefined ? [] :
       [["Summary", "", label, "", "", "", (amount / 100).toFixed(2)]]);
     const csv = [
+      ["Valuation basis", currentResult.valuationBasis === "branch_management" ? "Branch management (not consolidated)" : "Company carrying cost"],
       ["section", "account_code", "account_name", "debit_naira", "credit_naira", "balance_naira", "amount_naira"],
       ...rows,
       ...summary,
@@ -220,7 +224,7 @@ export function FinancialStatements() {
     const url = URL.createObjectURL(new Blob(["\uFEFF", csv], { type: "text/csv;charset=utf-8" }));
     const anchor = document.createElement("a");
     anchor.href = url;
-    anchor.download = `${currentResult.reportType}-${currentResult.fromDate}-to-${currentResult.toDate}.csv`;
+    anchor.download = `${currentResult.valuationBasis ?? "company"}-${currentResult.reportType}-${currentResult.fromDate}-to-${currentResult.toDate}.csv`;
     anchor.click();
     URL.revokeObjectURL(url);
   }
@@ -234,6 +238,7 @@ export function FinancialStatements() {
             {Object.entries(labels).map(([value, label]) => <option key={value} value={value}><FinancialText>{label}</FinancialText></option>)}
           </select>
         </label>
+        {reportType === "income_statement" && <label className="text-sm font-medium">Cost basis<select disabled={!branchId} value={valuationBasis} onChange={event=>setSelectedBasis(event.target.value as "company"|"branch_management")} className="mt-1 w-full rounded-lg border p-2.5"><option value="company">Company carrying cost</option><option value="branch_management">Branch management landed cost</option></select><span className="text-xs">Select one branch for management margins.</span></label>}
         <ReportPeriodPicker value={period} onChange={value => { setPeriod(value); if (value !== "custom") { const range = reportDateRange(value); setFromDate(range.fromDate); setToDate(range.toDate); } }} />
         <label className="text-sm font-medium">
           From date

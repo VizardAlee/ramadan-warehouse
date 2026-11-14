@@ -1,3 +1,5 @@
+import { receiptTransportShare } from "./landed-cost.js";
+import { prepareTransportCapitalization } from "./transport-expense.js";
 import { internalTradeBalanceId } from "./identity.js";
 import { type Transaction } from "firebase-admin/firestore";
 import { HttpsError } from "firebase-functions/v2/https";
@@ -7,7 +9,7 @@ import type { AccessProfile } from "../auth/authorize.js";
 import type { StockTransfer } from "../transfers/simple-model.js";
 import type { InternalTradeInvoice, InternalTradeInvoiceLine } from "./model.js";
 
-export interface ReceiptInventoryEvidence {lineId:string; transactionId:string; received:number; damaged:number; companyReceivedValueMinor:number; companyDamagedValueMinor:number; serialItemIds:string[]; damagedSerialItemIds:string[]}
+export interface ReceiptInventoryEvidence {lineId:string; transactionId:string; received:number; damaged:number; companyReceivedValueMinor:number; companyDamagedValueMinor:number; managementReceivedValueMinor?:number; managementDamagedValueMinor?:number; transportMinor?:number; serialItemIds:string[]; damagedSerialItemIds:string[]}
 export function safeTradeAmount(value: number): number {
   if (!Number.isSafeInteger(value) || value < 0) throw new HttpsError("failed-precondition", "Internal trading amount is out of range.");
   return value;
@@ -23,7 +25,11 @@ export async function prepareInternalTradeReceipt(tx: Transaction, actor: Access
   const agreement = transfer.tradeAgreement;
   if (!agreement) return () => {};
   if (agreement.version !== 1 || agreement.pricingStatus !== "priced") throw new HttpsError("failed-precondition", "An administrator must price this interbranch supply before approval.");
-  const total = safeTradeAmount(receipts.reduce((sum, line) => sum + safeTradeAmount(line.received * safeTradeAmount(agreement.pricesByLineId[line.id]!)), 0));
+  const transportMinor = agreement.transport ? receipts.reduce((sum,line)=>{const original=transfer.items.find(item=>item.id===line.id)!; return sum+receiptTransportShare(agreement.transport!.allocationByLineId[line.id]!, original.approved,original.received+original.damaged,line.received+line.damaged);},0) : 0;
+  const sourceFreight = agreement.transport?.payer === "source" ? transportMinor : 0;
+  const merchandiseTotal = safeTradeAmount(receipts.reduce((sum, line) => sum + safeTradeAmount(line.received * safeTradeAmount(agreement.pricesByLineId[line.id]!)), 0));
+  const total = safeTradeAmount(merchandiseTotal+sourceFreight);
+  const capitalizeTransport = await prepareTransportCapitalization(tx,actor,transfer,transportMinor,now,key);
   // Held damage remains financial evidence even when nothing is charged yet.
   safeTradeAmount(receipts.reduce((sum,line)=>sum+safeTradeAmount(line.damaged*safeTradeAmount(agreement.pricesByLineId[line.id]!)),0));
   if (!receipts.some(line => line.received || line.damaged)) return () => {};
@@ -65,16 +71,18 @@ export async function prepareInternalTradeReceipt(tx: Transaction, actor: Access
     branchId:transfer.destinationBranchId, branchName:transfer.destinationName, headOfficeBranchId:agreement.headOfficeBranchId,...(agreement.headOfficeBranchName?{headOfficeBranchName:agreement.headOfficeBranchName}:{}),
     sourceLocationId:transfer.sourceLocationId,destinationLocationId:transfer.destinationLocationId,
     ...(transfer.sourceWarehouseId?{sourceWarehouseId:transfer.sourceWarehouseId}:{}), ...(transfer.sourceBranchId?{sourceBranchId:transfer.sourceBranchId}:{}),
+    ...(agreement.managementCostVersion ? {managementCostVersion:1 as const} : {}),transportMinor:safeTradeAmount((old?.transportMinor ?? 0)+sourceFreight),
     totalMinor,paidMinor,returnedMinor,balanceMinor:safeSignedTradeAmount(totalMinor-paidMinor-returnedMinor),version:invoiceVersion,currency:"NGN",lines,createdAt:old?.createdAt ?? now,updatedAt:now};
   return (evidence) => {
     const chargedReceipts=receipts.filter(line=>line.received || line.damaged);
     if (evidence.length!==chargedReceipts.length || evidence.some(item=>!chargedReceipts.some(line=>line.id===item.lineId && line.received===item.received && line.damaged===item.damaged))) throw new HttpsError("internal","Internal invoice is missing its stock receipt evidence.");
     const receiptLines=chargedReceipts.map(line=>({lineId:line.id,productId:transfer.items.find(item=>item.id===line.id)!.productId,quantity:line.received,damagedQuantity:line.damaged,pendingDamageValueMinor:safeTradeAmount(line.damaged*agreement.pricesByLineId[line.id]!),unitPriceMinor:agreement.pricesByLineId[line.id],amountMinor:line.received*agreement.pricesByLineId[line.id]!,serialItemIds:line.serialItemIds,...evidence.find(item=>item.lineId===line.id)}));
+    capitalizeTransport();
     tx.set(invoiceRef, updated);
     tx.set(balanceRef, {organizationId:actor.organizationId,branchId:transfer.destinationBranchId,headOfficeBranchId:agreement.headOfficeBranchId,
       invoicedMinor:safeTradeAmount(Number(balance!.get("invoicedMinor") ?? 0)+total),paidMinor:Number(balance!.get("paidMinor") ?? 0),returnedMinor:Number(balance!.get("returnedMinor") ?? 0),
       balanceMinor:nextBranchBalance,version:balanceVersion,updatedAt:now});
     tx.create(db.collection("internalTradeEntries").doc(`${transfer.id}_${String(updated.version).padStart(12,"0")}`), {organizationId:actor.organizationId,branchId:transfer.destinationBranchId,headOfficeBranchId:agreement.headOfficeBranchId,
-      invoiceId:transfer.id,transferId:transfer.id,kind:total || receipts.some(line=>line.received) ? "invoice" : "damage_hold",receiptLines,inventoryTransactionIds:evidence.map(item=>item.transactionId),amountMinor:total,signedAmountMinor:total,actorUserId:actor.userId,createdAt:now,idempotencyKey:key});
+      invoiceId:transfer.id,transferId:transfer.id,transportMinor,sourceFreightMinor:sourceFreight,kind:total || receipts.some(line=>line.received) ? "invoice" : "damage_hold",receiptLines,inventoryTransactionIds:evidence.map(item=>item.transactionId),amountMinor:total,signedAmountMinor:total,actorUserId:actor.userId,createdAt:now,idempotencyKey:key});
   };
 }

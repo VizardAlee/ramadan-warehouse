@@ -13,7 +13,7 @@ describe("landed cost arithmetic (not yet wired to live receipts)", () => {
   it("accepts only exact complete manual allocations", () => {
     const rows=[{id:"a",weight:0},{id:"b",weight:0}];
     expect(allocateTransport(7,rows,{a:2,b:5})).toEqual({a:2,b:5});
-    for(const manual of [{a:7},{a:2,b:4},{a:2,b:5,c:0},{a:-1,b:8}]) expect(()=>allocateTransport(7,rows,manual)).toThrow();
+    for(const manual of ([{a:7},{a:2,b:4},{a:2,b:5,c:0},{a:-1,b:8}] as Record<string,number>[])) expect(()=>allocateTransport(7,rows,manual)).toThrow();
     expect(()=>allocateTransport(7,rows)).toThrow();
     expect(allocateTransport(0,rows)).toEqual({a:0,b:0});
   });

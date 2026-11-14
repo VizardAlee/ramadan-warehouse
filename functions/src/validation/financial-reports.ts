@@ -2,6 +2,7 @@ import { z } from "zod";
 import { taxRuleDocumentId } from "../tax/rules.js";
 
 export const financialReportInput = z.object({
+  valuationBasis: z.enum(["company", "branch_management"]).default("company"),
   reportType: z.enum([
     "trial_balance",
     "income_statement",
@@ -13,6 +14,7 @@ export const financialReportInput = z.object({
   toDate: z.string().date(),
   branchId: z.string().trim().min(1).max(128).optional(),
 }).superRefine((value, context) => {
+  if (value.valuationBasis === "branch_management" && value.reportType !== "income_statement") context.addIssue({code:"custom",path:["valuationBasis"],message:"Branch management basis is available only for an income statement."});
   if (value.fromDate > value.toDate)
     context.addIssue({
       code: "custom",

@@ -1,3 +1,4 @@
+import { issueManagementCost } from "./management-cost.js";
 import { requireView } from "../auth/view-scope.js";
 import {
   FieldValue,
@@ -46,6 +47,9 @@ export interface PostingRequest {
   readonly destinationLocationId?: string;
   readonly externalAccount?: string;
   readonly unitCostMinor?: number;
+  /** Trusted internal original valuation, never exposed by callable input schemas. */
+  readonly managementValueMinor?: number;
+  readonly destinationManagementValueMinor?: number;
   readonly serialNumbers: readonly string[];
   readonly lotId?: string;
   readonly lot?: {
@@ -85,6 +89,7 @@ interface BalanceState {
   quantity: number;
   reserved: number;
   totalValueMinor: number;
+  managementTotalValueMinor: number;
   averageUnitCostMinor: number;
   version: number;
   exists: boolean;
@@ -98,6 +103,7 @@ export interface InventoryPostingContext {
   readonly productId: string;
   readonly quantity: number;
   readonly movementValueMinor: number;
+  readonly managementMovementValueMinor: number;
   readonly movementUnitCostMinor: number;
   readonly sourceLocationId?: string;
   readonly destinationLocationId?: string;
@@ -215,6 +221,7 @@ function readBalance(snapshot: DocumentSnapshot): BalanceState {
         quantity: Number(snapshot.get("onHandQuantity")),
         reserved: Number(snapshot.get("reservedQuantity") ?? 0),
         totalValueMinor: Number(snapshot.get("totalValueMinor") ?? 0),
+        managementTotalValueMinor: Number(snapshot.get("managementTotalValueMinor") ?? snapshot.get("totalValueMinor") ?? 0),
         averageUnitCostMinor: Number(snapshot.get("averageUnitCostMinor") ?? 0),
         version: Number(snapshot.get("version") ?? 0),
         exists: true,
@@ -224,6 +231,7 @@ function readBalance(snapshot: DocumentSnapshot): BalanceState {
         quantity: 0,
         reserved: 0,
         totalValueMinor: 0,
+        managementTotalValueMinor: 0,
         averageUnitCostMinor: 0,
         version: 0,
         exists: false,
@@ -296,6 +304,7 @@ function writeBalance(
       availableQuantity: state.quantity - state.reserved,
       averageUnitCostMinor: state.averageUnitCostMinor,
       totalValueMinor: state.totalValueMinor,
+      managementTotalValueMinor: state.managementTotalValueMinor,
       currency: "NGN",
       lastTransactionId: transactionId,
       lastMovementAt: effectiveAt,
@@ -549,6 +558,7 @@ async function executeInventoryPosting<State = undefined>(
         ? {
             snapshot,
             cost: Number(snapshot.get("currentUnitCostMinor")),
+            managementCost: Number(snapshot.get("managementUnitCostMinor") ?? snapshot.get("currentUnitCostMinor")),
             locationId: String(snapshot.get("currentLocationId")),
             status: String(snapshot.get("status")),
             lastTransactionId: String(snapshot.get("lastTransactionId")),
@@ -613,6 +623,7 @@ async function executeInventoryPosting<State = undefined>(
     const nextSequence = Number(counter?.get("value") ?? 0) + 1 + (group?.sequenceOffset ?? 0);
     const transactionNumber = `INV-${effectiveAt.toDate().getUTCFullYear()}-${String(nextSequence).padStart(6, "0")}`;
     let movementValue = 0;
+    let managementMovementValue = 0;
     let movementUnitCost =
       input.unitCostMinor ??
       Number(productCost?.get("defaultUnitCostMinor") ?? 0);
@@ -628,11 +639,14 @@ async function executeInventoryPosting<State = undefined>(
           ? internalTransferMovementValue(source.totalValueMinor, source.quantity, input.quantity)
           : undefined);
         const issued = issueCost(source, input.quantity, exactValue);
+        const managerial = issueManagementCost(source, input.quantity, trackingType === "serial" ? serialValues.reduce((sum,item)=>sum+(item?.managementCost ?? 0),0) : undefined);
+        managementMovementValue = managerial.movementValueMinor;
         nextSource = {
           ...source,
           quantity: issued.balance.quantity,
           reserved: source.reserved - reservedConsumption,
           totalValueMinor: issued.balance.totalValueMinor,
+          managementTotalValueMinor: managerial.remainingValueMinor,
           averageUnitCostMinor: issued.balance.averageUnitCostMinor,
         };
         movementValue = issued.movementValueMinor;
@@ -650,7 +664,12 @@ async function executeInventoryPosting<State = undefined>(
           "Unit cost must be a non-negative integer number of minor units.",
         );
       movementValue = input.quantity * movementUnitCost;
+      managementMovementValue = input.managementValueMinor ?? movementValue;
+      if (!Number.isSafeInteger(managementMovementValue) || managementMovementValue < 0) throw new HttpsError("invalid-argument", "Invalid management valuation.");
     }
+    if (input.destinationManagementValueMinor !== undefined && (!Number.isSafeInteger(input.destinationManagementValueMinor) || input.destinationManagementValueMinor < 0 || trackingType === "serial")) throw new HttpsError("failed-precondition", "Destination managerial override requires valid non-serial valuation.");
+    if (!source && trackingType === "serial" && managementMovementValue % input.quantity !== 0) throw new HttpsError("failed-precondition", "Serialized receipt requires exact per-unit managerial cost.");
+    if (destination && !Number.isSafeInteger(destination.managementTotalValueMinor + (input.destinationManagementValueMinor ?? managementMovementValue))) throw new HttpsError("failed-precondition", "Management valuation exceeds safe range.");
     if (destination) {
       const received = receiptCost(
         destination,
@@ -661,6 +680,7 @@ async function executeInventoryPosting<State = undefined>(
         ...destination,
         quantity: received.quantity,
         totalValueMinor: destination.totalValueMinor + movementValue,
+        managementTotalValueMinor: destination.managementTotalValueMinor + (input.destinationManagementValueMinor ?? managementMovementValue),
         averageUnitCostMinor: Math.round(
           (destination.totalValueMinor + movementValue) / received.quantity,
         ),
@@ -672,6 +692,7 @@ async function executeInventoryPosting<State = undefined>(
       productId: product.id,
       quantity: input.quantity,
       movementValueMinor: movementValue,
+      managementMovementValueMinor: managementMovementValue,
       movementUnitCostMinor: movementUnitCost,
       sourceLocationId: sourceLocation?.id,
       destinationLocationId: destinationLocation?.id,
@@ -781,6 +802,7 @@ async function executeInventoryPosting<State = undefined>(
         clean({
           ...entryBase,
           ...values,
+          managementValueDeltaMinor: values.managementValueDeltaMinor ?? (Number(values.quantityDelta) < 0 ? -managementMovementValue : (input.destinationManagementValueMinor ?? managementMovementValue)),
           warehouseId: inventoryLocation?.warehouseId,
           branchId: inventoryLocation?.branchId,
         }),
@@ -797,6 +819,7 @@ async function executeInventoryPosting<State = undefined>(
             counterpartyLocationId: destinationLocation?.id,
             quantityDelta: -1,
             valueDeltaMinor: -cost,
+            managementValueDeltaMinor: -(item?.managementCost ?? Math.floor(managementMovementValue/input.quantity)),
             serializedItemId: serialReference.id,
             serialNumber: item!.snapshot.get("serialNumber"),
             balanceBefore: source.quantity - index,
@@ -808,6 +831,7 @@ async function executeInventoryPosting<State = undefined>(
             counterpartyLocationId: destinationLocation!.id,
             quantityDelta: -1,
             valueDeltaMinor: -cost,
+            managementValueDeltaMinor: -(item?.managementCost ?? Math.floor(managementMovementValue/input.quantity)),
             serializedItemId: serialReference.id,
             serialNumber: input.serialNumbers[index],
             balanceBefore: 0,
@@ -819,6 +843,7 @@ async function executeInventoryPosting<State = undefined>(
             counterpartyLocationId: sourceLocation?.id,
             quantityDelta: 1,
             valueDeltaMinor: cost,
+            managementValueDeltaMinor: item?.managementCost ?? Math.floor(managementMovementValue/input.quantity),
             serializedItemId: serialReference.id,
             serialNumber: source
               ? item!.snapshot.get("serialNumber")
@@ -832,6 +857,7 @@ async function executeInventoryPosting<State = undefined>(
             counterpartyLocationId: sourceLocation!.id,
             quantityDelta: 1,
             valueDeltaMinor: cost,
+            managementValueDeltaMinor: item?.managementCost ?? Math.floor(managementMovementValue/input.quantity),
             serializedItemId: serialReference.id,
             serialNumber: item!.snapshot.get("serialNumber"),
             balanceBefore: 0,
@@ -849,6 +875,7 @@ async function executeInventoryPosting<State = undefined>(
                 : input.transactionType === "supplier_return" ? "returned_to_supplier" : "written_off",
               active: Boolean(destinationLocation),
               currentUnitCostMinor: cost,
+              managementUnitCostMinor: item?.managementCost ?? Math.floor(managementMovementValue/input.quantity),
               lastTransactionId: transactionReference.id,
               lastMovementAt: effectiveAt,
               updatedAt: now,
@@ -877,6 +904,7 @@ async function executeInventoryPosting<State = undefined>(
               status: serialStatus(destinationLocation!),
               acquisitionUnitCostMinor: cost,
               currentUnitCostMinor: cost,
+              managementUnitCostMinor: item?.managementCost ?? Math.floor(managementMovementValue/input.quantity),
               currency: "NGN",
               lastTransactionId: transactionReference.id,
               lastMovementAt: effectiveAt,

@@ -65,6 +65,7 @@ export async function returnInternalTradeGoods(actor: AccessProfile, raw: Intern
     return { returnId: returnRef.id, invoiceId: input.invoiceId, amountMinor: record.get("amountMinor") as number, posted: false, inventoryTransactionIds: record.get("inventoryTransactionIds") as string[] };
   };
   if (previous!.exists) return replay(previous!);
+  if (initial!.get("managementCostVersion")) fail("This supply uses landed branch costs. Internal supplier returns require administrator cost reconciliation; do not use a normal transfer as a substitute. No stock or financial record was changed.");
   const originals = invoiceLines(initial!);
   const selected = input.lines.map(requested => {
     const original = originals.find(line => line.id === requested.id);

@@ -1741,6 +1741,7 @@ async function postPosSale(
           );
         const planned = isService ? { issued: { unitCostMinor: 0, movementValueMinor: 0, balance: { quantity: 0, totalValueMinor: 0, averageUnitCostMinor: 0 } }, reservedBefore: 0, beforeQuantity: 0 }
           : planStock(stockStates, stockScope, product, balance, line.quantity, deferCollection, saleSerials[index]!);
+        const managementIssued = "managementIssued" in planned ? planned.managementIssued : planned.issued;
         const issued = planned.issued, reservedQuantity = planned.reservedBefore;
         return {
           input: line,
@@ -1756,7 +1757,7 @@ async function postPosSale(
           priceSource: line.sellingPriceMinor !== undefined ? "pos_override" : selected.priceSource,
           catalogUnitPriceMinor: unitPriceMinor,
           priceOverrideReason: line.priceOverrideReason,
-          issued,
+          issued, managementIssued,
           reservedQuantity,
         };
       });
@@ -1765,6 +1766,8 @@ async function postPosSale(
       const physicalLines = resolvedLines.filter(line => !line.isService);
       const physicalQuantity = physicalLines.reduce((sum, line) => sum + line.input.quantity, 0);
       const hasInventory = physicalLines.length > 0 || includedIssues.length > 0;
+      const includedManagementCostByLine = input.lines.map((_, index) => includedIssues.filter(part => part.parentIndex === index).reduce((sum, part) => sum + part.managementIssued.movementValueMinor, 0));
+      const actualManagementCostAmountMinor = physicalLines.reduce((sum, line) => sum + (deferCollection ? 0 : line.managementIssued.movementValueMinor), 0) + includedManagementCostByLine.reduce((sum, cost) => sum + cost, 0);
       const actualCostAmountMinor = physicalLines.reduce((sum, line) => sum + (deferCollection ? 0 : line.issued.movementValueMinor), 0) + includedCostByLine.reduce((sum, cost) => sum + cost, 0);
       const priced = calculateSale(
         resolvedLines.map((line) => ({
@@ -1787,7 +1790,7 @@ async function postPosSale(
       const billing = mixedContext.mapping ? createBilling(mixedContext.mapping, billingComponents, input.payments.reduce((sum, payment) => sum + payment.amountMinor, 0)) : null;
       const carriedComponents = billingComponents.filter(component => component.kind === "service" && component.paidMinor > 0).map(component => ({ ...component, grossMinor: component.paidMinor, vatMinor: Number(mixedContext.cases.get(saleItemRefs.findIndex(ref => ref.id === component.id))!.get("recognizedVatMinor") ?? 0) }));
       const carriedRecognition = mixedContext.mapping && carriedComponents.length ? createBilling(mixedContext.mapping, carriedComponents, 0) : null;
-      if (!Number.isSafeInteger(calculated.grossAmountMinor) || !Number.isSafeInteger(actualCostAmountMinor)) throw new HttpsError("invalid-argument", "The bill exceeds safe minor-unit amounts.");
+      if (!Number.isSafeInteger(calculated.grossAmountMinor) || !Number.isSafeInteger(actualCostAmountMinor) || !Number.isSafeInteger(actualManagementCostAmountMinor)) throw new HttpsError("invalid-argument", "The bill exceeds safe minor-unit amounts.");
       try {
         if (calculated.grossAmountMinor !== mixedContext.priorPaidMinor || input.payments.length || input.creditAmountMinor) assertPaymentsEqualTotal(
           [
@@ -1813,13 +1816,13 @@ async function postPosSale(
       const journalLines: BillingJournalLine[] = [
         ...paymentJournalLines,
         ...(input.creditAmountMinor > 0 ? [{ accountCode: "1100", accountName: accountNames["1100"]!, debitMinor: input.creditAmountMinor, creditMinor: 0 }] : []),
-        { accountCode: "5000", accountName: accountNames["5000"]!, debitMinor: actualCostAmountMinor, creditMinor: 0 },
+        { accountCode: "5000", accountName: accountNames["5000"]!, debitMinor: actualCostAmountMinor, creditMinor: 0, managementDebitMinor: actualManagementCostAmountMinor, managementCreditMinor: 0 },
         { accountCode: "4000", accountName: accountNames["4000"]!, debitMinor: 0, creditMinor: goodsNet },
         { accountCode: "2100", accountName: accountNames["2100"]!, debitMinor: 0, creditMinor: goodsVat },
-        { accountCode: "1200", accountName: accountNames["1200"]!, debitMinor: 0, creditMinor: actualCostAmountMinor },
+        { accountCode: "1200", accountName: accountNames["1200"]!, debitMinor: 0, creditMinor: actualCostAmountMinor, managementDebitMinor: 0, managementCreditMinor: actualManagementCostAmountMinor },
         ...(billing ? serviceBalanceDelta(carriedRecognition, billing) : []),
         ...(billing && providerFundsMinor ? [{ accountCode: billing.mapping.providerPayable.code, accountId: billing.mapping.providerPayable.id, accountName: billing.mapping.providerPayable.name, debitMinor: 0, creditMinor: providerFundsMinor }] : []),
-      ].filter(line => line.debitMinor > 0 || line.creditMinor > 0);
+      ].filter(line => line.debitMinor > 0 || line.creditMinor > 0 || ("managementDebitMinor" in line && Number(line.managementDebitMinor) > 0) || ("managementCreditMinor" in line && Number(line.managementCreditMinor) > 0));
       try {
         if (journalLines.length) assertBalancedJournal(journalLines);
       } catch {
@@ -1926,7 +1929,7 @@ async function postPosSale(
         netAmountMinor: calculated.netAmountMinor,
         vatAmountMinor: calculated.vatAmountMinor,
         grossAmountMinor: calculated.grossAmountMinor,
-        costAmountMinor: actualCostAmountMinor,
+        costAmountMinor: actualCostAmountMinor, managementCostAmountMinor: actualManagementCostAmountMinor,
         estimatedCostAmountMinor: calculated.costAmountMinor,
         currency: "NGN",
         itemCount: input.lines.length,
@@ -1994,7 +1997,7 @@ async function postPosSale(
         changeSaleSerials(transaction, serials, deferCollection ? "reserve" : "sell", { saleId: sale.id, saleItemId: saleItem.id, locationId: location.id, branchId: input.branchId, userId: actor.userId, movementId: inventoryTransaction.id, ...(!deferCollection ? { collectionId: `${sale.id}_checkout` } : {}) });
         if (!line.isService) checkoutCollectionLines.push({ saleItemId: saleItem.id, productId: line.product.id,
           productName: line.product.get("name"), quantity: line.input.quantity,
-          costAmountMinor: calculatedLine.costAmountMinor, serialNumbers });
+          costAmountMinor: calculatedLine.costAmountMinor, managementCostAmountMinor: line.managementIssued.movementValueMinor + includedManagementCostByLine[index]!, serialNumbers });
         transaction.create(saleItem, {
           organizationId: actor.organizationId,
           branchId: input.branchId,
@@ -2007,7 +2010,7 @@ async function postPosSale(
           quantity: line.input.quantity,
           serialNumbers, collectedSerialNumbers: deferCollection ? [] : serialNumbers, cancelledSerialNumbers: [],
           itemKind: line.isService ? "service" : "goods",
-          includedParts: includedIssues.filter(part => part.parentIndex === index).map(part => ({ productId: part.product.id, productName: part.product.get("name"), sku: part.product.get("sku"), quantity: part.quantity, serialNumbers: part.serials.map(serial => serial.get("serialNumber")), costAmountMinor: part.issued.movementValueMinor })),
+          includedParts: includedIssues.filter(part => part.parentIndex === index).map(part => ({ productId: part.product.id, productName: part.product.get("name"), sku: part.product.get("sku"), quantity: part.quantity, serialNumbers: part.serials.map(serial => serial.get("serialNumber")), costAmountMinor: part.issued.movementValueMinor, managementCostAmountMinor: part.managementIssued.movementValueMinor })),
           providerFunds: line.input.providerFunds ? { ...line.input.providerFunds, supplierName: mixedContext.providers.get(index)!.get("name") } : null,
           aftersalesCaseId: line.input.aftersalesCaseId ?? null,
           priorServicePaidMinor: Number(mixedContext.cases.get(index)?.get("amountPaidMinor") ?? 0),
@@ -2027,7 +2030,7 @@ async function postPosSale(
           vatAmountMinor: calculatedLine.vatAmountMinor,
           grossAmountMinor: calculatedLine.grossAmountMinor,
           unitCostMinor: line.issued.unitCostMinor,
-          costAmountMinor: line.isService ? includedCostByLine[index]! : deferCollection ? 0 : calculatedLine.costAmountMinor,
+          costAmountMinor: line.isService ? includedCostByLine[index]! : deferCollection ? 0 : calculatedLine.costAmountMinor, managementCostAmountMinor: line.isService ? includedManagementCostByLine[index]! : deferCollection ? 0 : line.managementIssued.movementValueMinor + includedManagementCostByLine[index]!,
           estimatedCostAmountMinor: calculatedLine.costAmountMinor,
           currency: "NGN",
           createdAt: now,
@@ -2078,7 +2081,7 @@ async function postPosSale(
           branchId: input.branchId,
           externalAccount: null,
           quantityDelta: -line.input.quantity,
-          valueDeltaMinor: -line.issued.movementValueMinor,
+          valueDeltaMinor: -line.issued.movementValueMinor, managementValueDeltaMinor: -line.managementIssued.movementValueMinor,
           balanceBefore: beforeQuantity,
           balanceAfter: next.quantity,
         });
@@ -2087,13 +2090,13 @@ async function postPosSale(
           externalAccount: "customer_sales",
           counterpartyLocationId: location.id,
           quantityDelta: line.input.quantity,
-          valueDeltaMinor: line.issued.movementValueMinor,
+          valueDeltaMinor: line.issued.movementValueMinor, managementValueDeltaMinor: line.managementIssued.movementValueMinor,
           balanceBefore: 0,
           balanceAfter: 0,
         });
       });
       for (const state of stockStates.values()) {
-        transaction.update(state.snapshot.ref, { onHandQuantity: state.balance.quantity, reservedQuantity: state.reserved, availableQuantity: state.balance.quantity - state.reserved, totalValueMinor: state.balance.totalValueMinor, averageUnitCostMinor: state.balance.averageUnitCostMinor, version: Number(state.snapshot.get("version") ?? 0) + 1, lastTransactionId: inventoryTransaction.id, lastMovementAt: recordedAt, updatedAt: now });
+        transaction.update(state.snapshot.ref, { onHandQuantity: state.balance.quantity, reservedQuantity: state.reserved, availableQuantity: state.balance.quantity - state.reserved, totalValueMinor: state.balance.totalValueMinor, managementTotalValueMinor: state.managementBalance.totalValueMinor, averageUnitCostMinor: state.balance.averageUnitCostMinor, version: Number(state.snapshot.get("version") ?? 0) + 1, lastTransactionId: inventoryTransaction.id, lastMovementAt: recordedAt, updatedAt: now });
         transaction.update(state.product.ref, { hasLedgerActivity: true, updatedAt: now });
       }
       for (const part of includedIssues) {
@@ -2102,8 +2105,8 @@ async function postPosSale(
         const base = { organizationId: actor.organizationId, transactionId: inventoryTransaction.id, transactionNumber: inventoryNumber, transactionType: "branch_sale", productId: part.product.id, sku: part.product.get("sku"), productName: part.product.get("name"), currency: "NGN", effectiveAt: recordedAt, postedBy: actor.userId, createdAt: now, referenceNumber: saleNumber, reason: "Physical part included in service fee", serviceSaleItemId: serviceItem.id, partsMode: "included" };
         if (part.serials.length) writeSaleSerialEntries(transaction, part.serials, base, { locationId: location.id, branchId: input.branchId, balanceBefore: part.beforeQuantity, direction: -1, externalAccount: "customer_sales" });
         else {
-          transaction.create(db.collection("inventoryEntries").doc(), { ...base, locationId: location.id, branchId: input.branchId, quantityDelta: -part.quantity, valueDeltaMinor: -part.issued.movementValueMinor, unitCostMinor: part.issued.unitCostMinor, balanceBefore: part.beforeQuantity, balanceAfter: part.issued.balance.quantity });
-          transaction.create(db.collection("inventoryEntries").doc(), { ...base, externalAccount: "customer_sales", counterpartyLocationId: location.id, quantityDelta: part.quantity, valueDeltaMinor: part.issued.movementValueMinor, unitCostMinor: part.issued.unitCostMinor, balanceBefore: 0, balanceAfter: 0 });
+          transaction.create(db.collection("inventoryEntries").doc(), { ...base, locationId: location.id, branchId: input.branchId, quantityDelta: -part.quantity, valueDeltaMinor: -part.issued.movementValueMinor, managementValueDeltaMinor: -part.managementIssued.movementValueMinor, unitCostMinor: part.issued.unitCostMinor, balanceBefore: part.beforeQuantity, balanceAfter: part.issued.balance.quantity });
+          transaction.create(db.collection("inventoryEntries").doc(), { ...base, externalAccount: "customer_sales", counterpartyLocationId: location.id, quantityDelta: part.quantity, valueDeltaMinor: part.issued.movementValueMinor, managementValueDeltaMinor: part.managementIssued.movementValueMinor, unitCostMinor: part.issued.unitCostMinor, balanceBefore: 0, balanceAfter: 0 });
         }
       }
       for (const [index, linkedCase] of mixedContext.cases) {
@@ -2120,7 +2123,7 @@ async function postPosSale(
           referenceNumber: saleNumber, customerId: input.customerId ?? null,
           customerName: input.customerId ? customerSnapshot.get("name") : "Walk-in customer",
           collector, notes: "Immediate stock release recorded by the authorized checkout workflow.",
-          lines: checkoutCollectionLines, totalQuantity, costAmountMinor: physicalLines.reduce((sum, line) => sum + line.issued.movementValueMinor, 0),
+          lines: checkoutCollectionLines, totalQuantity, costAmountMinor: physicalLines.reduce((sum, line) => sum + line.issued.movementValueMinor, 0), managementCostAmountMinor: physicalLines.reduce((sum, line) => sum + line.managementIssued.movementValueMinor, 0),
           inventoryTransactionId: inventoryTransaction.id, journalEntryId: journal.id,
           collectedAt: input.offline ? recordedAt : now, postedAt: now,
           releasedBy: actor.userId, correlationId: cid, source: "checkout",

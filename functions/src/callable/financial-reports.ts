@@ -27,7 +27,7 @@ function startTimestamp(date: string) {
 function endTimestamp(date: string) {
   return Timestamp.fromMillis(Date.parse(`${date}T00:00:00.000+01:00`) + 86_400_000);
 }
-function aggregateLines(lines: FirebaseFirestore.QueryDocumentSnapshot[], totals: Map<string, LedgerTotal>) {
+function aggregateLines(lines: FirebaseFirestore.QueryDocumentSnapshot[], totals: Map<string, LedgerTotal>, management = false) {
   for (const line of lines) {
     const accountCode = String(line.get("accountCode") ?? "UNKNOWN");
     const current = totals.get(accountCode) ?? {
@@ -36,8 +36,8 @@ function aggregateLines(lines: FirebaseFirestore.QueryDocumentSnapshot[], totals
       debitMinor: 0,
       creditMinor: 0,
     };
-    current.debitMinor += Number(line.get("debitMinor") ?? 0);
-    current.creditMinor += Number(line.get("creditMinor") ?? 0);
+    current.debitMinor += Number((management ? line.get("managementDebitMinor") : undefined) ?? line.get("debitMinor") ?? 0);
+    current.creditMinor += Number((management ? line.get("managementCreditMinor") : undefined) ?? line.get("creditMinor") ?? 0);
     if (!Number.isSafeInteger(current.debitMinor) || !Number.isSafeInteger(current.creditMinor))
       throw new HttpsError("failed-precondition", "The ledger contains amounts outside safe minor-unit arithmetic. Reconcile the affected account before issuing this statement.");
     totals.set(accountCode, current);
@@ -63,6 +63,7 @@ export const generateFinancialStatement = onCall(
     const input = parseInput(financialReportInput, request.data);
     const canReadOrganization = hasOrganizationPermission(actor, "finance.journal.read");
     const branchId = input.branchId ?? (!canReadOrganization && actor.branchIds.length === 1 ? actor.branchIds[0] : undefined);
+    if (input.valuationBasis === "branch_management" && !branchId) throw new HttpsError("invalid-argument", "Select one branch for a management income statement; consolidated reports use company cost.");
     if (branchId || canReadOrganization) requirePermissionScope(actor, { branchId }, "finance.journal.read");
     else for (const id of actor.branchIds) requirePermissionScope(actor, { branchId: id }, "finance.journal.read");
     let query: FirebaseFirestore.Query = db
@@ -81,7 +82,7 @@ export const generateFinancialStatement = onCall(
         for (const account of accounts) if (account.get("ledgerAccountCode")) bankCodes.add(String(account.get("ledgerAccountCode")));
       });
     await visitQueryPages(query, async (lines) => {
-      aggregateLines(lines, ledgerTotals);
+      aggregateLines(lines, ledgerTotals, input.valuationBasis === "branch_management");
       if (!cashReport) return;
       const cashLines = lines.filter((line) => bankCodes.has(String(line.get("accountCode"))));
       const entryIds = [...new Set(cashLines.map((line) => String(line.get("journalEntryId"))))];

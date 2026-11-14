@@ -66,13 +66,14 @@ export function writeSaleSerialEntries(tx: Transaction, serials: readonly Docume
 }) {
   serials.forEach((serial, index) => {
     const value = Number(serial.get("currentUnitCostMinor")) * options.direction;
+    const managementValue = Number(serial.get("managementUnitCostMinor") ?? serial.get("currentUnitCostMinor")) * options.direction;
     const entry = { ...base, trackingType: "serial", serializedItemId: serial.id, serialNumber: serial.get("serialNumber"), unitCostMinor: Number(serial.get("currentUnitCostMinor")) };
     tx.create(db.collection("inventoryEntries").doc(), { ...entry, locationId: options.locationId, branchId: options.branchId,
-      quantityDelta: options.direction, valueDeltaMinor: value,
+      quantityDelta: options.direction, valueDeltaMinor: value, managementValueDeltaMinor: managementValue,
       ...(options.reservedDirection ? { reservedQuantityDelta: options.reservedDirection } : {}),
       balanceBefore: options.balanceBefore + index * options.direction,
       balanceAfter: options.balanceBefore + (index + 1) * options.direction });
     if (options.externalAccount) tx.create(db.collection("inventoryEntries").doc(), { ...entry, externalAccount: options.externalAccount,
-      counterpartyLocationId: options.locationId, quantityDelta: -options.direction, valueDeltaMinor: -value, balanceBefore: 0, balanceAfter: 0 });
+      counterpartyLocationId: options.locationId, quantityDelta: -options.direction, valueDeltaMinor: -value, managementValueDeltaMinor: -managementValue, balanceBefore: 0, balanceAfter: 0 });
   });
 }

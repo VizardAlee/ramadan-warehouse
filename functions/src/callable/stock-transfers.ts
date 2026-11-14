@@ -31,6 +31,10 @@ import {
   type StockTransferLine,
 } from "../transfers/simple-model.js";
 
+import { allocateTransport } from "../branch-trading/landed-cost.js";
+import { validateTransportExpense } from "../branch-trading/transport-expense.js";
+import { issueManagementCost } from "../inventory/management-cost.js";
+import { planReceiptValuation } from "../branch-trading/receipt-valuation.js";
 import { internalTradeSupplier } from "../branch-trading/identity.js";
 import { prepareInternalTradeReceipt, safeTradeAmount, type ReceiptInventoryEvidence } from "../branch-trading/receipt.js";
 import type { InternalTradeInvoice, InternalTradeWorkspace } from "../branch-trading/model.js";
@@ -61,7 +65,7 @@ const inputSchema = z.discriminatedUnion("action", [
   internalTradeReturnInput,
   internalTradeDamageReviewInput,
   z.object({ action: z.literal("trading_workspace"), branchId: id.optional(), invoiceId: id.optional(), cursor: id.optional(), entriesCursor: id.optional() }),
-  z.object({ action: z.literal("price"), ...actionBase, lines: z.array(z.object({ id, unitPriceMinor: z.number().int().min(0).max(1_000_000_000) })).min(1).max(20) }),
+  z.object({ action: z.literal("price"), ...actionBase, transport: z.object({totalMinor:z.number().int().min(1).max(1_000_000_000),payer:z.enum(["source","destination"]),payee:z.string().trim().min(2).max(160),reference:z.string().trim().min(1).max(160),expenseNumber:z.string().trim().min(1).max(100),allocationByLineId:z.record(z.string(),z.number().int().nonnegative().max(1_000_000_000)).optional()}).optional(), lines: z.array(z.object({ id, unitPriceMinor: z.number().int().min(0).max(1_000_000_000) })).min(1).max(20) }),
   z.object({ action: z.literal("options") }),
   z.object({ action: z.literal("stock"), locationId: id }),
   z.object({ action: z.literal("list"), cursor: id.optional() }),
@@ -156,7 +160,9 @@ function visibleInvoice(invoice:InternalTradeInvoice):InternalTradeInvoice {
 }
 function visibleTransfer(actor:TransferAccess,transfer:StockTransfer):StockTransfer {
   if (!transfer.tradeAgreement || canReadTradingAt(actor,transfer.destinationBranchId) || canReadTradingAt(actor,transfer.tradeAgreement.headOfficeBranchId) || canPrice(actor)) return transfer;
-  return {...transfer,tradeAgreement:{...transfer.tradeAgreement,pricesByLineId:{}}};
+  const {transport: _transport, ...agreement} = transfer.tradeAgreement;
+  void _transport;
+  return {...transfer,tradeAgreement:{...agreement,pricesByLineId:{}}};
 }
 function permitted(actor: AccessProfile, permission: Permission) {
   // The three-task flow predates the detailed transfer permission catalog.
@@ -691,7 +697,17 @@ export const stockTransfers = onCall({ enforceAppCheck }, async (request) => {
         if (!transfer.tradeAgreement || transfer.status !== "requested") fail("Only an unapproved interbranch supply can be priced.");
         if (input.lines.length !== transfer.items.length || new Set(input.lines.map(line => line.id)).size !== input.lines.length || input.lines.some(line => !transfer.items.some(item => item.id === line.id))) fail("Set one price for every transfer line.");
         safeTradeAmount(input.lines.reduce((sum,line)=>sum+safeTradeAmount(transfer.items.find(item=>item.id===line.id)!.requested*line.unitPriceMinor),0));
-        tx.update(ref, {tradeAgreement:{...transfer.tradeAgreement,pricingStatus:"priced",pricesByLineId:Object.fromEntries(input.lines.map(line => [line.id,line.unitPriceMinor])),pricedBy:actor.userId,pricedAt:now},version:transfer.version+1,updatedAt:now});
+        let transport;
+        if (input.transport) {
+          const expense = await tx.get(db.collection("expenses").where("organizationId","==",actor.organizationId).where("expenseNumber","==",input.transport.expenseNumber).limit(2));
+          if (expense.size !== 1) fail("Link one existing approved transport expense by its EXP number.");
+          validateTransportExpense(expense.docs[0]!, actor.organizationId, transfer, input.transport);
+          const allocationByLineId = allocateTransport(input.transport.totalMinor, input.lines.map(line=>({id:line.id,weight:safeTradeAmount(line.unitPriceMinor*transfer.items.find(item=>item.id===line.id)!.requested)})), input.transport.allocationByLineId);
+          transport = {...input.transport,version:1 as const,expenseId:expense.docs[0]!.id,allocationByLineId};
+        }
+        const {transport: _previousTransport, ...previousAgreement} = transfer.tradeAgreement!;
+        void _previousTransport;
+        tx.update(ref, {tradeAgreement:{...previousAgreement,managementCostVersion:1, ...(transport?{transport}:{}),pricingStatus:"priced",pricesByLineId:Object.fromEntries(input.lines.map(line => [line.id,line.unitPriceMinor])),pricedBy:actor.userId,pricedAt:now},version:transfer.version+1,updatedAt:now});
       } else if (input.action === "report_problem") {
         if (transfer.status === "requested")
           fail("This transfer has not been approved yet.");
@@ -1041,6 +1057,7 @@ async function changeStock(
       approval,
     });
   }
+  if (approving && transfer.tradeAgreement?.transport && next.some(line=>line.approved !== line.requested)) fail("Transport allocation is fixed to the priced quantities. Reprice a new transfer for a partial source approval.");
   if (approving && !next.some((l) => l.approved))
     fail("Approve at least one unit, or cancel the request.");
   if (input.action === "receive" && !plans.some((p) => p.moved) && !input.note)
@@ -1064,6 +1081,17 @@ async function changeStock(
     const { line, balance, target, quarantine, serials } = p;
     const transactionId = randomUUID();
     const effectiveAt = Timestamp.fromDate(new Date(now));
+    const originalLine = transfer.items.find(item => item.id === line.id)!;
+    const receipt = input.action === "receive" ? input.lines.find(item => item.id === line.id)! : undefined;
+    const sourceManagementValue = Number(balance.get("managementTotalValueMinor") ?? balance.get("totalValueMinor") ?? 0);
+    const valuation = p.moved && !p.lost ? planReceiptValuation({
+      sourceQuantity: num(balance,"onHandQuantity"), sourceCompanyMinor: num(balance,"totalValueMinor"), sourceManagementMinor: sourceManagementValue,
+      received:p.received, damaged:p.bad,
+      ...(transfer.tradeAgreement?.managementCostVersion ? {agreedUnitPriceMinor:transfer.tradeAgreement.pricesByLineId[line.id]!} : {}),
+      ...(transfer.tradeAgreement?.transport ? {transport:{allocatedMinor:transfer.tradeAgreement.transport.allocationByLineId[line.id]!,approvedQuantity:originalLine.approved,previouslyReceivedOrDamaged:originalLine.received+originalLine.damaged}} : {}),
+      ...(line.trackingType === "serial" ? {serials:serials.map(serial=>({id:serial.id,companyMinor:num(serial,"currentUnitCostMinor"),managementMinor:Number(serial.get("managementUnitCostMinor") ?? serial.get("currentUnitCostMinor")),damaged:!receipt?.serialItemIds.includes(serial.id)}))} : {}),
+    }) : undefined;
+    const managementIssue = p.moved ? issueManagementCost({quantity:num(balance,"onHandQuantity"),totalValueMinor:num(balance,"totalValueMinor"),managementTotalValueMinor:sourceManagementValue},p.moved,line.trackingType === "serial" ? serials.reduce((sum,serial)=>sum+Number(serial.get("managementUnitCostMinor") ?? serial.get("currentUnitCostMinor")),0) : undefined) : undefined;
     if (p.approval || !p.moved) {
       if (balance.exists)
         tx.update(balance.ref, {
@@ -1119,6 +1147,7 @@ async function changeStock(
                 ? {
                     lastTransactionId: transactionId,
                     lastMovementAt: effectiveAt,
+                    ...(valuation ? {currentUnitCostMinor:valuation.serials.find(item=>item.id===serial.id)!.companyMinor,managementUnitCostMinor:valuation.serials.find(item=>item.id===serial.id)!.managementMinor} : {}),
                   }
                 : {}),
             },
@@ -1129,12 +1158,12 @@ async function changeStock(
     const sourceValue = num(balance, "totalValueMinor"),
       sourceQuantity = num(balance, "onHandQuantity");
     // Allocate the final-unit rounding remainder as well: inventory value is conserved exactly.
-    const totalValue =
+    const totalValue = valuation?.outgoingCompanyMinor ?? (
       line.trackingType === "serial"
         ? serials.reduce((sum, s) => sum + num(s, "currentUnitCostMinor"), 0)
         : p.moved === sourceQuantity
           ? sourceValue
-          : Math.round((sourceValue * p.moved) / sourceQuantity);
+          : Math.round((sourceValue * p.moved) / sourceQuantity));
     if (
       !Number.isSafeInteger(totalValue) ||
       totalValue < 0 ||
@@ -1145,14 +1174,16 @@ async function changeStock(
       input.action === "receive"
         ? input.lines.find((l) => l.id === line.id)!.serialItemIds
         : [];
-    const goodValue =
+    const goodValue = valuation?.companyReceivedMinor ?? (
       line.trackingType === "serial"
         ? serials
             .filter((s) => goodIds.includes(s.id))
             .reduce((sum, s) => sum + num(s, "currentUnitCostMinor"), 0)
-        : Math.round((totalValue * p.received) / p.moved);
-    const badValue = p.lost ? 0 : totalValue - goodValue;
-    if (input.action === "receive" && (p.received || p.bad)) receiptEvidence.push({lineId:line.id,transactionId,received:p.received,damaged:p.bad,companyReceivedValueMinor:goodValue,companyDamagedValueMinor:badValue,serialItemIds:goodIds,damagedSerialItemIds:input.lines.find(item=>item.id===line.id)!.damagedSerialItemIds});
+        : Math.round((totalValue * p.received) / p.moved));
+    const badValue = valuation?.companyDamagedMinor ?? (p.lost ? 0 : totalValue - goodValue);
+    const goodManagementValue = valuation?.managementReceivedMinor ?? 0;
+    const badManagementValue = valuation?.managementDamagedMinor ?? 0;
+    if (input.action === "receive" && (p.received || p.bad)) receiptEvidence.push({lineId:line.id,transactionId,received:p.received,damaged:p.bad,companyReceivedValueMinor:goodValue,companyDamagedValueMinor:badValue,managementReceivedValueMinor:goodManagementValue,managementDamagedValueMinor:badManagementValue,transportMinor:valuation?.transportMinor ?? 0,serialItemIds:goodIds,damagedSerialItemIds:input.lines.find(item=>item.id===line.id)!.damagedSerialItemIds});
     const base = clean({
       organizationId: actor.organizationId,
       transactionId,
@@ -1179,8 +1210,9 @@ async function changeStock(
       qty: number,
       value: number,
       held: number,
+      managementValue: number,
     ) => {
-      if (!Number.isSafeInteger(value) || value < 0)
+      if (!Number.isSafeInteger(value) || value < 0 || !Number.isSafeInteger(managementValue) || managementValue < 0 || (!qty && (value || managementValue)))
         fail("Stock valuation is out of range.");
       tx.set(
         doc.ref,
@@ -1202,6 +1234,7 @@ async function changeStock(
           reservedQuantity: held,
           availableQuantity: qty - held,
           totalValueMinor: value,
+          managementTotalValueMinor: managementValue,
           averageUnitCostMinor: qty ? Math.round(value / qty) : 0,
           currency: "NGN",
           version: num(doc, "version") + 1,
@@ -1218,6 +1251,7 @@ async function changeStock(
       value: number,
       before: number,
       serialId?: string,
+      managementValue = value,
     ) =>
       tx.create(
         db.collection("inventoryEntries").doc(),
@@ -1232,6 +1266,7 @@ async function changeStock(
           externalAccount: location ? undefined : "inventory_loss",
           quantityDelta: qty,
           valueDeltaMinor: value,
+          managementValueDeltaMinor: managementValue,
           balanceBefore: before,
           balanceAfter: before + qty,
           serializedItemId: serialId,
@@ -1243,6 +1278,7 @@ async function changeStock(
       sourceQuantity - p.moved,
       sourceValue - totalValue,
       p.reserved,
+      managementIssue!.remainingValueMinor,
     );
     if (p.received)
       writeBalance(
@@ -1251,6 +1287,7 @@ async function changeStock(
         num(target, "onHandQuantity") + p.received,
         num(target, "totalValueMinor") + goodValue,
         num(target, "reservedQuantity"),
+        Number(target.get("managementTotalValueMinor") ?? target.get("totalValueMinor") ?? 0) + goodManagementValue,
       );
     if (p.bad) {
       damageAreaNeeded = true;
@@ -1260,6 +1297,7 @@ async function changeStock(
         num(quarantine, "onHandQuantity") + p.bad,
         num(quarantine, "totalValueMinor") + badValue,
         num(quarantine, "reservedQuantity"),
+        Number(quarantine.get("managementTotalValueMinor") ?? quarantine.get("totalValueMinor") ?? 0) + badManagementValue,
       );
     }
     if (line.trackingType === "serial") {
@@ -1268,31 +1306,37 @@ async function changeStock(
       serials.forEach((serial, index) => {
         const value = num(serial, "currentUnitCostMinor");
         const good = goodIds.includes(serial.id);
-        entry(source!, -1, -value, sourceQuantity - index, serial.id);
+        const sourceManagementCost=Number(serial.get("managementUnitCostMinor") ?? value);
+        const receivedSerial=valuation?.serials.find(item=>item.id===serial.id);
+        entry(source!, -1, -value, sourceQuantity - index, serial.id, -sourceManagementCost);
         entry(
           p.lost ? null : good ? destination! : damaged!,
           1,
-          value,
+          receivedSerial?.companyMinor ?? value,
           p.lost
             ? 0
             : good
               ? num(target, "onHandQuantity") + goodIndex++
               : num(quarantine, "onHandQuantity") + badIndex++,
           serial.id,
+          receivedSerial?.managementMinor ?? sourceManagementCost,
         );
       });
     } else {
-      entry(source!, -p.moved, -totalValue, sourceQuantity);
+      entry(source!, -p.moved, -totalValue, sourceQuantity, undefined, -managementIssue!.movementValueMinor);
       if (p.received)
         entry(
           destination!,
           p.received,
           goodValue,
-          num(target, "onHandQuantity"),
+          num(target, "onHandQuantity"), undefined, goodManagementValue,
         );
       if (p.bad)
-        entry(damaged!, p.bad, badValue, num(quarantine, "onHandQuantity"));
-      if (p.lost) entry(null, p.lost, totalValue, 0);
+        entry(damaged!, p.bad, badValue, num(quarantine, "onHandQuantity"), undefined, badManagementValue);
+      if (p.lost) entry(null, p.lost, totalValue, 0, undefined, managementIssue!.movementValueMinor);
+    }
+    if (valuation && (valuation.transportMinor || goodManagementValue + badManagementValue !== managementIssue!.movementValueMinor)) {
+      tx.create(db.collection("inventoryEntries").doc(), clean({...base,externalAccount:"transfer_landed_cost",quantityDelta:0,valueDeltaMinor:-valuation.transportMinor,managementValueDeltaMinor:managementIssue!.movementValueMinor-goodManagementValue-badManagementValue,balanceBefore:0,balanceAfter:0}));
     }
     if (line.lotId) {
       const quantities = { ...p.lot.get("locationQuantities") } as Record<

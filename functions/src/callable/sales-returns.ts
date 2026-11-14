@@ -331,6 +331,8 @@ export const createSaleReturn = onCall({ enforceAppCheck }, async (request) => {
       const returnedQuantity = Number(counters[index]!.get("returnedQuantity") ?? 0);
       const collectedQuantity = Number(item.get("collectedQuantity") ?? soldQuantity);
       const collectedCost = Number(item.get("costAmountMinor") ?? 0);
+      const managementCollectedCost = Number(item.get("managementCostAmountMinor") ?? collectedCost);
+      const managementReturnedCost = Number(counters[index]!.get("returnedManagementCostAmountMinor") ?? Math.round(managementCollectedCost * returnedQuantity / collectedQuantity));
       const returnedCost = Number(counters[index]!.get("returnedCostAmountMinor") ?? Math.round(collectedCost * returnedQuantity / collectedQuantity));
       const reversedQuantity = returnedQuantity + Number(item.get("cancelledQuantity") ?? 0);
       const allocated = (total: number, field?: string) => Math.round(total * (reversedQuantity + line.quantity) / soldQuantity) - Number((field && counters[index]!.get(field)) ?? Math.round(total * reversedQuantity / soldQuantity));
@@ -345,6 +347,7 @@ export const createSaleReturn = onCall({ enforceAppCheck }, async (request) => {
         vat,
         gross: net + vat,
         serials: saleSerials[index]!,
+        managementCost: serviceCredit || cancellation ? 0 : saleSerials[index]!.length ? saleSerials[index]!.reduce((sum, serial) => sum + Number(serial.get("managementUnitCostMinor") ?? serial.get("currentUnitCostMinor")), 0) : Math.round(Math.max(0, managementCollectedCost - managementReturnedCost) * line.quantity / (collectedQuantity - returnedQuantity)),
         cost: serviceCredit || cancellation ? 0 : saleSerials[index]!.length ? serialCost(saleSerials[index]!) : item.get("collectionTracked") === true
           ? Math.round(Math.max(0, collectedCost - returnedCost) * line.quantity / (collectedQuantity - returnedQuantity))
           : allocated(Number(item.get("costAmountMinor") ?? soldQuantity * Number(item.get("unitCostMinor") ?? 0))),
@@ -419,6 +422,7 @@ export const createSaleReturn = onCall({ enforceAppCheck }, async (request) => {
         vatAmountMinor: line.vat,
         grossAmountMinor: line.gross,
         costAmountMinor: line.cost,
+        managementCostAmountMinor: line.managementCost,
         currency: "NGN",
         createdAt: now,
       });
@@ -644,7 +648,12 @@ export const approveSaleReturn = onCall(
           );
         if (saleSerials[index]!.length && !cancellation && serialCost(saleSerials[index]!) !== Number(line.get("costAmountMinor")))
           throw new HttpsError("failed-precondition", "Serial cost evidence changed. Review this return before posting.");
-        return { line, original, counter, balance, quantity, reversedNet, reversedVat, serials: saleSerials[index]! };
+        const managementCost = Number(line.get("managementCostAmountMinor") ?? line.get("costAmountMinor"));
+        const originalManagement = Number(original.get("managementCostAmountMinor") ?? original.get("costAmountMinor") ?? 0);
+        const returnedManagement = Number(counter.get("returnedManagementCostAmountMinor") ?? Math.round(originalManagement * Number(counter.get("returnedQuantity") ?? 0) / Number(original.get("collectedQuantity") ?? original.get("quantity"))));
+        if (!Number.isSafeInteger(managementCost) || managementCost < 0 || (!cancellation && !serviceCredit && managementCost > originalManagement - returnedManagement)) throw new HttpsError("failed-precondition", "Original management cost changed. Submit a fresh return.");
+        if (saleSerials[index]!.length && !cancellation && saleSerials[index]!.reduce((sum, serial) => sum + Number(serial.get("managementUnitCostMinor") ?? serial.get("currentUnitCostMinor")), 0) !== managementCost) throw new HttpsError("failed-precondition", "Serial management cost changed. Review this return before posting.");
+        return { line, original, counter, balance, quantity, reversedNet, reversedVat, managementCost, returnedManagement, serials: saleSerials[index]! };
       });
       const gross = Number(current.get("grossAmountMinor")),
         net = Number(current.get("netAmountMinor")),
@@ -694,6 +703,7 @@ export const approveSaleReturn = onCall(
           (sum, line) => sum + Number(line.line.get("costAmountMinor")),
           0,
         );
+      const managementRestockCost = lines.filter(line => line.line.get("condition") === "restockable").reduce((sum,line) => sum + line.managementCost, 0);
       const hasRestock = lines.some(line => line.line.get("condition") === "restockable");
       if (current.get("bankAccountId") && input.bankAccountId && current.get("bankAccountId") !== input.bankAccountId)
         throw new HttpsError("invalid-argument", "The refund account must match the submitted return.");
@@ -707,13 +717,13 @@ export const approveSaleReturn = onCall(
         ...(debtGross ? [{ accountCode: "1100", accountName: "Accounts receivable", debitMinor: 0, creditMinor: debtGross }] : []),
         ...(mixedTransition?.lines ?? []),
         ...(providerCreditMinor && mixedAfter ? [{ accountCode: mixedAfter.mapping.providerPayable.code, accountId: mixedAfter.mapping.providerPayable.id, accountName: mixedAfter.mapping.providerPayable.name, debitMinor: providerCreditMinor, creditMinor: 0 }] : []),
-        ...(restockCost > 0
+        ...(restockCost > 0 || managementRestockCost > 0
           ? [
-              { accountCode: "1200", accountName: accountNames["1200"]!, debitMinor: restockCost, creditMinor: 0 },
-              { accountCode: "5000", accountName: accountNames["5000"]!, debitMinor: 0, creditMinor: restockCost },
+              { accountCode: "1200", accountName: accountNames["1200"]!, debitMinor: restockCost, creditMinor: 0, managementDebitMinor: managementRestockCost, managementCreditMinor: 0 },
+              { accountCode: "5000", accountName: accountNames["5000"]!, debitMinor: 0, creditMinor: restockCost, managementDebitMinor: 0, managementCreditMinor: managementRestockCost },
             ]
           : []),
-      ].filter((line) => line.debitMinor || line.creditMinor);
+      ].filter((line) => line.debitMinor || line.creditMinor || ("managementDebitMinor" in line && line.managementDebitMinor) || ("managementCreditMinor" in line && line.managementCreditMinor));
       assertBalancedJournal(journalLines);
       const now = FieldValue.serverTimestamp(),
         year = new Date().getUTCFullYear();
@@ -785,6 +795,7 @@ export const approveSaleReturn = onCall(
             returnedQuantity:
               Number(line.counter.get("returnedQuantity") ?? 0) + line.quantity,
             ...(serialNumbers.length ? { returnedSerialNumbers: FieldValue.arrayUnion(...serialNumbers) } : {}),
+            returnedManagementCostAmountMinor: serviceCredit ? 0 : line.returnedManagement + line.managementCost,
             returnedCostAmountMinor: serviceCredit ? 0 : Number(line.counter.get("returnedCostAmountMinor") ?? Math.round(Number(line.original.get("costAmountMinor") ?? 0) * Number(line.counter.get("returnedQuantity") ?? 0) / Number(line.original.get("collectedQuantity") ?? line.original.get("quantity")))) + Number(line.line.get("costAmountMinor")),
             updatedAt: now,
           },
@@ -800,6 +811,7 @@ export const approveSaleReturn = onCall(
           availableQuantity:
             nextQuantity - Number(line.balance.get("reservedQuantity") ?? 0),
           totalValueMinor: nextValue,
+          managementTotalValueMinor: Number(line.balance.get("managementTotalValueMinor") ?? beforeValue) + line.managementCost,
           averageUnitCostMinor: nextQuantity
             ? Math.round(nextValue / nextQuantity)
             : 0,
@@ -835,6 +847,7 @@ export const approveSaleReturn = onCall(
           branchId: current.get("branchId"),
           quantityDelta: line.quantity,
           valueDeltaMinor: line.line.get("costAmountMinor"),
+          managementValueDeltaMinor: line.managementCost,
           balanceBefore: beforeQuantity,
           balanceAfter: nextQuantity,
         });
@@ -844,6 +857,7 @@ export const approveSaleReturn = onCall(
           counterpartyLocationId: location.id,
           quantityDelta: -line.quantity,
           valueDeltaMinor: -Number(line.line.get("costAmountMinor")),
+          managementValueDeltaMinor: -line.managementCost,
           balanceBefore: 0,
           balanceAfter: 0,
         });
@@ -1012,6 +1026,8 @@ export const approveSaleReturn = onCall(
           accountName: line.accountName,
           debitMinor: line.debitMinor,
           creditMinor: line.creditMinor,
+          managementDebitMinor: line.managementDebitMinor ?? line.debitMinor,
+          managementCreditMinor: line.managementCreditMinor ?? line.creditMinor,
           currency: "NGN",
           effectiveAt,
           createdAt: now,

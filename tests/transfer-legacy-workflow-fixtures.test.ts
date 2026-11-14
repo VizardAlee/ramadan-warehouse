@@ -49,7 +49,7 @@ beforeEach(() => {
       const balance = await tx.get(balanceRef);
       const transactionId = `movement-${crypto.randomUUID()}`;
       const context = { transactionId, transactionNumber: transactionId, productId: input.productId, quantity: input.quantity,
-        movementValueMinor: input.quantity * 100, movementUnitCostMinor: 100, effectiveAt: Timestamp.fromDate(new Date(input.effectiveAt)) };
+        movementValueMinor: input.quantity * 100, managementMovementValueMinor: input.quantity * 100, movementUnitCostMinor: 100, effectiveAt: Timestamp.fromDate(new Date(input.effectiveAt)) };
       const prepared = await extension?.prepare(tx as never, context);
       tx.update(sourceRef, { quantity: Number(source!.get("quantity")) - input.quantity });
       tx.set(targetRef, { quantity: Number(target!.get("quantity") ?? 0) + input.quantity });
