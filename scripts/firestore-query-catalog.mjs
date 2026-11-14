@@ -44,6 +44,8 @@ export function queryCatalog() {
   }
   const eq = (fields) => fields.map((field) => [field, "=="]);
   const org = ["organizationId", "=="];
+  add("transfer freight approved expense lookup", "expenses", eq(["organizationId", "expenseNumber"]));
+  add("internal return original receipt reconstruction", "internalTradeEntries", eq(["invoiceId"]));
   add("rejected POS retry posting evidence", "sales", eq(["salesOrderId"]));
   add("staff advance branch choices", "branches", [org], [["__name__", "ASCENDING"]]);
   add("staff advance account choices", "bankAccounts", [org], [["__name__", "ASCENDING"]]);
