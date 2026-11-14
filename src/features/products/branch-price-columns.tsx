@@ -52,6 +52,19 @@ export function useBranchPriceColumns(stock?: BranchStockCostResult) {
     return !canReadCost || stock?.status === "restricted" ? "Restricted" : stock?.status === "loading" ? "Loading…" : stock?.status === "choose-branch" ? "Choose a branch" : "Unable to load stock costs";
   }
   return {
+    exportLoading: canRead && prices.loading,
+    exportError: canRead ? prices.error : null,
+    exportPrices: (productId: string, central: CentralSalesPrice | null) => branches.map(branch => {
+      const price = prices.data.find(item => item.productId === productId && item.branchId === branch.id) ?? {};
+      const resolve = (tier: PriceTier) => {
+        if (!canRead) return "Restricted";
+        try { return resolveCatalogPrice(central, price, tier).unitPriceMinor / 100; }
+        catch { return "Not configured"; }
+      };
+      const position = stock?.costs[branch.id]?.[productId];
+      return { branch: branch.name, retail: resolve("retail"), wholesale: resolve("wholesale"),
+        stockCost: !canReadCost ? "Restricted" : stock?.status !== "ready" || position?.invalid ? "Unavailable" : !position || position.quantity === 0 ? "No stock" : position.unitCostMinor === undefined ? "Unavailable" : position.unitCostMinor / 100 };
+    }),
     stockCost: (productId: string, service: boolean) => {
       if (!canReadCost || stock?.status !== "ready") return <FinancialValue>{stockStatus()}</FinancialValue>;
       if (!branches.length) return <FinancialValue>Choose a branch</FinancialValue>;

@@ -2,6 +2,13 @@
 import { FinancialMessage, FinancialText, FinancialValue } from "@/features/finance/financial-privacy";
 
 import Link from "next/link";
+import { ListExportActions } from "@/features/exports/list-export-actions";
+import { collectExportPages, type ExportRow } from "@/features/exports/list-export";
+import { callAdministration } from "@/features/administration/api";
+import { useLocationInventoryScope } from "@/features/inventory/use-location-inventory";
+import { useOperatingContextOptions } from "@/features/auth/use-operating-context-options";
+import { normalizeProductName } from "@/features/products/name-search";
+import type { InventoryBalance } from "@/types/domain";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { CursorTablePagination } from "@/components/ui/table-pagination";
@@ -30,10 +37,31 @@ function InventoryPosition() {
   const serverScope = Boolean(profile && (profile.roleIds ?? [profile.roleId]).includes("purchasing_manager"));
   const locations = useOrganizationCollection<InventoryLocation>("inventoryLocations", !serverScope,
     operatingContext ? { field: operatingContext.type === "branch" ? "branchId" : "warehouseId", id: operatingContext.id } : undefined);
+  const exportScope = useLocationInventoryScope(locations);
+  const { activeOption } = useOperatingContextOptions();
+  const canExport = Boolean(profile && hasPermission(profile, "reports.inventory.export"));
   const [search, setSearch] = useState("");
   const [pageStarts, setPageStarts] = useState<(string | null)[]>([null]);
   const [pageSize, setPageSize] = useState(25);
   const { rows, nextCursor, summary, loading, error, refresh } = useLocationInventory(locations, pageStarts.at(-1) ?? undefined, pageSize, search);
+  async function loadExport(active: () => boolean) {
+    const balances = await collectExportPages<InventoryBalance>(cursor => callAdministration("generateStockPositionReport", {
+      locationIds: exportScope.selected ? JSON.parse(exportScope.locationKey) : undefined,
+      cursor, limit: 100, search: normalizeProductName(search) || undefined,
+      includeCosts: canReadCosts, withSummary: false, view: "positions",
+    }), active);
+    return { title: "Inventory stock list", scope: activeOption?.name ?? (operatingContext ? `${operatingContext.type}: ${operatingContext.id}` : "All authorized locations"),
+      filters: search.trim() ? `Name: ${search.trim()}` : "All items",
+      rows: balances.map(row => ({
+        Product: row.productName ?? "Product name unavailable", SKU: row.sku,
+        Location: locations.data.find(location => location.id === row.locationId)?.name ?? row.locationId,
+        "On hand": row.onHandQuantity, Reserved: row.reservedQuantity, Available: row.availableQuantity,
+        ...(canReadCosts ? { "Average unit cost (NGN)": row.averageUnitCostMinor == null ? "Unavailable" : row.averageUnitCostMinor / 100,
+          "Stock value (NGN)": row.totalValueMinor == null ? "Unavailable" : row.totalValueMinor / 100 } : {}),
+        "Last movement": formatDateTime(row.lastMovementAt),
+      }) as ExportRow),
+    };
+  }
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -41,7 +69,10 @@ function InventoryPosition() {
         <p className="text-[var(--muted)]">
           Inventory for <FinancialText>{operatingContext ? "the selected Store/Warehouse" : canSelectAll ? "All locations" : "a selected Store/Warehouse"}</FinancialText>. Includes products with local inventory history, even at zero stock.
         </p></div>
-        <Button variant="secondary" onClick={() => { setPageStarts([null]); refresh(); }}>Refresh inventory</Button>
+        <div className="flex flex-wrap gap-3">
+        {canExport && <ListExportActions scopeKey={JSON.stringify([exportScope.key, search, canReadCosts])}
+          disabled={loading || Boolean(error) || exportScope.waiting || exportScope.empty} load={loadExport} />}
+        <Button variant="secondary" onClick={() => { setPageStarts([null]); refresh(); }}>Refresh inventory</Button></div>
       </div>
       <div className="space-y-2">
         <label htmlFor="inventory-name-search" className="text-sm font-medium">Search inventory by item name</label>
