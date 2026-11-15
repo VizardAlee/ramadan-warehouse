@@ -40,6 +40,8 @@ function requireAdmin(actor: AccessProfile) {
 function requireInvoice(snapshot: DocumentSnapshot, actor: AccessProfile) {
   if (!snapshot.exists || snapshot.get("organizationId") !== actor.organizationId)
     throw new HttpsError("not-found", "Internal invoice not found.");
+  if (snapshot.get("returnsRequireReconciliation") === true || snapshot.get("reclassificationId"))
+    fail("This historical reclassification retains original purchase receipt provenance. Its goods return requires a separately reviewed correction; no stock was moved.");
   if (!snapshot.get("branchId") || !snapshot.get("headOfficeBranchId") || !snapshot.get("sourceLocationId") || !snapshot.get("destinationLocationId"))
     fail("The internal invoice has incomplete original stock evidence.");
 }

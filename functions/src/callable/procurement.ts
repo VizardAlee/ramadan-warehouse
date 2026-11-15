@@ -1,3 +1,5 @@
+import { previewPurchaseReclassification, executePurchaseReclassification } from "../procurement/execute-purchase-reclassification.js";
+import { previewPurchaseReclassificationInput, executePurchaseReclassificationInput } from "../validation/purchase-reclassification.js";
 import { correctSubmittedInvoiceCost, correctInvoiceCostInput } from "../procurement/correct-invoice-cost.js";
 import { editDraftPurchaseOrder } from "../procurement/edit-draft-purchase-order.js";
 import { pendingOrderMatches, invoiceMatchingLines, matchingFingerprint, matchableQuantity } from "../procurement/invoice-matching.js";
@@ -1077,10 +1079,12 @@ export const submitSupplierInvoice = onCall(
 );
 
 export const approveSupplierInvoice = onCall(
-  { enforceAppCheck },
+  { enforceAppCheck, timeoutSeconds: 120 },
   async (request) => {
     const actor = await procurementAccess(await requireAccess(request));
     requirePermission(actor, "payables.approve");
+    if (request.data?.command === "preview_reclassification") return previewPurchaseReclassification(actor, parseInput(previewPurchaseReclassificationInput, request.data));
+    if (request.data?.command === "execute_reclassification") return executePurchaseReclassification(actor, parseInput(executePurchaseReclassificationInput, request.data));
     if (request.data?.command === "correct_cost") return correctSubmittedInvoiceCost(actor, parseInput(correctInvoiceCostInput, request.data));
     if (request.data?.command !== undefined) throw new HttpsError("invalid-argument", "Unknown invoice command.");
     const input = parseInput(supplierInvoiceActionInput, request.data);
@@ -1465,6 +1469,7 @@ async function prepareSupplierReturn(actor: Awaited<ReturnType<typeof procuremen
   if (!initialInvoice.exists || initialInvoice.get("organizationId") !== actor.organizationId) throw new HttpsError("not-found", "Supplier invoice not found.");
   const scope = procurementScopeFrom(initialInvoice);
   requireProcurementScope(actor, scope, ["procurement.receive", "payables.approve", ...(input.heldHandoverId ? ["sales.returns.approve" as const] : [])]);
+  if (initialInvoice.get("returnsRequireReconciliation") || initialInvoice.get("reclassificationId")) throw new HttpsError("failed-precondition", "This reclassified purchase requires a separately reviewed return using its original receipt evidence.");
   if (!initialLine.exists || !initialReceipt.exists || initialLine.get("organizationId") !== actor.organizationId || initialReceipt.get("organizationId") !== actor.organizationId || initialLine.get("supplierInvoiceId") !== invoiceRef.id || initialReceipt.get("purchaseOrderItemId") !== initialLine.get("purchaseOrderItemId")) throw new HttpsError("permission-denied", "Choose the original invoice product and its receipt.");
   const returnRef = db.doc(`supplierReturns/${uniquenessDocumentId(actor.organizationId, "supplier-return", input.idempotencyKey)}`);
   const requestHash = uniquenessDocumentId(JSON.stringify(input));
@@ -1498,6 +1503,7 @@ async function prepareSupplierReturn(actor: Awaited<ReturnType<typeof procuremen
       const [invoice, line, receipt, supplier, order, item, counter, period, lock, reversed, originalMovement] = await Promise.all([reader.get(invoiceRef), reader.get(lineRef), reader.get(receiptRef), reader.get(supplierRef), reader.get(orderRef), reader.get(orderItemRef), reader.get(journalCounter), reader.get(accountingPeriod), reader.get(creditLock), reader.get(db.doc(`inventoryReversals/${originalMovementId}`)), reader.get(db.doc(`inventoryTransactions/${originalMovementId}`))]);
       if ([invoice, line, receipt, supplier, order, item, originalMovement].some((document) => !document.exists || document.get("organizationId") !== actor.organizationId)) throw new HttpsError("failed-precondition", "Original purchasing evidence is unavailable.");
       requireProcurementScope(actor, procurementScopeFrom(invoice), ["procurement.receive", "payables.approve", ...(input.heldHandoverId ? ["sales.returns.approve" as const] : [])]);
+      if (invoice.get("returnsRequireReconciliation") || invoice.get("reclassificationId")) throw new HttpsError("failed-precondition", "Reclassified purchase returns require a separately reviewed correction.");
       if (invoice.get("supplierId") !== supplierRef.id || invoice.get("purchaseOrderId") !== order.id || order.get("supplierId") !== supplier.id || line.get("supplierInvoiceId") !== invoice.id || line.get("purchaseOrderItemId") !== item.id || item.get("purchaseOrderId") !== order.id || receipt.get("purchaseOrderId") !== order.id || receipt.get("purchaseOrderItemId") !== item.id || receipt.get("supplierId") !== supplier.id || line.get("productId") !== movement.productId || item.get("productId") !== movement.productId || receipt.get("productId") !== movement.productId || receipt.get("receivingLocationId") !== movement.sourceLocationId || order.get("receivingLocationId") !== movement.sourceLocationId || receipt.get("inventoryTransactionId") !== originalMovementId || line.get("unitCostMinor") !== receipt.get("unitCostMinor")) throw new HttpsError("failed-precondition", "Receipt, invoice and stock evidence do not match.");
       if ((scope.branchId ?? null) !== (invoice.get("branchId") ?? null) || (scope.warehouseId ?? null) !== (invoice.get("warehouseId") ?? null) || (scope.branchId ?? null) !== (movement.sourceBranchId ?? null) || (scope.warehouseId ?? null) !== (movement.sourceWarehouseId ?? null)) throw new HttpsError("permission-denied", "Return goods from their original recording store.");
       if (!["approved", "partially_paid", "paid"].includes(String(invoice.get("status"))) || reversed.exists || originalMovement.get("status") !== "posted" || originalMovement.get("transactionType") !== "inventory_receipt" || originalMovement.get("referenceType") !== "purchase_order" || originalMovement.get("referenceId") !== order.id) throw new HttpsError("failed-precondition", "Only posted, unreversed purchases with an approved invoice can be returned.");

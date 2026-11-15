@@ -18,7 +18,7 @@ import {
 import { getAuth as getAdminAuth } from "firebase-admin/auth";
 import { FieldValue, Timestamp, getFirestore } from "firebase-admin/firestore";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { balanceDocumentId, uniquenessDocumentId } from "../functions/src/inventory/calculations";
+import { balanceDocumentId, uniquenessDocumentId, normalizeInventoryIdentifier } from "../functions/src/inventory/calculations";
 
 const projectId = "demo-ramadan-warehouse";
 const adminApp =
@@ -1454,4 +1454,119 @@ describe.sequential("submitted invoice cost correction", () => {
     await expect(call(administrator, "approveSupplierInvoice", { ...f.input, unitCostMinor: -1 })).rejects.toMatchObject({ code: "functions/invalid-argument" });
     expect((await f.balance.get()).get("totalValueMinor")).toBe(3000000);
   }, 120000);
+});
+
+// All writes below target isolated demo emulators; never the production project.
+describe.sequential("Mixed historical purchase reclassification", () => {
+  async function reclassificationFixture() {
+    const suffix = crypto.randomUUID(), branchId = `fixture-${suffix}`, destination = `fixture-stock-${suffix}`;
+    await adminDb.doc(`organizations/${organizationId}`).update({headOfficeBranchId:headOfficeId});
+    await adminDb.doc(`branches/${branchId}`).set({ organizationId, name: "Fictional Store", code: "TEST", branchType: "store", status: "active" });
+    await adminDb.doc(`inventoryLocations/${destination}`).set({ organizationId, branchId, name: "Fictional Stock", code: "TEST-STOCK", type: "branch", status: "active" });
+    const oldSupplier = await call<{supplierId:string}>(administrator, "saveSupplier", {name: `Head Office ${suffix}`, phone:"07011114444", idempotencyKey:crypto.randomUUID()});
+    const actualSupplier = await call<{supplierId:string}>(administrator, "saveSupplier", {name:`External vendor ${suffix}`, phone:"07011115555", idempotencyKey:crypto.randomUUID()});
+    const specs = [
+      {name:"Fictional Part A",quantity:2,cost:10_000,internal:true,order:1},
+      {name:"Fictional Part B",quantity:4,cost:2_000,internal:true,order:1},
+      {name:"Fictional Part C",quantity:6,cost:3_000,internal:false,order:1},
+      {name:"Fictional Part D",quantity:1,cost:7_000,internal:false,order:2},
+      {name:"Fictional Part E",quantity:3,cost:11_000,internal:true,order:3},
+      {name:"Fictional Part F",quantity:7,cost:13_000,internal:true,order:3},
+    ].map((spec,index)=>({...spec,productId:`fixture-${suffix}-${index}`}));
+    for(const spec of specs) {
+      await adminDb.doc(`products/${spec.productId}`).set({organizationId,name:spec.name,sku:spec.productId,unitOfMeasure:"unit",trackingType:"quantity",active:true,hasLedgerActivity:false});
+      await adminDb.doc(`productCosts/${spec.productId}`).set({organizationId,productId:spec.productId,defaultUnitCostMinor:spec.cost,currency:"NGN"});
+      if(spec.internal) await adminDb.doc(`inventoryEntries/opening-${spec.productId}`).set({organizationId,productId:spec.productId,locationId:headOfficeLocationId,quantityDelta:spec.quantity+2,valueDeltaMinor:(spec.quantity+2)*spec.cost,managementValueDeltaMinor:(spec.quantity+2)*spec.cost,transactionId:`opening-${spec.productId}`});
+      if(spec.internal) await adminDb.doc(`inventoryBalances/${balanceDocumentId(organizationId,spec.productId,headOfficeLocationId)}`).set({organizationId,productId:spec.productId,locationId:headOfficeLocationId,branchId:headOfficeId,onHandQuantity:spec.quantity+2,availableQuantity:spec.quantity+2,reservedQuantity:0,totalValueMinor:(spec.quantity+2)*spec.cost,managementTotalValueMinor:(spec.quantity+2)*spec.cost,averageUnitCostMinor:spec.cost,version:1,lastTransactionId:`opening-${spec.productId}`});
+    }
+    const supplierInvoiceIds:string[]=[], lines:Array<{supplierInvoiceItemId:string;externalSupplierId?:string;sourceLocationId?:string}>=[];
+    for(const number of [1,2,3]) {
+      const selected=specs.filter(s=>s.order===number);
+      const order=await call<{purchaseOrderId:string}>(administrator,"createPurchaseOrder",{supplierId:oldSupplier.supplierId,branchId,receivingLocationId:destination,lines:selected.map(s=>({productId:s.productId,quantity:s.quantity,unitCostMinor:s.cost,vatRateBasisPoints:0})),idempotencyKey:crypto.randomUUID()});
+      // Synthetic historical order names, before receipt/invoice provenance exists.
+      await adminDb.doc(`purchaseOrders/${order.purchaseOrderId}`).update({purchaseOrderNumber:`PO-TEST-${number}`});
+      await call(administrator,"submitPurchaseOrder",{...order,idempotencyKey:crypto.randomUUID()});
+      await call(administrator,"approvePurchaseOrder",{...order,idempotencyKey:crypto.randomUUID()});
+      const items=(await adminDb.collection("purchaseOrderItems").where("purchaseOrderId","==",order.purchaseOrderId).get()).docs;
+      for(const item of items) await call(administrator,"receivePurchaseOrderItem",{...order,purchaseOrderItemId:item.id,quantity:item.get("orderedQuantity"),receivedAt:new Date().toISOString(),supplierReference:`synthetic-${number}`,serialNumbers:[],idempotencyKey:crypto.randomUUID()});
+      const invoice=await call<{supplierInvoiceId:string}>(administrator,"submitSupplierInvoice",{...order,supplierInvoiceNumber:`fixture-${number}-${suffix}`,invoiceDate:new Date().toISOString().slice(0,10),lines:items.map(item=>({purchaseOrderItemId:item.id,quantity:item.get("orderedQuantity")})),idempotencyKey:crypto.randomUUID()});
+      await call(administrator,"approveSupplierInvoice",{...invoice,idempotencyKey:crypto.randomUUID()});
+      supplierInvoiceIds.push(invoice.supplierInvoiceId);
+      for(const row of (await adminDb.collection("supplierInvoiceItems").where("supplierInvoiceId","==",invoice.supplierInvoiceId).get()).docs) {
+        const spec=specs.find(s=>s.productId===row.get("productId"))!;
+        lines.push({supplierInvoiceItemId:row.id,...(spec.internal?{sourceLocationId:headOfficeLocationId}:{externalSupplierId:actualSupplier.supplierId})});
+      }
+    }
+    return {specs,branchId,destination,oldSupplier:oldSupplier.supplierId,actualSupplier:actualSupplier.supplierId,selection:{supplierInvoiceIds,lines,confirmedZeroTransport:true,confirmedSourceNotPreviouslyIssued:true}};
+  }
+  async function preview(selection:Record<string,unknown>, actor=administrator) { return call<{evidenceFingerprint:string;plan:unknown}>(actor,"approveSupplierInvoice",{command:"preview_reclassification",...selection}); }
+  it("previews without writes and rejects missing authority, changed evidence, incomplete decisions and prior payment",async()=>{
+    const f=await reclassificationFixture(), before=(await adminDb.doc(`suppliers/${f.oldSupplier}`).get()).get("outstandingBalanceMinor");
+    const result=await preview(f.selection); expect(result.evidenceFingerprint).toMatch(/^[a-f0-9]{64}$/);
+    expect((await adminDb.doc(`suppliers/${f.oldSupplier}`).get()).get("outstandingBalanceMinor")).toBe(before);
+    await expect(preview(f.selection,purchasingManager)).rejects.toMatchObject({code:"functions/permission-denied"});
+    await expect(preview({...f.selection,confirmedZeroTransport:false})).rejects.toBeDefined();
+    await expect(preview({...f.selection,lines:f.selection.lines.slice(1)})).rejects.toBeDefined();
+    const sourceBalance=adminDb.doc(`inventoryBalances/${balanceDocumentId(organizationId,f.specs[0]!.productId,headOfficeLocationId)}`);
+    const sourceBefore=(await sourceBalance.get()).data()!;
+    await sourceBalance.update({availableQuantity:0});
+    await expect(preview(f.selection)).rejects.toMatchObject({code:"functions/failed-precondition"});
+    await sourceBalance.set(sourceBefore);
+    const product=adminDb.doc(`products/${f.specs[0]!.productId}`);
+    await product.update({trackingType:"serial"});
+    await expect(preview(f.selection)).rejects.toMatchObject({code:"functions/failed-precondition"});
+    await product.update({trackingType:"quantity"});
+    const periodKey=new Date().toISOString().slice(0,7),period=adminDb.doc(`accountingPeriods/${uniquenessDocumentId(organizationId,periodKey)}`);
+    await period.set({organizationId,periodKey,status:"closed"});
+    await expect(preview(f.selection)).rejects.toMatchObject({code:"functions/failed-precondition"});
+    await period.delete();
+    const foreign=adminDb.doc(`suppliers/${f.actualSupplier}`);
+    await foreign.update({organizationId:"other-organization"});
+    await expect(preview(f.selection)).rejects.toMatchObject({code:"functions/failed-precondition"});
+    await foreign.update({organizationId});
+    const correctionKey=uniquenessDocumentId(organizationId,"purchase-reclassification",...f.selection.supplierInvoiceIds.slice().sort()),originalId=f.selection.supplierInvoiceIds[0]!;
+    const replacementId=uniquenessDocumentId(correctionKey,"external",originalId,f.actualSupplier);
+    const correctionNumber=`COR-${originalId.slice(0,12)}-${replacementId.slice(0,8)}`;
+    const collision=adminDb.doc(`supplierInvoiceCodes/${uniquenessDocumentId(organizationId,f.actualSupplier,normalizeInventoryIdentifier(correctionNumber))}`);
+    await collision.set({organizationId,supplierId:f.actualSupplier,supplierInvoiceId:"existing-invoice"});
+    await expect(call(administrator,"approveSupplierInvoice",{command:"execute_reclassification",...f.selection,expectedEvidenceFingerprint:result.evidenceFingerprint,idempotencyKey:crypto.randomUUID(),reason:"Verify all-or-nothing correction under unique-reference conflict"})).rejects.toBeDefined();
+    expect((await adminDb.doc(`purchaseReclassifications/${correctionKey}`).get()).exists).toBe(false);
+    expect((await adminDb.doc(`suppliers/${f.oldSupplier}`).get()).get("outstandingBalanceMinor")).toBe(before);
+    expect((await sourceBalance.get()).get("onHandQuantity")).toBe(sourceBefore.onHandQuantity);
+    await collision.delete();
+    const invoice=adminDb.doc(`supplierInvoices/${f.selection.supplierInvoiceIds[0]}`);
+    await invoice.update({paidAmountMinor:1});
+    await expect(preview(f.selection)).rejects.toMatchObject({code:"functions/failed-precondition"});
+    await expect(call(administrator,"approveSupplierInvoice",{command:"execute_reclassification",...f.selection,expectedEvidenceFingerprint:result.evidenceFingerprint,idempotencyKey:crypto.randomUUID(),reason:"Correct documented historical purchase classification"})).rejects.toBeDefined();
+    expect((await adminDb.doc(`suppliers/${f.oldSupplier}`).get()).get("outstandingBalanceMinor")).toBe(before);
+    expect((await invoice.get()).get("status")).toBe("approved");
+  },120000);
+  it("corrects atomically without receiving destination stock again and exact retry cannot double-post",async()=>{
+    const f=await reclassificationFixture(); const result=await preview(f.selection);
+    const input={command:"execute_reclassification",...f.selection,expectedEvidenceFingerprint:result.evidenceFingerprint,idempotencyKey:crypto.randomUUID(),reason:"Correct documented historical purchase classification"};
+    const originalDestination=await Promise.all(f.specs.map(s=>adminDb.doc(`inventoryBalances/${balanceDocumentId(organizationId,s.productId,f.destination)}`).get()));
+    const [posted,replay]=await Promise.all([call(administrator,"approveSupplierInvoice",input),call(administrator,"approveSupplierInvoice",input)]);
+    expect(posted).toHaveProperty("correctionId"); expect(replay).toHaveProperty("correctionId",posted.correctionId);
+    const after=await Promise.all(f.specs.map(s=>adminDb.doc(`inventoryBalances/${balanceDocumentId(organizationId,s.productId,f.destination)}`).get()));
+    for(let i=0;i<after.length;i++) { expect(after[i]!.get("onHandQuantity")).toBe(originalDestination[i]!.get("onHandQuantity")); expect(after[i]!.get("totalValueMinor")).toBe(originalDestination[i]!.get("totalValueMinor")); }
+    for(const spec of f.specs.filter(s=>s.internal)) expect((await adminDb.doc(`inventoryBalances/${balanceDocumentId(organizationId,spec.productId,headOfficeLocationId)}`).get()).get("onHandQuantity")).toBe(2);
+    expect((await adminDb.doc(`suppliers/${f.oldSupplier}`).get()).get("outstandingBalanceMinor")).toBe(0);
+    expect((await adminDb.doc(`suppliers/${f.actualSupplier}`).get()).get("outstandingBalanceMinor")).toBe(25_000);
+    const correctionId=String(posted.correctionId);
+    const correction=(await adminDb.doc(`purchaseReclassifications/${correctionId}`).get()).data()!;
+    for(const journalId of correction.journalEntryIds as string[]) {const journal=await adminDb.doc(`journalEntries/${journalId}`).get();expect(journal.get("totalDebitMinor")).toBe(journal.get("totalCreditMinor"));expect(journal.get("totalManagementDebitMinor")).toBe(journal.get("totalManagementCreditMinor"));}
+    const transferId=String(posted.internalTransferId),trade=await adminDb.doc(`internalTradeInvoices/${transferId}`).get();
+    expect(trade.get("totalMinor")).toBe(152_000);expect(trade.get("paidMinor")).toBe(0);
+    const sourceMoves=await adminDb.collection("inventoryTransactions").where("reclassificationId","==",correctionId).get();
+    expect(sourceMoves.docs.filter(row=>row.get("sourceBranchId")===headOfficeId)).toHaveLength(4);
+    const correctionEntries=await adminDb.collection("inventoryEntries").where("reclassificationId","==",correctionId).get();
+    expect(correctionEntries.docs.reduce((sum,row)=>sum+Number(row.get("quantityDelta")),0)).toBe(0);
+    expect(correctionEntries.docs.reduce((sum,row)=>sum+Number(row.get("valueDeltaMinor")),0)).toBe(0);
+    expect(correctionEntries.docs.filter(row=>row.get("locationId")===f.destination)).toHaveLength(0);
+    expect(correctionEntries.docs.filter(row=>row.get("externalAccount")===`supplier:${f.actualSupplier}`).reduce((sum,row)=>sum+Number(row.get("quantityDelta")),0)).toBe(-7);
+    for(const newInvoiceId of posted.replacementExternalInvoiceIds as string[]) { const replacement=await adminDb.doc(`supplierInvoices/${newInvoiceId}`).get(); expect(replacement.get("supplierId")).toBe(f.actualSupplier);expect(replacement.get("returnsRequireReconciliation")).toBe(true); }
+    for(const id of f.selection.supplierInvoiceIds) { const row=await adminDb.doc(`supplierInvoices/${id}`).get(); expect(row.get("status")).toBe("void"); expect(row.get("outstandingAmountMinor")).toBe(0); }
+    await expect(call(administrator,"approveSupplierInvoice",{...input,idempotencyKey:crypto.randomUUID()})).rejects.toBeDefined();
+    await expect(call(administrator,"approveSupplierInvoice",{...input,reason:"Changed instructions under the same idempotency key"})).rejects.toBeDefined();
+  },120000);
 });

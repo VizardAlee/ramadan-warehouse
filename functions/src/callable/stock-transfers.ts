@@ -233,6 +233,8 @@ function mutationPermission(input: MutationInput): Permission {
   }
 }
 function requireTransferScope(actor: TransferAccess, transfer: StockTransfer, input: MutationInput) {
+  if ((transfer as StockTransfer & {reclassificationId?:string}).reclassificationId)
+    throw new HttpsError("failed-precondition", "This completed historical correction is immutable. Review its linked correction record instead of modifying or receiving the transfer again.");
   if (input.action === "price") {
     if (!canPrice(actor)) throw new HttpsError("permission-denied", "Only an authorized administrator can set internal prices.");
     return;

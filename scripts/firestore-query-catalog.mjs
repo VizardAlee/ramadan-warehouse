@@ -44,6 +44,9 @@ export function queryCatalog() {
   }
   const eq = (fields) => fields.map((field) => [field, "=="]);
   const org = ["organizationId", "=="];
+  // Bounded dynamic helper used by the historical correction preflight.
+  for (const [collection, field] of [["supplierInvoices", "purchaseOrderId"], ["supplierPaymentAllocations", "supplierInvoiceId"], ["supplierReturns", "supplierInvoiceId"], ["supplierReturns", "receiptId"], ["journalLines", "journalEntryId"], ["supplierAccountEntries", "referenceId"], ["supplierInvoiceItems", "supplierInvoiceId"], ["purchaseOrderItems", "purchaseOrderId"], ["purchaseReceipts", "purchaseOrderItemId"], ["inventoryEntries", "transactionId"]])
+    add("historical purchase reclassification evidence", collection, eq([field]));
   add("transfer freight approved expense lookup", "expenses", eq(["organizationId", "expenseNumber"]));
   add("internal return original receipt reconstruction", "internalTradeEntries", eq(["invoiceId"]));
   add("rejected POS retry posting evidence", "sales", eq(["salesOrderId"]));
